@@ -54,6 +54,29 @@ def _fetch_labels_api():
                 _current_labels[category] = _DEFAULT_LABELS.get(category, [])
     _labels_last_fetch = now
 
+    # Also fetch keywords (symptom + disease dicts)
+    from .. import config as _cfg
+    _fetch_keywords(_cfg)
+
+
+def _fetch_keywords(cfg):
+    """Update config.SYMPTOM_DICT and config.DISEASE_DICT from DB."""
+    for cat, target_dict_name in [("symptom", "SYMPTOM_DICT"), ("disease", "DISEASE_DICT")]:
+        try:
+            req = urllib.request.Request(f"{_BACKEND_URL}/api/v1/nlp-keywords?category={cat}",
+                                          headers={"User-Agent": "nlp-service/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                items = json.loads(resp.read()).get("data", [])
+                new_dict = {}
+                for item in items:
+                    if item.get("is_active", True):
+                        new_dict[item["keyword"]] = item["target_label"]
+                if new_dict:
+                    setattr(cfg, target_dict_name, new_dict)
+                    logger.info("Refreshed %d keywords for '%s' from DB", len(new_dict), cat)
+        except Exception as e:
+            logger.debug("Failed to fetch keywords for '%s': %s", cat, e)
+
 
 def _get_pipe(model_key: str):
     model_id = _get_model_id(model_key)

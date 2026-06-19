@@ -151,6 +151,28 @@ struct UpdateLabelRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct KeywordQuery {
+    category: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateKeywordRequest {
+    category: String,
+    keyword: String,
+    target_label: String,
+    priority: Option<i32>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateKeywordRequest {
+    keyword: Option<String>,
+    target_label: Option<String>,
+    priority: Option<i32>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UpdateRuleRequest {
     disease_name: Option<String>,
     display_label: Option<String>,
@@ -218,6 +240,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/outbreak-rules/:id/edit", post(update_rule))
         .route("/api/v1/nlp-labels", get(list_labels).post(create_label))
         .route("/api/v1/nlp-labels/:id", put(update_label).delete(delete_label))
+        .route("/api/v1/nlp-keywords", get(list_keywords).post(create_keyword))
+        .route("/api/v1/nlp-keywords/:id", put(update_keyword).delete(delete_keyword))
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -1174,6 +1198,93 @@ async fn delete_label(
         Err(_) => return Json(json!({"success": false, "error": "DB error"})),
     };
     client.execute("DELETE FROM nlp_labels WHERE id = $1", &[&id]).await.unwrap_or_default();
+    Json(json!({"success": true, "data": "deleted"}))
+}
+
+// ─── NLP KEYWORDS ─────────────────────────────────
+
+async fn list_keywords(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<KeywordQuery>,
+) -> Json<Value> {
+    let client = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    };
+    let sql = "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords WHERE ($1::text IS NULL OR category = $1) ORDER BY category, priority";
+    let rows = client.query(sql, &[&query.category]).await.unwrap_or_default();
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "category": r.get::<_, String>(1),
+        "keyword": r.get::<_, String>(2),
+        "target_label": r.get::<_, String>(3),
+        "is_active": r.get::<_, bool>(4),
+        "priority": r.get::<_, i32>(5),
+        "created_at": r.get::<_, Option<String>>(6),
+    })).collect();
+    Json(json!({"success": true, "data": data}))
+}
+
+async fn create_keyword(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateKeywordRequest>,
+) -> Json<Value> {
+    let client = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    };
+    let result = client
+        .query_one(
+            "INSERT INTO nlp_keywords (category, keyword, target_label, priority, is_active) VALUES ($1, $2, $3, $4, $5) RETURNING id, category, keyword, target_label, is_active, priority, created_at::text",
+            &[&payload.category, &payload.keyword, &payload.target_label, &payload.priority, &payload.is_active],
+        )
+        .await;
+    match result {
+        Ok(r) => Json(json!({"success": true, "data": {
+            "id": r.get::<_, Uuid>(0), "category": r.get::<_, String>(1),
+            "keyword": r.get::<_, String>(2), "target_label": r.get::<_, String>(3),
+            "is_active": r.get::<_, bool>(4), "priority": r.get::<_, i32>(5),
+            "created_at": r.get::<_, Option<String>>(6),
+        }})),
+        Err(_) => Json(json!({"success": false, "error": "Keyword exists"})),
+    }
+}
+
+async fn update_keyword(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateKeywordRequest>,
+) -> Json<Value> {
+    let client = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    };
+    let result = client
+        .query_one(
+            "UPDATE nlp_keywords SET keyword=COALESCE($1,keyword), target_label=COALESCE($2,target_label), priority=COALESCE($3,priority), is_active=COALESCE($4,is_active), updated_at=NOW() WHERE id=$5 RETURNING id, category, keyword, target_label, is_active, priority, created_at::text",
+            &[&payload.keyword, &payload.target_label, &payload.priority, &payload.is_active, &id],
+        )
+        .await;
+    match result {
+        Ok(r) => Json(json!({"success": true, "data": {
+            "id": r.get::<_, Uuid>(0), "category": r.get::<_, String>(1),
+            "keyword": r.get::<_, String>(2), "target_label": r.get::<_, String>(3),
+            "is_active": r.get::<_, bool>(4), "priority": r.get::<_, i32>(5),
+            "created_at": r.get::<_, Option<String>>(6),
+        }})),
+        Err(_) => Json(json!({"success": false, "error": "Update failed"})),
+    }
+}
+
+async fn delete_keyword(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Json<Value> {
+    let client = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    };
+    client.execute("DELETE FROM nlp_keywords WHERE id = $1", &[&id]).await.unwrap_or_default();
     Json(json!({"success": true, "data": "deleted"}))
 }
 
