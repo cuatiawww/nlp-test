@@ -44,8 +44,8 @@ cp .env.example .env
 # Edit .env jika perlu (password, dll)
 docker compose up -d --build
 
-# First-time setup: seed user, sources, training data
-bash scripts/init_staging.sh
+# First-time setup: seed user webmaster
+docker compose --profile init run --rm init
 ```
 
 Cek semua service:
