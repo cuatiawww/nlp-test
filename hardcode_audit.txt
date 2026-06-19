@@ -1,0 +1,81 @@
+# HARDCORE AUDIT — List Hal yang Perlu DB-Driven
+# Generated: 2026-06-19
+# Tujuan: Semua nilai statis dipindahkan ke database supaya bisa diedit via frontend tanpa rebuild
+
+============================================================
+ SUDAH DB-DRIVEN (✅)
+============================================================
+
+| Item                  | Tabel DB            | Auto-Refresh | Frontend         |
+|-----------------------|----------------------|--------------|------------------|
+| Disease labels        | nlp_labels           | 60 detik     | /nlp-labels      |
+| Event type labels     | nlp_labels           | 60 detik     | /nlp-labels      |
+| Sentiment labels      | nlp_labels           | 60 detik     | /nlp-labels      |
+| Relevance labels      | nlp_labels           | 60 detik     | /nlp-labels      |
+| Symptom keywords      | nlp_keywords         | 60 detik     | /nlp-keywords    |
+| Disease keywords      | nlp_keywords         | 60 detik     | /nlp-keywords    |
+| Outbreak rules        | disease_outbreak_rules | —         | /outbreak-rules  |
+
+============================================================
+ MASIH HARDCODE (❌) — PRIORITAS PENGEMBANGAN
+============================================================
+
+--- PRIORITAS 1: OUTBREAK ALERT ---
+File:    services/nlp-python/app/pipeline.py:44
+Kode:    outbreak_alert = case_count >= 25 or (disease in ["DBD","LEPTOSPIROSIS"] and case_count >= 10)
+Tabel:   disease_outbreak_rules (SUDAH ADA — tinggal panggil API)
+Action:  Pipeline baca min_case_count dari DB outbreak rules per disease
+Effort:  30 menit
+
+--- PRIORITAS 2: LOCATION COORDINATES ---
+File:    services/nlp-python/app/config.py:47-53
+Kode:    5 hardcoded cities (Bogor, Bandung, Depok, Bekasi, Jakarta)
+Tabel:   locations (id, name, lat, lon, country)
+API:     GET/POST/PUT/DELETE /api/v1/locations
+Frontend:/locations
+Effort:  1 jam
+
+--- PRIORITAS 3: SOURCE CREDIBILITY ---
+File:    services/nlp-python/app/config.py:32-43
+Kode:    government:0.95, who:0.95, hospital:0.90, research:0.85, news:0.70, rss:0.65, web:0.50, social_media:0.35, csv:0.60, api:0.55
+Tabel:   source_credibility (id, source_type, score)
+API:     GET/POST/PUT/DELETE /api/v1/source-credibility
+Frontend:/source-credibility
+Effort:  30 menit
+
+--- PRIORITAS 4: EXTRACTION RULES (CASE COUNT + DEATH COUNT) ---
+File:    services/nlp-python/app/extractors.py:37-44
+Kode:    r"(\d+)\s+(?:warga|pasien|kasus|residents)"  → case count
+         r"(\d+)\s+(?:meninggal|death|deaths)"         → death count
+Tabel:   extraction_rules (id, field_name, regex_pattern, priority)
+API:     GET/POST/PUT/DELETE /api/v1/extraction-rules
+Frontend:/extraction-rules
+Effort:  1 jam
+
+--- PRIORITAS 5: LANGUAGE DETECTION MARKERS ---
+File:    services/nlp-python/app/extractors.py:13-23
+Kode:    6 English marker words (many, residents, fever, cough, shortness, "this week")
+Tabel:   language_markers (id, word, language)
+API:     GET/POST/PUT/DELETE /api/v1/language-markers
+Effort:  30 menit
+
+--- PRIORITAS 6: BINARY HEALTH CLASSIFIER LABELS ---
+File:    services/nlp-python/app/models/classifier.py:159
+Kode:    classify(text, ["health related disease medical", "general news other topic"])
+Tabel:   Pindahkan ke nlp_labels category 'binary_health'
+Effort:  15 menit
+
+============================================================
+ RINGKASAN
+============================================================
+
+Prioritas  Item                   Effort   Status
+─────────────────────────────────────────────────────
+🥇   Outbreak alert dari DB     30 min   Tabel sudah ada
+🥈   Location master data        1 jam    Baru
+🥉   Source credibility         30 min    Baru
+4    Extraction rules            1 jam    Baru
+5    Language markers            30 min   Baru
+6    Binary health labels       15 min   Pindah ke tabel
+─────────────────────────────────────────────────────
+    TOTAL                       ~3 jam
