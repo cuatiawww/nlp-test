@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Save, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-const API = '/nlp'
+const API = ''
 
 interface Label {
   id: string; category: string; label: string; is_active: boolean; priority: number

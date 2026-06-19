@@ -3,7 +3,7 @@ import type { Source, Run, SummaryRow } from '@/types'
 // Client-side: proxy via Apache /nlp/api/* → backend-rust:8081/api/*
 // Server-side: use internal Docker DNS
 function baseURL(): string {
-  if (typeof window !== 'undefined') return '/nlp'
+  if (typeof window !== 'undefined') return ''
   return process.env.API_INTERNAL_URL || 'http://backend-rust:8081'
 }
 
