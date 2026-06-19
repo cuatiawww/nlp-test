@@ -52,29 +52,5 @@ LOCATION_COORDS = {
     "Jakarta": (-6.2088, 106.8456),
 }
 
-SYMPTOM_DICT = {
-    "demam tinggi": "HIGH_FEVER", "demam": "FEVER", "batuk": "COUGH",
-    "pilek": "RUNNY_NOSE", "diare akut": "ACUTE_DIARRHEA", "diare": "DIARRHEA",
-    "sesak": "SHORTNESS_OF_BREATH", "sakit": "ILLNESS",
-    "shortness of breath": "SHORTNESS_OF_BREATH", "fever": "FEVER", "cough": "COUGH",
-    # EN health keywords
-    "disease": "DISEASE", "outbreak": "OUTBREAK", "epidemic": "EPIDEMIC",
-    "virus": "VIRUS", "infection": "INFECTION", "patients": "PATIENT",
-    "hospital": "HOSPITAL", "death": "DEATH", "vaccine": "VACCINE",
-    "sick": "SICK", "illness": "ILLNESS", "contaminated": "CONTAMINATED",
-    "cases": "CASE", "died": "DEATH", "confirmed": "CASE",
-    # ID health keywords
-    "wabah": "OUTBREAK", "epidemi": "EPIDEMIC", "kasus": "CASE",
-    "pasien": "PATIENT", "infeksi": "INFECTION", "kematian": "DEATH",
-    "meninggal": "DEATH", "dirawat": "HOSPITALIZED", "vaksin": "VACCINE",
-    "korban": "VICTIM", "positif": "CASE", "terinfeksi": "INFECTION",
-}
-
-DISEASE_DICT = {
-    "demam berdarah": "DBD",
-    "dbd": "DBD",
-    "diare akut": "DIARE_AKUT",
-    "leptospirosis": "LEPTOSPIROSIS",
-    "influenza": "INFLUENZA",
-    "covid": "COVID19",
-}
+SYMPTOM_DICT: dict[str, str] = {}
+DISEASE_DICT: dict[str, str] = {}
