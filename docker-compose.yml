@@ -61,7 +61,7 @@ services:
     restart: no
     env_file: .env
     ports:
-      - "8080:8080"
+      - "8081:8081"
     depends_on:
       nlp-python:
         condition: service_started
@@ -96,12 +96,12 @@ services:
     build:
       context: ./services/frontend-next
       args:
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8081
     container_name: disease-frontend-next
     restart: no
     env_file: .env
     ports:
-      - "3001:3000"
+      - "3010:3000"
     depends_on:
       - backend-rust
 
@@ -123,7 +123,7 @@ services:
         apk add --no-cache postgresql-client curl >/dev/null 2>&1 &&
         echo '⏳ Running init...' &&
         until pg_isready -h postgres -U postgres -d disease_ai 2>/dev/null; do sleep 1; done &&
-        until curl -sf http://backend-rust:8080/health >/dev/null 2>&1; do sleep 1; done &&
+        until curl -sf http://backend-rust:8081/health >/dev/null 2>&1; do sleep 1; done &&
         echo '✅ PostgreSQL + Backend ready' &&
         HASH=\$$(echo -n \"\$${WEBMASTER_PASSWORD:-K3mk3s#2202%ok}\" | sha256sum | cut -d' ' -f1) &&
         PGPASSWORD=\$$POSTGRES_PASSWORD psql -h postgres -U postgres -d disease_ai -c \"

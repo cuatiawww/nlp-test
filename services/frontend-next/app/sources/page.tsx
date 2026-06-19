@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import type { Source } from '@/types'
 import Link from 'next/link'
 
-const API = ''
+const API = '/nlp'
 
 export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([])

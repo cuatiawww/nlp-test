@@ -440,3 +440,23 @@ Akurasi jauh lebih tinggi dari zero-shot.
 | **Max 5 epoch** | Lebih dari 5 epoch bisa overfit untuk dataset kecil |
 | **Batch size 16** | Cukup untuk T4 GPU 16GB VRAM |
 | **Notebook shortcut** | Runtime → Run all → selesai |
+
+
+
+# 1. Clone di server production
+git clone https://gitea.mediaciptainformasi.co.id/KEMKES/NLP---DASHBOARD.git
+cd NLP---DASHBOARD
+
+# 2. Copy .env dari staging atau buat baru
+cp .env.example .env
+# Edit passwords + NEXT_PUBLIC_API_BASE_URL
+
+# 3. Build & start
+docker compose up -d --build
+
+# 4. Init user
+docker compose --profile init run --rm init
+
+# 5. Verifikasi
+curl http://localhost:8080/health
+curl http://localhost:3001

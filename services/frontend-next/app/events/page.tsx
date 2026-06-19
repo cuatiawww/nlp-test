@@ -1,6 +1,6 @@
 import CleanupButton from './CleanupButton'
 
-const API_INTERNAL = process.env.API_INTERNAL_URL || 'http://backend-rust:8080'
+const API_INTERNAL = process.env.API_INTERNAL_URL || 'http://backend-rust:8081'
 
 async function getEvents() {
   try {

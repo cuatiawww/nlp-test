@@ -2,7 +2,7 @@
 
 import { toast } from 'sonner'
 
-const API = ''
+const API = '/nlp'
 
 export default function CleanupButton({ onDone }: { onDone?: () => void }) {
   const handleCleanup = () => {

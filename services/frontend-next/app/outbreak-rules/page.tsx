@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Save } from 'lucide-react'
 
-const API = ''
+const API = '/nlp'
 
 interface Rule {
   id: string; disease_name: string; display_label?: string; min_case_count: number; is_active: boolean; priority: number

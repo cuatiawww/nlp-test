@@ -1,11 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  basePath: '/nlp',
   async rewrites() {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://backend-rust:8080/api/:path*',
+        destination: 'http://backend-rust:8081/api/:path*',
       },
     ];
   },

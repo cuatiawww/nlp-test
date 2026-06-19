@@ -4,7 +4,7 @@ import { useState, Suspense } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-const API = ''
+const API = '/nlp'
 
 function LoginForm() {
   const router = useRouter()

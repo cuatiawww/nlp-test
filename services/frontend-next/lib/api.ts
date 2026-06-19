@@ -1,10 +1,10 @@
 import type { Source, Run, SummaryRow } from '@/types'
 
-// Client-side: Next.js rewrites /api/* → backend-rust:8080/api/*
+// Client-side: proxy via Apache /nlp/api/* → backend-rust:8081/api/*
 // Server-side: use internal Docker DNS
 function baseURL(): string {
-  if (typeof window !== 'undefined') return ''
-  return process.env.API_INTERNAL_URL || 'http://backend-rust:8080'
+  if (typeof window !== 'undefined') return '/nlp'
+  return process.env.API_INTERNAL_URL || 'http://backend-rust:8081'
 }
 
 export async function fetchFrom<T>(path: string): Promise<T> {
