@@ -1,4 +1,4 @@
-import { Home, Radio, Database, AlertTriangle, Users } from 'lucide-react'
+import { Home, Radio, Database, AlertTriangle, Users, Tags } from 'lucide-react'
 
 export type SidebarItem = {
   label: string
@@ -26,6 +26,7 @@ export const sidebarMenu: SidebarGroup[] = [
     title: 'KONFIGURASI',
     items: [
       { label: 'Outbreak Rules', icon: AlertTriangle, href: '/outbreak-rules' },
+      { label: 'NLP Labels', icon: Tags, href: '/nlp-labels' },
       { label: 'Users', icon: Users, href: '/users' },
     ],
   },

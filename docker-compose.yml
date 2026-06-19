@@ -52,7 +52,7 @@ services:
     volumes:
       - ./services/nlp-python/models:/app/models
     environment:
-      - NLP_MODEL=xlm-roberta
+      - NLP_MODEL=fine-tuned
 
   backend-rust:
     build:

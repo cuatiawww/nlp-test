@@ -17,36 +17,28 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     event_confidence = 0.0
     relevance = "medium"
     relevance_confidence = 0.0
-    is_health_related = True
-
-    if config.NLP_MODEL != "none":
-        try:
-            relevance, relevance_confidence = classify_relevance(text)
-            is_health_related = relevance not in ("low", "not relevant")
-        except Exception as e:
-            logger.warning("Relevance classification failed: %s", e)
-
-        if is_health_related:
-            try:
-                disease, confidence = classify_disease(text)
-                sentiment, sentiment_score = classify_sentiment(text)
-                event_type, event_confidence = classify_event_type(text)
-            except Exception as e:
-                logger.warning("NLP inference failed: %s", e)
-        else:
-            disease = "UNKNOWN"
-            confidence = 0.0
-            sentiment = "neutral"
-            sentiment_score = 0.0
-            event_type = "other"
-            event_confidence = 0.0
-            relevance = "low"
-            relevance_confidence = 0.0
 
     location = extractors.extract_location(text)
     lat, lon = config.LOCATION_COORDS.get(location, (None, None))
     symptoms = extractors.extract_terms(text, config.SYMPTOM_DICT)
     extracted = extractors.extract_terms(text, config.DISEASE_DICT)
+    has_keywords = bool(extracted or symptoms)
+    is_health_related = has_keywords
+
+    if config.NLP_MODEL != "none" and has_keywords:
+        try:
+            disease, confidence = classify_disease(text)
+            sentiment, sentiment_score = classify_sentiment(text)
+            event_type, event_confidence = classify_event_type(text)
+            relevance, relevance_confidence = classify_relevance(text)
+            if disease == "UNKNOWN" and extracted:
+                disease = extracted[0]
+                confidence = max(confidence, 0.60)
+        except Exception as e:
+            logger.warning("NLP inference failed, using regex: %s", e)
+            if extracted:
+                disease = extracted[0]
+
     case_count = extractors.extract_case_count(text)
     death_count = extractors.extract_death_count(text)
     outbreak_alert = case_count >= 25 or (disease in ["DBD", "LEPTOSPIROSIS"] and case_count >= 10)

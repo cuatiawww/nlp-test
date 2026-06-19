@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use chrono::NaiveDate;
@@ -131,6 +131,26 @@ struct CreateRuleRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct LabelQuery {
+    category: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateLabelRequest {
+    category: String,
+    label: String,
+    priority: Option<i32>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateLabelRequest {
+    label: Option<String>,
+    priority: Option<i32>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UpdateRuleRequest {
     disease_name: Option<String>,
     display_label: Option<String>,
@@ -196,6 +216,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/outbreak-rules", get(list_rules).post(create_rule))
         .route("/api/v1/outbreak-rules/:id", get(get_rule).delete(delete_rule))
         .route("/api/v1/outbreak-rules/:id/edit", post(update_rule))
+        .route("/api/v1/nlp-labels", get(list_labels).post(create_label))
+        .route("/api/v1/nlp-labels/:id", put(update_label).delete(delete_label))
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -1065,6 +1087,97 @@ async fn delete_rule(
 }
 
 // ─── DATA CLEANUP ──────────────────────────────────
+
+// ─── NLP LABELS ──────────────────────────────────
+
+async fn list_labels(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<LabelQuery>,
+) -> Json<Value> {
+    let client = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    };
+    let sql = "SELECT id, category, label, is_active, priority, created_at::text FROM nlp_labels WHERE ($1::text IS NULL OR category = $1) ORDER BY category, priority";
+    let rows = client.query(sql, &[&query.category]).await.unwrap_or_default();
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "category": r.get::<_, String>(1),
+        "label": r.get::<_, String>(2),
+        "is_active": r.get::<_, bool>(3),
+        "priority": r.get::<_, i32>(4),
+        "created_at": r.get::<_, Option<String>>(5),
+    })).collect();
+    Json(json!({"success": true, "data": data}))
+}
+
+async fn create_label(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateLabelRequest>,
+) -> Json<Value> {
+    let client = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    };
+    let row = client
+        .query_one(
+            "INSERT INTO nlp_labels (category, label, priority, is_active) VALUES ($1, $2, $3, $4) RETURNING id, category, label, is_active, priority, created_at::text",
+            &[&payload.category, &payload.label, &payload.priority, &payload.is_active],
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("{:?}", e);
+            Json(json!({"success": false, "error": "Label exists or insert failed"}))
+        });
+    match row {
+        Ok(r) => Json(json!({"success": true, "data": {
+            "id": r.get::<_, Uuid>(0), "category": r.get::<_, String>(1),
+            "label": r.get::<_, String>(2), "is_active": r.get::<_, bool>(3),
+            "priority": r.get::<_, i32>(4), "created_at": r.get::<_, Option<String>>(5),
+        }})),
+        Err(j) => j,
+    }
+}
+
+async fn update_label(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateLabelRequest>,
+) -> Json<Value> {
+    let client = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    };
+    let row = client
+        .query_one(
+            "UPDATE nlp_labels SET label=COALESCE($1,label), priority=COALESCE($2,priority), is_active=COALESCE($3,is_active), updated_at=NOW() WHERE id=$4 RETURNING id, category, label, is_active, priority, created_at::text",
+            &[&payload.label, &payload.priority, &payload.is_active, &id],
+        )
+        .await
+        .map_err(|_| Json(json!({"success": false, "error": "Update failed"})));
+    match row {
+        Ok(r) => Json(json!({"success": true, "data": {
+            "id": r.get::<_, Uuid>(0), "category": r.get::<_, String>(1),
+            "label": r.get::<_, String>(2), "is_active": r.get::<_, bool>(3),
+            "priority": r.get::<_, i32>(4), "created_at": r.get::<_, Option<String>>(5),
+        }})),
+        Err(j) => j,
+    }
+}
+
+async fn delete_label(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Json<Value> {
+    let client = match state.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    };
+    client.execute("DELETE FROM nlp_labels WHERE id = $1", &[&id]).await.unwrap_or_default();
+    Json(json!({"success": true, "data": "deleted"}))
+}
+
+// ─── DATA CLEANUP ─────────────────────────────────
 
 async fn cleanup_events(
     State(state): State<Arc<AppState>>,

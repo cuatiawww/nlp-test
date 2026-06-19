@@ -53,3 +53,4 @@ Thumbs.db
 *.Zone.Identifier
 docker-data/
 logs/
+training/

@@ -5,6 +5,7 @@ NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 MODEL_MAP = {
     "xlm-roberta": "xlm-roberta-base",
     "indobert": "indolem/indobert-base-uncased",
+    "fine-tuned": "/app/models/fine-tuned",
 }
 
 DISEASE_LABELS = [
@@ -23,7 +24,10 @@ EVENT_TYPE_LABELS = [
     "industrial accident kecelakaan industri", "drought kekeringan",
 ]
 
-RELEVANCE_LABELS = ["high relevance to health crisis", "medium relevance", "low relevance", "not relevant"]
+RELEVANCE_LABELS = [
+    "health related medical disease outbreak",
+    "general news not health related",
+]
 
 SOURCE_CREDIBILITY_MAP = {
     "government": 0.95,

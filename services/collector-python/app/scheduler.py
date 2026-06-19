@@ -13,7 +13,7 @@ COLLECTOR_MAP = {
     "web": WebScraperCollector,
     "csv": CSVIngestCollector,
     "social_media": SocialMediaCollector,
-    "api": RSSNewsCollector,
+    "api": SocialMediaCollector,
 }
 
 
