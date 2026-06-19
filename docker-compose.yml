@@ -1,0 +1,110 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: disease-postgis
+    restart: no
+    env_file: .env
+    ports:
+      - "9876:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: disease-minio
+    restart: no
+    env_file: .env
+    command: server /data --console-address ":9001"
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    volumes:
+      - minio_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: disease-rabbitmq
+    restart: no
+    env_file: .env
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nlp-python:
+    build:
+      context: ./services/nlp-python
+    container_name: disease-nlp-python
+    restart: no
+    env_file: .env
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./services/nlp-python/models:/app/models
+    environment:
+      - NLP_MODEL=xlm-roberta
+
+  backend-rust:
+    build:
+      context: ./services/backend-rust
+    container_name: disease-backend-rust
+    restart: no
+    env_file: .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      nlp-python:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  worker-python:
+    build:
+      context: ./services/worker-python
+    container_name: disease-worker-python
+    restart: no
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nlp-python:
+        condition: service_started
+
+  collector-python:
+    build:
+      context: ./services/collector-python
+    container_name: disease-collector-python
+    restart: no
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nlp-python:
+        condition: service_started
+
+  frontend-next:
+    build:
+      context: ./services/frontend-next
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+    container_name: disease-frontend-next
+    restart: no
+    env_file: .env
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend-rust
+
+volumes:
+  postgres_data:
+  minio_data:

@@ -1,0 +1,55 @@
+# ─── Environment ───────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Node.js / Next.js ────────────────────────────
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── Python ────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ─── Rust ──────────────────────────────────────────
+target/
+Cargo.lock
+
+# ─── Docker ────────────────────────────────────────
+.docker/
+
+# ─── ML Models (large files, download on build) ────
+services/nlp-python/models/*
+!services/nlp-python/models/.gitkeep
+
+# ─── IDE ───────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ─── OS ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+
+# ─── Project specific ──────────────────────────────
+*.Zone.Identifier
+docker-data/
+logs/

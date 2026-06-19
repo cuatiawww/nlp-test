@@ -1,0 +1,140 @@
+[
+  {
+    "country": "Indonesia",
+    "sources": [
+      {
+        "name": "Antara News",
+        "source_type": "rss",
+        "config": { "url": "https://www.antaranews.com/rss/terkini.xml" },
+        "schedule": "interval:60",
+        "tags": ["news", "indonesia"]
+      },
+      {
+        "name": "Kompas.com",
+        "source_type": "rss",
+        "config": { "url": "https://rss.kompas.com/" },
+        "schedule": "interval:120",
+        "tags": ["news", "indonesia"]
+      },
+      {
+        "name": "CNN Indonesia",
+        "source_type": "rss",
+        "config": { "url": "https://www.cnnindonesia.com/nasional/rss" },
+        "schedule": "interval:120",
+        "tags": ["news", "indonesia"]
+      },
+      {
+        "name": "Metro TV News",
+        "source_type": "rss",
+        "config": { "url": "https://www.metrotvnews.com/feed" },
+        "schedule": "interval:120",
+        "tags": ["news", "indonesia"]
+      }
+    ]
+  },
+  {
+    "country": "Malaysia",
+    "sources": [
+      {
+        "name": "Malay Mail — Health",
+        "source_type": "rss",
+        "config": { "url": "https://www.malaymail.com/feed/rss/health" },
+        "schedule": "interval:60",
+        "tags": ["health", "malaysia"]
+      },
+      {
+        "name": "Malay Mail — News",
+        "source_type": "rss",
+        "config": { "url": "https://www.malaymail.com/feed/rss/malaysia" },
+        "schedule": "interval:120",
+        "tags": ["news", "malaysia"]
+      }
+    ]
+  },
+  {
+    "country": "Thailand",
+    "sources": [
+      {
+        "name": "The Nation Thailand",
+        "source_type": "rss",
+        "config": { "url": "https://www.nationthailand.com/rss/all" },
+        "schedule": "interval:120",
+        "tags": ["news", "thailand"]
+      },
+      {
+        "name": "Thai PBS World",
+        "source_type": "rss",
+        "config": { "url": "https://www.thaipbsworld.com/feed/" },
+        "schedule": "interval:120",
+        "tags": ["news", "thailand"]
+      }
+    ]
+  },
+  {
+    "country": "Vietnam",
+    "sources": [
+      {
+        "name": "VNExpress — Health",
+        "source_type": "rss",
+        "config": { "url": "https://vnexpress.net/rss/suc-khoe.rss" },
+        "schedule": "interval:60",
+        "tags": ["health", "vietnam"]
+      },
+      {
+        "name": "VNExpress — News",
+        "source_type": "rss",
+        "config": { "url": "https://vnexpress.net/rss/tin-moi-nhat.rss" },
+        "schedule": "interval:120",
+        "tags": ["news", "vietnam"]
+      }
+    ]
+  },
+  {
+    "country": "Philippines",
+    "sources": [
+      {
+        "name": "Rappler",
+        "source_type": "rss",
+        "config": { "url": "https://www.rappler.com/rss" },
+        "schedule": "interval:120",
+        "tags": ["news", "philippines"]
+      }
+    ]
+  },
+  {
+    "country": "Singapore",
+    "sources": [
+      {
+        "name": "Channel News Asia",
+        "source_type": "rss",
+        "config": { "url": "https://www.channelnewsasia.com/rssfeeds/8395986" },
+        "schedule": "interval:120",
+        "tags": ["news", "singapore"]
+      }
+    ]
+  },
+  {
+    "country": "Cambodia",
+    "sources": [
+      {
+        "name": "Phnom Penh Post",
+        "source_type": "rss",
+        "config": { "url": "https://www.phnompenhpost.com/rss" },
+        "schedule": "interval:120",
+        "tags": ["news", "cambodia"]
+      }
+    ]
+  },
+  {
+    "country": "Regional ASEAN",
+    "sources": [
+      {
+        "name": "Outbreak News Today",
+        "source_type": "rss",
+        "config": { "url": "https://outbreaknewstoday.com/feed/" },
+        "schedule": "interval:120",
+        "tags": ["health", "disease", "regional"]
+      }
+    ]
+  }
+]

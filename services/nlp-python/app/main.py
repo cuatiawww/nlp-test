@@ -1,0 +1,77 @@
+import logging
+
+from fastapi import FastAPI, Body
+from pydantic import BaseModel
+from typing import Optional
+
+from .schemas import AnalyzeRequest, AnalyzeResponse
+from . import pipeline
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Disease NLP Service", version="0.2.0")
+
+
+@app.on_event("startup")
+def startup():
+    from .config import NLP_MODEL
+    from .models.classifier import get_labels
+    logger.info("NLP service starting — model=%s labels=%s", NLP_MODEL, get_labels("disease"))
+    if NLP_MODEL != "none":
+        try:
+            from .models.classifier import classify_disease
+            classify_disease("warmup")
+        except Exception as e:
+            logger.warning("Model warmup failed: %s", e)
+
+
+@app.get("/health")
+def health():
+    from .config import NLP_MODEL
+    from .models.classifier import get_labels
+    return {
+        "status": "ok",
+        "service": "nlp-python",
+        "model": NLP_MODEL,
+        "disease_labels": get_labels("disease"),
+    }
+
+
+@app.post("/nlp/analyze", response_model=AnalyzeResponse)
+def analyze(payload: AnalyzeRequest):
+    return pipeline.run(payload)
+
+
+class LabelsUpdate(BaseModel):
+    labels: list[str]
+
+
+@app.get("/labels")
+def get_disease_labels():
+    from .models.classifier import get_labels
+    return {
+        "success": True,
+        "labels": get_labels("disease"),
+        "sentiment_labels": get_labels("sentiment"),
+    }
+
+
+@app.put("/labels")
+def update_disease_labels(body: LabelsUpdate):
+    from .models.classifier import set_labels
+    if not body.labels:
+        return {"success": False, "error": "labels cannot be empty"}
+    set_labels("disease", body.labels)
+    logger.info("Disease labels updated to: %s", body.labels)
+    return {"success": True, "labels": body.labels}
+
+
+@app.put("/labels/sentiment")
+def update_sentiment_labels(body: LabelsUpdate):
+    from .models.classifier import set_labels
+    if not body.labels:
+        return {"success": False, "error": "labels cannot be empty"}
+    set_labels("sentiment", body.labels)
+    logger.info("Sentiment labels updated to: %s", body.labels)
+    return {"success": True, "labels": body.labels}

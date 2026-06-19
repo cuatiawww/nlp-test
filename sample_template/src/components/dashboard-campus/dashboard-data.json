@@ -1,0 +1,1689 @@
+{
+  "greeting": {
+    "title": "Selamat datang di Dashboard Rekapitulasi Influenza & COVID-19",
+    "subtitle": "Pemantauan tren pengawasan kasus Influenza, COVID-19, RSV, dan Multipatogen lainnya secara mingguan."
+  },
+  "metrics": [
+    {
+      "title": "Total Pemeriksaan COVID-19",
+      "value": "13183",
+      "delta": "Minggu 23: 444 pemeriksaan",
+      "iconKey": "school",
+      "iconTone": "bg-teal-100 text-teal-700"
+    },
+    {
+      "title": "Positivity Rate COVID-19",
+      "value": "1.9%",
+      "delta": "Tetap dari minggu lalu",
+      "iconKey": "submit",
+      "iconTone": "bg-sky-100 text-sky-700"
+    },
+    {
+      "title": "Kasus Positif COVID-19",
+      "value": "22",
+      "delta": "Dari 444 spesimen diperiksa",
+      "iconKey": "verify",
+      "iconTone": "bg-violet-100 text-violet-700"
+    },
+    {
+      "title": "Positivity Rate Influenza",
+      "value": "16%",
+      "delta": "Tetap dari minggu lalu",
+      "iconKey": "award",
+      "iconTone": "bg-yellow-100 text-yellow-700"
+    },
+    {
+      "title": "Aktivitas Influenza",
+      "value": "Rendah",
+      "delta": "Aktivitas influenza masih terkendali",
+      "iconKey": "award",
+      "iconTone": "bg-emerald-100 text-emerald-700"
+    }
+  ],
+  "summary": {
+    "average": "5.7",
+    "latest": "1.9",
+    "category": "RENDAH",
+    "delta": "Positivity rate COVID-19 minggu ini"
+  },
+  "aspectScores": [
+    {
+      "label": "Positivity Rate Influenza",
+      "value": 19.7,
+      "tone": "bg-teal-600"
+    },
+    {
+      "label": "Positivity Rate COVID-19",
+      "value": 5.7,
+      "tone": "bg-cyan-600"
+    },
+    {
+      "label": "Proporsi RSV",
+      "value": 19.4,
+      "tone": "bg-lime-500"
+    },
+    {
+      "label": "Multipatogen Lainnya",
+      "value": 52.5,
+      "tone": "bg-green-600"
+    },
+    {
+      "label": "Proporsi ILI",
+      "value": 0.2,
+      "tone": "bg-pink-600"
+    },
+    {
+      "label": "Proporsi SARI",
+      "value": 1.0,
+      "tone": "bg-sky-500"
+    }
+  ],
+  "starDistribution": [
+    {
+      "label": "Aktivitas Rendah",
+      "total": 28,
+      "percent": 56.0,
+      "tone": "bg-emerald-500"
+    },
+    {
+      "label": "Di Luar Musim",
+      "total": 14,
+      "percent": 28.0,
+      "tone": "bg-lime-500"
+    },
+    {
+      "label": "Aktivitas Sedang",
+      "total": 8,
+      "percent": 16.0,
+      "tone": "bg-yellow-500"
+    }
+  ],
+  "trend": [
+    {
+      "year": "M01/2025",
+      "value": 18.0
+    },
+    {
+      "year": "M28/2025",
+      "value": 4.7
+    },
+    {
+      "year": "M29/2025",
+      "value": 4.7
+    },
+    {
+      "year": "M30/2025",
+      "value": 7.0
+    },
+    {
+      "year": "M31/2025",
+      "value": 3.0
+    },
+    {
+      "year": "M32/2025",
+      "value": 4.0
+    },
+    {
+      "year": "M33/2025",
+      "value": 4.0
+    },
+    {
+      "year": "M34/2025",
+      "value": 6.0
+    },
+    {
+      "year": "M35/2025",
+      "value": 6.0
+    },
+    {
+      "year": "M36/2025",
+      "value": 18.0
+    },
+    {
+      "year": "M37/2025",
+      "value": 6.0
+    },
+    {
+      "year": "M38/2025",
+      "value": 2.0
+    },
+    {
+      "year": "M39/2025",
+      "value": 6.0
+    },
+    {
+      "year": "M40/2025",
+      "value": 6.0
+    },
+    {
+      "year": "M41/2025",
+      "value": 2.1
+    },
+    {
+      "year": "M42/2025",
+      "value": 3.0
+    },
+    {
+      "year": "M43/2025",
+      "value": 3.0
+    },
+    {
+      "year": "M44/2025",
+      "value": 3.0
+    },
+    {
+      "year": "M45/2025",
+      "value": 14.0
+    },
+    {
+      "year": "M46/2025",
+      "value": 2.0
+    },
+    {
+      "year": "M47/2025",
+      "value": 13.0
+    },
+    {
+      "year": "M48/2025",
+      "value": 7.0
+    },
+    {
+      "year": "M49/2025",
+      "value": 5.0
+    },
+    {
+      "year": "M50/2025",
+      "value": 6.0
+    },
+    {
+      "year": "M51/2025",
+      "value": 5.0
+    },
+    {
+      "year": "M52/2025",
+      "value": 18.0
+    },
+    {
+      "year": "M53/2025",
+      "value": 2.0
+    },
+    {
+      "year": "M01/2026",
+      "value": 7.0
+    },
+    {
+      "year": "M02/2026",
+      "value": 2.2
+    },
+    {
+      "year": "M03/2026",
+      "value": 5.0
+    },
+    {
+      "year": "M04/2026",
+      "value": 4.0
+    },
+    {
+      "year": "M05/2026",
+      "value": 4.0
+    },
+    {
+      "year": "M06/2026",
+      "value": 2.0
+    },
+    {
+      "year": "M07/2026",
+      "value": 2.0
+    },
+    {
+      "year": "M08/2026",
+      "value": 3.0
+    },
+    {
+      "year": "M09/2026",
+      "value": 1.0
+    },
+    {
+      "year": "M10/2026",
+      "value": 2.0
+    },
+    {
+      "year": "M11/2026",
+      "value": 0.6
+    },
+    {
+      "year": "M12/2026",
+      "value": 3.1
+    },
+    {
+      "year": "M13/2026",
+      "value": 2.0
+    },
+    {
+      "year": "M14/2026",
+      "value": 3.0
+    },
+    {
+      "year": "M15/2026",
+      "value": 13.0
+    },
+    {
+      "year": "M16/2026",
+      "value": 13.0
+    },
+    {
+      "year": "M17/2026",
+      "value": 2.0
+    },
+    {
+      "year": "M18/2026",
+      "value": 1.0
+    },
+    {
+      "year": "M19/2026",
+      "value": 1.5
+    },
+    {
+      "year": "M20/2026",
+      "value": 2.0
+    },
+    {
+      "year": "M21/2026",
+      "value": 2.0
+    },
+    {
+      "year": "M22/2026",
+      "value": 1.9
+    },
+    {
+      "year": "M23/2026",
+      "value": 1.9
+    }
+  ],
+  "topCampuses": [
+    {
+      "name": "Proporsi ILI",
+      "stars": 4,
+      "score": "0,11%"
+    },
+    {
+      "name": "Proporsi SARI",
+      "stars": 4,
+      "score": "1,07%"
+    },
+    {
+      "name": "Positivity Rate COVID-19",
+      "stars": 4,
+      "score": "1,90%"
+    },
+    {
+      "name": "Proporsi RSV",
+      "stars": 3,
+      "score": "10.0%"
+    },
+    {
+      "name": "Positivity Rate Influenza",
+      "stars": 3,
+      "score": "16.0%"
+    }
+  ],
+  "processStatus": [
+    {
+      "stage": "PR COVID-19",
+      "total": "1.9%",
+      "percent": "1.9%",
+      "tone": "bg-teal-500"
+    },
+    {
+      "stage": "PR Influenza",
+      "total": "16%",
+      "percent": "16%",
+      "tone": "bg-sky-500"
+    },
+    {
+      "stage": "Proporsi ILI",
+      "total": "0.11%",
+      "percent": "0.11%",
+      "tone": "bg-amber-500"
+    },
+    {
+      "stage": "Proporsi SARI",
+      "total": "1.07%",
+      "percent": "1.07%",
+      "tone": "bg-blue-600"
+    },
+    {
+      "stage": "Proporsi RSV",
+      "total": "10%",
+      "percent": "10%",
+      "tone": "bg-violet-500"
+    },
+    {
+      "stage": "Multipatogen",
+      "total": "136%",
+      "percent": "136%",
+      "tone": "bg-emerald-600"
+    }
+  ],
+  "lowestAspects": [
+    {
+      "name": "Proporsi ILI",
+      "score": 0.2,
+      "percent": 0.2,
+      "tone": "bg-emerald-500"
+    },
+    {
+      "name": "Proporsi SARI",
+      "score": 1,
+      "percent": 1,
+      "tone": "bg-lime-500"
+    },
+    {
+      "name": "PR COVID-19",
+      "score": 5.7,
+      "percent": 5.7,
+      "tone": "bg-amber-500"
+    },
+    {
+      "name": "Proporsi RSV",
+      "score": 19.4,
+      "percent": 19.4,
+      "tone": "bg-yellow-500"
+    },
+    {
+      "name": "PR Influenza",
+      "score": 19.7,
+      "percent": 19.7,
+      "tone": "bg-orange-500"
+    }
+  ],
+  "notifications": [
+    {
+      "text": "PR Influenza meningkat minggu ini",
+      "total": 0,
+      "tone": "bg-amber-500"
+    },
+    {
+      "text": "PR COVID-19 menurun minggu ini",
+      "total": 0,
+      "tone": "bg-teal-500"
+    },
+    {
+      "text": "Multipatogen meningkat minggu ini",
+      "total": 0,
+      "tone": "bg-amber-500"
+    },
+    {
+      "text": "Total 13183 pemeriksaan (50 minggu)",
+      "total": 13183,
+      "tone": "bg-sky-500"
+    }
+  ],
+  "provinces": [
+    "Semua Provinsi",
+    "Aceh",
+    "Sumatera Utara",
+    "Sumatera Barat",
+    "Riau",
+    "Kepulauan Riau",
+    "Jambi",
+    "Sumatera Selatan",
+    "Bangka Belitung",
+    "Bengkulu",
+    "Lampung",
+    "DKI Jakarta",
+    "Jawa Barat",
+    "Banten",
+    "Jawa Tengah",
+    "DI Yogyakarta",
+    "Jawa Timur",
+    "Bali",
+    "Nusa Tenggara Barat",
+    "Nusa Tenggara Timur",
+    "Kalimantan Barat",
+    "Kalimantan Tengah",
+    "Kalimantan Selatan",
+    "Kalimantan Timur",
+    "Kalimantan Utara",
+    "Sulawesi Utara",
+    "Sulawesi Tengah",
+    "Sulawesi Selatan",
+    "Sulawesi Tenggara",
+    "Sulawesi Barat",
+    "Gorontalo",
+    "Maluku",
+    "Maluku Utara",
+    "Papua",
+    "Papua Barat",
+    "Papua Selatan",
+    "Papua Tengah",
+    "Papua Pegunungan",
+    "Papua Barat Daya"
+  ],
+  "sourceInfo": {
+    "sourceLabel": "Sumber Data",
+    "sourceValue": "Surkarkes Kemkes - Laporan Pengawasan Kasus Influenza dan COVID-19",
+    "dateLabel": "Data per",
+    "dateValue": "13 Jun (Minggu 23)"
+  },
+  "sidebarMenu": [
+    {
+      "title": "Menu Utama",
+      "items": [
+        {
+          "label": "Beranda",
+          "iconKey": "home",
+          "active": true,
+          "section": "beranda"
+        },
+        {
+          "label": "Rekapitulasi Mingguan & Tahunan",
+          "iconKey": "fileSheet",
+          "section": "rekapitulasi"
+        },
+        {
+          "label": "Tren Epidemiologi",
+          "iconKey": "chart",
+          "section": "tren-epidemiologi"
+        },
+        {
+          "label": "Tingkat Positivitas & CFR",
+          "iconKey": "trend",
+          "section": "positivitas"
+        },
+        {
+          "label": "Peta Distribusi Provinsi/Kabupaten",
+          "iconKey": "map",
+          "section": "peta-nasional"
+        },
+        {
+          "label": "Perbandingan YoY",
+          "iconKey": "fileCheck",
+          "section": "perbandingan-tahunan"
+        }
+      ]
+    },
+    {
+      "title": "Integrasi API",
+      "items": [
+        {
+          "label": "Surkarkes",
+          "iconKey": "globe",
+          "url": "https://surkarkes.kemkes.go.id/dashboard-sinkarkes-dev"
+        },
+        {
+          "label": "SKDR",
+          "iconKey": "globe",
+          "url": "https://surkarkes.kemkes.go.id/dashboard-skdr-dev"
+        },
+        {
+          "label": "Infeksi Emerging",
+          "iconKey": "globe",
+          "url": "https://surkarkes.kemkes.go.id/dashboard-infem-dev"
+        }
+      ]
+    }
+  ],
+  "weeklyLevels": [
+    {
+      "minggu": "M01/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M28/2025",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M29/2025",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M30/2025",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M31/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M32/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M33/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M34/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M35/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M36/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M37/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M38/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M39/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M40/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M41/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M42/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M43/2025",
+      "level": "Di Luar Musim",
+      "levelIdx": 0
+    },
+    {
+      "minggu": "M44/2025",
+      "level": "Sedang",
+      "levelIdx": 2
+    },
+    {
+      "minggu": "M45/2025",
+      "level": "Sedang",
+      "levelIdx": 2
+    },
+    {
+      "minggu": "M46/2025",
+      "level": "Sedang",
+      "levelIdx": 2
+    },
+    {
+      "minggu": "M47/2025",
+      "level": "Sedang",
+      "levelIdx": 2
+    },
+    {
+      "minggu": "M48/2025",
+      "level": "Sedang",
+      "levelIdx": 2
+    },
+    {
+      "minggu": "M49/2025",
+      "level": "Sedang",
+      "levelIdx": 2
+    },
+    {
+      "minggu": "M50/2025",
+      "level": "Sedang",
+      "levelIdx": 2
+    },
+    {
+      "minggu": "M51/2025",
+      "level": "Sedang",
+      "levelIdx": 2
+    },
+    {
+      "minggu": "M52/2025",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M53/2025",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M01/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M02/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M03/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M04/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M05/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M06/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M07/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M08/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M09/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M10/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M11/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M12/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M13/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M14/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M15/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M16/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M17/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M18/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M19/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M20/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M21/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M22/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    },
+    {
+      "minggu": "M23/2026",
+      "level": "Rendah",
+      "levelIdx": 1
+    }
+  ],
+  "weeklyPositives": [
+    {
+      "minggu": "M01/2025",
+      "kasus": 0,
+      "pemeriksaan": 0
+    },
+    {
+      "minggu": "M28/2025",
+      "kasus": 20,
+      "pemeriksaan": 427
+    },
+    {
+      "minggu": "M29/2025",
+      "kasus": 15,
+      "pemeriksaan": 205
+    },
+    {
+      "minggu": "M30/2025",
+      "kasus": 13,
+      "pemeriksaan": 186
+    },
+    {
+      "minggu": "M31/2025",
+      "kasus": 18,
+      "pemeriksaan": 191
+    },
+    {
+      "minggu": "M32/2025",
+      "kasus": 14,
+      "pemeriksaan": 194
+    },
+    {
+      "minggu": "M33/2025",
+      "kasus": 10,
+      "pemeriksaan": 141
+    },
+    {
+      "minggu": "M34/2025",
+      "kasus": 15,
+      "pemeriksaan": 160
+    },
+    {
+      "minggu": "M35/2025",
+      "kasus": 7,
+      "pemeriksaan": 163
+    },
+    {
+      "minggu": "M36/2025",
+      "kasus": 9,
+      "pemeriksaan": 186
+    },
+    {
+      "minggu": "M37/2025",
+      "kasus": 15,
+      "pemeriksaan": 325
+    },
+    {
+      "minggu": "M38/2025",
+      "kasus": 17,
+      "pemeriksaan": 507
+    },
+    {
+      "minggu": "M39/2025",
+      "kasus": 7,
+      "pemeriksaan": 417
+    },
+    {
+      "minggu": "M40/2025",
+      "kasus": 11,
+      "pemeriksaan": 540
+    },
+    {
+      "minggu": "M41/2025",
+      "kasus": 11,
+      "pemeriksaan": 525
+    },
+    {
+      "minggu": "M42/2025",
+      "kasus": 11,
+      "pemeriksaan": 258
+    },
+    {
+      "minggu": "M43/2025",
+      "kasus": 22,
+      "pemeriksaan": 484
+    },
+    {
+      "minggu": "M44/2025",
+      "kasus": 10,
+      "pemeriksaan": 290
+    },
+    {
+      "minggu": "M45/2025",
+      "kasus": 26,
+      "pemeriksaan": 384
+    },
+    {
+      "minggu": "M46/2025",
+      "kasus": 20,
+      "pemeriksaan": 422
+    },
+    {
+      "minggu": "M47/2025",
+      "kasus": 14,
+      "pemeriksaan": 326
+    },
+    {
+      "minggu": "M48/2025",
+      "kasus": 27,
+      "pemeriksaan": 505
+    },
+    {
+      "minggu": "M49/2025",
+      "kasus": 23,
+      "pemeriksaan": 252
+    },
+    {
+      "minggu": "M50/2025",
+      "kasus": 22,
+      "pemeriksaan": 269
+    },
+    {
+      "minggu": "M51/2025",
+      "kasus": 18,
+      "pemeriksaan": 195
+    },
+    {
+      "minggu": "M52/2025",
+      "kasus": 9,
+      "pemeriksaan": 235
+    },
+    {
+      "minggu": "M53/2025",
+      "kasus": 10,
+      "pemeriksaan": 492
+    },
+    {
+      "minggu": "M01/2026",
+      "kasus": 10,
+      "pemeriksaan": 185
+    },
+    {
+      "minggu": "M02/2026",
+      "kasus": 8,
+      "pemeriksaan": 368
+    },
+    {
+      "minggu": "M03/2026",
+      "kasus": 10,
+      "pemeriksaan": 249
+    },
+    {
+      "minggu": "M04/2026",
+      "kasus": 5,
+      "pemeriksaan": 226
+    },
+    {
+      "minggu": "M05/2026",
+      "kasus": 8,
+      "pemeriksaan": 342
+    },
+    {
+      "minggu": "M06/2026",
+      "kasus": 7,
+      "pemeriksaan": 235
+    },
+    {
+      "minggu": "M07/2026",
+      "kasus": 4,
+      "pemeriksaan": 235
+    },
+    {
+      "minggu": "M08/2026",
+      "kasus": 9,
+      "pemeriksaan": 171
+    },
+    {
+      "minggu": "M09/2026",
+      "kasus": 3,
+      "pemeriksaan": 162
+    },
+    {
+      "minggu": "M10/2026",
+      "kasus": 4,
+      "pemeriksaan": 198
+    },
+    {
+      "minggu": "M11/2026",
+      "kasus": 1,
+      "pemeriksaan": 180
+    },
+    {
+      "minggu": "M12/2026",
+      "kasus": 0,
+      "pemeriksaan": 114
+    },
+    {
+      "minggu": "M13/2026",
+      "kasus": 8,
+      "pemeriksaan": 178
+    },
+    {
+      "minggu": "M14/2026",
+      "kasus": 5,
+      "pemeriksaan": 169
+    },
+    {
+      "minggu": "M15/2026",
+      "kasus": 15,
+      "pemeriksaan": 336
+    },
+    {
+      "minggu": "M16/2026",
+      "kasus": 5,
+      "pemeriksaan": 164
+    },
+    {
+      "minggu": "M17/2026",
+      "kasus": 6,
+      "pemeriksaan": 154
+    },
+    {
+      "minggu": "M18/2026",
+      "kasus": 2,
+      "pemeriksaan": 247
+    },
+    {
+      "minggu": "M19/2026",
+      "kasus": 2,
+      "pemeriksaan": 136
+    },
+    {
+      "minggu": "M20/2026",
+      "kasus": 2,
+      "pemeriksaan": 115
+    },
+    {
+      "minggu": "M21/2026",
+      "kasus": 4,
+      "pemeriksaan": 117
+    },
+    {
+      "minggu": "M22/2026",
+      "kasus": 3,
+      "pemeriksaan": 179
+    },
+    {
+      "minggu": "M23/2026",
+      "kasus": 22,
+      "pemeriksaan": 444
+    }
+  ],
+  "weeklyPR_Influenza": [
+    {
+      "minggu": "M01/2025",
+      "value": 26.0
+    },
+    {
+      "minggu": "M28/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M29/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M30/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M31/2025",
+      "value": 4.0
+    },
+    {
+      "minggu": "M32/2025",
+      "value": 10.0
+    },
+    {
+      "minggu": "M33/2025",
+      "value": 10.0
+    },
+    {
+      "minggu": "M34/2025",
+      "value": 26.0
+    },
+    {
+      "minggu": "M35/2025",
+      "value": 26.0
+    },
+    {
+      "minggu": "M36/2025",
+      "value": 26.0
+    },
+    {
+      "minggu": "M37/2025",
+      "value": 26.0
+    },
+    {
+      "minggu": "M38/2025",
+      "value": 24.0
+    },
+    {
+      "minggu": "M39/2025",
+      "value": 26.0
+    },
+    {
+      "minggu": "M40/2025",
+      "value": 6.0
+    },
+    {
+      "minggu": "M41/2025",
+      "value": 55.0
+    },
+    {
+      "minggu": "M42/2025",
+      "value": 48.0
+    },
+    {
+      "minggu": "M43/2025",
+      "value": 25.0
+    },
+    {
+      "minggu": "M44/2025",
+      "value": 34.0
+    },
+    {
+      "minggu": "M45/2025",
+      "value": 27.0
+    },
+    {
+      "minggu": "M46/2025",
+      "value": 35.0
+    },
+    {
+      "minggu": "M47/2025",
+      "value": 37.0
+    },
+    {
+      "minggu": "M48/2025",
+      "value": 31.0
+    },
+    {
+      "minggu": "M49/2025",
+      "value": 28.0
+    },
+    {
+      "minggu": "M50/2025",
+      "value": 8.0
+    },
+    {
+      "minggu": "M51/2025",
+      "value": 17.0
+    },
+    {
+      "minggu": "M52/2025",
+      "value": 12.0
+    },
+    {
+      "minggu": "M53/2025",
+      "value": 23.0
+    },
+    {
+      "minggu": "M01/2026",
+      "value": 29.0
+    },
+    {
+      "minggu": "M02/2026",
+      "value": 16.0
+    },
+    {
+      "minggu": "M03/2026",
+      "value": 10.0
+    },
+    {
+      "minggu": "M04/2026",
+      "value": 10.0
+    },
+    {
+      "minggu": "M05/2026",
+      "value": 8.0
+    },
+    {
+      "minggu": "M06/2026",
+      "value": 10.0
+    },
+    {
+      "minggu": "M07/2026",
+      "value": 11.0
+    },
+    {
+      "minggu": "M08/2026",
+      "value": 15.0
+    },
+    {
+      "minggu": "M09/2026",
+      "value": 11.0
+    },
+    {
+      "minggu": "M10/2026",
+      "value": 16.0
+    },
+    {
+      "minggu": "M11/2026",
+      "value": 20.0
+    },
+    {
+      "minggu": "M12/2026",
+      "value": 0.0
+    },
+    {
+      "minggu": "M13/2026",
+      "value": 8.0
+    },
+    {
+      "minggu": "M14/2026",
+      "value": 13.0
+    },
+    {
+      "minggu": "M15/2026",
+      "value": 13.0
+    },
+    {
+      "minggu": "M16/2026",
+      "value": 14.0
+    },
+    {
+      "minggu": "M17/2026",
+      "value": 14.0
+    },
+    {
+      "minggu": "M18/2026",
+      "value": 13.0
+    },
+    {
+      "minggu": "M19/2026",
+      "value": 13.0
+    },
+    {
+      "minggu": "M20/2026",
+      "value": 25.0
+    },
+    {
+      "minggu": "M21/2026",
+      "value": 17.0
+    },
+    {
+      "minggu": "M22/2026",
+      "value": 16.0
+    },
+    {
+      "minggu": "M23/2026",
+      "value": 16.0
+    }
+  ],
+  "weeklyRSV": [
+    {
+      "minggu": "M01/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M28/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M29/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M30/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M31/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M32/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M33/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M34/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M35/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M36/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M37/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M38/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M39/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M40/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M41/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M42/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M43/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M44/2025",
+      "value": 7.0
+    },
+    {
+      "minggu": "M45/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M46/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M47/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M48/2025",
+      "value": 13.0
+    },
+    {
+      "minggu": "M49/2025",
+      "value": 13.0
+    },
+    {
+      "minggu": "M50/2025",
+      "value": 19.0
+    },
+    {
+      "minggu": "M51/2025",
+      "value": 11.0
+    },
+    {
+      "minggu": "M52/2025",
+      "value": 25.0
+    },
+    {
+      "minggu": "M53/2025",
+      "value": 10.0
+    },
+    {
+      "minggu": "M01/2026",
+      "value": 27.0
+    },
+    {
+      "minggu": "M02/2026",
+      "value": 40.0
+    },
+    {
+      "minggu": "M03/2026",
+      "value": 57.0
+    },
+    {
+      "minggu": "M04/2026",
+      "value": 38.0
+    },
+    {
+      "minggu": "M05/2026",
+      "value": 45.0
+    },
+    {
+      "minggu": "M06/2026",
+      "value": 0.0
+    },
+    {
+      "minggu": "M07/2026",
+      "value": 12.0
+    },
+    {
+      "minggu": "M08/2026",
+      "value": 26.0
+    },
+    {
+      "minggu": "M09/2026",
+      "value": 32.0
+    },
+    {
+      "minggu": "M10/2026",
+      "value": 0.0
+    },
+    {
+      "minggu": "M11/2026",
+      "value": 13.0
+    },
+    {
+      "minggu": "M12/2026",
+      "value": 18.0
+    },
+    {
+      "minggu": "M13/2026",
+      "value": 5.0
+    },
+    {
+      "minggu": "M14/2026",
+      "value": 16.0
+    },
+    {
+      "minggu": "M15/2026",
+      "value": 11.0
+    },
+    {
+      "minggu": "M16/2026",
+      "value": 6.0
+    },
+    {
+      "minggu": "M17/2026",
+      "value": 6.0
+    },
+    {
+      "minggu": "M18/2026",
+      "value": 6.0
+    },
+    {
+      "minggu": "M19/2026",
+      "value": 0.0
+    },
+    {
+      "minggu": "M20/2026",
+      "value": 0.0
+    },
+    {
+      "minggu": "M21/2026",
+      "value": 10.0
+    },
+    {
+      "minggu": "M22/2026",
+      "value": 0.0
+    },
+    {
+      "minggu": "M23/2026",
+      "value": 0.0
+    }
+  ],
+  "weeklyMultipatogen": [
+    {
+      "minggu": "M01/2025",
+      "value": 40.0
+    },
+    {
+      "minggu": "M28/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M29/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M30/2025",
+      "value": 0
+    },
+    {
+      "minggu": "M31/2025",
+      "value": 25.0
+    },
+    {
+      "minggu": "M32/2025",
+      "value": 38.0
+    },
+    {
+      "minggu": "M33/2025",
+      "value": 38.0
+    },
+    {
+      "minggu": "M34/2025",
+      "value": 68.0
+    },
+    {
+      "minggu": "M35/2025",
+      "value": 18.0
+    },
+    {
+      "minggu": "M36/2025",
+      "value": 40.0
+    },
+    {
+      "minggu": "M37/2025",
+      "value": 45.0
+    },
+    {
+      "minggu": "M38/2025",
+      "value": 52.0
+    },
+    {
+      "minggu": "M39/2025",
+      "value": 59.0
+    },
+    {
+      "minggu": "M40/2025",
+      "value": 35.0
+    },
+    {
+      "minggu": "M41/2025",
+      "value": 20.0
+    },
+    {
+      "minggu": "M42/2025",
+      "value": 20.0
+    },
+    {
+      "minggu": "M43/2025",
+      "value": 31.0
+    },
+    {
+      "minggu": "M44/2025",
+      "value": 34.0
+    },
+    {
+      "minggu": "M45/2025",
+      "value": 23.0
+    },
+    {
+      "minggu": "M46/2025",
+      "value": 26.0
+    },
+    {
+      "minggu": "M47/2025",
+      "value": 0.0
+    },
+    {
+      "minggu": "M48/2025",
+      "value": 60.0
+    },
+    {
+      "minggu": "M49/2025",
+      "value": 57.0
+    },
+    {
+      "minggu": "M50/2025",
+      "value": 56.0
+    },
+    {
+      "minggu": "M51/2025",
+      "value": 53.0
+    },
+    {
+      "minggu": "M52/2025",
+      "value": 44.0
+    },
+    {
+      "minggu": "M53/2025",
+      "value": 30.0
+    },
+    {
+      "minggu": "M01/2026",
+      "value": 64.0
+    },
+    {
+      "minggu": "M02/2026",
+      "value": 80.0
+    },
+    {
+      "minggu": "M03/2026",
+      "value": 86.0
+    },
+    {
+      "minggu": "M04/2026",
+      "value": 62.0
+    },
+    {
+      "minggu": "M05/2026",
+      "value": 68.0
+    },
+    {
+      "minggu": "M06/2026",
+      "value": 38.0
+    },
+    {
+      "minggu": "M07/2026",
+      "value": 53.0
+    },
+    {
+      "minggu": "M08/2026",
+      "value": 68.0
+    },
+    {
+      "minggu": "M09/2026",
+      "value": 79.0
+    },
+    {
+      "minggu": "M10/2026",
+      "value": 0.0
+    },
+    {
+      "minggu": "M11/2026",
+      "value": 63.0
+    },
+    {
+      "minggu": "M12/2026",
+      "value": 73.0
+    },
+    {
+      "minggu": "M13/2026",
+      "value": 63.0
+    },
+    {
+      "minggu": "M14/2026",
+      "value": 58.0
+    },
+    {
+      "minggu": "M15/2026",
+      "value": 58.0
+    },
+    {
+      "minggu": "M16/2026",
+      "value": 44.0
+    },
+    {
+      "minggu": "M17/2026",
+      "value": 35.0
+    },
+    {
+      "minggu": "M18/2026",
+      "value": 41.0
+    },
+    {
+      "minggu": "M19/2026",
+      "value": 38.0
+    },
+    {
+      "minggu": "M20/2026",
+      "value": 0.0
+    },
+    {
+      "minggu": "M21/2026",
+      "value": 55.0
+    },
+    {
+      "minggu": "M22/2026",
+      "value": 136.0
+    },
+    {
+      "minggu": "M23/2026",
+      "value": 136.0
+    }
+  ],
+  "y2025avg": [
+    {
+      "name": "PR COVID-19",
+      "value": 7.0
+    },
+    {
+      "name": "PR Influenza",
+      "value": 24.6
+    },
+    {
+      "name": "Proporsi ILI",
+      "value": 0.2
+    },
+    {
+      "name": "Proporsi SARI",
+      "value": 0.9
+    },
+    {
+      "name": "Proporsi RSV",
+      "value": 14.0
+    },
+    {
+      "name": "Multipatogen Lainnya",
+      "value": 39.7
+    }
+  ],
+  "y2026avg": [
+    {
+      "name": "PR COVID-19",
+      "value": 4.0
+    },
+    {
+      "name": "PR Influenza",
+      "value": 14.5
+    },
+    {
+      "name": "Proporsi ILI",
+      "value": 0.2
+    },
+    {
+      "name": "Proporsi SARI",
+      "value": 1.1
+    },
+    {
+      "name": "Proporsi RSV",
+      "value": 21.6
+    },
+    {
+      "name": "Multipatogen Lainnya",
+      "value": 66.6
+    }
+  ]
+}

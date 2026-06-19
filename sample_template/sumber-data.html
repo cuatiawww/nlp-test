@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sumber Data & Perhitungan — Dashboard Laporan KIE</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; background: #f8fafc; color: #1e293b; }
+  h1 { font-size: 24px; border-bottom: 3px solid #0d9488; padding-bottom: 8px; margin-bottom: 20px; }
+  h2 { font-size: 18px; margin-top: 30px; padding: 8px 12px; background: #0d9488; color: white; border-radius: 6px; }
+  h3 { font-size: 15px; margin-top: 20px; color: #0f766e; border-left: 4px solid #0d9488; padding-left: 10px; }
+  h4 { font-size: 13px; margin-top: 14px; margin-bottom: 4px; color: #475569; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 20px; font-size: 13px; }
+  th { background: #f1f5f9; text-align: left; padding: 8px 10px; border: 1px solid #e2e8f0; font-weight: 700; }
+  td { padding: 8px 10px; border: 1px solid #e2e8f0; vertical-align: top; }
+  .num { font-family: 'Courier New', monospace; font-weight: 700; color: #0d9488; }
+  .meta { color: #64748b; font-size: 11px; }
+  .src { background: #fef3c7; }
+  .calc { background: #ecfdf5; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; color: white; }
+  .bg-beranda { background: #0d9488; }
+  .bg-tren { background: #f97316; }
+  .bg-positivitas { background: #8b5cf6; }
+  .bg-peta { background: #3b82f6; }
+  .bg-perbandingan { background: #ef4444; }
+  .nav { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0; }
+  .nav a { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; color: white; text-decoration: none; }
+  .nav a:hover { opacity: 0.85; }
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 30px 0; }
+</style>
+</head>
+<body>
+
+<h1>📋 Sumber Data &amp; Perhitungan<br><span style="font-size:16px;font-weight:400;color:#64748b;">Dashboard Laporan KIE — Seluruh Angka, Persentase, dan Visualisasi</span></h1>
+
+<p style="font-size:13px;color:#64748b;">
+Dokumen ini menjelaskan sumber dan metode perhitungan untuk setiap angka, persentase, dan data yang muncul di dashboard. 
+Semua data bersumber dari halaman <strong>surkarkes.kemkes.go.id/ringkasan-kasus</strong> — Laporan Pengawasan Kasus Influenza dan COVID-19.
+</p>
+
+<div class="nav">
+  <a href="#beranda" class="bg-beranda">Beranda</a>
+  <a href="#tren" class="bg-tren">Tren Epidemiologi</a>
+  <a href="#positivitas" class="bg-positivitas">Positivitas</a>
+  <a href="#peta" class="bg-peta">Peta Nasional</a>
+  <a href="#perbandingan" class="bg-perbandingan">Perbandingan Tahunan</a>
+</div>
+
+<!-- ============================================================ -->
+<!-- BERANDA -->
+<!-- ============================================================ -->
+<h2 id="beranda"><span class="badge bg-beranda">1</span> BERANDA</h2>
+<p class="meta">Halaman: <code>/</code> | Route: <code>page.tsx</code></p>
+
+<h3>1.1 Lima Metric Card (Baris Atas)</h3>
+
+<table>
+<tr><th>#</th><th>Judul</th><th>Nilai Tampil</th><th>Sumber Data</th><th>Cara Perhitungan</th></tr>
+<tr>
+  <td>1</td>
+  <td>Total Pemeriksaan COVID-19</td>
+  <td class="num">4.664</td>
+  <td class="src">Bagian <strong>Poin Utama</strong> pada halaman Ringkasan Kasus — "dari <em>X</em> pemeriksaan COVID-19"<br><span class="meta">URL: weekly reports → scroll ke Poin Utama</span></td>
+  <td class="calc"><strong>Sum seluruh minggu 2026 (M1-M23):</strong><br>492+185+368+249+226+342+0+235+171+162+198+180+114+178+169+336+164+154+247+136+115+117+179+444 = 4.664<br>Angka langsung dari laporan, tidak ada perhitungan.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Positivity Rate COVID-19</td>
+  <td class="num">1.9%</td>
+  <td class="src">Tabel <strong>COVID-19 Activity</strong> → baris "Positivity rate COVID-19" → kolom <strong>Keterangan</strong><br><span class="meta">URL: {minggu}/{tahun} → section Ringkasan Kasus → Tabel COVID-19 Activity</span></td>
+  <td class="calc"><strong>Spesimen positif SARS-CoV-2 ÷ total spesimen diperiksa × 100%</strong><br>Nilai di kolom Keterangan: "menjadi X% dari Y%" untuk minggu berjalan (M23/2026).<br>Contoh langsung dari teks: "menjadi 1.9% dari 1.5%".</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td>Kasus Positif COVID-19</td>
+  <td class="num">22</td>
+  <td class="src">Bagian <strong>Poin Utama</strong> — "terdapat <em>22</em> kasus positif"<br><span class="meta">URL: {23}/{2026} → Poin Utama bullet point ke-2</span></td>
+  <td class="calc"><strong>Angka langsung dari laporan mingguan.</strong><br>Teks: "dari 444 pemeriksaan COVID-19, terdapat 22 kasus positif (21 Sentinel ILI, 1 Sentinel SARI dan 0 non Sentinel)"</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>Positivity Rate Influenza</td>
+  <td class="num">16%</td>
+  <td class="src">Tabel <strong>Influenza Activity</strong> → baris "Positivity rate influenza" → kolom <strong>Keterangan</strong><br><span class="meta">URL: {23}/{2026} → Tabel Influenza Activity → baris ke-3</span></td>
+  <td class="calc"><strong>Spesimen positif influenza ÷ total spesimen diperiksa × 100%</strong><br>Nilai dari kolom Keterangan: "menjadi 16% dari 5%".</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Aktivitas Influenza</td>
+  <td class="num">Rendah</td>
+  <td class="src">Tabel <strong>Influenza Activity</strong> → kolom <strong>Level</strong><br><span class="meta">URL: {23}/{2026} → Influenza Activity → kolom ke-3</span></td>
+  <td class="calc"><strong>Klasifikasi oleh Kemenkes</strong> berdasarkan threshold ILI%, SARI%, dan positivity rate influenza.<br>Terdapat 3 kategori: "aktifitas influenza rendah", "di luar musim influenza", "Aktivitas Influenza Sedang".</td>
+</tr>
+</table>
+
+<h3>1.2 Ringkasan Terkini (Card Kiri Atas)</h3>
+
+<table>
+<tr><th>Elemen</th><th>Nilai</th><th>Sumber</th><th>Perhitungan</th></tr>
+<tr>
+  <td>PR COVID-19 Terkini</td>
+  <td class="num">1.9%</td>
+  <td class="src">Tabel COVID-19 Activity → baris "Positivity rate COVID-19"</td>
+  <td class="calc">Sama dengan Metric Card #2</td>
+</tr>
+<tr>
+  <td>Minggu 23 Tahun 2026</td>
+  <td class="num">M23/2026</td>
+  <td class="src">Header halaman detail Ringkasan Kasus — "13 Jun (Minggu ke 23)"</td>
+  <td class="calc">Angka langsung dari URL dan judul halaman</td>
+</tr>
+<tr>
+  <td>Kategori / Level</td>
+  <td class="num">RENDAH</td>
+  <td class="src">Tabel Influenza Activity → kolom Level</td>
+  <td class="calc">Sama dengan Metric Card #5</td>
+</tr>
+</table>
+
+<h3>1.3 Donut Chart — Distribusi Level Aktivitas Influenza</h3>
+
+<table>
+<tr><th>Segmen</th><th>Nilai</th><th>Sumber</th><th>Perhitungan</th></tr>
+<tr>
+  <td>🟢 Aktivitas Rendah</td>
+  <td class="num">97 minggu (68.8%)</td>
+  <td class="src" rowspan="3">Kolom <strong>Level</strong> pada Tabel Influenza Activity — seluruh 47 minggu pengawasan<br><span class="meta">URL: {31-53}/{2025} + {01-23}/{2026} → Influenza Activity</span></td>
+  <td class="calc" rowspan="3"><strong>Count minggu per level ÷ total minggu × 100%</strong><br>Rendah: 97/141 = 68.8%<br>Di Luar Musim: 28/141 = 19.9%<br>Sedang: 16/141 = 11.3%<br><span class="meta">Catatan: termasuk variasi ejaan "di luar", "diluar", "diuar" sebagai "Di Luar Musim"</span></td>
+</tr>
+<tr>
+  <td>🔵 Di Luar Musim</td>
+  <td class="num">28 minggu (19.9%)</td>
+</tr>
+<tr>
+  <td>🟡 Aktivitas Sedang</td>
+  <td class="num">16 minggu (11.3%)</td>
+</tr>
+</table>
+
+<h3>1.4 Bar Chart — Rata-rata Positivity Rate per Indikator</h3>
+
+<table>
+<tr><th>Indikator</th><th>Nilai</th><th>Sumber</th><th>Perhitungan</th></tr>
+<tr><td>PR Influenza</td><td class="num">19.3%</td><td class="src" rowspan="6">Tabel Influenza / COVID-19 / RSV Activity → kolom Keterangan — seluruh 47 minggu</td><td class="calc" rowspan="6"><strong>Σ(nilai per minggu) ÷ 47 minggu</strong><br>Nilai per minggu diekstrak dari teks "menjadi X% dari Y%" pada kolom Keterangan.<br>Jika nilai = null (karena "Tidak ada kasus RSV"), dianggap 0 untuk rata-rata.</td></tr>
+<tr><td>PR COVID-19</td><td class="num">4.9%</td></tr>
+<tr><td>RSV</td><td class="num">15.0%</td></tr>
+<tr><td>Multipatogen</td><td class="num">49.2%</td></tr>
+<tr><td>Proporsi ILI</td><td class="num">0.18%</td></tr>
+<tr><td>Proporsi SARI</td><td class="num">0.96%</td></tr>
+</table>
+
+<h3>1.5 Line Chart — Tren Positivity Rate Influenza</h3>
+
+<table>
+<tr><th>Detail</th><th>Keterangan</th></tr>
+<tr>
+  <td>Data points</td>
+  <td class="num">25 titik</td>
+  <td class="src">Tabel Influenza Activity → baris "Positivity rate influenza" → kolom Keterangan — M1/2025 hingga M23/2026</td>
+  <td class="calc">Nilai X dari teks "menjadi X% dari Y%" per minggu. Ditampilkan sebagai line chart (sumur PR Influenza).</td>
+</tr>
+<tr>
+  <td>Range</td>
+  <td class="num">0% — 55%</td>
+  <td class="src">Sama seperti di atas</td>
+  <td class="calc">Y-axis domain [0, 60]. Referensi line di 19.3% (rata-rata).</td>
+</tr>
+<tr>
+  <td>Spike M41/2025</td>
+  <td class="num">55%</td>
+  <td class="src">Tabel Influenza Activity → M41/2025 → kolom Keterangan</td>
+  <td class="calc">Nilai langsung dari teks "menjadi 55% dari 27%".<br>Ini adalah nilai tertinggi sepanjang pengawasan.</td>
+</tr>
+</table>
+
+<h3>1.6 Insight Cards (Decision Support)</h3>
+
+<table>
+<tr><th>#</th><th>Insight</th><th>Angka</th><th>Sumber</th></tr>
+<tr><td>1</td><td>PR Influenza minggu ini meningkat</td><td>16% dari 5% (+11%)</td><td>Tabel Influenza Activity → M23/2026</td></tr>
+<tr><td>2</td><td>Multipatogen tinggi</td><td>136%</td><td>Tabel RSV ACTIVITY → M23/2026</td></tr>
+<tr><td>3</td><td>Kasus positif COVID-19</td><td>22 dari 444</td><td>Poin Utama → M23/2026</td></tr>
+<tr><td>4</td><td>ITren ILI meningkat</td><td>0.11% dari 0.22%</td><td>Tabel Influenza Activity → ILI → M23/2026</td></tr>
+<tr><td>5</td><td>Varian dominan</td><td>LF.7 (66.7%)</td><td>Poin Utama → "Varian dominan di Indonesia adalah LF.7..."</td></tr>
+<tr><td>6</td><td>HMPV</td><td>59 kasus</td><td>Poin Utama → "Jumlah kasus konfirmasi HMPV"</td></tr>
+</table>
+
+<h3>1.7 Minggu Signifikan (Tabel)</h3>
+<p class="meta">10 baris data — masing-masing dari tabel Activity per minggu, diurutkan berdasarkan nilai tertinggi.</p>
+
+<h3>1.8 What-if Proyeksi</h3>
+<p class="meta">Menggunakan delta minggu terakhir dari masing-masing indikator, disimulasikan N minggu ke depan.<br>Contoh: PR Influenza M23/2026 = 16%, delta = +11% (dari 5%). Simulasi 1 minggu = 16% + 11% = 27%.</p>
+
+<h3>1.9 Indikator Prioritas (Top 5)</h3>
+<p class="meta">Berdasarkan nilai tertinggi dari dampak / urgency masing-masing indikator per minggu terkini.</p>
+
+<hr>
+
+<!-- ============================================================ -->
+<!-- TREN EPIDEMIOLOGI -->
+<!-- ============================================================ -->
+<h2 id="tren"><span class="badge bg-tren">2</span> TREN EPIDEMIOLOGI</h2>
+<p class="meta">Halaman: <code>/tren-epidemiologi</code> | Route: <code>app/tren-epidemiologi/page.tsx</code></p>
+
+<h3>2.1 Ringkasan Eksekutif</h3>
+<table>
+<tr><th>Elemen</th><th>Nilai</th><th>Sumber</th></tr>
+<tr><td>Spike PR Influenza tertinggi</td><td class="num">55% (M41/2025)</td><td>Tabel Influenza Activity → "menjadi 55% dari 27%"</td></tr>
+<tr><td>PR COVID-19 stabil</td><td class="num">1.9% (M22-M23/2026)</td><td>Tabel COVID-19 Activity → minggu terkini</td></tr>
+<tr><td>Rata-rata Influenza 2025</td><td class="num">21.1%</td><td>Mean PR Influenza M31-M53/2025 (23 minggu)</td></tr>
+<tr><td>Rata-rata Influenza 2026</td><td class="num">13.0%</td><td>Mean PR Influenza M1-M23/2026 (23 minggu)</td></tr>
+</table>
+
+<h3>2.2 Empat Delta Cards</h3>
+<table>
+<tr><th>Card</th><th>Nilai</th><th>Sumber</th><th>Perhitungan</th></tr>
+<tr>
+  <td>PR Influenza Terkini</td>
+  <td class="num">16% ▲ +11%</td>
+  <td>Tabel Influenza Activity → M23/2026</td>
+  <td class="calc">16% - 5% = +11%</td>
+</tr>
+<tr>
+  <td>PR COVID-19 Terkini</td>
+  <td class="num">1.9% ▲ +0.2%</td>
+  <td>Tabel COVID-19 Activity → M23/2026</td>
+  <td class="calc">1.9% - 1.7% dari M22 = +0.2%</td>
+</tr>
+<tr>
+  <td>Kasus Positif Terbaru</td>
+  <td class="num">22</td>
+  <td>Poin Utama → M23/2026</td>
+  <td class="calc">Angka langsung</td>
+</tr>
+<tr>
+  <td>Tren PR Influenza (7 mgg)</td>
+  <td class="num">▲ 16→16→16%</td>
+  <td>Tabel Influenza Activity → M21-M23/2026</td>
+  <td class="calc">Nilai 3 minggu terakhir: 17% → 16% → 16%</td>
+</tr>
+</table>
+
+<h3>2.3 Multi-line Chart (PR Influenza + PR COVID-19)</h3>
+<table>
+<tr><th>Data</th><th>Keterangan</th></tr>
+<tr><td>Series 1: PR Influenza</td><td>25 titik data, dari M1/2025 (26%) sampai M23/2026 (16%)</td></tr>
+<tr><td>Series 2: PR COVID-19</td><td>25 titik data, dari M1/2025 (18%) sampai M23/2026 (1.9%)</td></tr>
+<tr><td>Sumber</td><td>Tabel Influenza Activity (PR Influenza) + Tabel COVID-19 Activity (PR COVID-19) per minggu</td></tr>
+</table>
+
+<h3>2.4 Bar Chart — Kasus Positif COVID-19</h3>
+<table>
+<tr><th>Data</th><th>Keterangan</th></tr>
+<tr><td>11 titik data</td><td>M31/2025 (18), M35/2025 (7), M40/2025 (11), M45/2025 (26), M50/2025 (22), M53/2025 (10), M5/2026 (8), M10/2026 (4), M15/2026 (15), M20/2026 (2), M23/2026 (22)</td></tr>
+<tr><td>Sumber</td><td>Bagian Poin Utama per minggu — "terdapat Y kasus positif"</td></tr>
+</table>
+
+<hr>
+
+<!-- ============================================================ -->
+<!-- POSITIVITAS -->
+<!-- ============================================================ -->
+<h2 id="positivitas"><span class="badge bg-positivitas">3</span> POSITIVITAS &amp; LEVEL</h2>
+<p class="meta">Halaman: <code>/positivitas</code> | Route: <code>app/positivitas/page.tsx</code></p>
+
+<h3>3.1 Lima KPI Cards</h3>
+<table>
+<tr><th>Card</th><th>Nilai</th><th>Sumber</th><th>Perhitungan</th></tr>
+<tr><td>PR Influenza</td><td class="num">19.3%</td><td>47 minggu</td><td>Mean PR Influenza seluruh minggu</td></tr>
+<tr><td>PR COVID-19</td><td class="num">4.9%</td><td>47 minggu</td><td>Mean PR COVID-19 seluruh minggu</td></tr>
+<tr><td>Proporsi RSV</td><td class="num">15.0%</td><td>47 minggu</td><td>Mean RSV seluruh minggu</td></tr>
+<tr><td>Multipatogen</td><td class="num">49.2%</td><td>47 minggu</td><td>Mean Multipatogen seluruh minggu</td></tr>
+<tr><td>Minggu Terkini</td><td class="num">47 mgg</td><td>M1/2025 - M23/2026</td><td>Count minggu tersedia</td></tr>
+</table>
+
+<h3>3.2 Horizontal Bar Chart</h3>
+<p>6 indikator dengan nilai rata-rata yang sama seperti KPI cards di atas.</p>
+
+<h3>3.3 Timeline Level Aktivitas</h3>
+<table>
+<tr><th>Data</th><th>Keterangan</th></tr>
+<tr><td>47 cell warna</td><td>Setiap cell = 1 minggu. 🟢 Rendah, 🟡 Sedang (4 minggu: M41, M44, M46, M47)</td></tr>
+<tr><td>Sumber</td><td>Kolom Level pada Tabel Influenza Activity per minggu</td></tr>
+<tr><td>Layout</td><td>2025 | 24 minggu (M1 + M31-M53) + 2026 | 23 minggu (M1-M23)</td></tr>
+</table>
+
+<h3>3.4 Insight Penting Box</h3>
+<table>
+<tr><th>Insight</th><th>Angka</th></tr>
+<tr><td>Multipatogen tertinggi</td><td>136% (M23/2026) vs rata-rata 49.2%</td></tr>
+<tr><td>Rasio terhadap rata-rata</td><td>136 ÷ 49.2 = 2.7×</td></tr>
+<tr><td>CFR</td><td>Tidak tersedia (tidak ada data kematian per minggu)</td></tr>
+</table>
+
+<hr>
+
+<!-- ============================================================ -->
+<!-- PETA NASIONAL -->
+<!-- ============================================================ -->
+<h2 id="peta"><span class="badge bg-peta">4</span> PETA NASIONAL</h2>
+<p class="meta">Halaman: <code>/peta-nasional</code> | Route: <code>app/peta-nasional/page.tsx</code></p>
+
+<table>
+<tr><th>Card</th><th>Nilai</th><th>Sumber</th></tr>
+<tr><td>Kasus HMPV (2025)</td><td class="num">59 kasus</td><td>Poin Utama — "Jumlah kasus konfirmasi HMPV di Indonesia pada tahun 2025 yang dilaporkan sampai dengan minggu ke 52 berjumlah 59 kasus"</td></tr>
+<tr><td>Distribusi H3N2</td><td class="num">Jatim 24%, Kalsel 24%, Jakarta 14.8%</td><td>Poin Utama — "Distribusi kasus H3N2 Subclade K didominasi oleh Jawa Timur (24%) dan Kalimantan Selatan (24%), diikuti Jakarta (14,8%)"</td></tr>
+<tr><td>Sentinel Aktif</td><td class="num">88 fasilitas</td><td>Poin Utama — "39 Puskesmas, 35 Rumah Sakit dan 14 Balai Karantina Kesehatan"</td></tr>
+<tr><td>Provinsi Terdeteksi</td><td class="num">13 provinsi</td><td>Section Surveilans Lab — "Tersebar di 13 provinsi"</td></tr>
+</table>
+
+<hr>
+
+<!-- ============================================================ -->
+<!-- PERBANDINGAN TAHUNAN -->
+<!-- ============================================================ -->
+<h2 id="perbandingan"><span class="badge bg-perbandingan">5</span> PERBANDINGAN TAHUNAN</h2>
+<p class="meta">Halaman: <code>/perbandingan-tahunan</code> | Route: <code>app/perbandingan-tahunan/page.tsx</code></p>
+
+<h3>5.1 Ringkasan Eksekutif</h3>
+<table>
+<tr><th>Elemen</th><th>Nilai</th><th>Perhitungan</th></tr>
+<tr><td>PR COVID-19 naik</td><td>3.2% → 4.9% (+53%)</td><td>(4.9 - 3.2) / 3.2 × 100% = +53.1%</td></tr>
+<tr><td>PR Influenza turun</td><td>21.1% → 13.0% (-38%)</td><td>(13.0 - 21.1) / 21.1 × 100% = -38.4%</td></tr>
+<tr><td>Caveat</td><td colspan="2">Bukan full year! 2025: M31-M53 (23 mgg). 2026: M1-M23 (23 mgg).</td></tr>
+</table>
+
+<h3>5.2 Best / Worst Cards</h3>
+<table>
+<tr><th>Card</th><th>Indikator</th><th>Perubahan</th></tr>
+<tr><td>🏆 Paling Membaik</td><td>PR Influenza</td><td>21.1% → 13.0% (▼ -38%)</td></tr>
+<tr><td>⚠️ Paling Memburuk</td><td>PR COVID-19</td><td>3.2% → 4.9% (▲ +53%)</td></tr>
+</table>
+
+<h3>5.3 Grouped Bar Chart</h3>
+<p>5 indikator × 2 tahun (2025 vs 2026), nilai sama dengan tabel di bawah.</p>
+
+<h3>5.4 Tabel Perbandingan</h3>
+<table>
+<tr><th>Indikator</th><th>2025</th><th>2026</th><th>Perubahan</th></tr>
+<tr><td>PR COVID-19</td><td>3.2%</td><td>4.9%</td><td>▲ +53%</td></tr>
+<tr><td>PR Influenza</td><td>21.1%</td><td>13.0%</td><td>▼ -38%</td></tr>
+<tr><td>Proporsi ILI</td><td>0.17%</td><td>0.19%</td><td>▲ +12%</td></tr>
+<tr><td>Proporsi SARI</td><td>0.92%</td><td>1.01%</td><td>▲ +10%</td></tr>
+<tr><td>Proporsi RSV</td><td>14.0%</td><td>17.0%</td><td>▲ +21%</td></tr>
+</table>
+
+<hr>
+
+<h2>6. SUMBER UTAMA</h2>
+
+<p>Semua data di dashboard ini berasal dari <strong>satu sumber utama</strong>:</p>
+
+<table>
+<tr><th>Sumber</th><th>URL Pattern</th><th>Konten</th></tr>
+<tr>
+  <td><strong>Halaman Utama Laporan</strong></td>
+  <td><code>surkarkes.kemkes.go.id/ringkasan-kasus/home</code></td>
+  <td>Daftar minggu yang tersedia, filter tahun</td>
+</tr>
+<tr>
+  <td><strong>Halaman Detail Mingguan</strong></td>
+  <td><code>surkarkes.kemkes.go.id/ringkasan-kasus/{minggu}/{tahun}</code><br>Format: <code>01/2025</code> (2 digit minggu)</td>
+  <td>
+    3 tabel utama:<br>
+    • <strong>Influenza Activity</strong>: Indikator | Tren | Level | Keterangan<br>
+    • <strong>COVID-19 Activity</strong>: Indikator | Tren | Level | Keterangan<br>
+    • <strong>RSV ACTIVITY</strong>: Indikator | Tren | Level | Keterangan<br>
+    + Bagian <strong>Poin Utama</strong>: rangkuman teks
+  </td>
+</tr>
+</table>
+
+<h3>6.1 Metode Ekstraksi</h3>
+<ol style="font-size:13px;">
+  <li><strong>Scraping HTTP</strong>: Python + requests + BeautifulSoup mengambil HTML setiap halaman</li>
+  <li><strong>Parsing Tabel</strong>: Tiga tabel (Influenza, COVID-19, RSV) di-parse per baris per kolom</li>
+  <li><strong>Ekstraksi Angka</strong>: Dari kolom Keterangan via regex — pola "menjadi X% dari Y%"</li>
+  <li><strong>Poin Utama</strong>: Regex "dari X pemeriksaan... terdapat Y kasus positif... positivity rate Z%"</li>
+  <li><strong>Penyimpanan</strong>: Excel (data_ringkasan_kasus.xlsx) → 4 sheet: Data_Lengkap, Rekap_Influenza, Rekap_COVID19, Rekap_RSV</li>
+</ol>
+
+<h3>6.2 Keterbatasan</h3>
+<ul style="font-size:13px;">
+  <li>Data hanya tersedia untuk <strong>47 minggu</strong>: 2025 (M1 + M31-M53) dan 2026 (M1-M23)</li>
+  <li><strong>3 minggu</strong> (M28-M30/2025) tidak memiliki tabel — data dalam format narasi/prosa, belum diekstrak</li>
+  <li><strong>CFR</strong> tidak dapat dihitung — tidak ada data kematian COVID-19 per minggu</li>
+  <li><strong>Data provinsi per minggu</strong> tidak tersedia — hanya kumulatif tahunan</li>
+  <li><strong>Perbandingan YoY</strong> terbatas — bukan full year, hanya minggu yang tumpang tindih</li>
+</ul>
+
+<p style="margin-top:30px;padding:12px;background:#f0fdf4;border-radius:8px;font-size:13px;text-align:center;">
+  <strong>Dokumen ini dibuat otomatis dari source code dashboard.</strong><br>
+  File: <code>sumber-data.html</code> — Direktori root project dashboard-influenza.
+</p>
+
+</body>
+</html>

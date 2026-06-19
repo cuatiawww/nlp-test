@@ -1,0 +1,169 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { ArrowLeft, RefreshCw, Play, Trash2 } from 'lucide-react'
+import type { Source, Run } from '@/types'
+import { fetchSources, fetchRuns, triggerCollect, updateSource, deleteSource } from '@/lib/api'
+import Link from 'next/link'
+import { useParams, useRouter } from 'next/navigation'
+
+export default function SourceDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+  const [source, setSource] = useState<Source | null>(null)
+  const [runs, setRuns] = useState<Run[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({ name: '', schedule: '' })
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const all = await fetchSources()
+      const found = all.find((s: Source) => s.id === id)
+      setSource(found || null)
+      if (found) {
+        setForm({ name: found.name, schedule: found.schedule || '' })
+        setRuns(await fetchRuns(id))
+      }
+    } catch {}
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [id])
+
+  const handleTrigger = async () => {
+    try {
+      await triggerCollect(id)
+      alert('Collection triggered')
+      await load()
+    } catch (e: any) {
+      alert(`Gagal: ${e.message}`)
+    }
+  }
+
+  const handleSave = async () => {
+    try {
+      await updateSource(id, form)
+      setEditing(false)
+      await load()
+    } catch (e: any) {
+      alert(`Gagal: ${e.message}`)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!confirm('Hapus sumber data ini?')) return
+    try {
+      await deleteSource(id)
+      router.push('/sources')
+    } catch (e: any) {
+      alert(`Gagal: ${e.message}`)
+    }
+  }
+
+  if (loading) return <div className="p-8 text-center text-slate-400">Memuat...</div>
+  if (!source) return <div className="p-8 text-center text-slate-400">Sumber tidak ditemukan</div>
+
+  return (
+    <div className="px-4 md:px-6">
+      <Link href="/sources" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700">
+        <ArrowLeft className="h-4 w-4" /> Kembali
+      </Link>
+
+      <div className="mt-4 flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{source.name}</h1>
+          <p className="mt-1 text-sm text-slate-500">Tipe: {source.source_type} | Jadwal: {source.schedule || 'manual'}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={handleTrigger} className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-bold uppercase text-teal-700 transition hover:bg-teal-100">
+            <Play className="h-4 w-4" /> Trigger
+          </button>
+          <button onClick={handleDelete} className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold uppercase text-red-600 transition hover:bg-red-100">
+            <Trash2 className="h-4 w-4" /> Hapus
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Konfigurasi</h2>
+          <button onClick={() => setEditing(!editing)}
+            className="text-sm font-semibold text-teal-600 hover:text-teal-700"
+          >{editing ? 'Batal' : 'Edit'}</button>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Nama</label>
+            <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              disabled={!editing}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-500" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Jadwal (interval:menit)</label>
+            <input type="text" value={form.schedule} onChange={e => setForm(f => ({ ...f, schedule: e.target.value }))}
+              disabled={!editing} placeholder="contoh: interval:60"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-500" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Config (JSON)</label>
+            <textarea value={JSON.stringify(source.config, null, 2)} readOnly
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono text-slate-600 bg-slate-50"
+              rows={6} />
+          </div>
+        </div>
+
+        {editing && (
+          <div className="mt-4 flex justify-end">
+            <button onClick={handleSave}
+              className="rounded-xl bg-teal-600 px-6 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700"
+            >Simpan</button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-slate-50 px-5 py-3">
+          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Riwayat Collection</h2>
+        </div>
+        {runs.length === 0 ? (
+          <div className="p-8 text-center text-slate-400">Belum ada riwayat</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-slate-50 text-left">
+                <th className="px-4 py-3 font-semibold text-slate-600">Mulai</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">Selesai</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">Status</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-600">Ditemukan</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-600">Diproses</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((r) => (
+                <tr key={r.id} className="border-b border-slate-50 hover:bg-teal-50/40">
+                  <td className="px-4 py-3 text-slate-700">{r.started_at?.slice(0, 19)}</td>
+                  <td className="px-4 py-3 text-slate-700">{r.finished_at?.slice(0, 19) || '—'}</td>
+                  <td className="px-4 py-3">
+                    {r.status === 'SUCCESS'
+                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">SUCCESS</span>
+                      : r.status === 'FAILED'
+                      ? <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">FAILED</span>
+                      : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-600">RUNNING</span>
+                    }
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-700">{r.records_found}</td>
+                  <td className="px-4 py-3 text-right text-slate-700">{r.records_ingested}</td>
+                  <td className="px-4 py-3 text-xs text-red-500">{r.error_message || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
