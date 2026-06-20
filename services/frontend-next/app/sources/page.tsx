@@ -1,33 +1,23 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Plus, Play, Trash2 } from 'lucide-react'
+import { Plus, Play } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Source } from '@/types'
 import Link from 'next/link'
-import { fetchSources, triggerCollect } from '@/lib/api'
+import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
+import SearchInput from '@/components/SearchInput'
+import Pagination from '@/components/Pagination'
+import { triggerCollect } from '@/lib/api'
 
 export default function SourcesPage() {
-  const [sources, setSources] = useState<Source[]>([])
-  const [loading, setLoading] = useState(true)
-
-  const load = async () => {
-    setLoading(true)
-    try {
-      const d = await fetchSources()
-      setSources(d)
-    } catch {}
-    setLoading(false)
-  }
-
-  useEffect(() => { load() }, [])
+  const { data, loading, page, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Source>('/api/v1/sources')
 
   const handleTrigger = async (id: string, name: string) => {
     toast.promise(
       triggerCollect(id),
       {
         loading: `Memproses ${name}...`,
-        success: () => { setTimeout(load, 500); return `${name} selesai` },
+        success: () => { setTimeout(reload, 500); return `${name} selesai` },
         error: `Gagal memproses ${name}`,
       }
     )
@@ -49,7 +39,7 @@ export default function SourcesPage() {
           <p className="mt-1 text-sm text-slate-500">Kelola sumber data untuk koleksi berita dan laporan</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold uppercase text-slate-600 transition hover:bg-slate-50">
+          <button onClick={reload} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold uppercase text-slate-600 transition hover:bg-slate-50">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Refresh
           </button>
@@ -60,11 +50,18 @@ export default function SourcesPage() {
         </div>
       </div>
 
+      <div className="mt-4 flex gap-2">
+        <div className="relative flex-1">
+          <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <SearchInput value={search} onChange={setSearch} placeholder="Cari sumber data..." />
+        </div>
+      </div>
+
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
-          <div className="p-8 text-center text-slate-400">Memuat...</div>
-        ) : sources.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">Belum ada sumber data</div>
+          <div className="p-8 text-center text-slate-400 text-sm">Memuat...</div>
+        ) : data.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-sm">Belum ada sumber data</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -77,7 +74,7 @@ export default function SourcesPage() {
               </tr>
             </thead>
             <tbody>
-              {sources.map((s) => (
+              {data.map((s) => (
                 <tr key={s.id} className="border-b border-slate-50 hover:bg-teal-50/40">
                   <td className="px-4 py-3">
                     <span className="font-semibold text-teal-700">{s.name}</span>
@@ -100,6 +97,7 @@ export default function SourcesPage() {
             </tbody>
           </table>
         )}
+        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} />
       </div>
     </div>
   )

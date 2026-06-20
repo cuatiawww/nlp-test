@@ -139,3 +139,16 @@ export const deleteUser = (id: string) => delAuth(`/api/v1/users/${id}`)
 
 export const fetchEvents = () => fetchFrom<any[]>('/api/v1/events')
 export const cleanupEvents = () => postTo('/api/v1/data/cleanup-events')
+
+// ── Pagination helper ────────────────────────────
+
+export async function fetchPaginated<T>(path: string): Promise<{ data: T[]; total: number; totalPages: number }> {
+  const res = await fetch(`${baseURL()}${path}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`)
+  const json = await res.json()
+  return {
+    data: json.data as T[],
+    total: (json.total as number) || 0,
+    totalPages: (json.total_pages as number) || 1,
+  }
+}

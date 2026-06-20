@@ -1,31 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Plus, Save } from 'lucide-react'
-import { fetchOutbreakRules, createOutbreakRule, updateOutbreakRule } from '@/lib/api'
+import { createOutbreakRule, updateOutbreakRule } from '@/lib/api'
+import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
+import SearchInput from '@/components/SearchInput'
+import Pagination from '@/components/Pagination'
 
 interface Rule {
   id: string; disease_name: string; display_label?: string; min_case_count: number; is_active: boolean; priority: number
 }
 
 export default function OutbreakRulesPage() {
-  const [rules, setRules] = useState<Rule[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: rules, loading, page, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<Rule>('/api/v1/outbreak-rules')
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ disease_name: '', display_label: '', min_case_count: 25, is_active: true, priority: 0 })
   const [showNew, setShowNew] = useState(false)
   const [newForm, setNewForm] = useState({ disease_name: '', display_label: '', min_case_count: 25, is_active: true, priority: 0 })
-
-  const load = async () => {
-    setLoading(true)
-    try {
-      const d = await fetchOutbreakRules()
-      setRules(d)
-    } catch {}
-    setLoading(false)
-  }
-
-  useEffect(() => { load() }, [])
 
   const handleEdit = (r: Rule) => {
     setEditId(r.id)
@@ -36,7 +27,6 @@ export default function OutbreakRulesPage() {
     try {
       await updateOutbreakRule(id, editForm)
       setEditId(null)
-      await load()
     } catch {}
   }
 
@@ -46,7 +36,6 @@ export default function OutbreakRulesPage() {
       await createOutbreakRule(newForm)
       setShowNew(false)
       setNewForm({ disease_name: '', display_label: '', min_case_count: 25, is_active: true, priority: 0 })
-      await load()
     } catch {}
   }
 
@@ -61,6 +50,13 @@ export default function OutbreakRulesPage() {
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700">
           <Plus className="h-4 w-4" /> Tambah Rule
         </button>
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <div className="relative max-w-xs">
+          <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <SearchInput value={search} onChange={setSearch} placeholder="Cari penyakit..." />
+        </div>
       </div>
 
       {showNew && (
@@ -83,8 +79,8 @@ export default function OutbreakRulesPage() {
       )}
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {loading ? <div className="p-8 text-center text-slate-400">Memuat...</div> : rules.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">Belum ada rules</div>
+        {loading ? <div className="p-8 text-center text-slate-400 text-sm">Memuat...</div> : rules.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-sm">Belum ada rules</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -135,6 +131,7 @@ export default function OutbreakRulesPage() {
             </tbody>
           </table>
         )}
+        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} />
       </div>
     </div>
   )

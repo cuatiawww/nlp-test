@@ -64,6 +64,14 @@ struct NlpResponse {
 struct ApiResponse<T> {
     success: bool,
     data: T,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    per_page: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_pages: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +95,10 @@ struct UpdateSourceRequest {
 #[derive(Debug, Deserialize)]
 struct RunsQuery {
     source_id: Option<Uuid>,
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +145,10 @@ struct CreateRuleRequest {
 #[derive(Debug, Deserialize)]
 struct LabelQuery {
     category: Option<String>,
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    is_active: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,6 +169,10 @@ struct UpdateLabelRequest {
 #[derive(Debug, Deserialize)]
 struct KeywordQuery {
     category: Option<String>,
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    is_active: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,6 +199,52 @@ struct UpdateRuleRequest {
     min_case_count: Option<i32>,
     is_active: Option<bool>,
     priority: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EventsQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    disease: Option<String>,
+    source_type: Option<String>,
+    outbreak_alert: Option<bool>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SourcesQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    source_type: Option<String>,
+    enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UsersQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    role: Option<String>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RulesQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SummaryQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    disease: Option<String>,
 }
 
 #[tokio::main]
@@ -303,6 +369,7 @@ async fn ingest(
         Ok(_) => Ok(Json(ApiResponse {
             success: true,
             data: json!({ "raw_report_id": raw_id, "status": "queued" }),
+            total: None, page: None, per_page: None, total_pages: None,
         })),
         Err(e) => {
             tracing::warn!("RabbitMQ unavailable, processing synchronously: {:?}", e);
@@ -390,16 +457,31 @@ async fn ingest(
             Ok(Json(ApiResponse {
                 success: true,
                 data: json!({ "raw_report_id": raw_id, "nlp": nlp, "status": "processed_sync" }),
+                total: None, page: None, per_page: None, total_pages: None,
             }))
         }
     }
 }
 
-async fn list_events(State(state): State<Arc<AppState>>) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+fn build_pagination(page: Option<i64>, per_page: Option<i64>) -> (i64, i64, i64) {
+    let p = page.unwrap_or(1).max(1);
+    let pp = per_page.unwrap_or(20).max(1).min(100);
+    let offset = (p - 1) * pp;
+    (p, pp, offset)
+}
+
+fn calc_total_pages(total: i64, per_page: i64) -> i64 {
+    if total == 0 { 1 } else { (total as f64 / per_page as f64).ceil() as i64 }
+}
+
+async fn list_events(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<EventsQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
-    let rows = client
-        .query(
-            "SELECT e.id, e.source_type, e.source_name, e.published_at::text, e.language, e.location_name,
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
+    let sql = "SELECT e.id, e.source_type, e.source_name, e.published_at::text, e.language, e.location_name,
                     e.disease_classification, e.case_count, e.death_count, e.confidence::float8 AS confidence, e.outbreak_alert,
                     ST_Y(e.geom) AS latitude, ST_X(e.geom) AS longitude, e.created_at::text,
                     e.sentiment, e.event_type, e.relevance_score,
@@ -407,10 +489,19 @@ async fn list_events(State(state): State<Arc<AppState>>) -> Result<Json<ApiRespo
                     r.url, SUBSTRING(r.original_text FROM 1 FOR 200) AS title
              FROM disease_events e
              LEFT JOIN raw_reports r ON r.id = e.raw_report_id
-             ORDER BY e.created_at DESC
-             LIMIT 100",
-            &[],
-        )
+             WHERE ($1::text IS NULL OR e.disease_classification ILIKE '%'||$1||'%'
+                 OR e.location_name ILIKE '%'||$1||'%'
+                 OR e.source_name ILIKE '%'||$1||'%'
+                 OR r.original_text ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR e.disease_classification = $2)
+             AND ($3::text IS NULL OR e.source_type = $3)
+             AND ($4::bool IS NULL OR e.outbreak_alert = $4)
+              AND ($5::text IS NULL OR e.published_at::text >= $5)
+              AND ($6::text IS NULL OR e.published_at::text <= $6)
+              ORDER BY e.created_at DESC
+              LIMIT $7 OFFSET $8";
+     let rows = client
+        .query(sql, &[&query.q, &query.disease, &query.source_type, &query.outbreak_alert, &query.date_from, &query.date_to, &per_page, &offset])
         .await
         .map_err(internal_error)?;
 
@@ -442,11 +533,37 @@ async fn list_events(State(state): State<Arc<AppState>>) -> Result<Json<ApiRespo
         }))
         .collect();
 
-    Ok(Json(ApiResponse { success: true, data }))
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM disease_events e
+             LEFT JOIN raw_reports r ON r.id = e.raw_report_id
+             WHERE ($1::text IS NULL OR e.disease_classification ILIKE '%'||$1||'%'
+                 OR e.location_name ILIKE '%'||$1||'%'
+                 OR e.source_name ILIKE '%'||$1||'%'
+                 OR r.original_text ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR e.disease_classification = $2)
+             AND ($3::text IS NULL OR e.source_type = $3)
+             AND ($4::bool IS NULL OR e.outbreak_alert = $4)
+              AND ($5::text IS NULL OR e.published_at::text >= $5)
+             AND ($6::text IS NULL OR e.published_at::text <= $6)",
+            &[&query.q, &query.disease, &query.source_type, &query.outbreak_alert, &query.date_from, &query.date_to],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
 }
 
-async fn summary(State(state): State<Arc<AppState>>) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+async fn summary(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SummaryQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
     let rows = client
         .query(
             "SELECT COALESCE(location_name, 'Unknown') AS location_name,
@@ -457,10 +574,13 @@ async fn summary(State(state): State<Arc<AppState>>) -> Result<Json<ApiResponse<
                     BOOL_OR(outbreak_alert) AS has_alert,
                     NULL::jsonb AS centroid_geojson
              FROM disease_events
+             WHERE ($1::text IS NULL OR disease_classification ILIKE '%'||$1||'%'
+                 OR location_name ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR disease_classification = $2)
              GROUP BY COALESCE(location_name, 'Unknown'), disease_classification
              ORDER BY total_cases DESC
-             LIMIT 100",
-            &[],
+             LIMIT $3 OFFSET $4",
+            &[&query.q, &query.disease, &per_page, &offset],
         )
         .await
         .map_err(internal_error)?;
@@ -478,13 +598,31 @@ async fn summary(State(state): State<Arc<AppState>>) -> Result<Json<ApiResponse<
         }))
         .collect();
 
-    Ok(Json(ApiResponse { success: true, data }))
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM disease_events
+             WHERE ($1::text IS NULL OR disease_classification ILIKE '%'||$1||'%'
+                 OR location_name ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR disease_classification = $2)
+             GROUP BY COALESCE(location_name, 'Unknown'), disease_classification) sub",
+            &[&query.q, &query.disease],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
 }
 
 async fn list_sources(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<SourcesQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
     let rows = client
         .query(
             "SELECT s.id, s.name, s.source_type, s.config, s.schedule, s.enabled, s.created_at::text, s.updated_at::text,
@@ -502,8 +640,12 @@ async fn list_sources(
                  WHERE source_id = s.id
                  ORDER BY started_at DESC LIMIT 1
              ) lr ON TRUE
-             ORDER BY s.created_at DESC",
-            &[],
+             WHERE ($1::text IS NULL OR s.name ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR s.source_type = $2)
+             AND ($3::bool IS NULL OR s.enabled = $3)
+             ORDER BY s.created_at DESC
+             LIMIT $4 OFFSET $5",
+            &[&query.q, &query.source_type, &query.enabled, &per_page, &offset],
         )
         .await
         .map_err(internal_error)?;
@@ -529,8 +671,24 @@ async fn list_sources(
         })
         .collect();
 
-    Ok(Json(ApiResponse { success: true, data }))
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM collector_sources s
+             WHERE ($1::text IS NULL OR s.name ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR s.source_type = $2)
+             AND ($3::bool IS NULL OR s.enabled = $3)",
+            &[&query.q, &query.source_type, &query.enabled],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
 }
+
+// ─── CREATE / UPDATE / DELETE SOURCE ──────────────────
 
 async fn create_source(
     State(state): State<Arc<AppState>>,
@@ -557,7 +715,7 @@ async fn create_source(
         "updated_at": row.get::<_, Option<String>>(7),
     });
 
-    Ok(Json(ApiResponse { success: true, data }))
+    Ok(Json(ApiResponse { success: true, data, total: None, page: None, per_page: None, total_pages: None }))
 }
 
 async fn get_source(
@@ -591,6 +749,7 @@ async fn get_source(
             "created_at": row.get::<_, Option<String>>(6),
             "updated_at": row.get::<_, Option<String>>(7),
         }),
+        total: None, page: None, per_page: None, total_pages: None,
     }))
 }
 
@@ -651,6 +810,7 @@ async fn update_source(
             "created_at": row.get::<_, Option<String>>(6),
             "updated_at": row.get::<_, Option<String>>(7),
         }),
+        total: None, page: None, per_page: None, total_pages: None,
     }))
 }
 
@@ -674,6 +834,7 @@ async fn delete_source(
     Ok(Json(ApiResponse {
         success: true,
         data: "deleted".to_string(),
+        total: None, page: None, per_page: None, total_pages: None,
     }))
 }
 
@@ -692,6 +853,7 @@ async fn trigger_collect(
     Ok(Json(ApiResponse {
         success: body.get("success").and_then(|v| v.as_bool()).unwrap_or(false),
         data: body,
+        total: None, page: None, per_page: None, total_pages: None,
     }))
 }
 
@@ -700,19 +862,20 @@ async fn list_runs(
     Query(query): Query<RunsQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
-    let query_sql = if query.source_id.is_some() {
-        "SELECT id, source_id, status, records_found, records_ingested, error_message, started_at::text, finished_at::text
-         FROM collector_runs WHERE source_id = $1 ORDER BY started_at DESC LIMIT 50"
-    } else {
-        "SELECT id, source_id, status, records_found, records_ingested, error_message, started_at::text, finished_at::text
-         FROM collector_runs ORDER BY started_at DESC LIMIT 50"
-    };
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
 
-    let rows = if let Some(source_id) = query.source_id {
-        client.query(query_sql, &[&source_id]).await.map_err(internal_error)?
-    } else {
-        client.query(query_sql, &[]).await.map_err(internal_error)?
-    };
+    let rows = client
+        .query(
+            "SELECT id, source_id, status, records_found, records_ingested, error_message, started_at::text, finished_at::text
+             FROM collector_runs
+             WHERE ($1::uuid IS NULL OR source_id = $1)
+             AND ($2::text IS NULL OR status = $2)
+             ORDER BY started_at DESC
+             LIMIT $3 OFFSET $4",
+            &[&query.source_id, &query.status, &per_page, &offset],
+        )
+        .await
+        .map_err(internal_error)?;
 
     let data = rows
         .into_iter()
@@ -730,7 +893,20 @@ async fn list_runs(
         })
         .collect();
 
-    Ok(Json(ApiResponse { success: true, data }))
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM collector_runs
+             WHERE ($1::uuid IS NULL OR source_id = $1)
+             AND ($2::text IS NULL OR status = $2)",
+            &[&query.source_id, &query.status],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
 }
 
 // ─── AUTH ──────────────────────────────────────────
@@ -756,6 +932,14 @@ async fn verify_token(state: &AppState, token: &str) -> Result<Value, StatusCode
         })),
         None => Err(StatusCode::UNAUTHORIZED),
     }
+}
+
+macro_rules! hash_password {
+    ($pw:expr) => {{
+        let mut hasher = Sha256::new();
+        hasher.update($pw.as_bytes());
+        hex::encode(hasher.finalize())
+    }};
 }
 
 async fn login(
@@ -785,11 +969,7 @@ async fn login(
         }
     };
 
-    let mut hasher = Sha256::new();
-    hasher.update(payload.password.as_bytes());
-    let input_hash = hex::encode(hasher.finalize());
-
-    if input_hash != stored_hash {
+    if hash_password!(&payload.password) != stored_hash {
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({"success": false, "error": "Invalid credentials"})),
@@ -840,10 +1020,21 @@ async fn logout(
 
 async fn list_users(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    Query(query): Query<UsersQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
     let rows = client
-        .query("SELECT id, username, display_name, role, email, is_active, created_at::text FROM users ORDER BY created_at DESC", &[])
+        .query(
+            "SELECT id, username, display_name, role, email, is_active, created_at::text FROM users
+             WHERE ($1::text IS NULL OR username ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR role = $2)
+             AND ($3::bool IS NULL OR is_active = $3)
+             ORDER BY created_at DESC
+             LIMIT $4 OFFSET $5",
+            &[&query.q, &query.role, &query.is_active, &per_page, &offset],
+        )
         .await
         .map_err(internal_error)?;
 
@@ -857,7 +1048,21 @@ async fn list_users(
         "created_at": r.get::<_, Option<String>>(6),
     })).collect();
 
-    Ok(Json(json!({"success": true, "data": data})))
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM users
+             WHERE ($1::text IS NULL OR username ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR role = $2)
+             AND ($3::bool IS NULL OR is_active = $3)",
+            &[&query.q, &query.role, &query.is_active],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
 }
 
 fn get_token(headers: &axum::http::HeaderMap) -> &str {
@@ -872,10 +1077,7 @@ async fn create_user(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-
-    let mut hasher = Sha256::new();
-    hasher.update(payload.password.as_bytes());
-    let hash = hex::encode(hasher.finalize());
+    let hash = hash_password!(&payload.password);
 
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
@@ -932,11 +1134,7 @@ async fn update_user(
         Err(e) => return Json(json!({"success": false, "error": format!("DB: {}", e)})),
     };
 
-    let hash = payload.password.map(|pw| {
-        let mut hasher = Sha256::new();
-        hasher.update(pw.as_bytes());
-        hex::encode(hasher.finalize())
-    });
+    let hash = payload.password.map(|pw| hash_password!(&pw));
 
     let result = client
         .query_one(
@@ -984,10 +1182,21 @@ async fn delete_user(
 
 async fn list_rules(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    Query(query): Query<RulesQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
     let rows = client
-        .query("SELECT id, disease_name, display_label, min_case_count, is_active, priority, created_at::text, updated_at::text FROM disease_outbreak_rules ORDER BY priority", &[])
+        .query(
+            "SELECT id, disease_name, display_label, min_case_count, is_active, priority, created_at::text, updated_at::text
+             FROM disease_outbreak_rules
+             WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
+             AND ($2::bool IS NULL OR is_active = $2)
+             ORDER BY priority
+             LIMIT $3 OFFSET $4",
+            &[&query.q, &query.is_active, &per_page, &offset],
+        )
         .await
         .map_err(internal_error)?;
 
@@ -1002,7 +1211,20 @@ async fn list_rules(
         "updated_at": r.get::<_, Option<String>>(7),
     })).collect();
 
-    Ok(Json(json!({"success": true, "data": data})))
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM disease_outbreak_rules
+             WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
+             AND ($2::bool IS NULL OR is_active = $2)",
+            &[&query.q, &query.is_active],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
 }
 
 async fn create_rule(
@@ -1110,20 +1332,24 @@ async fn delete_rule(
     Ok(Json(json!({"success": true, "data": "deleted"})))
 }
 
-// ─── DATA CLEANUP ──────────────────────────────────
-
-// ─── NLP LABELS ──────────────────────────────────
+// ─── NLP LABELS ─────────────────────────────────
 
 async fn list_labels(
     State(state): State<Arc<AppState>>,
     Query(query): Query<LabelQuery>,
-) -> Json<Value> {
-    let client = match state.db.get().await {
-        Ok(c) => c,
-        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
-    };
-    let sql = "SELECT id, category, label, is_active, priority, created_at::text FROM nlp_labels WHERE ($1::text IS NULL OR category = $1) ORDER BY category, priority";
-    let rows = client.query(sql, &[&query.category]).await.unwrap_or_default();
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
+    let sql = "SELECT id, category, label, is_active, priority, created_at::text
+               FROM nlp_labels
+               WHERE ($1::text IS NULL OR category = $1)
+               AND ($2::text IS NULL OR label ILIKE '%'||$2||'%')
+               AND ($3::bool IS NULL OR is_active = $3)
+               ORDER BY category, priority
+               LIMIT $4 OFFSET $5";
+    let rows = client.query(sql, &[&query.category, &query.q, &query.is_active, &per_page, &offset]).await.map_err(internal_error)?;
+
     let data: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.get::<_, Uuid>(0),
         "category": r.get::<_, String>(1),
@@ -1132,7 +1358,22 @@ async fn list_labels(
         "priority": r.get::<_, i32>(4),
         "created_at": r.get::<_, Option<String>>(5),
     })).collect();
-    Json(json!({"success": true, "data": data}))
+
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM nlp_labels
+             WHERE ($1::text IS NULL OR category = $1)
+             AND ($2::text IS NULL OR label ILIKE '%'||$2||'%')
+             AND ($3::bool IS NULL OR is_active = $3)",
+            &[&query.category, &query.q, &query.is_active],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
 }
 
 async fn create_label(
@@ -1206,13 +1447,18 @@ async fn delete_label(
 async fn list_keywords(
     State(state): State<Arc<AppState>>,
     Query(query): Query<KeywordQuery>,
-) -> Json<Value> {
-    let client = match state.db.get().await {
-        Ok(c) => c,
-        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
-    };
-    let sql = "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords WHERE ($1::text IS NULL OR category = $1) ORDER BY category, priority";
-    let rows = client.query(sql, &[&query.category]).await.unwrap_or_default();
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
+    let sql = "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords
+               WHERE ($1::text IS NULL OR category = $1)
+               AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
+               AND ($3::bool IS NULL OR is_active = $3)
+               ORDER BY category, priority
+               LIMIT $4 OFFSET $5";
+    let rows = client.query(sql, &[&query.category, &query.q, &query.is_active, &per_page, &offset]).await.map_err(internal_error)?;
+
     let data: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.get::<_, Uuid>(0),
         "category": r.get::<_, String>(1),
@@ -1222,7 +1468,22 @@ async fn list_keywords(
         "priority": r.get::<_, i32>(5),
         "created_at": r.get::<_, Option<String>>(6),
     })).collect();
-    Json(json!({"success": true, "data": data}))
+
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM nlp_keywords
+             WHERE ($1::text IS NULL OR category = $1)
+             AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
+             AND ($3::bool IS NULL OR is_active = $3)",
+            &[&query.category, &query.q, &query.is_active],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
 }
 
 async fn create_keyword(

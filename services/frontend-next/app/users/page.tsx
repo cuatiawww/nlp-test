@@ -1,30 +1,20 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Plus, Trash2, Shield } from 'lucide-react'
-import { fetchUsers, createUser, deleteUser } from '@/lib/api'
+import { createUser, deleteUser } from '@/lib/api'
+import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
+import SearchInput from '@/components/SearchInput'
+import Pagination from '@/components/Pagination'
 
 interface User {
   id: string; username: string; display_name?: string; role: string; email?: string; is_active: boolean; created_at?: string
 }
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: users, loading, page, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<User>('/api/v1/users')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ username: '', password: '', display_name: '', role: 'operator', email: '' })
-  const [editId, setEditId] = useState<string | null>(null)
-
-  const load = async () => {
-    setLoading(true)
-    try {
-      const d = await fetchUsers()
-      setUsers(d)
-    } catch {}
-    setLoading(false)
-  }
-
-  useEffect(() => { load() }, [])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -32,7 +22,6 @@ export default function UsersPage() {
       await createUser(form)
       setForm({ username: '', password: '', display_name: '', role: 'operator', email: '' })
       setShowForm(false)
-      await load()
     } catch {}
   }
 
@@ -40,7 +29,6 @@ export default function UsersPage() {
     if (!confirm('Hapus user ini?')) return
     try {
       await deleteUser(id)
-      await load()
     } catch {}
   }
 
@@ -55,6 +43,13 @@ export default function UsersPage() {
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700">
           <Plus className="h-4 w-4" /> Tambah User
         </button>
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <div className="relative max-w-xs">
+          <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <SearchInput value={search} onChange={setSearch} placeholder="Cari user..." />
+        </div>
       </div>
 
       {showForm && (
@@ -83,8 +78,8 @@ export default function UsersPage() {
       )}
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {loading ? <div className="p-8 text-center text-slate-400">Memuat...</div> : users.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">Belum ada user</div>
+        {loading ? <div className="p-8 text-center text-slate-400 text-sm">Memuat...</div> : users.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-sm">Belum ada user</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -124,6 +119,7 @@ export default function UsersPage() {
             </tbody>
           </table>
         )}
+        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} />
       </div>
     </div>
   )
