@@ -283,6 +283,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/sources", get(list_sources).post(create_source))
+        .route("/api/v1/sources/collect-all", post(trigger_collect_all))
         .route(
             "/api/v1/sources/:id",
             get(get_source).put(update_source).delete(delete_source),
@@ -831,6 +832,19 @@ async fn delete_source(
     Ok(Json(ApiResponse {
         success: true,
         data: "deleted".to_string(),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn trigger_collect_all(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let url = format!("{}/collect/all", state.collector_url.trim_end_matches('/'));
+    let resp = state.http.post(&url).send().await.map_err(internal_error)?;
+    let body: Value = resp.json().await.map_err(internal_error)?;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: body,
         total: None, page: None, per_page: None, total_pages: None,
     }))
 }

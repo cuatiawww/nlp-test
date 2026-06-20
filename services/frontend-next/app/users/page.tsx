@@ -2,33 +2,26 @@
 
 import { useState } from 'react'
 import { Plus, Trash2, Shield } from 'lucide-react'
-import { createUser, deleteUser } from '@/lib/api'
+import { deleteUser } from '@/lib/api'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
 import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
+import Modal from '@/components/Modal'
+import UserForm from '@/components/UserForm'
 
 interface User {
   id: string; username: string; display_name?: string; role: string; email?: string; is_active: boolean; created_at?: string
 }
 
 export default function UsersPage() {
-  const { data: users, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<User>('/api/v1/users')
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ username: '', password: '', display_name: '', role: 'operator', email: '' })
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      await createUser(form)
-      setForm({ username: '', password: '', display_name: '', role: 'operator', email: '' })
-      setShowForm(false)
-    } catch {}
-  }
+  const { data: users, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<User>('/api/v1/users')
+  const [showModal, setShowModal] = useState(false)
 
   const handleDelete = async (id: string) => {
     if (!confirm('Hapus user ini?')) return
     try {
       await deleteUser(id)
+      reload()
     } catch {}
   }
 
@@ -39,8 +32,8 @@ export default function UsersPage() {
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">User Management</h1>
           <p className="mt-1 text-sm text-slate-500">Kelola akun pengguna sistem</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)}
-          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700">
+        <button onClick={() => setShowModal(true)}
+          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
           <Plus className="h-4 w-4" /> Tambah User
         </button>
       </div>
@@ -51,31 +44,6 @@ export default function UsersPage() {
           <SearchInput value={search} onChange={setSearch} placeholder="Cari user..." />
         </div>
       </div>
-
-      {showForm && (
-        <form onSubmit={handleCreate} className="mt-4 rounded-2xl border border-teal-200 bg-teal-50 p-5">
-          <div className="grid gap-4 md:grid-cols-2">
-            <input placeholder="Username*" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" required />
-            <input type="password" placeholder="Password*" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" required />
-            <input placeholder="Display Name" value={form.display_name} onChange={e => setForm(f => ({ ...f, display_name: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" />
-            <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
-              <option value="operator">Operator</option>
-              <option value="admin">Admin</option>
-              <option value="viewer">Viewer</option>
-            </select>
-          </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowForm(false)}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600">Batal</button>
-            <button type="submit"
-              className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold uppercase text-white">Simpan</button>
-          </div>
-        </form>
-      )}
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? <div className="p-8 text-center text-slate-400 text-sm">Memuat...</div> : users.length === 0 ? (
@@ -121,6 +89,10 @@ export default function UsersPage() {
         )}
         <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
+
+      <Modal open={showModal} title="Tambah User" onClose={() => setShowModal(false)}>
+        <UserForm onSaved={() => { setShowModal(false); reload() }} onCancel={() => setShowModal(false)} />
+      </Modal>
     </div>
   )
 }

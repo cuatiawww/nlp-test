@@ -106,6 +106,7 @@ export const createSource = (data: Partial<Source>) => postTo<Source>('/api/v1/s
 export const updateSource = (id: string, data: Partial<Source>) => putTo<Source>(`/api/v1/sources/${id}`, data)
 export const deleteSource = (id: string) => delFrom(`/api/v1/sources/${id}`)
 export const triggerCollect = (id: string) => postTo(`/api/v1/sources/${id}/collect`)
+export const triggerCollectAll = () => postTo('/api/v1/sources/collect-all')
 export const fetchRuns = (sourceId?: string) => fetchFrom<Run[]>(`/api/v1/runs${sourceId ? `?source_id=${sourceId}` : ''}`)
 export const fetchSummary = () => fetchFrom<SummaryRow[]>('/api/v1/summary')
 
@@ -128,6 +129,7 @@ export const deleteNlpLabel = (id: string) => delFrom(`/api/v1/nlp-labels/${id}`
 export const fetchOutbreakRules = () => fetchFrom<any[]>('/api/v1/outbreak-rules')
 export const createOutbreakRule = (data: any) => postTo('/api/v1/outbreak-rules', data)
 export const updateOutbreakRule = (id: string, data: any) => postTo(`/api/v1/outbreak-rules/${id}/edit`, data)
+export const deleteOutbreakRule = (id: string) => delFrom(`/api/v1/outbreak-rules/${id}`)
 
 // ── Users (auth) ──────────────────────────────────
 

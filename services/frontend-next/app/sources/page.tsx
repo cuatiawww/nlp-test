@@ -1,55 +1,35 @@
 'use client'
 
 import { useState } from 'react'
-import { Play, Plus, Save, Trash2 } from 'lucide-react'
+import { Play, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Source } from '@/types'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
 import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
-import { triggerCollect, createSource, updateSource, deleteSource } from '@/lib/api'
+import Modal from '@/components/Modal'
+import SourceForm from '@/components/SourceForm'
+import { triggerCollect, triggerCollectAll, deleteSource } from '@/lib/api'
 
 export default function SourcesPage() {
   const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Source>('/api/v1/sources')
-  const [showNew, setShowNew] = useState(false)
-  const [newForm, setNewForm] = useState({ name: '', source_type: 'rss', config: '{}', schedule: '' })
-  const [editId, setEditId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', source_type: 'rss', config: '{}', schedule: '', enabled: true })
+  const [showModal, setShowModal] = useState(false)
+  const [editSource, setEditSource] = useState<any | null>(null)
 
   const handleTrigger = async (id: string, name: string) => {
-    toast.promise(
-      triggerCollect(id),
-      {
-        loading: `Memproses ${name}...`,
-        success: () => { setTimeout(reload, 500); return `${name} selesai` },
-        error: `Gagal memproses ${name}`,
-      }
-    )
+    toast.promise(triggerCollect(id), {
+      loading: `Memproses ${name}...`,
+      success: () => { setTimeout(reload, 500); return `${name} selesai` },
+      error: `Gagal memproses ${name}`,
+    })
   }
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      let config: any = {}
-      try { config = JSON.parse(newForm.config) } catch { config = { url: newForm.config } }
-      await createSource({ name: newForm.name, source_type: newForm.source_type, config, schedule: newForm.schedule || null } as any)
-      setShowNew(false)
-      setNewForm({ name: '', source_type: 'rss', config: '{}', schedule: '' })
-      toast.success('Sumber data ditambahkan')
-      reload()
-    } catch { toast.error('Gagal menambah') }
-  }
-
-  const handleUpdate = async () => {
-    if (!editId) return
-    try {
-      let config: any = {}
-      try { config = JSON.parse(editForm.config) } catch { config = { url: editForm.config } }
-      await updateSource(editId, { name: editForm.name, source_type: editForm.source_type, config, schedule: editForm.schedule || null, enabled: editForm.enabled } as any)
-      setEditId(null)
-      toast.success('Sumber data diupdate')
-      reload()
-    } catch { toast.error('Gagal mengupdate') }
+  const handleTriggerAll = () => {
+    toast.promise(triggerCollectAll(), {
+      loading: 'Memproses semua sumber...',
+      success: () => { setTimeout(reload, 1000); return 'Semua sumber selesai' },
+      error: 'Gagal memproses',
+    })
   }
 
   const handleDelete = async (id: string, name: string) => {
@@ -81,7 +61,11 @@ export default function SourcesPage() {
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Refresh
           </button>
-          <button onClick={() => setShowNew(!showNew)}
+          <button onClick={handleTriggerAll}
+            className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-amber-700">
+            <Play className="h-4 w-4" /> Trigger All
+          </button>
+          <button onClick={() => { setEditSource(null); setShowModal(true) }}
             className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700">
             <Plus className="h-4 w-4" /> Tambah
           </button>
@@ -94,34 +78,6 @@ export default function SourcesPage() {
           <SearchInput value={search} onChange={setSearch} placeholder="Cari sumber data..." />
         </div>
       </div>
-
-      {showNew && (
-        <form onSubmit={handleCreate} className="mt-4 rounded-2xl border border-teal-200 bg-teal-50 p-5">
-          <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.04em] text-teal-700">Tambah Sumber Data Baru</h3>
-          <div className="grid gap-4 md:grid-cols-3">
-            <input placeholder="Nama*" value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" required />
-            <select value={newForm.source_type} onChange={e => setNewForm(f => ({ ...f, source_type: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
-              <option value="rss">RSS</option>
-              <option value="web">Web</option>
-              <option value="csv">CSV</option>
-              <option value="social_media">Social Media</option>
-              <option value="api">API</option>
-            </select>
-            <input placeholder="URL / Config JSON" value={newForm.config} onChange={e => setNewForm(f => ({ ...f, config: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" />
-            <input placeholder="Schedule (e.g. interval:60)" value={newForm.schedule} onChange={e => setNewForm(f => ({ ...f, schedule: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" />
-          </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowNew(false)}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600">Batal</button>
-            <button type="submit"
-              className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold uppercase text-white">Simpan</button>
-          </div>
-        </form>
-      )}
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
@@ -142,69 +98,27 @@ export default function SourcesPage() {
             <tbody>
               {data.map((s) => (
                 <tr key={s.id} className="border-b border-slate-50 hover:bg-teal-50/40">
-                  {editId === s.id ? (
-                    <>
-                      <td className="px-4 py-2"><input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="w-full rounded border px-2 py-1 text-xs" /></td>
-                      <td className="px-4 py-2">
-                        <select value={editForm.source_type} onChange={e => setEditForm(f => ({ ...f, source_type: e.target.value }))} className="rounded border px-2 py-1 text-xs">
-                          <option value="rss">RSS</option>
-                          <option value="web">Web</option>
-                          <option value="csv">CSV</option>
-                          <option value="social_media">Social Media</option>
-                          <option value="api">API</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-2"><input value={editForm.schedule} onChange={e => setEditForm(f => ({ ...f, schedule: e.target.value }))} className="w-full rounded border px-2 py-1 text-xs" /></td>
-                      <td className="px-4 py-2 text-center">
-                        <label className="flex items-center gap-1 justify-center text-xs text-slate-600">
-                          <input type="checkbox" checked={editForm.enabled} onChange={e => setEditForm(f => ({ ...f, enabled: e.target.checked }))} />
-                          Aktif
-                        </label>
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        <button onClick={handleUpdate} className="rounded p-1.5 text-teal-600 hover:bg-teal-50"><Save className="h-4 w-4" /></button>
-                        <button onClick={() => setEditId(null)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100"><span className="text-xs font-medium">Batal</span></button>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="px-4 py-3">
-                        <span className="font-semibold text-teal-700">{s.name}</span>
-                        <div className="mt-0.5 text-xs text-slate-400">{s.schedule || 'manual'}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">{s.source_type}</span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{s.schedule || '—'}</td>
-                      <td className="px-4 py-3">{statusBadge(s)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <button onClick={() => handleTrigger(s.id, s.name)}
-                          className="rounded-lg p-1.5 text-slate-400 transition hover:bg-teal-50 hover:text-teal-600"
-                          title="Trigger collection">
-                          <Play className="h-4 w-4" />
-                        </button>
-                        <button onClick={() => {
-                          setEditId(s.id)
-                          setEditForm({
-                            name: s.name,
-                            source_type: s.source_type,
-                            config: typeof s.config === 'object' ? JSON.stringify(s.config) : String(s.config || ''),
-                            schedule: s.schedule || '',
-                            enabled: s.enabled !== false,
-                          })
-                        }}
-                          className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50"
-                          title="Edit">
-                          Edit
-                        </button>
-                        <button onClick={() => handleDelete(s.id, s.name)}
-                          className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                          title="Hapus">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </>
-                  )}
+                  <td className="px-4 py-3">
+                    <span className="font-semibold text-teal-700">{s.name}</span>
+                    <div className="mt-0.5 text-xs text-slate-400">{s.schedule || 'manual'}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">{s.source_type}</span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">{s.schedule || '—'}</td>
+                  <td className="px-4 py-3">{statusBadge(s)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => handleTrigger(s.id, s.name)}
+                      className="rounded-lg p-1.5 text-slate-400 transition hover:bg-teal-50 hover:text-teal-600" title="Trigger">
+                      <Play className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { setEditSource(s); setShowModal(true) }}
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">Edit</button>
+                    <button onClick={() => handleDelete(s.id, s.name)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Hapus">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -212,6 +126,10 @@ export default function SourcesPage() {
         )}
         <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
+
+      <Modal open={showModal} title={editSource ? 'Edit Sumber Data' : 'Tambah Sumber Data'} onClose={() => setShowModal(false)}>
+        <SourceForm source={editSource} onSaved={() => { setShowModal(false); reload() }} onCancel={() => setShowModal(false)} />
+      </Modal>
     </div>
   )
 }

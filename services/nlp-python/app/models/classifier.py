@@ -89,12 +89,15 @@ def _get_pipe(model_key: str):
                 model=model_id,
                 tokenizer=model_id,
                 device=-1,
+                truncation=True,
+                max_length=512,
             )
         else:
             _pipes[model_key] = pipeline(
                 "zero-shot-classification",
                 model=model_id,
                 device=-1,
+                truncation=True,
             )
     return _pipes[model_key]
 

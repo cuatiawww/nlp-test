@@ -1,42 +1,31 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Save } from 'lucide-react'
-import { createOutbreakRule, updateOutbreakRule } from '@/lib/api'
+import { Plus, Trash2 } from 'lucide-react'
+import { createOutbreakRule, deleteOutbreakRule } from '@/lib/api'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
 import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
+import Modal from '@/components/Modal'
+import RuleForm from '@/components/RuleForm'
+import { toast } from 'sonner'
 
 interface Rule {
   id: string; disease_name: string; display_label?: string; min_case_count: number; is_active: boolean; priority: number
 }
 
 export default function OutbreakRulesPage() {
-  const { data: rules, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<Rule>('/api/v1/outbreak-rules')
-  const [editId, setEditId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState({ disease_name: '', display_label: '', min_case_count: 25, is_active: true, priority: 0 })
-  const [showNew, setShowNew] = useState(false)
-  const [newForm, setNewForm] = useState({ disease_name: '', display_label: '', min_case_count: 25, is_active: true, priority: 0 })
+  const { data: rules, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Rule>('/api/v1/outbreak-rules')
+  const [showModal, setShowModal] = useState(false)
+  const [editItem, setEditItem] = useState<any | null>(null)
 
-  const handleEdit = (r: Rule) => {
-    setEditId(r.id)
-    setEditForm({ disease_name: r.disease_name, display_label: r.display_label || '', min_case_count: r.min_case_count, is_active: r.is_active, priority: r.priority })
-  }
-
-  const handleSave = async (id: string) => {
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Hapus rule "${name}"?`)) return
     try {
-      await updateOutbreakRule(id, editForm)
-      setEditId(null)
-    } catch {}
-  }
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      await createOutbreakRule(newForm)
-      setShowNew(false)
-      setNewForm({ disease_name: '', display_label: '', min_case_count: 25, is_active: true, priority: 0 })
-    } catch {}
+      await deleteOutbreakRule(id)
+      toast.success('Rule dihapus')
+      reload()
+    } catch { toast.error('Gagal menghapus') }
   }
 
   return (
@@ -46,8 +35,8 @@ export default function OutbreakRulesPage() {
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Outbreak Alert Rules</h1>
           <p className="mt-1 text-sm text-slate-500">Atur ambang batas kasus untuk peringatan wabah per penyakit</p>
         </div>
-        <button onClick={() => setShowNew(!showNew)}
-          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700">
+        <button onClick={() => { setEditItem(null); setShowModal(true) }}
+          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
           <Plus className="h-4 w-4" /> Tambah Rule
         </button>
       </div>
@@ -58,25 +47,6 @@ export default function OutbreakRulesPage() {
           <SearchInput value={search} onChange={setSearch} placeholder="Cari penyakit..." />
         </div>
       </div>
-
-      {showNew && (
-        <form onSubmit={handleCreate} className="mt-4 rounded-2xl border border-teal-200 bg-teal-50 p-5">
-          <div className="grid gap-4 md:grid-cols-2">
-            <input placeholder="Disease Name*" value={newForm.disease_name} onChange={e => setNewForm(f => ({ ...f, disease_name: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" required />
-            <input placeholder="Display Label" value={newForm.display_label} onChange={e => setNewForm(f => ({ ...f, display_label: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" />
-            <input type="number" placeholder="Min Case Count" value={newForm.min_case_count} onChange={e => setNewForm(f => ({ ...f, min_case_count: parseInt(e.target.value) || 25 }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" />
-            <input type="number" placeholder="Priority" value={newForm.priority} onChange={e => setNewForm(f => ({ ...f, priority: parseInt(e.target.value) || 0 }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm" />
-          </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowNew(false)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600">Batal</button>
-            <button type="submit" className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold uppercase text-white">Simpan</button>
-          </div>
-        </form>
-      )}
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? <div className="p-8 text-center text-slate-400 text-sm">Memuat...</div> : rules.length === 0 ? (
@@ -96,36 +66,22 @@ export default function OutbreakRulesPage() {
             <tbody>
               {rules.map(r => (
                 <tr key={r.id} className="border-b border-slate-50 hover:bg-teal-50/40">
-                  {editId === r.id ? (
-                    <>
-                      <td className="px-4 py-2"><input value={editForm.disease_name} onChange={e => setEditForm(f => ({ ...f, disease_name: e.target.value }))} className="w-full rounded-lg border px-2 py-1 text-xs" /></td>
-                      <td className="px-4 py-2"><input value={editForm.display_label} onChange={e => setEditForm(f => ({ ...f, display_label: e.target.value }))} className="w-full rounded-lg border px-2 py-1 text-xs" /></td>
-                      <td className="px-4 py-2"><input type="number" value={editForm.min_case_count} onChange={e => setEditForm(f => ({ ...f, min_case_count: parseInt(e.target.value) || 25 }))} className="w-20 rounded-lg border px-2 py-1 text-xs text-right" /></td>
-                      <td className="px-4 py-2 text-center">
-                        <input type="checkbox" checked={editForm.is_active} onChange={e => setEditForm(f => ({ ...f, is_active: e.target.checked }))} className="h-4 w-4" />
-                      </td>
-                      <td className="px-4 py-2"><input type="number" value={editForm.priority} onChange={e => setEditForm(f => ({ ...f, priority: parseInt(e.target.value) || 0 }))} className="w-16 rounded-lg border px-2 py-1 text-xs text-center" /></td>
-                      <td className="px-4 py-2 text-right">
-                        <button onClick={() => handleSave(r.id)} className="rounded-lg p-1.5 text-teal-600 hover:bg-teal-50"><Save className="h-4 w-4" /></button>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="px-4 py-3 font-medium text-slate-800">{r.disease_name}</td>
-                      <td className="px-4 py-3 text-slate-700">{r.display_label || '-'}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-700">{r.min_case_count}</td>
-                      <td className="px-4 py-3 text-center">
-                        {r.is_active
-                          ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Ya</span>
-                          : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Tidak</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-center text-slate-700">{r.priority}</td>
-                      <td className="px-4 py-3 text-right">
-                        <button onClick={() => handleEdit(r)} className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">Edit</button>
-                      </td>
-                    </>
-                  )}
+                  <td className="px-4 py-3 font-medium text-slate-800">{r.disease_name}</td>
+                  <td className="px-4 py-3 text-slate-700">{r.display_label || '-'}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-700">{r.min_case_count}</td>
+                  <td className="px-4 py-3 text-center">
+                    {r.is_active
+                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Ya</span>
+                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Tidak</span>
+                    }
+                  </td>
+                  <td className="px-4 py-3 text-center text-slate-700">{r.priority}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => { setEditItem(r); setShowModal(true) }}
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">Edit</button>
+                    <button onClick={() => handleDelete(r.id, r.disease_name)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -133,6 +89,10 @@ export default function OutbreakRulesPage() {
         )}
         <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
+
+      <Modal open={showModal} title={editItem ? 'Edit Rule' : 'Tambah Rule'} onClose={() => setShowModal(false)}>
+        <RuleForm rule={editItem} onSaved={() => { setShowModal(false); reload() }} onCancel={() => setShowModal(false)} />
+      </Modal>
     </div>
   )
 }
