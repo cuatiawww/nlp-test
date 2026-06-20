@@ -35,6 +35,7 @@ Cargo.lock
 # ─── ML Models (large files, download on build) ────
 services/nlp-python/models/*
 !services/nlp-python/models/.gitkeep
+services/nlp-python/app/models/fine-tuned/
 
 # ─── IDE ───────────────────────────────────────────
 .vscode/
