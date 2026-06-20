@@ -4,7 +4,7 @@ import { useState, Suspense } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-const API = ''
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
 
 function LoginForm() {
   const router = useRouter()

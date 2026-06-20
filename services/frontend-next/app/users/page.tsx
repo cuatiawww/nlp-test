@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, Shield } from 'lucide-react'
 
-const API = ''
+
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
 
 function authHeaders(): Record<string, string> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : ''

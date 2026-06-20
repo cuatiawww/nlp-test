@@ -52,5 +52,35 @@ LOCATION_COORDS = {
     "Jakarta": (-6.2088, 106.8456),
 }
 
+DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 SYMPTOM_DICT: dict[str, str] = {}
 DISEASE_DICT: dict[str, str] = {}
+
+
+def load_keywords_from_db():
+    global SYMPTOM_DICT, DISEASE_DICT
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        rows = conn.execute(
+            "SELECT category, keyword, target_label FROM nlp_keywords WHERE is_active = TRUE ORDER BY priority"
+        ).fetchall()
+        conn.close()
+        symptom = {}
+        disease = {}
+        for r in rows:
+            d = symptom if r["category"] == "symptom" else disease
+            d[r["keyword"]] = r["target_label"]
+        SYMPTOM_DICT = symptom
+        DISEASE_DICT = disease
+        import logging
+        logging.getLogger(__name__).info(
+            "Loaded %d symptom keywords and %d disease keywords from DB",
+            len(symptom), len(disease),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to load keywords from DB, using empty dicts: %s", e
+        )

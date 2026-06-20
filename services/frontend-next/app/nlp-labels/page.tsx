@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { Save, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-const API = ''
+
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
 
 interface Label {
   id: string; category: string; label: string; is_active: boolean; priority: number

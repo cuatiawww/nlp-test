@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { Plus, Save } from 'lucide-react'
 
-const API = ''
+
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
 
 interface Rule {
   id: string; disease_name: string; display_label?: string; min_case_count: number; is_active: boolean; priority: number

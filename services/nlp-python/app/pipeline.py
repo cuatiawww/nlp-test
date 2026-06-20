@@ -25,7 +25,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     has_keywords = bool(extracted or symptoms)
     is_health_related = has_keywords
 
-    if config.NLP_MODEL != "none" and has_keywords:
+    if config.NLP_MODEL != "none":
         try:
             disease, confidence = classify_disease(text)
             sentiment, sentiment_score = classify_sentiment(text)

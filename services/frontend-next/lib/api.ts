@@ -1,9 +1,12 @@
 import type { Source, Run, SummaryRow } from '@/types'
 
-// Client-side: proxy via Apache /nlp/api/* → backend-rust:8081/api/*
+// Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
 // Server-side: use internal Docker DNS
 function baseURL(): string {
-  if (typeof window !== 'undefined') return ''
+  if (typeof window !== 'undefined') {
+    return process.env.NEXT_PUBLIC_BASE_PATH || '/nlp'
+  }
+
   return process.env.API_INTERNAL_URL || 'http://backend-rust:8081'
 }
 
@@ -20,7 +23,9 @@ export async function postTo<T>(path: string, body?: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   })
+
   if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`)
+
   const json = await res.json()
   return json.data as T
 }
@@ -31,7 +36,9 @@ export async function putTo<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+
   if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`)
+
   const json = await res.json()
   return json.data as T
 }

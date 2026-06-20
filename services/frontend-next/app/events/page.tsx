@@ -13,19 +13,6 @@ async function getEvents() {
   }
 }
 
-function getEventColor(event: string) {
-  const map: Record<string, string> = {
-    flood: '#0284c7', earthquake: '#dc2626', landslide: '#92400e',
-    outbreak: '#7c3aed', fire: '#ea580c', conflict: '#be123c',
-    volcanic: '#d97706', tsunami: '#0369a1', weather: '#0891b2',
-    drought: '#b45309', accident: '#64748b',
-  }
-  for (const [key, color] of Object.entries(map)) {
-    if (event.toLowerCase().includes(key)) return color
-  }
-  return '#94a3b8'
-}
-
 function sentimentBadge(s?: string) {
   if (!s || s === 'neutral') return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Netral</span>
   if (s === 'positive') return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Positif</span>
@@ -35,11 +22,6 @@ function sentimentBadge(s?: string) {
 
 function extractTitle(text: string) {
   return text.split('\n')[0].slice(0, 80) || text.slice(0, 80)
-}
-
-function shortLabel(label: string) {
-  const parts = label.split(' ')
-  return parts.slice(0, 2).join(' ')
 }
 
 function relevanceBadge(score?: string) {
@@ -72,7 +54,6 @@ export default async function EventsPage() {
                 <th className="px-4 py-3 font-semibold text-slate-600">Sumber</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Tanggal</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Lokasi</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Event</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Penyakit</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-600">Kasus</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-600">Sentimen</th>
@@ -83,7 +64,7 @@ export default async function EventsPage() {
             </thead>
             <tbody>
               {events.length === 0 ? (
-                <tr><td colSpan={11} className="px-4 py-8 text-center text-slate-400">Belum ada data</td></tr>
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">Belum ada data</td></tr>
               ) : (
                 events.map((e: any, idx: number) => (
                   <tr key={idx} className="border-b border-slate-50 hover:bg-teal-50/40">
@@ -101,12 +82,6 @@ export default async function EventsPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">{e.published_at || e.created_at?.slice(0, 10) || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-700">{e.location_name || '-'}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap"
-                        style={{ borderColor: getEventColor(e.event_type || '') }}>
-                        {e.event_type ? shortLabel(e.event_type) : '-'}
-                      </span>
-                    </td>
                     <td className="px-4 py-3 text-sm text-slate-700">{e.disease_classification || '-'}</td>
                     <td className="px-4 py-3 text-right text-sm text-slate-700">{e.case_count}</td>
                     <td className="px-4 py-3 text-center">{sentimentBadge(e.sentiment)}</td>
