@@ -8,23 +8,24 @@ export default function Pagination({ page, totalPages, total, onPrev, onNext, on
   onNext: () => void
   onGoTo: (p: number) => void
 }) {
-  if (totalPages <= 1) return null
+  if (total <= 0) return null
 
   const pages: (number | string)[] = []
+  const pg = Math.max(1, totalPages)
   const delta = 2
   const left = Math.max(2, page - delta)
-  const right = Math.min(totalPages - 1, page + delta)
+  const right = Math.min(pg - 1, page + delta)
 
   pages.push(1)
   if (left > 2) pages.push('...')
   for (let i = left; i <= right; i++) pages.push(i)
-  if (right < totalPages - 1) pages.push('...')
-  if (totalPages > 1) pages.push(totalPages)
+  if (right < pg - 1) pages.push('...')
+  if (pg > 1) pages.push(pg)
 
   return (
     <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-5 py-3">
       <span className="text-xs text-slate-500">
-        Total {total} data — Halaman {page} dari {totalPages}
+        Total {total} data — Halaman {page} dari {pg}
       </span>
       <div className="flex items-center gap-1">
         <button onClick={onPrev} disabled={page <= 1}
@@ -45,7 +46,7 @@ export default function Pagination({ page, totalPages, total, onPrev, onNext, on
             </button>
           )
         )}
-        <button onClick={onNext} disabled={page >= totalPages}
+        <button onClick={onNext} disabled={page >= pg}
           className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
           »
         </button>

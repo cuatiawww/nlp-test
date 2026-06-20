@@ -1,4 +1,4 @@
-import { Home, Radio, Database, AlertTriangle, Users, Tags, BookText } from 'lucide-react'
+import { Home, Radio, Database, Activity, AlertTriangle, Users, Tags, BookText } from 'lucide-react'
 
 export type SidebarItem = {
   label: string
@@ -20,6 +20,7 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'Beranda', icon: Home, href: '/' },
       { label: 'Sumber Data', icon: Radio, href: '/sources' },
       { label: 'Events', icon: Database, href: '/events' },
+      { label: 'Processing', icon: Activity, href: '/processing' },
     ],
   },
   {
