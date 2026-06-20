@@ -1,14 +1,13 @@
 'use client'
 
 import { toast } from 'sonner'
-
-const API = process.env.NEXT_PUBLIC_API_BASE_URL 
+import { cleanupEvents } from '@/lib/api'
 
 export default function CleanupButton({ onDone }: { onDone?: () => void }) {
   const handleCleanup = () => {
     if (!confirm('Hapus semua data events? Data sumber tidak akan terhapus.')) return
     toast.promise(
-      fetch(`${API}/api/v1/data/cleanup-events`, { method: 'POST' }),
+      cleanupEvents(),
       {
         loading: 'Menghapus data events...',
         success: () => {

@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Plus, Save } from 'lucide-react'
-
-
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
+import { fetchOutbreakRules, createOutbreakRule, updateOutbreakRule } from '@/lib/api'
 
 interface Rule {
   id: string; disease_name: string; display_label?: string; min_case_count: number; is_active: boolean; priority: number
@@ -21,9 +19,8 @@ export default function OutbreakRulesPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API}/api/v1/outbreak-rules`)
-      const d = await res.json()
-      setRules(d.data || [])
+      const d = await fetchOutbreakRules()
+      setRules(d)
     } catch {}
     setLoading(false)
   }
@@ -37,10 +34,7 @@ export default function OutbreakRulesPage() {
 
   const handleSave = async (id: string) => {
     try {
-      await fetch(`${API}/api/v1/outbreak-rules/${id}/edit`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm),
-      })
+      await updateOutbreakRule(id, editForm)
       setEditId(null)
       await load()
     } catch {}
@@ -49,10 +43,7 @@ export default function OutbreakRulesPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await fetch(`${API}/api/v1/outbreak-rules`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newForm),
-      })
+      await createOutbreakRule(newForm)
       setShowNew(false)
       setNewForm({ disease_name: '', display_label: '', min_case_count: 25, is_active: true, priority: 0 })
       await load()

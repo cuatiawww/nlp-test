@@ -2,14 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, Shield } from 'lucide-react'
-
-
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
-
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : ''
-  return token ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' }
-}
+import { fetchUsers, createUser, deleteUser } from '@/lib/api'
 
 interface User {
   id: string; username: string; display_name?: string; role: string; email?: string; is_active: boolean; created_at?: string
@@ -25,9 +18,8 @@ export default function UsersPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API}/api/v1/users`, { headers: authHeaders() })
-      const d = await res.json()
-      setUsers(d.data || [])
+      const d = await fetchUsers()
+      setUsers(d)
     } catch {}
     setLoading(false)
   }
@@ -37,10 +29,7 @@ export default function UsersPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await fetch(`${API}/api/v1/users`, {
-        method: 'POST', headers: authHeaders(),
-        body: JSON.stringify(form),
-      })
+      await createUser(form)
       setForm({ username: '', password: '', display_name: '', role: 'operator', email: '' })
       setShowForm(false)
       await load()
@@ -50,7 +39,7 @@ export default function UsersPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Hapus user ini?')) return
     try {
-      await fetch(`${API}/api/v1/users/${id}`, { method: 'DELETE', headers: authHeaders() })
+      await deleteUser(id)
       await load()
     } catch {}
   }

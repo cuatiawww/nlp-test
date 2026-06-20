@@ -5,9 +5,7 @@ import { Plus, Play, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Source } from '@/types'
 import Link from 'next/link'
-
-
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
+import { fetchSources, triggerCollect } from '@/lib/api'
 
 export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([])
@@ -16,9 +14,8 @@ export default function SourcesPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API}/api/v1/sources`)
-      const d = await res.json()
-      setSources(d.data || [])
+      const d = await fetchSources()
+      setSources(d)
     } catch {}
     setLoading(false)
   }
@@ -27,7 +24,7 @@ export default function SourcesPage() {
 
   const handleTrigger = async (id: string, name: string) => {
     toast.promise(
-      fetch(`${API}/api/v1/sources/${id}/collect`, { method: 'POST' }),
+      triggerCollect(id),
       {
         loading: `Memproses ${name}...`,
         success: () => { setTimeout(load, 500); return `${name} selesai` },

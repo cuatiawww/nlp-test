@@ -3,9 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Save, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-
-
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
+import { fetchNlpLabels, createNlpLabel, updateNlpLabel, deleteNlpLabel } from '@/lib/api'
 
 interface Label {
   id: string; category: string; label: string; is_active: boolean; priority: number
@@ -32,9 +30,8 @@ export default function NlpLabelsPage() {
     const result: Record<string, Label[]> = {}
     for (const cat of CATEGORIES) {
       try {
-        const res = await fetch(`${API}/api/v1/nlp-labels?category=${cat}`)
-        const d = await res.json()
-        result[cat] = d.data || []
+        const d = await fetchNlpLabels(cat)
+        result[cat] = d
       } catch { result[cat] = [] }
     }
     setLabels(result)
@@ -45,10 +42,7 @@ export default function NlpLabelsPage() {
 
   const handleSave = async (id: string) => {
     try {
-      await fetch(`${API}/api/v1/nlp-labels/${id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm),
-      })
+      await updateNlpLabel(id, editForm)
       setEditId(null)
       toast.success('Label updated')
       load()
@@ -59,10 +53,7 @@ export default function NlpLabelsPage() {
     const form = newForm[category]
     if (!form?.label) return
     try {
-      await fetch(`${API}/api/v1/nlp-labels`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category, ...form, is_active: true }),
-      })
+      await createNlpLabel({ category, ...form, is_active: true })
       setNewForm(f => ({ ...f, [category]: { label: '', priority: 0 } }))
       toast.success('Label added')
       load()
@@ -72,7 +63,7 @@ export default function NlpLabelsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Hapus label ini?')) return
     try {
-      await fetch(`${API}/api/v1/nlp-labels/${id}`, { method: 'DELETE' })
+      await deleteNlpLabel(id)
       toast.success('Label deleted')
       load()
     } catch { toast.error('Failed to delete') }

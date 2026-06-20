@@ -3,8 +3,7 @@
 import { useState, Suspense } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
-
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
+import { loginUser } from '@/lib/api'
 
 function LoginForm() {
   const router = useRouter()
@@ -21,19 +20,10 @@ function LoginForm() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`${API}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      })
-      const data = await res.json()
-      if (data.success) {
-        localStorage.setItem('auth_token', data.data.token)
-        localStorage.setItem('auth_user', JSON.stringify(data.data))
+      const data = await loginUser(username, password)
+        localStorage.setItem('auth_token', data.token)
+        localStorage.setItem('auth_user', JSON.stringify(data))
         router.push(redirectTo)
-      } else {
-        setError(data.error || 'Login failed')
-      }
     } catch (e: any) {
       setError(e.message || 'Connection failed')
     }

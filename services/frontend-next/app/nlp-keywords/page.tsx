@@ -3,9 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Save, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-
-
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || ''
+import { fetchNlpKeywords, createNlpKeyword, updateNlpKeyword, deleteNlpKeyword } from '@/lib/api'
 
 interface Keyword {
   id: string; category: string; keyword: string; target_label: string; is_active: boolean; priority: number
@@ -26,9 +24,8 @@ export default function NlpKeywordsPage() {
     const result: Record<string, Keyword[]> = {}
     for (const cat of CATEGORIES) {
       try {
-        const res = await fetch(`${API}/api/v1/nlp-keywords?category=${cat}`)
-        const d = await res.json()
-        result[cat] = d.data || []
+        const d = await fetchNlpKeywords(cat)
+        result[cat] = d
       } catch { result[cat] = [] }
     }
     setData(result)
@@ -39,10 +36,7 @@ export default function NlpKeywordsPage() {
 
   const handleSave = async (id: string) => {
     try {
-      await fetch(`${API}/api/v1/nlp-keywords/${id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm),
-      })
+      await updateNlpKeyword(id, editForm)
       setEditId(null); toast.success('Updated'); load()
     } catch { toast.error('Failed') }
   }
@@ -51,10 +45,7 @@ export default function NlpKeywordsPage() {
     const f = newForm[cat]
     if (!f?.keyword) return
     try {
-      await fetch(`${API}/api/v1/nlp-keywords`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: cat, ...f, is_active: true }),
-      })
+      await createNlpKeyword({ category: cat, ...f, is_active: true })
       setNewForm(f2 => ({ ...f2, [cat]: { keyword: '', target_label: '', priority: 0 } }))
       toast.success('Added'); load()
     } catch { toast.error('Failed') }
@@ -63,7 +54,7 @@ export default function NlpKeywordsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Hapus keyword ini?')) return
     try {
-      await fetch(`${API}/api/v1/nlp-keywords/${id}`, { method: 'DELETE' })
+      await deleteNlpKeyword(id)
       toast.success('Deleted'); load()
     } catch { toast.error('Failed') }
   }

@@ -1,13 +1,9 @@
 import CleanupButton from './CleanupButton'
-
-const API_INTERNAL = process.env.API_INTERNAL_URL || 'http://backend-rust:8081'
+import { fetchEvents } from '@/lib/api'
 
 async function getEvents() {
   try {
-    const res = await fetch(`${API_INTERNAL}/api/v1/events`, { cache: 'no-store' })
-    if (!res.ok) return []
-    const json = await res.json()
-    return json.data || []
+    return await fetchEvents()
   } catch {
     return []
   }
