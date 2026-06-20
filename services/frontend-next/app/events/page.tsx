@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
 import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
@@ -26,7 +26,15 @@ function relevanceBadge(score?: string) {
 }
 
 export default function EventsPage() {
-  const { data, loading, page, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<any[]>('/api/v1/events')
+  const [healthFilter, setHealthFilter] = useState<string>('')
+  const apiPath = healthFilter ? `/api/v1/events?is_health_related=${healthFilter}` : '/api/v1/events'
+  const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<any[]>(apiPath)
+
+  const FILTERS = [
+    { key: '', label: 'Semua' },
+    { key: 'true', label: 'Health' },
+    { key: 'false', label: 'Non Health' },
+  ]
 
   return (
     <div className="px-4 md:px-6">
@@ -38,7 +46,15 @@ export default function EventsPage() {
         <CleanupButton />
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex items-center gap-4">
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+          {FILTERS.map(f => (
+            <button key={f.key} onClick={() => setHealthFilter(f.key)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase transition ${healthFilter === f.key ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
         <div className="relative flex-1">
           <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           <SearchInput value={search} onChange={setSearch} placeholder="Cari penyakit, lokasi, sumber..." />
@@ -84,7 +100,12 @@ export default function EventsPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">{e.published_at || e.created_at?.slice(0, 10) || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-700">{e.location_name || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-slate-700">{e.disease_classification || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">
+                      {e.disease_classification || '-'}
+                      {e.is_health_related === false && (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-600">Non Health</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right text-sm text-slate-700">{e.case_count}</td>
                     <td className="px-4 py-3 text-center">{sentimentBadge(e.sentiment)}</td>
                     <td className="px-4 py-3 text-center">{relevanceBadge(e.relevance_score)}</td>
@@ -105,7 +126,7 @@ export default function EventsPage() {
             </table>
           )}
         </div>
-        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} />
+        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
     </div>
   )

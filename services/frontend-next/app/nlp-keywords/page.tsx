@@ -17,7 +17,7 @@ const CAT_LABELS: Record<string, string> = { symptom: 'Symptom Keywords', diseas
 
 export default function NlpKeywordsPage() {
   const [activeCat, setActiveCat] = useState('symptom')
-  const { data: items, loading, page, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Keyword>(`/api/v1/nlp-keywords?category=${activeCat}`)
+  const { data: items, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Keyword>(`/api/v1/nlp-keywords?category=${activeCat}`)
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ keyword: '', target_label: '', priority: 0, is_active: true })
   const [newForm, setNewForm] = useState<Record<string, { keyword: string; target_label: string; priority: number }>>({})
@@ -111,7 +111,7 @@ export default function NlpKeywordsPage() {
             </tbody>
           </table>
         )}
-        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} />
+        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
 
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

@@ -22,7 +22,7 @@ const CAT_LABELS: Record<string, string> = {
 
 export default function NlpLabelsPage() {
   const [activeCat, setActiveCat] = useState('disease')
-  const { data: items, loading, page, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Label>(`/api/v1/nlp-labels?category=${activeCat}`)
+  const { data: items, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Label>(`/api/v1/nlp-labels?category=${activeCat}`)
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ label: '', priority: 0, is_active: true })
   const [newForm, setNewForm] = useState<Record<string, { label: string; priority: number }>>({})
@@ -137,7 +137,7 @@ export default function NlpLabelsPage() {
             </tbody>
           </table>
         )}
-        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} />
+        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
 
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

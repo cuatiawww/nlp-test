@@ -12,7 +12,7 @@ interface Rule {
 }
 
 export default function OutbreakRulesPage() {
-  const { data: rules, loading, page, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<Rule>('/api/v1/outbreak-rules')
+  const { data: rules, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<Rule>('/api/v1/outbreak-rules')
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ disease_name: '', display_label: '', min_case_count: 25, is_active: true, priority: 0 })
   const [showNew, setShowNew] = useState(false)
@@ -131,7 +131,7 @@ export default function OutbreakRulesPage() {
             </tbody>
           </table>
         )}
-        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} />
+        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
     </div>
   )

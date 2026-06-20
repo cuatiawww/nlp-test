@@ -93,11 +93,44 @@ def callback(ch, method, properties, body):
 
             if not nlp.get("is_health_related", True):
                 conn.execute(
-                    "UPDATE raw_reports SET processing_status='SKIPPED' WHERE id=%s",
+                    "UPDATE raw_reports SET processing_status='NON_HEALTH' WHERE id=%s",
                     (raw_id,),
                 )
+
+                conn.execute(
+                    """INSERT INTO disease_events
+                       (raw_report_id, source_type, source_name, published_at, original_text, language,
+                        location_name, geom, disease_extracted, disease_classification,
+                        confidence, outbreak_alert, sentiment, event_type, relevance_score,
+                        is_health_related)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s,
+                               CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
+                                    ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                               END,
+                               %s::jsonb, %s, %s, %s, %s, %s, %s, FALSE)""",
+                    (
+                        raw_id,
+                        msg.get("source_type"),
+                        msg.get("source_name"),
+                        parse_date(msg.get("published_at")),
+                        msg.get("text"),
+                        nlp["language"],
+                        nlp.get("location_name"),
+                        nlp.get("latitude"),
+                        nlp.get("longitude"),
+                        nlp.get("latitude"),
+                        nlp.get("longitude"),
+                        json.dumps(nlp.get("disease_extracted", [])),
+                        nlp.get("disease_classification"),
+                        nlp.get("confidence", 0.0),
+                        nlp.get("outbreak_alert", False),
+                        nlp.get("sentiment"),
+                        nlp.get("event_type"),
+                        nlp.get("relevance_score"),
+                    ),
+                )
                 conn.commit()
-                logger.info("Skipped (not health related): raw_id=%s", raw_id)
+                logger.info("Non-health event inserted: raw_id=%s", raw_id)
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
@@ -106,12 +139,12 @@ def callback(ch, method, properties, body):
                    (raw_report_id, source_type, source_name, published_at, original_text, language,
                     location_name, geom, symptoms, disease_extracted, disease_classification,
                     case_count, death_count, confidence, outbreak_alert,
-                    sentiment, event_type, relevance_score)
+                    sentiment, event_type, relevance_score, is_health_related)
                    VALUES (%s, %s, %s, %s, %s, %s, %s,
                            CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
-                                ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                                ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326
                            END,
-                           %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                           %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)""",
                 (
                     raw_id,
                     msg.get("source_type"),

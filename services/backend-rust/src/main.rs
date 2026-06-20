@@ -211,6 +211,7 @@ struct EventsQuery {
     outbreak_alert: Option<bool>,
     date_from: Option<String>,
     date_to: Option<String>,
+    is_health_related: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -486,7 +487,8 @@ async fn list_events(
                     ST_Y(e.geom) AS latitude, ST_X(e.geom) AS longitude, e.created_at::text,
                     e.sentiment, e.event_type, e.relevance_score,
                     e.source_credibility::float8 AS source_credibility, e.source_credibility_label, e.needs_review,
-                    r.url, SUBSTRING(r.original_text FROM 1 FOR 200) AS title
+                    r.url, SUBSTRING(r.original_text FROM 1 FOR 200) AS title,
+                    e.is_health_related
              FROM disease_events e
              LEFT JOIN raw_reports r ON r.id = e.raw_report_id
              WHERE ($1::text IS NULL OR e.disease_classification ILIKE '%'||$1||'%'
@@ -495,13 +497,14 @@ async fn list_events(
                  OR r.original_text ILIKE '%'||$1||'%')
              AND ($2::text IS NULL OR e.disease_classification = $2)
              AND ($3::text IS NULL OR e.source_type = $3)
-             AND ($4::bool IS NULL OR e.outbreak_alert = $4)
+              AND ($4::bool IS NULL OR e.outbreak_alert = $4)
               AND ($5::text IS NULL OR e.published_at::text >= $5)
               AND ($6::text IS NULL OR e.published_at::text <= $6)
+              AND ($7::bool IS NULL OR e.is_health_related = $7)
               ORDER BY e.created_at DESC
-              LIMIT $7 OFFSET $8";
+              LIMIT $8 OFFSET $9";
      let rows = client
-        .query(sql, &[&query.q, &query.disease, &query.source_type, &query.outbreak_alert, &query.date_from, &query.date_to, &per_page, &offset])
+         .query(sql, &[&query.q, &query.disease, &query.source_type, &query.outbreak_alert, &query.date_from, &query.date_to, &query.is_health_related, &per_page, &offset])
         .await
         .map_err(internal_error)?;
 
@@ -530,6 +533,7 @@ async fn list_events(
             "needs_review": r.get::<_, Option<bool>>(19),
             "url": r.get::<_, Option<String>>(20),
             "title": r.get::<_, Option<String>>(21),
+            "is_health_related": r.get::<_, Option<bool>>(22),
         }))
         .collect();
 
@@ -543,10 +547,11 @@ async fn list_events(
                  OR r.original_text ILIKE '%'||$1||'%')
              AND ($2::text IS NULL OR e.disease_classification = $2)
              AND ($3::text IS NULL OR e.source_type = $3)
-             AND ($4::bool IS NULL OR e.outbreak_alert = $4)
+              AND ($4::bool IS NULL OR e.outbreak_alert = $4)
               AND ($5::text IS NULL OR e.published_at::text >= $5)
-             AND ($6::text IS NULL OR e.published_at::text <= $6)",
-            &[&query.q, &query.disease, &query.source_type, &query.outbreak_alert, &query.date_from, &query.date_to],
+              AND ($6::text IS NULL OR e.published_at::text <= $6)
+              AND ($7::bool IS NULL OR e.is_health_related = $7)",
+            &[&query.q, &query.disease, &query.source_type, &query.outbreak_alert, &query.date_from, &query.date_to, &query.is_health_related],
         )
         .await
         .map_err(internal_error)?

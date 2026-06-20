@@ -12,7 +12,7 @@ interface User {
 }
 
 export default function UsersPage() {
-  const { data: users, loading, page, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<User>('/api/v1/users')
+  const { data: users, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<User>('/api/v1/users')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ username: '', password: '', display_name: '', role: 'operator', email: '' })
 
@@ -119,7 +119,7 @@ export default function UsersPage() {
             </tbody>
           </table>
         )}
-        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} />
+        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
     </div>
   )
