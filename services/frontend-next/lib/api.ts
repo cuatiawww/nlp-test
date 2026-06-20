@@ -144,6 +144,13 @@ export const createLocation = (data: any) => postTo('/api/v1/locations', data)
 export const updateLocation = (id: string, data: any) => putTo(`/api/v1/locations/${id}`, data)
 export const deleteLocation = (id: string) => delFrom(`/api/v1/locations/${id}`)
 
+// ── Source Credibility ──────────────────────────
+
+export const fetchCredibility = () => fetchFrom<any[]>('/api/v1/source-credibility')
+export const createCredibility = (data: any) => postTo('/api/v1/source-credibility', data)
+export const updateCredibility = (id: string, data: any) => putTo(`/api/v1/source-credibility/${id}`, data)
+export const deleteCredibility = (id: string) => delFrom(`/api/v1/source-credibility/${id}`)
+
 // ── Events ────────────────────────────────────────
 
 export const fetchEvents = () => fetchFrom<any[]>('/api/v1/events')

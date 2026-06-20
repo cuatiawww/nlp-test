@@ -211,6 +211,19 @@ struct UpdateLocationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CreateSourceCredibilityRequest {
+    source_type: String,
+    score: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateSourceCredibilityRequest {
+    source_type: Option<String>,
+    score: Option<f64>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct EventsQuery {
     page: Option<i64>,
     per_page: Option<i64>,
@@ -322,6 +335,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
         .route("/api/v1/locations", get(list_locations).post(create_location))
         .route("/api/v1/locations/:id", put(update_location).delete(delete_location))
+        .route("/api/v1/source-credibility", get(list_source_credibility).post(create_source_credibility))
+        .route("/api/v1/source-credibility/:id", put(update_source_credibility).delete(delete_source_credibility))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -1635,6 +1650,77 @@ async fn delete_location(
     let client = state.db.get().await.map_err(internal_error)?;
     client.execute("DELETE FROM locations WHERE id = $1", &[&id]).await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Location not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+// ─── SOURCE CREDIBILITY ──────────────────────────
+
+async fn list_source_credibility(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query("SELECT id, source_type, score, is_active, created_at::text FROM source_credibility ORDER BY score DESC", &[])
+        .await
+        .map_err(internal_error)?;
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "source_type": r.get::<_, String>(1),
+        "score": r.get::<_, f64>(2),
+        "is_active": r.get::<_, bool>(3),
+        "created_at": r.get::<_, Option<String>>(4),
+    })).collect();
+    Ok(Json(ApiResponse { success: true, data, total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn create_source_credibility(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateSourceCredibilityRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "INSERT INTO source_credibility (source_type, score) VALUES ($1, $2) RETURNING id, source_type, score, is_active, created_at::text",
+            &[&payload.source_type, &payload.score],
+        )
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Exists: {}", e)}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "source_type": row.get::<_, String>(1),
+        "score": row.get::<_, f64>(2), "is_active": row.get::<_, bool>(3),
+        "created_at": row.get::<_, Option<String>>(4),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn update_source_credibility(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateSourceCredibilityRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "UPDATE source_credibility SET source_type=COALESCE($1,source_type), score=COALESCE($2,score),
+             is_active=COALESCE($3,is_active), updated_at=NOW() WHERE id=$4
+             RETURNING id, source_type, score, is_active, created_at::text, updated_at::text",
+            &[&payload.source_type, &payload.score, &payload.is_active, &id],
+        )
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "source_type": row.get::<_, String>(1),
+        "score": row.get::<_, f64>(2), "is_active": row.get::<_, bool>(3),
+        "created_at": row.get::<_, Option<String>>(4), "updated_at": row.get::<_, Option<String>>(5),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn delete_source_credibility(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    client.execute("DELETE FROM source_credibility WHERE id = $1", &[&id]).await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 

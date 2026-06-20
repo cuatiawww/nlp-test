@@ -35,13 +35,13 @@ API:     GET/POST/PUT/DELETE /api/v1/locations ✅
 Frontend:/locations ✅
 Status:  ✅ DB-driven, bisa edit dari /nlp/locations
 
---- PRIORITAS 3: SOURCE CREDIBILITY ---
+--- PRIORITAS 3: SOURCE CREDIBILITY ✅ ---
 File:    services/nlp-python/app/config.py:32-43
-Kode:    government:0.95, who:0.95, hospital:0.90, research:0.85, news:0.70, rss:0.65, web:0.50, social_media:0.35, csv:0.60, api:0.55
-Tabel:   source_credibility (id, source_type, score)
-API:     GET/POST/PUT/DELETE /api/v1/source-credibility
-Frontend:/source-credibility
-Effort:  30 menit
+Kode:    SOURCE_CREDIBILITY_MAP = load from DB
+Tabel:   source_credibility (id, source_type, score) ✅
+API:     GET/POST/PUT/DELETE /api/v1/source-credibility ✅
+Frontend:/source-credibility ✅
+Status:  ✅ DB-driven, bisa edit dari /nlp/source-credibility
 
 --- PRIORITAS 4: EXTRACTION RULES (CASE COUNT + DEATH COUNT) ---
 File:    services/nlp-python/app/extractors.py:37-44

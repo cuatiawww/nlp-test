@@ -49,6 +49,7 @@ SYMPTOM_DICT: dict[str, str] = {}
 DISEASE_DICT: dict[str, str] = {}
 OUTBREAK_RULES: dict[str, int] = {}
 LOCATION_COORDS: dict[str, tuple[float, float]] = {}
+SOURCE_CREDIBILITY_MAP: dict[str, float] = {}
 
 
 def load_keywords_from_db():
@@ -121,4 +122,26 @@ def load_locations_from_db():
         import logging
         logging.getLogger(__name__).warning(
             "Failed to load locations from DB, using defaults: %s", e
+        )
+
+
+def load_credibility_from_db():
+    global SOURCE_CREDIBILITY_MAP
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        rows = conn.execute(
+            "SELECT source_type, score FROM source_credibility WHERE is_active = TRUE"
+        ).fetchall()
+        conn.close()
+        SOURCE_CREDIBILITY_MAP = {r["source_type"]: r["score"] for r in rows}
+        import logging
+        logging.getLogger(__name__).info(
+            "Loaded %d credibility scores from DB", len(SOURCE_CREDIBILITY_MAP),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to load credibility from DB: %s", e
         )
