@@ -7,6 +7,7 @@ from transformers import pipeline
 
 from ..config import NLP_MODEL
 from ..extractors import detect_language
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +126,8 @@ def get_labels(category: str) -> list[str]:
     return _current_labels.get(category, [])
 
 
-def classify(text: str, labels: list[str]) -> tuple[str, float]:
-    key = _choose_model(text)
+def classify(text: str, labels: list[str], model_key: Optional[str] = None) -> tuple[str, float]:
+    key = model_key or _choose_model(text)
     pipe = _get_pipe(key)
     if key == "fine-tuned":
         result = pipe(text)[0]

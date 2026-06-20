@@ -1,7 +1,8 @@
 import logging
+from typing import Optional
 
 from . import config, extractors
-from .models.classifier import classify_disease, classify_sentiment, classify_event_type, classify_relevance
+from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
 from .schemas import AnalyzeRequest, AnalyzeResponse
 
 logger = logging.getLogger(__name__)
@@ -27,10 +28,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     if config.NLP_MODEL != "none":
         try:
-            disease, confidence = classify_disease(text)
-            sentiment, sentiment_score = classify_sentiment(text)
-            event_type, event_confidence = classify_event_type(text)
-            relevance, relevance_confidence = classify_relevance(text)
+            zero_shot = config.NLP_MODEL == "fine-tuned"
+            if zero_shot:
+                disease, confidence = classify_disease(text)
+                sentiment, sentiment_score = classify(text, config.SENTIMENT_LABELS, model_key="xlm-roberta")
+                event_type, event_confidence = classify(text, config.EVENT_TYPE_LABELS, model_key="xlm-roberta")
+                relevance, relevance_confidence = classify(text, config.RELEVANCE_LABELS, model_key="xlm-roberta")
+            else:
+                disease, confidence = classify_disease(text)
+                sentiment, sentiment_score = classify_sentiment(text)
+                event_type, event_confidence = classify_event_type(text)
+                relevance, relevance_confidence = classify_relevance(text)
             if disease == "UNKNOWN" and extracted:
                 disease = extracted[0]
                 confidence = max(confidence, 0.60)

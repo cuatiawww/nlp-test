@@ -16,7 +16,7 @@ app = FastAPI(title="Disease NLP Service", version="0.2.0")
 @app.on_event("startup")
 def startup():
     from .config import NLP_MODEL, load_keywords_from_db
-    from .models.classifier import get_labels
+    from .models.classifier import get_labels, classify
     logger.info("NLP service starting — model=%s labels=%s", NLP_MODEL, get_labels("disease"))
     load_keywords_from_db()
     if NLP_MODEL != "none":
@@ -25,6 +25,13 @@ def startup():
             classify_disease("warmup")
         except Exception as e:
             logger.warning("Model warmup failed: %s", e)
+    if NLP_MODEL == "fine-tuned":
+        try:
+            from .config import SENTIMENT_LABELS
+            classify("warmup", SENTIMENT_LABELS, model_key="xlm-roberta")
+            logger.info("Zero-shot model (xlm-roberta-base) ready")
+        except Exception as e:
+            logger.warning("Zero-shot warmup: %s", e)
 
 
 @app.get("/health")
