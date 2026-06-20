@@ -31,16 +31,20 @@ def health():
 
 @app.post("/collect/all")
 async def collect_all():
+    import asyncio
     sources = db.fetch_sources()
-    results = []
-    for src in sources:
-        source_id = str(src["id"])
-        try:
-            await run_source_async(source_id)
-            results.append({"source_id": source_id, "status": "triggered"})
-        except Exception as e:
-            results.append({"source_id": source_id, "status": "error", "error": str(e)})
-    return {"success": True, "results": results}
+    total = len(sources)
+
+    async def run_all():
+        for src in sources:
+            source_id = str(src["id"])
+            try:
+                await run_source_async(source_id)
+            except Exception:
+                pass
+
+    asyncio.create_task(run_all())
+    return {"success": True, "status": "triggered_all", "total": total}
 
 
 @app.post("/collect/{source_id}")
