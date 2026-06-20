@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
     Json, Router,
 };
 use chrono::NaiveDate;
@@ -97,7 +97,6 @@ struct RunsQuery {
     source_id: Option<Uuid>,
     page: Option<i64>,
     per_page: Option<i64>,
-    q: Option<String>,
     status: Option<String>,
 }
 
@@ -107,13 +106,6 @@ struct LoginRequest {
     password: String,
 }
 
-#[derive(Debug, Serialize)]
-struct LoginResponse {
-    token: String,
-    user_id: Uuid,
-    username: String,
-    role: String,
-}
 
 #[derive(Debug, Deserialize)]
 struct CreateUserRequest {
@@ -916,28 +908,6 @@ async fn list_runs(
 
 // ─── AUTH ──────────────────────────────────────────
 
-async fn verify_token(state: &AppState, token: &str) -> Result<Value, StatusCode> {
-    let client = state.db.get().await.map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let row = client
-        .query_opt(
-            "SELECT u.id, u.username, u.role, u.display_name
-             FROM auth_tokens t JOIN users u ON u.id = t.user_id
-             WHERE t.token = $1 AND t.expires_at > NOW() AND u.is_active = TRUE",
-            &[&token],
-        )
-        .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    match row {
-        Some(r) => Ok(json!({
-            "id": r.get::<_, Uuid>(0),
-            "username": r.get::<_, String>(1),
-            "role": r.get::<_, String>(2),
-            "display_name": r.get::<_, Option<String>>(3),
-        })),
-        None => Err(StatusCode::UNAUTHORIZED),
-    }
-}
 
 macro_rules! hash_password {
     ($pw:expr) => {{
@@ -1068,14 +1038,6 @@ async fn list_users(
     Ok(Json(ApiResponse {
         success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
     }))
-}
-
-fn get_token(headers: &axum::http::HeaderMap) -> &str {
-    headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("")
 }
 
 async fn create_user(

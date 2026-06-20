@@ -27,7 +27,8 @@ export function usePaginatedFetch<T>(apiPath: string) {
       params.set('per_page', '20')
       if (q) params.set('q', q)
 
-      const result = await fetchPaginated<T>(`${pathRef.current}?${params}`)
+      const separator = pathRef.current.includes('?') ? '&' : '?'
+      const result = await fetchPaginated<T>(`${pathRef.current}${separator}${params}`)
       setData(result.data)
       setTotal(result.total)
       setTotalPages(result.totalPages)
