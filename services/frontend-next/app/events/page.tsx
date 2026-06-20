@@ -74,6 +74,7 @@ export default function EventsPage() {
                   <th className="px-4 py-3 font-semibold text-slate-600">Judul</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">Sumber</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">Tanggal</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600">Diproses</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">Lokasi</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">Penyakit</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">Kasus</th>
@@ -98,7 +99,8 @@ export default function EventsPage() {
                         : <span className="text-xs text-slate-600">{e.source_name || e.source_type || '-'}</span>
                       }
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-600">{e.published_at || e.created_at?.slice(0, 10) || '-'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{e.published_at || '-'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-400">{e.created_at ? e.created_at.slice(0, 16) : '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-700">{e.location_name || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-700">
                       {e.disease_classification || '-'}
