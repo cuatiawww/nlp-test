@@ -144,9 +144,9 @@ def callback(ch, method, properties, body):
                     sentiment, event_type, relevance_score,
                     source_credibility, source_credibility_label, is_health_related)
                    VALUES (%s, %s, %s, %s, %s, %s, %s,
-                           CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
-                                ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326
-                           END,
+                            CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
+                                 ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                            END,
                            %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)""",
                 (
                     raw_id,
