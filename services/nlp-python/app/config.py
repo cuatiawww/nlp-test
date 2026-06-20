@@ -44,18 +44,11 @@ SOURCE_CREDIBILITY_MAP = {
 
 LOW_CONFIDENCE_THRESHOLD = float(os.getenv("LOW_CONFIDENCE_THRESHOLD", "0.5"))
 
-LOCATION_COORDS = {
-    "Kabupaten Bogor": (-6.5950, 106.8166),
-    "Bandung": (-6.9175, 107.6191),
-    "Kota Depok": (-6.4025, 106.7942),
-    "Bekasi": (-6.2383, 106.9756),
-    "Jakarta": (-6.2088, 106.8456),
-}
-
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 SYMPTOM_DICT: dict[str, str] = {}
 DISEASE_DICT: dict[str, str] = {}
 OUTBREAK_RULES: dict[str, int] = {}
+LOCATION_COORDS: dict[str, tuple[float, float]] = {}
 
 
 def load_keywords_from_db():
@@ -106,4 +99,26 @@ def load_outbreak_rules_from_db():
         import logging
         logging.getLogger(__name__).warning(
             "Failed to load outbreak rules from DB, using defaults: %s", e
+        )
+
+
+def load_locations_from_db():
+    global LOCATION_COORDS
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        rows = conn.execute(
+            "SELECT name, latitude, longitude FROM locations WHERE is_active = TRUE"
+        ).fetchall()
+        conn.close()
+        LOCATION_COORDS = {r["name"]: (r["latitude"], r["longitude"]) for r in rows}
+        import logging
+        logging.getLogger(__name__).info(
+            "Loaded %d locations from DB", len(LOCATION_COORDS),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to load locations from DB, using defaults: %s", e
         )

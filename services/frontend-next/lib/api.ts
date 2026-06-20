@@ -137,6 +137,13 @@ export const fetchUsers = () => fetchAuth<any[]>('/api/v1/users')
 export const createUser = (data: any) => postAuth('/api/v1/users', data)
 export const deleteUser = (id: string) => delAuth(`/api/v1/users/${id}`)
 
+// ── Locations ────────────────────────────────────
+
+export const fetchLocations = () => fetchFrom<any[]>('/api/v1/locations')
+export const createLocation = (data: any) => postTo('/api/v1/locations', data)
+export const updateLocation = (id: string, data: any) => putTo(`/api/v1/locations/${id}`, data)
+export const deleteLocation = (id: string) => delFrom(`/api/v1/locations/${id}`)
+
 // ── Events ────────────────────────────────────────
 
 export const fetchEvents = () => fetchFrom<any[]>('/api/v1/events')

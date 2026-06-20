@@ -27,13 +27,13 @@ Tabel:   disease_outbreak_rules (SUDAH ADA)
 Status:  ✅ DB-driven — load di startup, fallback 25
 Frontend:/outbreak-rules (edit min_case_count per penyakit)
 
---- PRIORITAS 2: LOCATION COORDINATES ---
+--- PRIORITAS 2: LOCATION COORDINATES ✅ ---
 File:    services/nlp-python/app/config.py:47-53
-Kode:    5 hardcoded cities (Bogor, Bandung, Depok, Bekasi, Jakarta)
-Tabel:   locations (id, name, lat, lon, country)
-API:     GET/POST/PUT/DELETE /api/v1/locations
-Frontend:/locations
-Effort:  1 jam
+Kode:    LOCATION_COORDS = load from DB
+Tabel:   locations (id, name, lat, lon, country) ✅
+API:     GET/POST/PUT/DELETE /api/v1/locations ✅
+Frontend:/locations ✅
+Status:  ✅ DB-driven, bisa edit dari /nlp/locations
 
 --- PRIORITAS 3: SOURCE CREDIBILITY ---
 File:    services/nlp-python/app/config.py:32-43

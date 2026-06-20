@@ -194,6 +194,23 @@ struct UpdateRuleRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CreateLocationRequest {
+    name: String,
+    latitude: f64,
+    longitude: f64,
+    country: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateLocationRequest {
+    name: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    country: Option<String>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct EventsQuery {
     page: Option<i64>,
     per_page: Option<i64>,
@@ -303,6 +320,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/nlp-keywords", get(list_keywords).post(create_keyword))
         .route("/api/v1/nlp-keywords/:id", put(update_keyword).delete(delete_keyword))
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
+        .route("/api/v1/locations", get(list_locations).post(create_location))
+        .route("/api/v1/locations/:id", put(update_location).delete(delete_location))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -1541,6 +1560,82 @@ async fn cleanup_events(
     };
     let _ = client.execute("DELETE FROM disease_events", &[]).await;
     Json(json!({"success": true, "data": "events_cleaned"}))
+}
+
+// ─── LOCATIONS ──────────────────────────────────
+
+async fn list_locations(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query("SELECT id, name, latitude, longitude, country, is_active, created_at::text, updated_at::text FROM locations ORDER BY name", &[])
+        .await
+        .map_err(internal_error)?;
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "name": r.get::<_, String>(1),
+        "latitude": r.get::<_, f64>(2),
+        "longitude": r.get::<_, f64>(3),
+        "country": r.get::<_, Option<String>>(4),
+        "is_active": r.get::<_, bool>(5),
+        "created_at": r.get::<_, Option<String>>(6),
+        "updated_at": r.get::<_, Option<String>>(7),
+    })).collect();
+    Ok(Json(ApiResponse { success: true, data, total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn create_location(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateLocationRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "INSERT INTO locations (name, latitude, longitude, country) VALUES ($1, $2, $3, $4) RETURNING id, name, latitude, longitude, country, is_active, created_at::text",
+            &[&payload.name, &payload.latitude, &payload.longitude, &payload.country],
+        )
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Location exists: {}", e)}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "name": row.get::<_, String>(1),
+        "latitude": row.get::<_, f64>(2), "longitude": row.get::<_, f64>(3),
+        "country": row.get::<_, Option<String>>(4), "is_active": row.get::<_, bool>(5),
+        "created_at": row.get::<_, Option<String>>(6),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn update_location(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateLocationRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "UPDATE locations SET name=COALESCE($1,name), latitude=COALESCE($2,latitude), longitude=COALESCE($3,longitude),
+             country=COALESCE($4,country), is_active=COALESCE($5,is_active), updated_at=NOW() WHERE id=$6
+             RETURNING id, name, latitude, longitude, country, is_active, created_at::text, updated_at::text",
+            &[&payload.name, &payload.latitude, &payload.longitude, &payload.country, &payload.is_active, &id],
+        )
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Location not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "name": row.get::<_, String>(1),
+        "latitude": row.get::<_, f64>(2), "longitude": row.get::<_, f64>(3),
+        "country": row.get::<_, Option<String>>(4), "is_active": row.get::<_, bool>(5),
+        "created_at": row.get::<_, Option<String>>(6), "updated_at": row.get::<_, Option<String>>(7),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn delete_location(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    client.execute("DELETE FROM locations WHERE id = $1", &[&id]).await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Location not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 
 fn parse_date(input: Option<&str>) -> Option<NaiveDate> {
