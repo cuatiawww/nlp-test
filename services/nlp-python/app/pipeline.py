@@ -44,6 +44,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 confidence = max(confidence, 0.60)
             if "negative" in disease.lower() or "not health" in disease.lower():
                 is_health_related = False
+            if not extracted:
+                confidence = min(confidence, 0.30)
+                disease = "UNKNOWN"
         except Exception as e:
             logger.warning("NLP inference failed, using regex: %s", e)
             if extracted:
