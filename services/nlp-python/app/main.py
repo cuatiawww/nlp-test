@@ -15,10 +15,11 @@ app = FastAPI(title="Disease NLP Service", version="0.2.0")
 
 @app.on_event("startup")
 def startup():
-    from .config import NLP_MODEL, load_keywords_from_db
+    from .config import NLP_MODEL, load_keywords_from_db, load_outbreak_rules_from_db
     from .models.classifier import get_labels, classify
     logger.info("NLP service starting — model=%s labels=%s", NLP_MODEL, get_labels("disease"))
     load_keywords_from_db()
+    load_outbreak_rules_from_db()
     if NLP_MODEL != "none":
         try:
             from .models.classifier import classify_disease

@@ -56,7 +56,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     case_count = extractors.extract_case_count(text)
     death_count = extractors.extract_death_count(text)
-    outbreak_alert = case_count >= 25 or (disease in ["DBD", "LEPTOSPIROSIS"] and case_count >= 10)
+    outbreak_alert = case_count >= config.OUTBREAK_RULES.get("UNKNOWN", 25)
+    for db_name, min_count in config.OUTBREAK_RULES.items():
+        if db_name != "UNKNOWN" and (db_name in disease.upper() or disease.upper() in db_name):
+            outbreak_alert = case_count >= min_count
+            break
     needs_review = confidence < config.LOW_CONFIDENCE_THRESHOLD
 
     source_type = payload.source_type or "web"

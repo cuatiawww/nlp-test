@@ -55,6 +55,7 @@ LOCATION_COORDS = {
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 SYMPTOM_DICT: dict[str, str] = {}
 DISEASE_DICT: dict[str, str] = {}
+OUTBREAK_RULES: dict[str, int] = {}
 
 
 def load_keywords_from_db():
@@ -83,4 +84,26 @@ def load_keywords_from_db():
         import logging
         logging.getLogger(__name__).warning(
             "Failed to load keywords from DB, using empty dicts: %s", e
+        )
+
+
+def load_outbreak_rules_from_db():
+    global OUTBREAK_RULES
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        rows = conn.execute(
+            "SELECT disease_name, min_case_count FROM disease_outbreak_rules WHERE is_active = TRUE"
+        ).fetchall()
+        conn.close()
+        OUTBREAK_RULES = {r["disease_name"].upper(): r["min_case_count"] for r in rows}
+        import logging
+        logging.getLogger(__name__).info(
+            "Loaded %d outbreak rules from DB", len(OUTBREAK_RULES),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to load outbreak rules from DB, using defaults: %s", e
         )

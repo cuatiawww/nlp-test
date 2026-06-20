@@ -20,12 +20,12 @@
  MASIH HARDCODE (❌) — PRIORITAS PENGEMBANGAN
 ============================================================
 
---- PRIORITAS 1: OUTBREAK ALERT ---
+--- PRIORITAS 1: OUTBREAK ALERT ✅ ---
 File:    services/nlp-python/app/pipeline.py:44
-Kode:    outbreak_alert = case_count >= 25 or (disease in ["DBD","LEPTOSPIROSIS"] and case_count >= 10)
-Tabel:   disease_outbreak_rules (SUDAH ADA — tinggal panggil API)
-Action:  Pipeline baca min_case_count dari DB outbreak rules per disease
-Effort:  30 menit
+Kode:    outbreak_alert = case_count >= config.OUTBREAK_RULES.get(...)
+Tabel:   disease_outbreak_rules (SUDAH ADA)
+Status:  ✅ DB-driven — load di startup, fallback 25
+Frontend:/outbreak-rules (edit min_case_count per penyakit)
 
 --- PRIORITAS 2: LOCATION COORDINATES ---
 File:    services/nlp-python/app/config.py:47-53
