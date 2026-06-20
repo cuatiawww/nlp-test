@@ -1,462 +1,261 @@
 # Disease Surveillance AI
 
-**Multilingual NLP Disease Monitoring** — ASEAN-focused platform untuk mendeteksi, mengklasifikasi, dan memantau wabah penyakit dari berita online, media sosial, dan laporan kesehatan.
+**Multilingual NLP Disease Monitoring** — Platform deteksi, klasifikasi, dan pemantauan wabah penyakit dari berita online, RSS, dan laporan kesehatan. Fokus wilayah ASEAN.
 
 ## Arsitektur
 
 ```
-┌─────────┐  ┌──────────┐  ┌──────────┐
-│Frontend │  │ Backend  │  │Collector │
-│ Next.js │─▶│ Rust API │◀─│  Python  │
-│ :3001   │  │ :8080    │  │          │
-└─────────┘  └────┬─────┘  └────┬─────┘
-                  │             │ RabbitMQ
-          ┌───────▼──────┐  ┌───▼──────┐
-          │  PostgreSQL  │  │  Worker  │
-          │  + PostGIS   │◀─│  Python  │
-          │  :9876       │  │          │
-          └──────────────┘  └────┬─────┘
-                                 │
-                         ┌──────▼──────┐
-                         │  NLP Python │
-                         │  XLM-RoBERTa│
-                         │  :8001      │
-                         └─────────────┘
+┌──────────┐     ┌──────────┐     ┌───────────┐
+│ Frontend │     │  Rust    │     │ Collector │
+│ Next.js  │◀───▶│ Backend  │◀────│  Python   │
+│ :3010    │     │ :8081    │     │ :8002     │
+│ /nlp/*   │     └────┬─────┘     └─────┬─────┘
+└──────────┘          │                 │ RabbitMQ
+                      │         ┌───────▼──────┐
+              ┌───────▼──────┐  │    Worker    │
+              │  PostgreSQL  │  │   Python     │
+              │  + PostGIS   │◀─│   Consumer   │
+              │  :9876       │  └───────┬──────┘
+              └──────────────┘          │
+                                ┌───────▼──────┐
+                                │  NLP Python  │
+                                │ fine-tuned + │
+                                │ zero-shot    │
+                                │ :8001        │
+                                └──────────────┘
 ```
 
 ## Services
 
-| Service | Port | Image | Fungsi |
-|---------|------|-------|--------|
-| `frontend-next` | 3001 | `nlp-frontend-next` | Dashboard + manajemen sumber data |
-| `backend-rust` | 8080 | `nlp-backend-rust` | REST API, CRUD sumber data, ingest async |
-| `nlp-python` | 8001 | `nlp-nlp-python` | NLP zero-shot classification + sentiment |
-| `worker-python` | — | `nlp-worker-python` | Async consumer RabbitMQ → NLP → DB |
-| `collector-python` | 8002 | `nlp-collector-python` | RSS, web scraping, CSV ingest |
-| `postgres` | **9876** | `postgis/postgis:16-3.4` | Database + PostGIS spatial |
-| `minio` | 9002 (API) / 9003 (Console) | `minio/minio` | Object storage dokumen |
-| `rabbitmq` | 5672 / 15672 | `rabbitmq:3-management` | Message queue |
+| Service | Port Host | Fungsi |
+|---------|-----------|--------|
+| `frontend-next` | 3010 | Dashboard Next.js (basePath `/nlp`) |
+| `backend-rust` | 8081 | REST API CRUD + proxy ke collector |
+| `nlp-python` | 8001 | NLP: disease classification + sentiment + event type |
+| `worker-python` | — | Async consumer: RabbitMQ → NLP → DB |
+| `collector-python` | — | RSS, Web scraper, CSV ingest → publish ke queue |
+| `postgres` | 9876 | PostgreSQL 16 + PostGIS |
+| `minio` | 9002/9003 | Object storage dokumen mentah |
+| `rabbitmq` | 5672/15672 | Message queue |
 
 ## Quick Start
 
 ```bash
 cp .env.example .env
-# Edit .env jika perlu (password, dll)
+# Edit .env sesuai lingkungan
+
 docker compose up -d --build
 
-# First-time setup: seed user webmaster
+# Seed user webmaster
 docker compose --profile init run --rm init
+
+# Jalankan migration DB (lokasi + credibility + column fix)
+docker compose exec -T postgres psql -U postgres -d disease_ai < database/init/011_locations.sql
+docker compose exec -T postgres psql -U postgres -d disease_ai < database/init/012_source_credibility.sql
+docker compose exec -T postgres psql -U postgres -d disease_ai -c "ALTER TABLE disease_events ALTER COLUMN relevance_score TYPE TEXT;"
 ```
 
-Cek semua service:
+Akses: **http://localhost:3010/nlp/**
 
-```bash
-docker compose ps
-```
+## Frontend Pages
 
-## Tahap Pengembangan
+Semua halaman diakses via prefix **`/nlp/`** (Next.js basePath).
 
-### ✅ Tahap 1 — Docker Compose POC
-- Frontend → Rust API → NLP → PostgreSQL
-- Rule-based NLP placeholder
-- Basic dashboard (stat cards + summary table)
+| Route | Fitur |
+|-------|-------|
+| `/` | Dashboard: KPI cards + summary table |
+| `/sources` | CRUD sumber data (modal popup), Trigger per-source + Trigger All |
+| `/events` | Data events hasil NLP — filter Semua/Health/Non Health, search, pagination angka, kolom Diproses |
+| `/nlp-keywords` | CRUD keyword dictionary (symptom/disease), search, pagination, modal popup |
+| `/nlp-labels` | CRUD label classification (disease/event_type/sentiment/relevance), modal popup |
+| `/outbreak-rules` | CRUD ambang batas wabah per penyakit, modal popup |
+| `/locations` | CRUD koordinat lokasi (digunakan NLP untuk geolokasi) |
+| `/source-credibility` | CRUD skor kredibilitas per tipe sumber |
+| `/users` | Manajemen user, modal popup |
+| `/processing` | Monitoring real-time: queue depth, collector runs, auto-refresh 10 detik |
 
-### ✅ Tahap 2 — Data Collection
-- **Collector Service**: RSS, Web Scraper, CSV Ingest, Social Media
-- **MinIO**: Object storage untuk dokumen mentah
-- **Worker Enhancement**: Async consumer RabbitMQ → NLP → DB
-- **Backend API**: CRUD `collector_sources`, `collector_runs`, trigger collect
-- **Frontend**: Manajemen sumber data (+Tambah, +Edit, Trigger, Riwayat runs)
-
-### ✅ Tahap 3 — Queue Processing (Async)
-- **Rust backend** publish ke RabbitMQ via `lapin`
-- **Worker** consume → NLP → write to DB
-- Sync fallback jika RabbitMQ unavailable
-- `POST /api/v1/ingest` returns `"status": "queued"` (async)
-
-### ✅ Tahap 4 — XLM-RoBERTa NLP
-- **Zero-shot classification** untuk penyakit + sentimen
-- **Dual model ready**: XLM-RoBERTa (default) / IndoBERT
-- Labels dinamis via API + env var
-- `langdetect` untuk deteksi bahasa (55 bahasa)
-- `needs_review: true/false` untuk kasus low-confidence
-
-## NLP Model Configuration
-
-### Pilih Model
-
-Edit `docker-compose.yml` → environment `nlp-python`:
-
-```yaml
-environment:
-  - NLP_MODEL=xlm-roberta   # default: XLM-RoBERTa (ASEAN multilingual)
-  # - NLP_MODEL=indobert    # Indonesia only
-  # - NLP_MODEL=dual        # BOTH: IndoBERT untuk ID, XLM-R untuk lainnya
-  # - NLP_MODEL=none        # rule-based only (no ML)
-```
-
-| Model | RAM | Disk | Cakupan Bahasa |
-|-------|-----|------|---------------|
-| `xlm-roberta` | ~2GB | 1.1GB | 100+ bahasa (ASEAN) |
-| `indobert` | ~1.2GB | 500MB | Indonesia |
-| `dual` | ~3.2GB | 1.6GB | Indo untuk ID, XLM-R untuk lainnya |
-| `none` | ~50MB | 0 | Rule-based fallback |
-
-### Dynamic Disease Labels
-
-Label penyakit bisa diubah runtime via API:
-
-```bash
-# Lihat labels saat ini
-curl http://localhost:8001/labels
-
-# Update labels
-curl -X PUT http://localhost:8001/labels \
-  -H "Content-Type: application/json" \
-  -d '{"labels":["dengue fever DBD","acute diarrhea","leptospirosis","influenza flu","COVID-19 coronavirus","malaria"]}'
-
-# Update sentiment labels
-curl -X PUT http://localhost:8001/labels/sentiment \
-  -H "Content-Type: application/json" \
-  -d '{"labels":["positive","negative","neutral"]}'
-```
-
-Atau via environment variable:
-
-```yaml
-# docker-compose.yml
-environment:
-  - DISEASE_LABELS=DBD,diare akut,leptospirosis,influenza,COVID-19,malaria
-```
+Semua halaman CRUD menggunakan **modal popup** (bukan inline form). Semua tabel punya **search** + **pagination** (20 per halaman).
 
 ## API Documentation
 
-### Public API (Backend Rust — :8080)
+### Backend API (:8081) — melalui Next.js proxy (`/nlp/api/*`)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
+| Method | Endpoint | Deskripsi |
+|--------|----------|-----------|
 | `GET` | `/health` | Health check |
-| `POST` | `/api/v1/ingest` | Submit text → async queue (return `"status":"queued"`) |
-| `GET` | `/api/v1/events` | List disease events (NLP results) |
-| `GET` | `/api/v1/summary` | Aggregated dashboard summary |
-| `GET` | `/api/v1/sources` | List collector sources |
-| `POST` | `/api/v1/sources` | Create data source |
-| `GET` | `/api/v1/sources/{id}` | Get source detail |
-| `PUT` | `/api/v1/sources/{id}` | Update source config |
-| `DELETE` | `/api/v1/sources/{id}` | Delete source |
-| `POST` | `/api/v1/sources/{id}/collect` | Trigger collection |
-| `GET` | `/api/v1/runs` | List collection runs |
+| `POST` | `/api/v1/ingest` | Submit teks → antrian async |
+| `GET` | `/api/v1/events` | List events + pagination + filter |
+| `POST` | `/api/v1/sources` | CRUD sumber data |
+| `GET` | `/api/v1/sources?q=cari&page=1&per_page=20` | List sumber + search + pagination |
+| `DELETE` | `/api/v1/sources/{id}` | Hapus sumber |
+| `POST` | `/api/v1/sources/{id}/collect` | Trigger collect satu sumber |
+| `POST` | `/api/v1/sources/collect-all` | Trigger ALL sources (fire-and-forget) |
+| `GET` | `/api/v1/runs?source_id=&page=&per_page=` | Riwayat collector runs |
+| `GET/POST/PUT/DELETE` | `/api/v1/locations` | CRUD lokasi |
+| `GET/POST/PUT/DELETE` | `/api/v1/source-credibility` | CRUD skor kredibilitas |
+| `GET/POST/PUT` | `/api/v1/nlp-labels` | CRUD label NLP |
+| `GET/POST/PUT` | `/api/v1/nlp-keywords` | CRUD keyword NLP |
+| `GET/POST` | `/api/v1/outbreak-rules` | CRUD aturan wabah |
+| `POST` | `/api/v1/data/cleanup-events` | Hapus semua events |
 
-### NLP API (Internal — :8001)
+**Pagination response:**
+```json
+{
+  "success": true,
+  "data": [...],
+  "total": 150,
+  "page": 1,
+  "per_page": 20,
+  "total_pages": 8
+}
+```
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
+### NLP API Internal (:8001)
+
+| Method | Endpoint | Deskripsi |
+|--------|----------|-----------|
 | `GET` | `/health` | Health + model info |
-| `POST` | `/nlp/analyze` | Analyze text (disease + sentiment) |
-| `GET` | `/labels` | View current labels |
+| `POST` | `/nlp/analyze` | Analisis teks → disease + sentiment + event_type |
+| `GET` | `/labels` | Lihat labels saat ini |
 | `PUT` | `/labels` | Update disease labels |
 | `PUT` | `/labels/sentiment` | Update sentiment labels |
 
-### Ingest Example
+## NLP Pipeline
 
-```bash
-curl -X POST http://localhost:8080/api/v1/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source_type":"Berita Online",
-    "source_name":"Portal Demo",
-    "published_at":"2026-06-18",
-    "text":"Di Jakarta terdapat 25 warga demam tinggi dan diare setelah banjir.",
-    "url":"https://example.local/demo"
-  }'
+### Arsitektur Model
+
+| Mode | Model Digunakan | Fungsi |
+|------|----------------|--------|
+| `fine-tuned` | Fine-tuned XLM-RoBERTa | **Disease classification** |
+| `fine-tuned` | XLM-RoBERTa (zero-shot) | Sentiment, Event Type, Relevance |
+| `xlm-roberta` | XLM-RoBERTa (zero-shot) | Semua klasifikasi |
+| `indobert` | IndoBERT (zero-shot) | Semua klasifikasi (ID only) |
+
+Konfigurasi model di `docker-compose.yml`:
+```yaml
+environment:
+  - NLP_MODEL=fine-tuned   # default: fine-tuned untuk disease, zero-shot untuk lainnya
 ```
 
-Response (async):
-```json
-{"success":true,"data":{"raw_report_id":"...","status":"queued"}}
+### Alur Pipeline
+
+```
+Input Text → Keyword Extraction (DISEASE_DICT / SYMPTOM_DICT dari DB)
+           → Jika keyword cocok → Model klasifikasi
+           → Jika tidak → UNKNOWN, is_health_related=False, confidence rendah
+           → Hitung outbreak alert dari DB rules
+           → Hitung source credibility dari DB
 ```
 
-Worker akan memproses dalam beberapa detik. Cek hasil:
+### DB-Driven Configuration (semua bisa diedit via frontend)
 
-```bash
-curl http://localhost:8080/api/v1/events
-```
-
-## Port Mapping
-
-### Service Ports
-
-| Service | Internal | Host | Keterangan |
-|---------|----------|------|------------|
-| Postgres | 5432 | **9876** | Beda dengan Windows postgres (9898) |
-| MinIO API | 9000 | **9002** | Beda dengan external minio (9000) |
-| MinIO Console | 9001 | **9003** | Beda dengan external minio (9001) |
-| RabbitMQ AMQP | 5672 | 5672 | |
-| RabbitMQ UI | 15672 | 15672 | |
-| NLP Python | 8000 | 8001 | |
-| Backend Rust | 8080 | 8080 | |
-| Frontend Next | 3000 | 3001 | |
-
-### Akses dari Host (Windows)
-
-Semua port host bisa diakses dari Windows via `http://localhost:{port}` karena Docker Desktop port forwarding.
-
-Postgres bisa diakses dari tool eksternal:
-```
-Host: localhost
-Port: 9876
-User: postgres
-Password: root
-Database: disease_ai
-```
+| Item | Tabel DB | Halaman Frontend |
+|------|----------|------------------|
+| Disease labels | `nlp_labels` | `/nlp/nlp-labels` |
+| Event type labels | `nlp_labels` | `/nlp/nlp-labels` |
+| Sentiment labels | `nlp_labels` | `/nlp/nlp-labels` |
+| Relevance labels | `nlp_labels` | `/nlp/nlp-labels` |
+| Symptom keywords | `nlp_keywords` | `/nlp/nlp-keywords` |
+| Disease keywords | `nlp_keywords` | `/nlp/nlp-keywords` |
+| Outbreak rules | `disease_outbreak_rules` | `/nlp/outbreak-rules` |
+| Location coordinates | `locations` | `/nlp/locations` |
+| Source credibility | `source_credibility` | `/nlp/source-credibility` |
 
 ## Data Flow
 
-### Async (default)
+### Collection Pipeline
 ```
-POST /api/v1/ingest → INSERT raw_reports (NEW)
-                    → Publish RabbitMQ
-                    → Return "queued"
-                    ↓
-  Worker consume → POST /nlp/analyze
-                 → UPDATE raw_reports (PROCESSED)
-                 → INSERT disease_events
+Scheduler / Trigger → Collector (RSS feed) → Upload ke MinIO
+                                           → Publish ke RabbitMQ
+                                           ↓
+Worker consume → POST /nlp/analyze
+              → INSERT disease_events (health / non-health)
+              → UPDATE raw_reports status
 ```
 
-### Sync (fallback — jika RabbitMQ down)
+### Async Ingest (default)
+```
+POST /api/v1/ingest → INSERT raw_reports (NEW)
+                    → Publish RabbitMQ → Return "queued"
+                    ↓
+Worker → NLP → INSERT disease_events
+```
+
+### Sync Ingest (fallback — jika RabbitMQ down)
 ```
 POST /api/v1/ingest → INSERT raw_reports
-                    → POST /nlp/analyze (langsung)
+                    → POST /nlp/analyze langsung
                     → INSERT disease_events
                     → Return "processed_sync"
 ```
 
-### Collection Pipeline
-```
-Scheduler → Collector (RSS/Web/CSV) → RabbitMQ → Worker → NLP → DB
-                                              ↘ MinIO (dokumen)
-```
-
-## Frontend Pages
-
-| Route | Deskripsi |
-|-------|-----------|
-| `/` | Dashboard: stat cards + summary table |
-| `/sources` | Manajemen sumber data (CRUD + trigger) |
-| `/sources/new` | Tambah sumber data (RSS/Web/CSV/Social) |
-| `/sources/{id}` | Detail sumber + riwayat collection |
-| `/events` | Daftar hasil NLP yang sudah diproses |
-
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NLP_MODEL` | `xlm-roberta` | Model selection: `xlm-roberta`, `indobert`, `dual`, `none` |
-| `DISEASE_LABELS` | default list | Comma-separated disease labels for zero-shot |
-| `LOW_CONFIDENCE_THRESHOLD` | `0.5` | Threshold for `needs_review` flag |
-| `DATABASE_URL` | `postgres://postgres:root@postgres:5432/disease_ai` | PostgreSQL connection |
-| `RABBITMQ_URL` | `amqp://guest:guest@rabbitmq:5672/%2f` | RabbitMQ connection |
-| `NLP_SERVICE_URL` | `http://nlp-python:8000` | NLP service internal URL |
-| `MINIO_ENDPOINT` | `http://minio:9000` | MinIO internal URL |
-| `BACKEND_PORT` | `8080` | Rust backend port |
+| Variable | Default | Deskripsi |
+|----------|---------|-----------|
+| `NLP_MODEL` | `fine-tuned` | `fine-tuned`, `xlm-roberta`, `indobert`, `none` |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3010/nlp` | Base URL frontend (build-time) |
+| `BACKEND_PORT` | `8081` | Port Rust backend |
+| `DATABASE_URL` | `postgres://postgres:root@postgres:5432/disease_ai` | PostgreSQL |
+| `RABBITMQ_URL` | `amqp://guest:guest@rabbitmq:5672/%2f` | RabbitMQ |
+| `COLLECTOR_URL` | `http://collector-python:8002` | Collector service |
+| `LOW_CONFIDENCE_THRESHOLD` | `0.5` | Threshold `needs_review` |
 
-## Docker Compose Management
+## Fine-Tuning Model
+
+Lihat `FINE_TUNING_PLAN.md` untuk panduan fine-tuning lengkap.
+
+### Deploy Model ke Server
 
 ```bash
-# Start semua service
-docker compose up -d
+# Copy model files
+mkdir -p services/nlp-python/models/fine-tuned
+cp -r /path/to/model/* services/nlp-python/models/fine-tuned/
 
-# Start specific service
-docker compose up -d nlp-python
+# Rebuild NLP service
+docker compose build nlp-python && docker compose up -d nlp-python
 
-# Rebuild specific service
-docker compose up -d --build nlp-python
-
-# Stop (tidak auto-restart setelah WSL reboot)
-docker compose down
-
-# Manual start setelah WSL restart
-docker compose up -d
-
-# Lihat logs
-docker compose logs -f backend-rust
-docker compose logs -f worker-python
+# Verifikasi
+curl -s http://localhost:8001/health | python3 -m json.tool
 ```
 
-> **Note**: Semua service menggunakan `restart: no`. Tidak ada yang auto-start setelah WSL reboot. Jalankan `docker compose up -d` secara manual.
+## Docker Management
+
+```bash
+# Build & start
+docker compose up -d --build
+
+# Build & start service tertentu
+docker compose build frontend-next && docker compose up -d frontend-next
+
+# Logs
+docker compose logs -f backend-rust
+docker compose logs -f worker-python
+
+# Restart
+docker compose restart backend-rust
+
+# Stop
+docker compose down
+```
 
 ## Troubleshooting
 
 ### Model download gagal / lambat
+Model XLM-RoBERTa (~1.1GB) di-download otomatis saat startup pertama. Cache di `services/nlp-python/models/`. Hapus folder untuk reset.
 
-Model XLM-RoBERTa (~1.1 GB) di-download otomatis saat startup pertama.
-- Pastikan koneksi internet stabil
-- Model di-cache di `./services/nlp-python/models/` (Docker volume)
-- Jika ingin reset cache: hapus folder `models/` dan restart
+### Trigger All error 405 / timeout
+Pastikan backend sudah rebuild dengan route `collect-all`. Cek log:
+```bash
+docker compose logs backend-rust --tail 10
+```
+
+### Data event tidak muncul
+Cek queue dan worker:
+```bash
+curl -s http://guest:password@localhost:15672/api/queues/%2f/disease.raw
+docker compose logs worker-python --tail 20
+```
 
 ### Port bentrok
-
-Jika ada service lain yang menggunakan port yang sama:
-- Postgres: ubah port di `docker-compose.yml` `ports: - "XXXX:5432"`
-- Update `DATABASE_URL` di `.env` dengan port baru
-
-### Postgres tidak bisa diakses dari tool eksternal
-
-```bash
-# Test koneksi dari WSL
-timeout 3 bash -c 'echo >/dev/tcp/127.0.0.1/9876' && echo "OK" || echo "FAIL"
-```
-
-## Social Media Monitoring
-
-### RSS-based (No API Key)
-Sumber sosial media via RSS (default):
-
-| Source | Platform | URL |
-|--------|----------|-----|
-| `Mastodon Health` | Mastodon | `https://mastodon.social/tags/health.rss` |
-| `Mastodon Disease` | Mastodon | `https://mastodon.social/tags/disease.rss` |
-| `Reddit Health News` | Reddit | `https://www.reddit.com/r/health/.rss` |
-| `Reddit World News` | Reddit | `https://www.reddit.com/r/worldnews/.rss` |
-
-### X/Twitter (API Key)
-Untuk koleksi dari X/Twitter, perlu API key:
-
-1. Daftar di [developer.twitter.com](https://developer.twitter.com)
-2. Buat project → dapatkan Bearer Token
-3. Tambah source via API:
-
-```bash
-curl -X POST http://localhost:8080/api/v1/sources \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "X Dengue Monitoring",
-    "source_type": "social_media",
-    "config": {
-      "platform": "twitter",
-      "api_key": "YOUR_BEARER_TOKEN",
-      "keywords": ["dbd", "demam berdarah", "dengue", "jentik"]
-    },
-    "schedule": "interval:60"
-  }'
-```
-
-### Instagram / TikTok
-Saat ini belum ada connector untuk Instagram/TikTok karena memerlukan API business access.
-
-## Tech Stack
-
-| Layer | Teknologi |
-|-------|-----------|
-| Frontend | Next.js 15, React 19, Tailwind CSS, Lucide Icons |
-| Backend | Rust, Axum, tokio-postgres, deadpool, lapin |
-| NLP | Python, FastAPI, HuggingFace Transformers, XLM-RoBERTa |
-| Worker | Python, Pika, psycopg3 |
-| Collector | Python, FastAPI, feedparser, BeautifulSoup4, APScheduler |
-| Database | PostgreSQL 16 + PostGIS |
-| Storage | MinIO |
-| Queue | RabbitMQ |
-
-## Google Colab Fine-Tuning Guide
-
-Gunakan Google Colab T4 GPU (gratis) untuk fine-tuning XLM-RoBERTa dengan data dari sistem. Accuracy naik dari ~10-30% (zero-shot) menjadi >85% (fine-tuned).
-
-### 1. Export Training Data
-
-```bash
-# Export dari database
-python3 scripts/export_training_data.py
-
-# Output: training/train.jsonl, training/test.jsonl
-```
-
-### 2. Upload ke Google Drive
-
-Buat folder `disease-nlp/` di Google Drive, upload file berikut:
-```
-Google Drive/
-  └── disease-nlp/
-      ├── train.jsonl
-      ├── test.jsonl
-      └── fine_tune.ipynb   (dari notebooks/fine_tune.ipynb)
-```
-
-### 3. Buka Google Colab
-
-1. Buka [colab.research.google.com](https://colab.research.google.com)
-2. `File → Upload notebook → fine_tune.ipynb`
-3. `Runtime → Change runtime type → T4 GPU`
-4. Jalankan cell satu per satu dari atas ke bawah
-
-### 4. Training (5 epoch, ~30-60 menit)
-
-| Dataset size | Training time |
-|-------------|---------------|
-| 500 samples | ~20 menit |
-| 1000 samples | ~40 menit |
-| 5000 samples | ~3 jam |
-
-### 5. Download Model
-
-Setelah training selesai (Cell 8), model otomatis tersimpan di:
-```
-Google Drive/disease-nlp/model/
-```
-
-Download folder `model/` ke lokal.
-
-### 6. Deploy ke Server
-
-```bash
-# Di WSL
-mkdir -p services/nlp-python/models/fine-tuned
-
-# Copy file model dari hasil download ke folder tersebut
-# Misal file ada di /mnt/c/Users/.../Downloads/model/
-cp -r /mnt/c/Users/.../Downloads/model/* services/nlp-python/models/fine-tuned/
-
-# Set env dan rebuild
-echo "NLP_MODEL=fine-tuned" >> .env
-docker compose up -d nlp-python
-```
-
-### 7. Verifikasi
-
-```bash
-curl -s -X POST http://localhost:8001/nlp/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"text":"50 warga Jakarta terkena DBD"}' | python3 -m json.tool
-```
-
-Akurasi jauh lebih tinggi dari zero-shot.
-
-### Fine-Tuning Tips
-
-| Tips | Keterangan |
-|------|------------|
-| **Data quality > quantity** | 200 sample bagus lebih baik dari 1000 sample berisik |
-| **Balance classes** | Pastikan tiap penyakit punya minimal 20 sampel |
-| **NEGATIVE class penting** | Sertakan berita non-kesehatan agar model bisa membedakan |
-| **Max 5 epoch** | Lebih dari 5 epoch bisa overfit untuk dataset kecil |
-| **Batch size 16** | Cukup untuk T4 GPU 16GB VRAM |
-| **Notebook shortcut** | Runtime → Run all → selesai |
-
-
-
-# 1. Clone di server production
-git clone https://gitea.mediaciptainformasi.co.id/KEMKES/NLP---DASHBOARD.git
-cd NLP---DASHBOARD
-
-# 2. Copy .env dari staging atau buat baru
-cp .env.example .env
-# Edit passwords + NEXT_PUBLIC_API_BASE_URL
-
-# 3. Build & start
-docker compose up -d --build
-
-# 4. Init user
-docker compose --profile init run --rm init
-
-# 5. Verifikasi
-curl http://localhost:8080/health
-curl http://localhost:3001
+Ubah port di docker-compose.yml, update .env sesuai.
