@@ -287,6 +287,9 @@ async fn main() -> anyhow::Result<()> {
     let mgr = Manager::from_config(pg_config, NoTls, mgr_config);
     let pool = Pool::builder(mgr).max_size(16).build()?;
 
+    let init_dir = env::var("INIT_SQL_DIR").unwrap_or_else(|_| "/init".to_string());
+    run_init_sql(&pool, &init_dir).await?;
+
     let amqp_url = env::var("RABBITMQ_URL").unwrap_or_else(|_| "amqp://guest:guest@rabbitmq:5672/%2f".to_string());
     let amqp_conn = Connection::connect(&amqp_url, ConnectionProperties::default()).await?;
     let amqp_channel = amqp_conn.create_channel().await?;
@@ -664,7 +667,8 @@ async fn list_sources(
                         'records_ingested', lr.records_ingested,
                         'started_at', lr.started_at::text,
                         'finished_at', lr.finished_at::text
-                    ) AS last_run
+                    ) AS last_run,
+                    COALESCE(sc.score, 0.50) AS source_credibility
              FROM collector_sources s
              LEFT JOIN LATERAL (
                  SELECT status, records_found, records_ingested, started_at, finished_at
@@ -672,6 +676,7 @@ async fn list_sources(
                  WHERE source_id = s.id
                  ORDER BY started_at DESC LIMIT 1
              ) lr ON TRUE
+             LEFT JOIN source_credibility sc ON sc.source_type = s.source_type AND sc.is_active = TRUE
              WHERE ($1::text IS NULL OR s.name ILIKE '%'||$1||'%')
              AND ($2::text IS NULL OR s.source_type = $2)
              AND ($3::bool IS NULL OR s.enabled = $3)
@@ -699,6 +704,7 @@ async fn list_sources(
                 "created_at": r.get::<_, Option<String>>(6),
                 "updated_at": r.get::<_, Option<String>>(7),
                 "last_run": last_run,
+                "source_credibility": r.get::<_, Option<f64>>(9),
             })
         })
         .collect();
@@ -757,7 +763,11 @@ async fn get_source(
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
         .query_one(
-            "SELECT id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text FROM collector_sources WHERE id = $1",
+            "SELECT s.id, s.name, s.source_type, s.config, s.schedule, s.enabled, s.created_at::text, s.updated_at::text,
+                    COALESCE(sc.score, 0.50) AS source_credibility
+             FROM collector_sources s
+             LEFT JOIN source_credibility sc ON sc.source_type = s.source_type AND sc.is_active = TRUE
+             WHERE s.id = $1",
             &[&id],
         )
         .await
@@ -780,6 +790,7 @@ async fn get_source(
             "enabled": row.get::<_, bool>(5),
             "created_at": row.get::<_, Option<String>>(6),
             "updated_at": row.get::<_, Option<String>>(7),
+            "source_credibility": row.get::<_, Option<f64>>(8),
         }),
         total: None, page: None, per_page: None, total_pages: None,
     }))
@@ -1734,4 +1745,31 @@ fn internal_error<E: std::fmt::Debug + std::fmt::Display>(err: E) -> (StatusCode
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "success": false, "error": err.to_string() })),
     )
+}
+
+async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
+    tracing::info!("Running init SQL from {dir}");
+    let mut paths: Vec<_> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("sql"))
+        .collect();
+    paths.sort_by_key(|e| e.file_name());
+
+    for entry in &paths {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        match std::fs::read_to_string(&path) {
+            Ok(sql) => {
+                tracing::info!("  init: {name}");
+                let mut conn = pool.get().await?;
+                match conn.batch_execute(&sql).await {
+                    Ok(_) => tracing::info!("  OK   {name}"),
+                    Err(e) => tracing::error!("  FAIL {name}: {e}"),
+                }
+            }
+            Err(e) => tracing::error!("  SKIP {name}: {e}"),
+        }
+    }
+    tracing::info!("Init SQL complete");
+    Ok(())
 }

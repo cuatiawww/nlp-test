@@ -49,6 +49,13 @@ export default function SourcesPage() {
     return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-600">Berjalan</span>
   }
 
+  const credibilityBadge = (score?: number) => {
+    const s = score ?? 0.50
+    if (s >= 0.7) return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{`${(s * 100).toFixed(0)}%`}</span>
+    if (s >= 0.5) return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-600">{`${(s * 100).toFixed(0)}%`}</span>
+    return <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">{`${(s * 100).toFixed(0)}%`}</span>
+  }
+
   return (
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
@@ -90,6 +97,7 @@ export default function SourcesPage() {
               <tr className="border-b bg-slate-50 text-left">
                 <th className="px-4 py-3 font-semibold text-slate-600">Nama</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Tipe</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-600">Kredibilitas</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Jadwal</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Status</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-600">Aksi</th>
@@ -105,6 +113,7 @@ export default function SourcesPage() {
                   <td className="px-4 py-3">
                     <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">{s.source_type}</span>
                   </td>
+                  <td className="px-4 py-3 text-center">{credibilityBadge(s.source_credibility)}</td>
                   <td className="px-4 py-3 text-slate-700">{s.schedule || '—'}</td>
                   <td className="px-4 py-3">{statusBadge(s)}</td>
                   <td className="px-4 py-3 text-right">

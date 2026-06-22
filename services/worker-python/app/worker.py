@@ -14,7 +14,7 @@ logger = logging.getLogger("worker")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/%2f")
 RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "disease.raw")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
-NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8001")
+NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
 
 
 def get_db():

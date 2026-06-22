@@ -33,7 +33,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 disease, confidence = classify_disease(text)
                 sentiment, sentiment_score = classify(text, config.SENTIMENT_LABELS, model_key="xlm-roberta")
                 event_type, event_confidence = classify(text, config.EVENT_TYPE_LABELS, model_key="xlm-roberta")
-                relevance, relevance_confidence = classify(text, config.RELEVANCE_LABELS, model_key="xlm-roberta")
+                relevance_raw, relevance_confidence = classify(text, config.RELEVANCE_LABELS, model_key="xlm-roberta")
+                relevance = "high" if "health" in relevance_raw else "low"
             else:
                 disease, confidence = classify_disease(text)
                 sentiment, sentiment_score = classify_sentiment(text)

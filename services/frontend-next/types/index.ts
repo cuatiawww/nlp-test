@@ -14,6 +14,7 @@ export type Source = {
     started_at: string
     finished_at?: string
   } | null
+  source_credibility?: number
 }
 
 export type Run = {

@@ -50,7 +50,7 @@ services:
     restart: no
     env_file: .env
     ports:
-      - "8001:8000"
+      - "8003:8000"
     volumes:
       - ./services/nlp-python/models:/app/models
     environment:
@@ -64,6 +64,8 @@ services:
     env_file: .env
     ports:
       - "8081:8081"
+    volumes:
+      - ./database/init:/init:ro
     depends_on:
       nlp-python:
         condition: service_started
