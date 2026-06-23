@@ -15,26 +15,37 @@ app = FastAPI(title="Disease NLP Service", version="0.2.0")
 
 @app.on_event("startup")
 def startup():
-    from .config import NLP_MODEL, load_keywords_from_db, load_outbreak_rules_from_db, load_locations_from_db, load_credibility_from_db
+    from .config import (NLP_MODEL, load_keywords_from_db, load_outbreak_rules_from_db,
+                          load_locations_from_db, load_credibility_from_db,
+                          load_language_markers_from_db, load_extraction_rules_from_db,
+                          load_language_models_from_db)
     from .models.classifier import get_labels, classify
     logger.info("NLP service starting — model=%s labels=%s", NLP_MODEL, get_labels("disease"))
     load_keywords_from_db()
     load_outbreak_rules_from_db()
     load_locations_from_db()
     load_credibility_from_db()
+    load_language_markers_from_db()
+    load_extraction_rules_from_db()
+    load_language_models_from_db()
     if NLP_MODEL != "none":
+        from .models.classifier import classify_disease, _get_pipe
+        from .config import LANGUAGE_MODEL_MAP
+        warmed: set[str] = set()
         try:
-            from .models.classifier import classify_disease
             classify_disease("warmup")
+            warmed.add(NLP_MODEL)
+            logger.info("Warmed up model: %s", NLP_MODEL)
         except Exception as e:
-            logger.warning("Model warmup failed: %s", e)
-    if NLP_MODEL == "fine-tuned":
-        try:
-            from .config import SENTIMENT_LABELS
-            classify("warmup", SENTIMENT_LABELS, model_key="xlm-roberta")
-            logger.info("Zero-shot model (xlm-roberta-base) ready")
-        except Exception as e:
-            logger.warning("Zero-shot warmup: %s", e)
+            logger.warning("Model warmup failed for '%s': %s", NLP_MODEL, e)
+        for model_key in set(LANGUAGE_MODEL_MAP.values()):
+            if model_key not in warmed:
+                try:
+                    _get_pipe(model_key)
+                    warmed.add(model_key)
+                    logger.info("Preloaded model: %s", model_key)
+                except Exception as e:
+                    logger.warning("Model preload failed for '%s': %s", model_key, e)
 
 
 @app.get("/health")

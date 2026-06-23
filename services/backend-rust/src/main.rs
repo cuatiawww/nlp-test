@@ -38,6 +38,11 @@ struct IngestRequest {
     url: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AnalyzeUrlRequest {
+    url: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct NlpResponse {
     language: String,
@@ -55,9 +60,23 @@ struct NlpResponse {
     #[serde(default)]
     sentiment: Option<String>,
     #[serde(default)]
+    sentiment_score: Option<f64>,
+    #[serde(default)]
     event_type: Option<String>,
     #[serde(default)]
+    event_confidence: Option<f64>,
+    #[serde(default)]
     relevance_score: Option<String>,
+    #[serde(default)]
+    relevance_confidence: Option<f64>,
+    #[serde(default)]
+    source_credibility: Option<f64>,
+    #[serde(default)]
+    source_credibility_label: Option<String>,
+    #[serde(default)]
+    needs_review: Option<bool>,
+    #[serde(default)]
+    is_health_related: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -263,6 +282,48 @@ struct RulesQuery {
 }
 
 #[derive(Debug, Deserialize)]
+struct CreateLanguageMarkerRequest {
+    word: String,
+    language: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateLanguageMarkerRequest {
+    word: Option<String>,
+    language: Option<String>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateExtractionRuleRequest {
+    field_name: String,
+    regex_pattern: String,
+    priority: Option<i32>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateExtractionRuleRequest {
+    field_name: Option<String>,
+    regex_pattern: Option<String>,
+    priority: Option<i32>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateLanguageModelRequest {
+    language: String,
+    model_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateLanguageModelRequest {
+    language: Option<String>,
+    model_key: Option<String>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SummaryQuery {
     page: Option<i64>,
     per_page: Option<i64>,
@@ -313,6 +374,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/ingest", post(ingest))
+        .route("/api/v1/analyze-url", post(analyze_url))
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/sources", get(list_sources).post(create_source))
@@ -340,6 +402,30 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/locations/:id", put(update_location).delete(delete_location))
         .route("/api/v1/source-credibility", get(list_source_credibility).post(create_source_credibility))
         .route("/api/v1/source-credibility/:id", put(update_source_credibility).delete(delete_source_credibility))
+        .route(
+            "/api/v1/language-markers",
+            get(list_language_markers).post(create_language_marker),
+        )
+        .route(
+            "/api/v1/language-markers/:id",
+            put(update_language_marker).delete(delete_language_marker),
+        )
+        .route(
+            "/api/v1/extraction-rules",
+            get(list_extraction_rules).post(create_extraction_rule),
+        )
+        .route(
+            "/api/v1/extraction-rules/:id",
+            put(update_extraction_rule).delete(delete_extraction_rule),
+        )
+        .route(
+            "/api/v1/language-models",
+            get(list_language_models).post(create_language_model),
+        )
+        .route(
+            "/api/v1/language-models/:id",
+            put(update_language_model).delete(delete_language_model),
+        )
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -492,6 +578,261 @@ async fn ingest(
             }))
         }
     }
+}
+
+fn extract_title_from_html(html: &str) -> String {
+    let lower = html.to_lowercase();
+    let tag_start = lower.find("<title>").or_else(|| lower.find("<title "));
+    match tag_start {
+        Some(start) => {
+            let after_open = html[start..].find('>').map(|i| start + i + 1).unwrap_or(start);
+            let remaining = &html[after_open..];
+            let end = remaining.to_lowercase().find("</title>").unwrap_or(0);
+            if end > 0 {
+                remaining[..end].trim().to_string()
+            } else {
+                String::new()
+            }
+        }
+        None => String::new(),
+    }
+}
+
+fn extract_body_text(html: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = html.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    let mut in_tag = false;
+    let mut in_skip = false;
+
+    while i < n {
+        match chars[i] {
+            '<' => {
+                in_tag = true;
+                if !in_skip && i + 6 < n {
+                    let snip: String = chars[i..].iter().take(8).collect();
+                    let s = snip.to_lowercase();
+                    if s.starts_with("<script") || s.starts_with("<style") {
+                        in_skip = true;
+                    }
+                }
+                if in_skip && i + 1 < n && chars[i + 1] == '/' {
+                    let snip: String = chars[i..].iter().take(9).collect();
+                    let s = snip.to_lowercase();
+                    if s.starts_with("</script") || s.starts_with("</style") {
+                        in_skip = false;
+                    }
+                }
+            }
+            '>' => in_tag = false,
+            _ if !in_tag && !in_skip => result.push(chars[i]),
+            _ => {}
+        }
+        i += 1;
+    }
+
+    result.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+async fn analyze_url(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AnalyzeUrlRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let url = payload.url.trim().to_string();
+
+    if url.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "URL tidak boleh kosong" }))));
+    }
+
+    let resp = state
+        .http
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0 (compatible; DiseaseAnalyzer/1.0)")
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "success": false, "error": format!("Gagal mengambil URL: {}", e) })),
+            )
+        })?;
+
+    let html = resp.text().await.map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Gagal membaca response URL" })),
+        )
+    })?;
+
+    let title = extract_title_from_html(&html);
+    let body_text = extract_body_text(&html);
+    let max_len: usize = env::var("ANALYZE_MAX_CONTENT_LENGTH")
+        .unwrap_or_else(|_| "10000".to_string())
+        .parse()
+        .unwrap_or(10000);
+    let content = if body_text.len() > max_len {
+        format!("{}...", &body_text[..max_len])
+    } else {
+        body_text
+    };
+
+    let text = if title.is_empty() {
+        content.clone()
+    } else {
+        format!("{}.\n{}", title, content)
+    };
+
+    let nlp_url = format!("{}/nlp/analyze", state.nlp_service_url.trim_end_matches('/'));
+    let nlp: NlpResponse = state
+        .http
+        .post(&nlp_url)
+        .json(&json!({
+            "text": text,
+            "source_type": "web",
+            "source_name": "URL Analyzer",
+        }))
+        .send()
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "success": false, "error": "NLP service tidak dapat dijangkau" })),
+            )
+        })?
+        .json()
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "success": false, "error": "Response NLP tidak valid" })),
+            )
+        })?;
+
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let raw_id: Uuid = client
+        .query_one(
+            "INSERT INTO raw_reports (source_type, source_name, original_text, url, processing_status)
+             VALUES ($1, $2, $3, $4, 'PROCESSED') RETURNING id",
+            &[&"web", &"URL Analyzer", &text, &url],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    let event_id: Uuid = client
+        .query_one(
+            "INSERT INTO disease_events (
+                raw_report_id, source_type, source_name, original_text, language,
+                location_name, geom, symptoms, disease_extracted, disease_classification,
+                case_count, death_count, confidence, outbreak_alert,
+                sentiment, needs_review, event_type, event_confidence,
+                relevance_score, relevance_confidence, source_credibility,
+                source_credibility_label, is_health_related
+             ) VALUES (
+                $1, $2, $3, $4, $5,
+                $6,
+                CASE WHEN $7::float8 IS NULL OR $8::float8 IS NULL THEN NULL
+                     ELSE ST_SetSRID(ST_MakePoint($8, $7), 4326)
+                END,
+                $9::jsonb, $10::jsonb, $11,
+                $12, $13, $14, $15,
+                 $16, $17, $18, $19::float8,
+                 $20, $21::float8, $22::float8,
+                 $23, $24
+             ) RETURNING id",
+            &[
+                &raw_id,
+                &"web",
+                &"URL Analyzer",
+                &text,
+                &nlp.language,
+                &nlp.location_name,
+                &nlp.latitude,
+                &nlp.longitude,
+                &json!(nlp.symptoms),
+                &json!(nlp.disease_extracted),
+                &nlp.disease_classification,
+                &nlp.case_count,
+                &nlp.death_count,
+                &nlp.confidence,
+                &nlp.outbreak_alert,
+                &nlp.sentiment,
+                &nlp.needs_review.unwrap_or(false),
+                &nlp.event_type,
+                &nlp.event_confidence,
+                &nlp.relevance_score,
+                &nlp.relevance_confidence,
+                &nlp.source_credibility,
+                &nlp.source_credibility_label,
+                &nlp.is_health_related,
+            ],
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Error inserting disease_event: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "success": false, "error": format!("Gagal menyimpan event: {}", e) })),
+            )
+        })?
+        .get(0);
+
+    let mut sources = serde_json::Map::new();
+    sources.insert("title".to_string(), json!("Diambil dari tag <title> di halaman web"));
+    sources.insert("content".to_string(), json!("Diambil dari elemen body halaman web setelah menghapus tag HTML (script, style, dll.)"));
+    sources.insert("language".to_string(), json!("Dideteksi oleh library Language Detection (langdetect)"));
+    sources.insert("location_name".to_string(), json!("Dicocokkan dari database lokasi (tabel locations) berdasarkan penyebutan nama tempat dalam teks"));
+    sources.insert("symptoms".to_string(), json!("Ditemukan melalui pencocokan kata kunci gejala dari database NLP Keywords (kategori 'symptom')"));
+    sources.insert("disease_extracted".to_string(), json!("Ditemukan melalui pencocokan kata kunci penyakit dari database NLP Keywords (kategori 'disease')"));
+    sources.insert("disease_classification".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa menggunakan zero-shot classification dengan label penyakit dari database NLP Labels"));
+    sources.insert("case_count".to_string(), json!("Diekstrak menggunakan pola regex: angka yang diikuti kata 'warga', 'pasien', 'kasus', atau 'residents'"));
+    sources.insert("death_count".to_string(), json!("Diekstrak menggunakan pola regex: angka yang diikuti kata 'meninggal', 'death', atau 'deaths'"));
+    sources.insert("confidence".to_string(), json!("Nilai confidence (keyakinan) dari model AI dalam mengklasifikasikan penyakit — semakin tinggi semakin yakin"));
+    sources.insert("outbreak_alert".to_string(), json!("Ditentukan dengan membandingkan jumlah kasus terhadap threshold minimum di database Outbreak Rules untuk penyakit terkait"));
+    sources.insert("sentiment".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa dengan label sentimen: positive, negative, atau neutral"));
+    sources.insert("event_type".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa dengan label tipe kejadian dari database NLP Labels (kategori 'event_type')"));
+    sources.insert("relevance_score".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa apakah teks terkait kesehatan (health) atau tidak"));
+    sources.insert("source_credibility".to_string(), json!("Skor kredibilitas berdasarkan tipe sumber dari database Source Credibility. Tipe 'web' memiliki skor default 0.50"));
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "title": title,
+            "content": content,
+            "url": url,
+            "language": nlp.language,
+            "location_name": nlp.location_name,
+            "latitude": nlp.latitude,
+            "longitude": nlp.longitude,
+            "symptoms": nlp.symptoms,
+            "disease_extracted": nlp.disease_extracted,
+            "disease_classification": nlp.disease_classification,
+            "case_count": nlp.case_count,
+            "death_count": nlp.death_count,
+            "confidence": nlp.confidence,
+            "outbreak_alert": nlp.outbreak_alert,
+            "sentiment": nlp.sentiment,
+            "sentiment_score": nlp.sentiment_score,
+            "event_type": nlp.event_type,
+            "event_confidence": nlp.event_confidence,
+            "relevance_score": nlp.relevance_score,
+            "relevance_confidence": nlp.relevance_confidence,
+            "source_credibility": nlp.source_credibility,
+            "source_credibility_label": nlp.source_credibility_label,
+            "needs_review": nlp.needs_review,
+            "is_health_related": nlp.is_health_related,
+            "raw_report_id": raw_id,
+            "event_id": event_id,
+            "sources": Value::Object(sources),
+        }),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
 }
 
 fn build_pagination(page: Option<i64>, per_page: Option<i64>) -> (i64, i64, i64) {
@@ -1731,6 +2072,224 @@ async fn delete_source_credibility(
 ) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     client.execute("DELETE FROM source_credibility WHERE id = $1", &[&id]).await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+// ─── LANGUAGE MARKERS ──────────────────────────
+
+async fn list_language_markers(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query("SELECT id, word, language, is_active, created_at::text, updated_at::text FROM language_markers ORDER BY language, word", &[])
+        .await
+        .map_err(internal_error)?;
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "word": r.get::<_, String>(1),
+        "language": r.get::<_, String>(2),
+        "is_active": r.get::<_, bool>(3),
+        "created_at": r.get::<_, Option<String>>(4),
+        "updated_at": r.get::<_, Option<String>>(5),
+    })).collect();
+    Ok(Json(ApiResponse { success: true, data, total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn create_language_marker(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateLanguageMarkerRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "INSERT INTO language_markers (word, language) VALUES ($1, $2) RETURNING id, word, language, is_active, created_at::text",
+            &[&payload.word, &payload.language],
+        )
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Exists: {}", e)}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "word": row.get::<_, String>(1),
+        "language": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
+        "created_at": row.get::<_, Option<String>>(4),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn update_language_marker(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateLanguageMarkerRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "UPDATE language_markers SET word=COALESCE($1,word), language=COALESCE($2,language),
+             is_active=COALESCE($3,is_active), updated_at=NOW() WHERE id=$4
+             RETURNING id, word, language, is_active, created_at::text, updated_at::text",
+            &[&payload.word, &payload.language, &payload.is_active, &id],
+        )
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "word": row.get::<_, String>(1),
+        "language": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
+        "created_at": row.get::<_, Option<String>>(4), "updated_at": row.get::<_, Option<String>>(5),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn delete_language_marker(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    client.execute("DELETE FROM language_markers WHERE id = $1", &[&id]).await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+// ─── EXTRACTION RULES ──────────────────────────
+
+async fn list_extraction_rules(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query("SELECT id, field_name, regex_pattern, priority, is_active, created_at::text, updated_at::text FROM extraction_rules ORDER BY field_name, priority", &[])
+        .await
+        .map_err(internal_error)?;
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "field_name": r.get::<_, String>(1),
+        "regex_pattern": r.get::<_, String>(2),
+        "priority": r.get::<_, i32>(3),
+        "is_active": r.get::<_, bool>(4),
+        "created_at": r.get::<_, Option<String>>(5),
+        "updated_at": r.get::<_, Option<String>>(6),
+    })).collect();
+    Ok(Json(ApiResponse { success: true, data, total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn create_extraction_rule(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateExtractionRuleRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "INSERT INTO extraction_rules (field_name, regex_pattern, priority, is_active) VALUES ($1, $2, $3, $4) RETURNING id, field_name, regex_pattern, priority, is_active, created_at::text",
+            &[&payload.field_name, &payload.regex_pattern, &payload.priority, &payload.is_active],
+        )
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Exists: {}", e)}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "field_name": row.get::<_, String>(1),
+        "regex_pattern": row.get::<_, String>(2), "priority": row.get::<_, i32>(3),
+        "is_active": row.get::<_, bool>(4), "created_at": row.get::<_, Option<String>>(5),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn update_extraction_rule(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateExtractionRuleRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "UPDATE extraction_rules SET field_name=COALESCE($1,field_name), regex_pattern=COALESCE($2,regex_pattern),
+             priority=COALESCE($3,priority), is_active=COALESCE($4,is_active), updated_at=NOW() WHERE id=$5
+             RETURNING id, field_name, regex_pattern, priority, is_active, created_at::text, updated_at::text",
+            &[&payload.field_name, &payload.regex_pattern, &payload.priority, &payload.is_active, &id],
+        )
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "field_name": row.get::<_, String>(1),
+        "regex_pattern": row.get::<_, String>(2), "priority": row.get::<_, i32>(3),
+        "is_active": row.get::<_, bool>(4), "created_at": row.get::<_, Option<String>>(5),
+        "updated_at": row.get::<_, Option<String>>(6),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn delete_extraction_rule(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    client.execute("DELETE FROM extraction_rules WHERE id = $1", &[&id]).await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+// ─── LANGUAGE MODELS ──────────────────────────
+
+async fn list_language_models(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query("SELECT id, language, model_key, is_active, created_at::text, updated_at::text FROM language_models ORDER BY language", &[])
+        .await
+        .map_err(internal_error)?;
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "language": r.get::<_, String>(1),
+        "model_key": r.get::<_, String>(2),
+        "is_active": r.get::<_, bool>(3),
+        "created_at": r.get::<_, Option<String>>(4),
+        "updated_at": r.get::<_, Option<String>>(5),
+    })).collect();
+    Ok(Json(ApiResponse { success: true, data, total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn create_language_model(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateLanguageModelRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "INSERT INTO language_models (language, model_key) VALUES ($1, $2) RETURNING id, language, model_key, is_active, created_at::text",
+            &[&payload.language, &payload.model_key],
+        )
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Exists: {}", e)}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "language": row.get::<_, String>(1),
+        "model_key": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
+        "created_at": row.get::<_, Option<String>>(4),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn update_language_model(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateLanguageModelRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "UPDATE language_models SET language=COALESCE($1,language), model_key=COALESCE($2,model_key),
+             is_active=COALESCE($3,is_active), updated_at=NOW() WHERE id=$4
+             RETURNING id, language, model_key, is_active, created_at::text, updated_at::text",
+            &[&payload.language, &payload.model_key, &payload.is_active, &id],
+        )
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: json!({
+        "id": row.get::<_, Uuid>(0), "language": row.get::<_, String>(1),
+        "model_key": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
+        "created_at": row.get::<_, Option<String>>(4), "updated_at": row.get::<_, Option<String>>(5),
+    }), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn delete_language_model(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    client.execute("DELETE FROM language_models WHERE id = $1", &[&id]).await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }

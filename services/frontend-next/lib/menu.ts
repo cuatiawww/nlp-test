@@ -1,4 +1,4 @@
-import { Home, Radio, Database, Activity, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck } from 'lucide-react'
+import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, BookOpen, FileText } from 'lucide-react'
 
 export type SidebarItem = {
   label: string
@@ -20,6 +20,7 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'Beranda', icon: Home, href: '/' },
       { label: 'Sumber Data', icon: Radio, href: '/sources' },
       { label: 'Events', icon: Database, href: '/events' },
+      { label: 'Analisis URL', icon: Search, href: '/analyze' },
       { label: 'Processing', icon: Activity, href: '/processing' },
     ],
   },
@@ -31,7 +32,18 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'Outbreak Rules', icon: AlertTriangle, href: '/outbreak-rules' },
       { label: 'NLP Labels', icon: Tags, href: '/nlp-labels' },
       { label: 'NLP Keywords', icon: BookText, href: '/nlp-keywords' },
+      { label: 'Language Markers', icon: Languages, href: '/language-markers' },
+      { label: 'Extraction Rules', icon: Braces, href: '/extraction-rules' },
+      { label: 'Language Models', icon: Cpu, href: '/language-models' },
       { label: 'Users', icon: Users, href: '/users' },
+    ],
+  },
+  {
+    title: 'DOKUMENTASI',
+    items: [
+      { label: 'Proses Bisnis', icon: BookOpen, href: '/business-process' },
+      { label: 'Hardcode Audit 1', icon: FileText, href: '/audit/hardcode-1' },
+      { label: 'Hardcode Audit 2', icon: FileText, href: '/audit/hardcode-2' },
     ],
   },
 ]

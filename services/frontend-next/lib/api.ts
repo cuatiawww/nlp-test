@@ -156,6 +156,31 @@ export const deleteCredibility = (id: string) => delFrom(`/api/v1/source-credibi
 export const fetchEvents = () => fetchFrom<any[]>('/api/v1/events')
 export const cleanupEvents = () => postTo('/api/v1/data/cleanup-events')
 
+// ── Language Markers ──────────────────────────
+
+export const fetchLanguageMarkers = () => fetchFrom<any[]>('/api/v1/language-markers')
+export const createLanguageMarker = (data: any) => postTo('/api/v1/language-markers', data)
+export const updateLanguageMarker = (id: string, data: any) => putTo(`/api/v1/language-markers/${id}`, data)
+export const deleteLanguageMarker = (id: string) => delFrom(`/api/v1/language-markers/${id}`)
+
+// ── Extraction Rules ──────────────────────────
+
+export const fetchExtractionRules = () => fetchFrom<any[]>('/api/v1/extraction-rules')
+export const createExtractionRule = (data: any) => postTo('/api/v1/extraction-rules', data)
+export const updateExtractionRule = (id: string, data: any) => putTo(`/api/v1/extraction-rules/${id}`, data)
+export const deleteExtractionRule = (id: string) => delFrom(`/api/v1/extraction-rules/${id}`)
+
+// ── Language Models ─────────────────────────────
+
+export const fetchLanguageModels = () => fetchFrom<any[]>('/api/v1/language-models')
+export const createLanguageModel = (data: any) => postTo('/api/v1/language-models', data)
+export const updateLanguageModel = (id: string, data: any) => putTo(`/api/v1/language-models/${id}`, data)
+export const deleteLanguageModel = (id: string) => delFrom(`/api/v1/language-models/${id}`)
+
+// ── URL Analyze ──────────────────────────────────
+
+export const analyzeUrl = (url: string) => postTo<any>('/api/v1/analyze-url', { url })
+
 // ── Pagination helper ────────────────────────────
 
 export async function fetchPaginated<T>(path: string): Promise<{ data: T[]; total: number; totalPages: number }> {

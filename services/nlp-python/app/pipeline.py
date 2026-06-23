@@ -26,29 +26,42 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     has_keywords = bool(extracted or symptoms)
     is_health_related = has_keywords
 
+    NON_HEALTH_LABELS = {"NEGATIVE - not health related"}
+
     if config.NLP_MODEL != "none":
         try:
             zero_shot = config.NLP_MODEL == "fine-tuned"
             if zero_shot:
                 disease, confidence = classify_disease(text)
-                sentiment, sentiment_score = classify(text, config.SENTIMENT_LABELS, model_key="xlm-roberta")
-                event_type, event_confidence = classify(text, config.EVENT_TYPE_LABELS, model_key="xlm-roberta")
-                relevance_raw, relevance_confidence = classify(text, config.RELEVANCE_LABELS, model_key="xlm-roberta")
-                relevance = "high" if "health" in relevance_raw else "low"
+                sentiment, sentiment_score = classify_sentiment(text, model_key="xlm-roberta")
+                event_type, event_confidence = classify_event_type(text, model_key="xlm-roberta")
+                relevance, relevance_confidence = classify_relevance(text, model_key="xlm-roberta")
             else:
                 disease, confidence = classify_disease(text)
                 sentiment, sentiment_score = classify_sentiment(text)
                 event_type, event_confidence = classify_event_type(text)
                 relevance, relevance_confidence = classify_relevance(text)
-            if disease == "UNKNOWN" and extracted:
+
+            # A3: hanya override event type kalau keyword juga match (bukan ML saja)
+            if disease != "UNKNOWN" and extracted:
+                if event_confidence < 0.3 and "disease" not in event_type.lower() and "wabah" not in event_type.lower():
+                    event_type = "disease outbreak wabah"
+                    event_confidence = 0.85
+                elif "disease" in event_type.lower():
+                    event_confidence = max(event_confidence, 0.85)
+
+            # A1: keyword hanya override kalau model confidence RENDAH
+            if disease == "UNKNOWN" and extracted and confidence < config.LOW_CONFIDENCE_THRESHOLD:
                 disease = extracted[0]
                 confidence = max(confidence, 0.60)
-            if "negative" in disease.lower() or "not health" in disease.lower():
-                is_health_related = False
-            if not extracted:
+
+            # A1 (cont): model ML dihargai kalau confidence cukup
+            if not extracted and confidence < config.LOW_CONFIDENCE_THRESHOLD:
                 confidence = min(confidence, 0.30)
                 disease = "UNKNOWN"
-            if disease == "UNKNOWN":
+
+            # A2 + A4: non-health hanya kalau TIDAKADA keyword sama sekali
+            if disease in NON_HEALTH_LABELS or (disease == "UNKNOWN" and not has_keywords):
                 is_health_related = False
         except Exception as e:
             logger.warning("NLP inference failed, using regex: %s", e)
@@ -58,8 +71,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     case_count = extractors.extract_case_count(text)
     death_count = extractors.extract_death_count(text)
     outbreak_alert = case_count >= config.OUTBREAK_RULES.get("UNKNOWN", 25)
+    # B4: disease-outbreak matching — token-based (bukan partial substring)
+    disease_tokens = set(disease.upper().split())
     for db_name, min_count in config.OUTBREAK_RULES.items():
-        if db_name != "UNKNOWN" and (db_name in disease.upper() or disease.upper() in db_name):
+        if db_name != "UNKNOWN" and (db_name in disease_tokens or any(t in db_name for t in disease_tokens)):
             outbreak_alert = case_count >= min_count
             break
     needs_review = confidence < config.LOW_CONFIDENCE_THRESHOLD

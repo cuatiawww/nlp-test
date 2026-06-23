@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 import urllib.request
 
@@ -14,8 +15,8 @@ logger = logging.getLogger(__name__)
 _pipes: dict[str, pipeline] = {}
 _current_labels: dict[str, list[str]] = {}
 _labels_last_fetch: float = 0
-_LABELS_CACHE_TTL = 60
-_BACKEND_URL = "http://backend-rust:8080"
+_LABELS_CACHE_TTL = int(os.getenv("NLP_LABELS_CACHE_TTL", "60"))
+_BACKEND_URL = os.getenv("BACKEND_LABELS_URL", "http://backend-rust:8080")
 
 _DEFAULT_LABELS: dict[str, list[str]] = {}
 
@@ -82,6 +83,7 @@ def _fetch_keywords(cfg):
 def _get_pipe(model_key: str):
     model_id = _get_model_id(model_key)
     if model_key not in _pipes:
+        max_length = int(os.getenv("NLP_MAX_LENGTH", "512"))
         logger.info("Loading model %s (%s) — this may take a minute on first run", model_key, model_id)
         if model_key == "fine-tuned":
             _pipes[model_key] = pipeline(
@@ -90,7 +92,7 @@ def _get_pipe(model_key: str):
                 tokenizer=model_id,
                 device=-1,
                 truncation=True,
-                max_length=512,
+                max_length=max_length,
             )
         else:
             _pipes[model_key] = pipeline(
@@ -110,9 +112,8 @@ def _get_model_id(model_key: str) -> str:
 def _choose_model(text: str) -> str:
     if NLP_MODEL == "dual":
         lang = detect_language(text)
-        chosen = "indobert" if lang == "id" else "xlm-roberta"
-        logger.debug("dual-mode: lang=%s → model=%s", lang, chosen)
-        return chosen
+        from ..config import LANGUAGE_MODEL_MAP
+        return LANGUAGE_MODEL_MAP.get(lang, "xlm-roberta")
     return NLP_MODEL
 
 
@@ -143,16 +144,16 @@ def classify_disease(text: str) -> tuple[str, float]:
     return classify(text, get_labels("disease"))
 
 
-def classify_sentiment(text: str) -> tuple[str, float]:
-    return classify(text, get_labels("sentiment"))
+def classify_sentiment(text: str, model_key: Optional[str] = None) -> tuple[str, float]:
+    return classify(text, get_labels("sentiment"), model_key=model_key)
 
 
-def classify_event_type(text: str) -> tuple[str, float]:
-    return classify(text, get_labels("event_type"))
+def classify_event_type(text: str, model_key: Optional[str] = None) -> tuple[str, float]:
+    return classify(text, get_labels("event_type"), model_key=model_key)
 
 
-def classify_relevance(text: str) -> tuple[str, float]:
-    label, score = classify(text, get_labels("relevance"))
+def classify_relevance(text: str, model_key: Optional[str] = None) -> tuple[str, float]:
+    label, score = classify(text, get_labels("relevance"), model_key=model_key)
     if "health" in label:
         return "high", score
     return "low", score
@@ -160,6 +161,6 @@ def classify_relevance(text: str) -> tuple[str, float]:
 
 def is_health_related(text: str) -> tuple[bool, float]:
     """Binary check: apakah teks terkait kesehatan/penyakit?"""
-    label, score = classify(text, ["health related disease medical", "general news other topic"])
+    label, score = classify(text, get_labels("binary_health"))
     is_health = "health" in label
     return is_health, score

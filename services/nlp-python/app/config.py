@@ -49,7 +49,9 @@ SYMPTOM_DICT: dict[str, str] = {}
 DISEASE_DICT: dict[str, str] = {}
 OUTBREAK_RULES: dict[str, int] = {}
 LOCATION_COORDS: dict[str, tuple[float, float]] = {}
-SOURCE_CREDIBILITY_MAP: dict[str, float] = {}
+LANGUAGE_MARKERS: dict[str, list[str]] = {}
+EXTRACTION_RULES: dict[str, list[str]] = {}
+LANGUAGE_MODEL_MAP: dict[str, str] = {}
 
 
 def load_keywords_from_db():
@@ -144,4 +146,84 @@ def load_credibility_from_db():
         import logging
         logging.getLogger(__name__).warning(
             "Failed to load credibility from DB: %s", e
+        )
+
+
+def load_language_markers_from_db():
+    global LANGUAGE_MARKERS
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        rows = conn.execute(
+            "SELECT word, language FROM language_markers WHERE is_active = TRUE ORDER BY language"
+        ).fetchall()
+        conn.close()
+        markers: dict[str, list[str]] = {}
+        for r in rows:
+            lang = r["language"]
+            if lang not in markers:
+                markers[lang] = []
+            markers[lang].append(r["word"])
+        LANGUAGE_MARKERS = markers
+        import logging
+        logging.getLogger(__name__).info(
+            "Loaded %d language markers (%d languages) from DB",
+            sum(len(v) for v in markers.values()), len(markers),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to load language markers from DB, using defaults: %s", e
+        )
+
+
+def load_extraction_rules_from_db():
+    global EXTRACTION_RULES
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        rows = conn.execute(
+            "SELECT field_name, regex_pattern FROM extraction_rules WHERE is_active = TRUE ORDER BY field_name, priority"
+        ).fetchall()
+        conn.close()
+        rules: dict[str, list[str]] = {}
+        for r in rows:
+            field = r["field_name"]
+            if field not in rules:
+                rules[field] = []
+            rules[field].append(r["regex_pattern"])
+        EXTRACTION_RULES = rules
+        import logging
+        logging.getLogger(__name__).info(
+            "Loaded %d extraction rules (%d fields) from DB",
+            sum(len(v) for v in rules.values()), len(rules),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to load extraction rules from DB, using defaults: %s", e
+        )
+
+
+def load_language_models_from_db():
+    global LANGUAGE_MODEL_MAP
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        rows = conn.execute(
+            "SELECT language, model_key FROM language_models WHERE is_active = TRUE ORDER BY language"
+        ).fetchall()
+        conn.close()
+        LANGUAGE_MODEL_MAP = {r["language"]: r["model_key"] for r in rows}
+        import logging
+        logging.getLogger(__name__).info(
+            "Loaded %d language-to-model mappings from DB", len(LANGUAGE_MODEL_MAP),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to load language models from DB: %s", e
         )
