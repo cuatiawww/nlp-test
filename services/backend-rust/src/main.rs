@@ -324,6 +324,14 @@ struct UpdateLanguageModelRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct LocationsQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    country: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SummaryQuery {
     page: Option<i64>,
     per_page: Option<i64>,
@@ -1933,12 +1941,24 @@ async fn cleanup_events(
 
 async fn list_locations(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<LocationsQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
     let rows = client
-        .query("SELECT id, name, latitude, longitude, country, is_active, created_at::text, updated_at::text FROM locations ORDER BY name", &[])
+        .query(
+            "SELECT id, name, latitude, longitude, country, is_active, created_at::text, updated_at::text
+             FROM locations
+             WHERE ($1::text IS NULL OR name ILIKE '%'||$1||'%' OR country ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR country = $2)
+             ORDER BY country, name
+             LIMIT $3 OFFSET $4",
+            &[&query.q, &query.country, &per_page, &offset],
+        )
         .await
         .map_err(internal_error)?;
+
     let data: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.get::<_, Uuid>(0),
         "name": r.get::<_, String>(1),
@@ -1949,7 +1969,19 @@ async fn list_locations(
         "created_at": r.get::<_, Option<String>>(6),
         "updated_at": r.get::<_, Option<String>>(7),
     })).collect();
-    Ok(Json(ApiResponse { success: true, data, total: None, page: None, per_page: None, total_pages: None }))
+
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM locations
+             WHERE ($1::text IS NULL OR name ILIKE '%'||$1||'%' OR country ILIKE '%'||$1||'%')
+             AND ($2::text IS NULL OR country = $2)",
+            &[&query.q, &query.country],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse { success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)) }))
 }
 
 async fn create_location(
