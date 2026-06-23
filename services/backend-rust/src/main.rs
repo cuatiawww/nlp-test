@@ -384,6 +384,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/ingest", post(ingest))
         .route("/api/v1/analyze-url", post(analyze_url))
         .route("/api/v1/events", get(list_events))
+        .route("/api/v1/events/stats", get(dashboard_stats))
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/sources", get(list_sources).post(create_source))
         .route("/api/v1/sources/collect-all", post(trigger_collect_all))
@@ -939,6 +940,93 @@ async fn list_events(
     Ok(Json(ApiResponse {
         success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
     }))
+}
+
+async fn dashboard_stats(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    // 1. Per Penyakit
+    let by_disease = client
+        .query(
+            "SELECT COALESCE(disease_classification, 'UNKNOWN') AS name, SUM(case_count) AS cases, SUM(death_count) AS deaths
+             FROM disease_events WHERE is_health_related = TRUE
+             GROUP BY disease_classification ORDER BY cases DESC LIMIT 10",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?
+        .iter()
+        .map(|r| json!({"name": r.get::<_, String>(0), "cases": r.get::<_, i64>(1), "deaths": r.get::<_, i64>(2)}))
+        .collect::<Vec<_>>();
+
+    // 2. Per Lokasi
+    let by_location = client
+        .query(
+            "SELECT COALESCE(location_name, 'Unknown') AS name, SUM(case_count) AS cases, COUNT(*) AS count
+             FROM disease_events WHERE location_name IS NOT NULL AND is_health_related = TRUE
+             GROUP BY location_name ORDER BY cases DESC LIMIT 10",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?
+        .iter()
+        .map(|r| json!({"name": r.get::<_, String>(0), "cases": r.get::<_, i64>(1)}))
+        .collect::<Vec<_>>();
+
+    // 3. Per Sentimen
+    let by_sentiment = client
+        .query(
+            "SELECT COALESCE(sentiment, 'unknown') AS sentiment, COUNT(*) AS count
+             FROM disease_events WHERE sentiment IS NOT NULL
+             GROUP BY sentiment ORDER BY count DESC",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?
+        .iter()
+        .map(|r| json!({"name": r.get::<_, String>(0), "count": r.get::<_, i64>(1)}))
+        .collect::<Vec<_>>();
+
+    // 4. Per Relevansi
+    let by_relevance = client
+        .query(
+            "SELECT COALESCE(relevance_score, 'unknown') AS relevance, COUNT(*) AS count
+             FROM disease_events WHERE relevance_score IS NOT NULL
+             GROUP BY relevance_score ORDER BY count DESC",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?
+        .iter()
+        .map(|r| json!({"name": r.get::<_, String>(0), "count": r.get::<_, i64>(1)}))
+        .collect::<Vec<_>>();
+
+    // 5. Per Sumber
+    let by_source = client
+        .query(
+            "SELECT COALESCE(source_type, 'unknown') AS source_type, SUM(case_count) AS cases, COUNT(*) AS count
+             FROM disease_events WHERE source_type IS NOT NULL
+             GROUP BY source_type ORDER BY cases DESC",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?
+        .iter()
+        .map(|r| json!({"name": r.get::<_, String>(0), "cases": r.get::<_, i64>(1), "count": r.get::<_, i64>(2)}))
+        .collect::<Vec<_>>();
+
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "by_disease": by_disease,
+            "by_location": by_location,
+            "by_sentiment": by_sentiment,
+            "by_relevance": by_relevance,
+            "by_source": by_source,
+        }
+    })))
 }
 
 async fn summary(

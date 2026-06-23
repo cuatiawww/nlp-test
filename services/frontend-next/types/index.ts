@@ -38,6 +38,14 @@ export type SummaryRow = {
   centroid_geojson?: Record<string, unknown>
 }
 
+export type DashboardStats = {
+  by_disease: { name: string; cases: number; deaths: number }[]
+  by_location: { name: string; cases: number }[]
+  by_sentiment: { name: string; count: number }[]
+  by_relevance: { name: string; count: number }[]
+  by_source: { name: string; cases: number; count: number }[]
+}
+
 export type AnalyzeResponse = {
   title: string
   content: string

@@ -1,4 +1,4 @@
-import type { Source, Run, SummaryRow } from '@/types'
+import type { Source, Run, SummaryRow, DashboardStats } from '@/types'
 
 // Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
 // Server-side: use internal Docker DNS
@@ -176,6 +176,10 @@ export const fetchLanguageModels = () => fetchFrom<any[]>('/api/v1/language-mode
 export const createLanguageModel = (data: any) => postTo('/api/v1/language-models', data)
 export const updateLanguageModel = (id: string, data: any) => putTo(`/api/v1/language-models/${id}`, data)
 export const deleteLanguageModel = (id: string) => delFrom(`/api/v1/language-models/${id}`)
+
+// ── Dashboard Stats ─────────────────────────────
+
+export const fetchDashboardStats = () => fetchFrom<DashboardStats>('/api/v1/events/stats')
 
 // ── URL Analyze ──────────────────────────────────
 
