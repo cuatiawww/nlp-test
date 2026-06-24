@@ -1,20 +1,4 @@
 services:
-  postgres:
-    image: postgis/postgis:16-3.4
-    container_name: disease-postgis
-    restart: no
-    env_file: .env
-    ports:
-      - "9876:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   minio:
     image: minio/minio:latest
     container_name: disease-minio
@@ -55,6 +39,9 @@ services:
       - ./services/nlp-python/models:/app/models
     environment:
       - NLP_MODEL=fine-tuned
+    networks:
+      - default
+      - db_db
 
   backend-rust:
     build:
@@ -69,8 +56,9 @@ services:
     depends_on:
       nlp-python:
         condition: service_started
-      postgres:
-        condition: service_healthy
+    networks:
+      - default
+      - db_db
 
   worker-python:
     build:
@@ -83,6 +71,9 @@ services:
         condition: service_healthy
       nlp-python:
         condition: service_started
+    networks:
+      - default
+      - db_db
 
   collector-python:
     build:
@@ -95,6 +86,9 @@ services:
         condition: service_healthy
       nlp-python:
         condition: service_started
+    networks:
+      - default
+      - db_db
 
   frontend-next:
     build:
@@ -116,21 +110,25 @@ services:
     profiles: ["init"]
     env_file: .env
     depends_on:
-      postgres:
-        condition: service_healthy
       backend-rust:
         condition: service_started
     volumes:
       - ./database/init:/init
+    networks:
+      - default
+      - db_db
     command: >
       /bin/sh -c "
         apk add --no-cache postgresql-client curl >/dev/null 2>&1 &&
         echo '⏳ Running init...' &&
-        until pg_isready -h postgres -U postgres -d disease_ai 2>/dev/null; do sleep 1; done &&
+        echo '📦 Creating database disease_ai if not exists...' &&
+        PGPASSWORD=\$$POSTGRES_PASSWORD psql -h db-postgres -U postgres -d postgres -c \"CREATE DATABASE disease_ai\" 2>/dev/null || true &&
+        until PGPASSWORD=\$$POSTGRES_PASSWORD pg_isready -h db-postgres -U postgres -d disease_ai 2>/dev/null; do sleep 1; done &&
+        echo '✅ PostgreSQL ready on db-postgres' &&
         until curl -sf http://backend-rust:8081/health >/dev/null 2>&1; do sleep 1; done &&
-        echo '✅ PostgreSQL + Backend ready' &&
+        echo '✅ Backend ready' &&
         HASH=\$$(echo -n \"\$${WEBMASTER_PASSWORD:-K3mk3s#2202%ok}\" | sha256sum | cut -d' ' -f1) &&
-        PGPASSWORD=\$$POSTGRES_PASSWORD psql -h postgres -U postgres -d disease_ai -c \"
+        PGPASSWORD=\$$POSTGRES_PASSWORD psql -h db-postgres -U postgres -d disease_ai -c \"
           INSERT INTO users (username, password_hash, display_name, role, email)
           VALUES ('webmaster', '\$$HASH', 'Webmaster', 'admin', 'admin@disease-ai.local')
           ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;
@@ -140,6 +138,10 @@ services:
       "
 
 volumes:
-  postgres_data:
   minio_data:
   rabbitmq_data:
+
+networks:
+  default:
+  db_db:
+    external: true
