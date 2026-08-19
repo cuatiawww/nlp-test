@@ -54,6 +54,12 @@ def parse_args() -> argparse.Namespace:
         default=os.getenv("TRAINING_CLASS_WEIGHTING", "sqrt"),
         help="Reduce majority-class bias; sqrt is safer than full inverse-frequency weighting.",
     )
+    parser.add_argument(
+        "--oversample-target",
+        type=int,
+        default=0,
+        help="Make each training label exactly N rows by downsampling/oversampling; 0 disables it.",
+    )
     parser.add_argument("--seed", type=int, default=20260819)
     parser.add_argument("--exclude-label", action="append", default=[])
     parser.add_argument("--fp16", action="store_true", help="Use fp16 when CUDA is available")
@@ -112,6 +118,26 @@ def class_weights(rows: list[dict], labels: list[str], mode: str) -> torch.Tenso
     return weights.clamp(min=0.25, max=5.0)
 
 
+def rebalance_training_rows(rows: list[dict], target: int, seed: int) -> list[dict]:
+    """Balance training only; evaluation rows remain untouched."""
+    if target <= 0:
+        return rows
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        buckets[row["label"]].append(row)
+    rng = random.Random(seed)
+    balanced: list[dict] = []
+    for label in sorted(buckets):
+        bucket = buckets[label]
+        if len(bucket) >= target:
+            balanced.extend(rng.sample(bucket, target))
+        else:
+            balanced.extend(bucket)
+            balanced.extend(rng.choice(bucket) for _ in range(target - len(bucket)))
+    rng.shuffle(balanced)
+    return balanced
+
+
 class WeightedTrainer(Trainer):
     def __init__(self, *args, class_weights: torch.Tensor | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -146,6 +172,8 @@ def main() -> None:
     excludes = set(args.exclude_label)
     train_rows = read_balanced(args.train, args.label_field, args.max_per_label, excludes, args.seed)
     eval_rows = read_balanced(args.eval, args.label_field, args.max_per_label, excludes, args.seed + 1)
+    original_train_count = len(train_rows)
+    train_rows = rebalance_training_rows(train_rows, args.oversample_target, args.seed)
     labels = sorted({row["label"] for row in train_rows} | {row["label"] for row in eval_rows})
     label2id = {label: index for index, label in enumerate(labels)}
     id2label = {index: label for label, index in label2id.items()}
@@ -252,9 +280,11 @@ def main() -> None:
         "label_field": args.label_field,
         "labels": labels,
         "train_samples": len(train_rows),
+        "original_train_samples": original_train_count,
         "eval_samples": len(eval_rows),
         "class_counts": dict(sorted(Counter(row["label"] for row in train_rows).items())),
         "class_weighting": args.class_weighting,
+        "oversample_target": args.oversample_target,
         "metrics": result,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
     }
