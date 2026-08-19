@@ -291,6 +291,7 @@ def main() -> None:
     Path(args.output_dir, "training_manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    print(f"Model saved to: {args.output_dir}")
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
 
 
