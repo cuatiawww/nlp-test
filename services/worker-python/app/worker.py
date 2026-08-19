@@ -1,4 +1,5 @@
 import json
+import datetime
 import logging
 import os
 import time
@@ -15,6 +16,15 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/%2f"
 RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "disease.raw")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
+CURRENT_YEAR_ONLY = os.getenv("CURRENT_YEAR_ONLY", "true").lower() in {"1", "true", "yes", "on"}
+CURRENT_YEAR = int(os.getenv("CURRENT_YEAR", str(datetime.date.today().year)))
+HISTORICAL_FAST_NON_HEALTH = os.getenv("HISTORICAL_FAST_NON_HEALTH", "false").lower() in {"1", "true", "yes", "on"}
+HEALTH_HINTS = (
+    "health", "disease", "illness", "hospital", "patient", "virus", "fever", "dengue",
+    "malaria", "covid", "flu", "outbreak", "wabah", "penyakit", "rumah sakit", "pasien",
+    "demam", "kesihatan", "pesakit", "โรค", "ไข้", "โรงพยาบาล", "ជំងឺ", "គ្រុន",
+    "ພະຍາດ", "ໄຂ້", "ໂຮງໝໍ", "ရောဂါ", "ဖျား", "ဆေးရုံ", "bệnh", "sốt", "bệnh viện",
+)
 
 
 def get_db():
@@ -31,7 +41,43 @@ def parse_date(val: str) -> str | None:
         return None
 
 
-def call_nlp(text: str, source_type: str, source_name: str, published_at: str) -> dict:
+def is_allowed_processing_year(value: str) -> bool:
+    """Keep the worker aligned with the collector's current-year policy."""
+    if not CURRENT_YEAR_ONLY:
+        return True
+    parsed = parse_date(value)
+    return bool(parsed and int(parsed[:4]) == CURRENT_YEAR)
+
+
+def fast_non_health_result(msg: dict) -> dict | None:
+    if not HISTORICAL_FAST_NON_HEALTH:
+        return None
+    text = (msg.get("text") or "").lower()
+    if any(hint in text for hint in HEALTH_HINTS):
+        return None
+    return {
+        "language": msg.get("source_language") or "unknown",
+        "location_name": None,
+        "latitude": None,
+        "longitude": None,
+        "symptoms": [],
+        "disease_extracted": [],
+        "disease_classification": "NEGATIVE - not health related",
+        "case_count": 0,
+        "death_count": 0,
+        "confidence": 0.99,
+        "outbreak_alert": False,
+        "sentiment": "neutral",
+        "event_type": "unknown",
+        "relevance_score": "low",
+        "source_credibility": 0.65,
+        "source_credibility_label": "rss",
+        "is_health_related": False,
+    }
+
+
+def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
+             source_language: str = "", source_country: str = "") -> dict:
     url = f"{NLP_SERVICE_URL}/nlp/analyze"
     resp = requests.post(
         url,
@@ -40,6 +86,9 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str) -
             "source_type": source_type,
             "source_name": source_name,
             "published_at": published_at,
+            "source_language": source_language,
+            "source_country": source_country,
+            "historical_fast": HISTORICAL_FAST_NON_HEALTH,
         },
         timeout=60,
     )
@@ -50,6 +99,14 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str) -
 def callback(ch, method, properties, body):
     try:
         msg = json.loads(body)
+        published_at = msg.get("published_at", "")
+        if not is_allowed_processing_year(published_at):
+            logger.info(
+                "Skipping non-current/undated message: published_at=%s current_year=%s",
+                published_at or "<empty>", CURRENT_YEAR,
+            )
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
         logger.info(
             "Processing message: raw_report_id=%s source_type=%s len=%d",
             msg.get("raw_report_id", "N/A"),
@@ -57,12 +114,16 @@ def callback(ch, method, properties, body):
             len(msg.get("text", "")),
         )
 
-        nlp = call_nlp(
-            msg.get("text", ""),
-            msg.get("source_type", ""),
-            msg.get("source_name", ""),
-            msg.get("published_at", ""),
-        )
+        nlp = fast_non_health_result(msg)
+        if nlp is None:
+            nlp = call_nlp(
+                msg.get("text", ""),
+                msg.get("source_type", ""),
+                msg.get("source_name", ""),
+                published_at,
+                msg.get("source_language", ""),
+                msg.get("source_country", ""),
+            )
 
         with get_db() as conn:
             # Handle both pre-inserted raw_report_id (Rust backend) and collector messages

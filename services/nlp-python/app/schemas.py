@@ -7,6 +7,9 @@ class AnalyzeRequest(BaseModel):
     source_type: Optional[str] = None
     source_name: Optional[str] = None
     published_at: Optional[str] = None
+    source_language: Optional[str] = None
+    source_country: Optional[str] = None
+    historical_fast: bool = False
 
 
 class AnalyzeResponse(BaseModel):

@@ -1,6 +1,16 @@
 import os
+import re
+import unicodedata
 
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "2000"))
+DEEPSEEK_TIMEOUT_SECONDS = int(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "20"))
+DEEPSEEK_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_MIN_CONFIDENCE", "0.85"))
+DEEPSEEK_TRIGGER_CONFIDENCE = float(os.getenv("DEEPSEEK_TRIGGER_CONFIDENCE", "0.75"))
+DEEPSEEK_LOCATION_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_LOCATION_MIN_CONFIDENCE", "0.80"))
 
 MODEL_MAP = {
     "xlm-roberta": "xlm-roberta-base",
@@ -49,9 +59,18 @@ SYMPTOM_DICT: dict[str, str] = {}
 DISEASE_DICT: dict[str, str] = {}
 OUTBREAK_RULES: dict[str, int] = {}
 LOCATION_COORDS: dict[str, tuple[float, float]] = {}
+LOCATION_COUNTRIES: dict[str, str] = {}
+LOCATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
+LOCATION_STOPWORDS = {
+    "ada", "and", "as", "at", "bao", "baru", "bukan", "by", "dan", "dari",
+    "dalam", "for", "from", "here", "hoi", "in", "into", "it", "main",
+    "nam", "new", "no", "not", "of", "on", "or", "pada", "same", "satu",
+    "that", "the", "this", "to", "trong", "tai", "with", "yang", "yes",
+}
 LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
+WHO_DISEASE_CONCEPTS: list[dict] = []
 
 
 def load_keywords_from_db():
@@ -83,6 +102,27 @@ def load_keywords_from_db():
         )
 
 
+def load_who_disease_concepts_from_db():
+    global WHO_DISEASE_CONCEPTS
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        rows = conn.execute(
+            """SELECT canonical_name, english_name, ontology_code
+               FROM disease_concepts
+               WHERE is_active = TRUE AND ontology_system = 'WHO ICD-11 MMS'
+               ORDER BY canonical_name"""
+        ).fetchall()
+        conn.close()
+        WHO_DISEASE_CONCEPTS = list(rows)
+        import logging
+        logging.getLogger(__name__).info("Loaded %d WHO ICD-11 disease concepts", len(rows))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to load WHO concepts: %s", e)
+
+
 def load_outbreak_rules_from_db():
     global OUTBREAK_RULES
     try:
@@ -106,16 +146,46 @@ def load_outbreak_rules_from_db():
 
 
 def load_locations_from_db():
-    global LOCATION_COORDS
+    global LOCATION_COORDS, LOCATION_COUNTRIES, LOCATION_PATTERNS
     try:
         import psycopg
         from psycopg.rows import dict_row
         conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
         rows = conn.execute(
-            "SELECT name, latitude, longitude FROM locations WHERE is_active = TRUE"
+            "SELECT name, latitude, longitude, country FROM locations WHERE is_active = TRUE"
         ).fetchall()
         conn.close()
-        LOCATION_COORDS = {r["name"]: (r["latitude"], r["longitude"]) for r in rows}
+        usable_rows = [
+            r for r in rows
+            if r["name"].strip().casefold() not in LOCATION_STOPWORDS
+        ]
+        LOCATION_COORDS = {r["name"]: (r["latitude"], r["longitude"]) for r in usable_rows}
+        LOCATION_COUNTRIES = {r["name"]: r["country"] for r in usable_rows if r.get("country")}
+        # Build one alternation regex once instead of compiling 15k regexes
+        # for every article. Longer names win over nested short names.
+        alternatives = sorted(
+            (
+                "".join(
+                    char for char in unicodedata.normalize("NFKD", name.lower())
+                    if not unicodedata.combining(char)
+                )
+                for name in LOCATION_COORDS
+            ),
+            key=len,
+            reverse=True,
+        )
+        if alternatives:
+            combined = re.compile(
+                # `\w` treats Khmer combining marks as non-word characters,
+                # which breaks names embedded in phrases such as
+                # `ខេត្តមណ្ឌលគិរី`. Keep boundaries for Latin words while
+                # allowing scripts whose words are not whitespace-delimited.
+                rf"(?<![A-Za-z])(?:{'|'.join(re.escape(name) for name in alternatives)})(?![A-Za-z])",
+                re.IGNORECASE,
+            )
+            LOCATION_PATTERNS = [(combined.pattern, combined)]
+        else:
+            LOCATION_PATTERNS = []
         import logging
         logging.getLogger(__name__).info(
             "Loaded %d locations from DB", len(LOCATION_COORDS),

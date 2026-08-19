@@ -10,6 +10,15 @@ logger = logging.getLogger(__name__)
 
 def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     text = payload.text
+    language = extractors.detect_language(text)
+    if language == "unknown" and payload.source_language:
+        language = payload.source_language
+    country_by_language = {
+        "id": "Indonesia", "ms": "Malaysia", "th": "Thailand",
+        "vi": "Vietnam", "km": "Cambodia", "lo": "Laos",
+        "my": "Myanmar", "tl": "Philippines", "tet": "Timor-Leste",
+    }
+    location_country = payload.source_country or country_by_language.get(language, "")
     disease = "UNKNOWN"
     confidence = 0.40
     sentiment = "neutral"
@@ -20,6 +29,28 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     relevance_confidence = 0.0
 
     location = extractors.extract_location(text)
+    if not location:
+        try:
+            from .deepseek import detect_location
+            resolved_location = detect_location(
+                text,
+                source_language=payload.source_language or language,
+                source_country=location_country,
+            )
+            if resolved_location:
+                location = resolved_location["location_name"]
+        except Exception as e:
+            logger.info("DeepSeek location fallback unavailable: %s", e)
+
+    if not location:
+        fallback_country = location_country
+        fallback_locations = {
+            "Brunei": "Bandar Seri Begawan", "Cambodia": "Phnom Penh",
+            "Indonesia": "Jakarta", "Laos": "Vientiane", "Malaysia": "Kuala Lumpur",
+            "Myanmar": "Naypyidaw", "Philippines": "Manila", "Singapore": "Singapore",
+            "Thailand": "Bangkok", "Timor-Leste": "Dili", "Vietnam": "Hanoi",
+        }
+        location = fallback_locations.get(fallback_country)
     lat, lon = config.LOCATION_COORDS.get(location, (None, None))
     symptoms = extractors.extract_terms(text, config.SYMPTOM_DICT)
     extracted = extractors.extract_terms(text, config.DISEASE_DICT)
@@ -33,9 +64,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             zero_shot = config.NLP_MODEL == "fine-tuned"
             if zero_shot:
                 disease, confidence = classify_disease(text)
-                sentiment, sentiment_score = classify_sentiment(text, model_key="xlm-roberta")
-                event_type, event_confidence = classify_event_type(text, model_key="xlm-roberta")
-                relevance, relevance_confidence = classify_relevance(text, model_key="xlm-roberta")
+                if payload.historical_fast:
+                    # Historical disease training does not need the three
+                    # additional zero-shot passes. Keep their fields valid
+                    # while retaining the disease model's result.
+                    relevance = "high" if disease != "UNKNOWN" or has_keywords else "low"
+                    relevance_confidence = confidence if relevance == "high" else 0.99
+                else:
+                    sentiment, sentiment_score = classify_sentiment(text, model_key="xlm-roberta")
+                    event_type, event_confidence = classify_event_type(text, model_key="xlm-roberta")
+                    relevance, relevance_confidence = classify_relevance(text, model_key="xlm-roberta")
             else:
                 disease, confidence = classify_disease(text)
                 sentiment, sentiment_score = classify_sentiment(text)
@@ -68,6 +106,27 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if extracted:
                 disease = extracted[0]
 
+    # Optional accuracy fallback: DeepSeek may translate an unseen disease name,
+    # but it can only select a concept already resolved to WHO ICD-11 in the DB.
+    # Any API failure leaves the deterministic/model result unchanged.
+    should_use_deepseek = (
+        disease == "UNKNOWN"
+        or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
+        or (language not in {"en", "id"} and not extracted)
+    )
+    if should_use_deepseek:
+        try:
+            from .deepseek import detect_disease
+            resolved = detect_disease(text)
+            if resolved:
+                disease = resolved["canonical_name"]
+                confidence = resolved["confidence"]
+                extracted = list(dict.fromkeys([*extracted, disease]))
+                has_keywords = True
+                is_health_related = True
+        except Exception as e:
+            logger.info("DeepSeek fallback unavailable; continuing without it: %s", e)
+
     case_count = extractors.extract_case_count(text)
     death_count = extractors.extract_death_count(text)
     outbreak_alert = case_count >= config.OUTBREAK_RULES.get("UNKNOWN", 25)
@@ -87,7 +146,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             break
 
     return AnalyzeResponse(
-        language=extractors.detect_language(text),
+        language=language,
         normalized_text=extractors.normalize_text(text),
         location_name=location,
         latitude=lat,

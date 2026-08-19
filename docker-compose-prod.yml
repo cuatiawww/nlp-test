@@ -1,13 +1,35 @@
 services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: disease-rabbitmq
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}
+    ports:
+      # AMQP remains internal. Management is local-only by default.
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - default
+
   minio:
     image: minio/minio:latest
     container_name: disease-minio
-    restart: no
+    restart: unless-stopped
     env_file: .env
     command: server /data --console-address ":9001"
     ports:
-      - "9002:9000"
-      - "9003:9001"
+      - "127.0.0.1:${MINIO_API_PORT:-9002}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9003}:9001"
     volumes:
       - minio_data:/data
 
@@ -15,14 +37,14 @@ services:
     build:
       context: ./services/nlp-python
     container_name: disease-nlp-python
-    restart: no
+    restart: unless-stopped
     env_file: .env
+    environment:
+      NLP_MODEL: ${NLP_MODEL:-fine-tuned}
     ports:
-      - "8003:8000"
+      - "127.0.0.1:${NLP_PORT:-8003}:8000"
     volumes:
       - ./services/nlp-python/models:/app/models
-    environment:
-      - NLP_MODEL=fine-tuned
     networks:
       - default
       - db_db
@@ -31,15 +53,17 @@ services:
     build:
       context: ./services/backend-rust
     container_name: disease-backend-rust
-    restart: no
+    restart: unless-stopped
     env_file: .env
     ports:
-      - "8081:8081"
+      - "127.0.0.1:${BACKEND_PORT:-8081}:8081"
     volumes:
       - ./database/init:/init:ro
     depends_on:
       nlp-python:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - default
       - db_db
@@ -48,11 +72,13 @@ services:
     build:
       context: ./services/worker-python
     container_name: disease-worker-python
-    restart: no
+    restart: unless-stopped
     env_file: .env
     depends_on:
       nlp-python:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - default
       - db_db
@@ -61,11 +87,13 @@ services:
     build:
       context: ./services/collector-python
     container_name: disease-collector-python
-    restart: no
+    restart: unless-stopped
     env_file: .env
     depends_on:
       nlp-python:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - default
       - db_db
@@ -76,49 +104,38 @@ services:
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3010/nlp}
     container_name: disease-frontend-next
-    restart: no
+    restart: unless-stopped
     env_file: .env
     ports:
-      - "3010:3000"
+      - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-3010}:3000"
     depends_on:
       - backend-rust
 
   init:
-    image: alpine:latest
+    image: alpine:3.20
     container_name: disease-init
-    restart: no
+    restart: "no"
     profiles: ["init"]
     env_file: .env
     depends_on:
       backend-rust:
         condition: service_started
     volumes:
-      - ./database/init:/init
+      - ./database/init:/init:ro
     networks:
       - default
       - db_db
-    command: >
+    command: >-
       /bin/sh -c "
-        apk add --no-cache postgresql-client curl >/dev/null 2>&1 &&
-        echo '⏳ Running init...' &&
-        echo '📦 Creating database disease_ai if not exists...' &&
-        PGPASSWORD=\$$POSTGRES_PASSWORD psql -h db-postgres -U postgres -d postgres -c \"CREATE DATABASE disease_ai\" 2>/dev/null || true &&
-        until PGPASSWORD=\$$POSTGRES_PASSWORD pg_isready -h db-postgres -U postgres -d disease_ai 2>/dev/null; do sleep 1; done &&
-        echo '✅ PostgreSQL ready on db-postgres' &&
-        until curl -sf http://backend-rust:8081/health >/dev/null 2>&1; do sleep 1; done &&
-        echo '✅ Backend ready' &&
-        HASH=\$$(echo -n \"\$${WEBMASTER_PASSWORD:-K3mk3s#2202%ok}\" | sha256sum | cut -d' ' -f1) &&
-        PGPASSWORD=\$$POSTGRES_PASSWORD psql -h db-postgres -U postgres -d disease_ai -c \"
-          INSERT INTO users (username, password_hash, display_name, role, email)
-          VALUES ('webmaster', '\$$HASH', 'Webmaster', 'admin', 'admin@disease-ai.local')
-          ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;
-        \" 2>&1 &&
-        echo '✅ User seeded' &&
-        echo 'Init complete'
+      apk add --no-cache postgresql-client curl >/dev/null 2>&1;
+      until PGPASSWORD=\$$POSTGRES_PASSWORD pg_isready -h db-postgres -U postgres -d disease_ai; do sleep 2; done;
+      until curl -fsS http://backend-rust:8081/health >/dev/null; do sleep 2; done;
+      echo 'Production dependencies are ready.'
       "
 
 volumes:
   minio_data:
+  rabbitmq_data:
 
 networks:
   default:

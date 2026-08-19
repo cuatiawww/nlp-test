@@ -18,10 +18,11 @@ def startup():
     from .config import (NLP_MODEL, load_keywords_from_db, load_outbreak_rules_from_db,
                           load_locations_from_db, load_credibility_from_db,
                           load_language_markers_from_db, load_extraction_rules_from_db,
-                          load_language_models_from_db)
+                          load_language_models_from_db, load_who_disease_concepts_from_db)
     from .models.classifier import get_labels, classify
     logger.info("NLP service starting — model=%s labels=%s", NLP_MODEL, get_labels("disease"))
     load_keywords_from_db()
+    load_who_disease_concepts_from_db()
     load_outbreak_rules_from_db()
     load_locations_from_db()
     load_credibility_from_db()

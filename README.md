@@ -205,6 +205,57 @@ POST /api/v1/ingest → INSERT raw_reports
 
 Lihat `FINE_TUNING_PLAN.md` untuk panduan fine-tuning lengkap.
 
+Untuk deployment production, gunakan compose yang menyertakan RabbitMQ:
+
+```bash
+make prod-up
+```
+
+Pipeline fine-tuning yang menangani dataset besar dan self-training bulanan
+tersedia di [`docs/PRODUCTION_TRAINING.md`](docs/PRODUCTION_TRAINING.md),
+[`scripts/train_classifier.py`](scripts/train_classifier.py), dan notebook
+[`notebooks/fine_tune_production.ipynb`](notebooks/fine_tune_production.ipynb).
+Trigger command:
+
+```bash
+make retrain-dry-run
+make retrain
+```
+
+Retraining hanya menggunakan data ber-confidence tinggi, mengevaluasi kandidat
+terlebih dahulu, dan menyimpan model lama untuk rollback.
+
+### Bootstrap Data Multilingual dari Data Existing
+
+Data existing dapat dipakai untuk mengisi konsep penyakit, alias multilingual,
+dan training examples tanpa input manual. Jalankan migration `021` terlebih
+dahulu, kemudian:
+
+```bash
+python3 scripts/bootstrap_multilingual_data.py --dry-run
+python3 scripts/bootstrap_multilingual_data.py --no-llm
+
+# Optional: normalisasi alias dan report UNKNOWN dengan DeepSeek
+DEEPSEEK_API_KEY=... python3 scripts/bootstrap_multilingual_data.py
+```
+
+Untuk mengisi kode canonical WHO ICD-11 MMS secara otomatis, tambahkan
+`WHO_ICD_CLIENT_ID` dan `WHO_ICD_CLIENT_SECRET`. Script menggunakan OAuth
+client-credentials WHO, mencari istilah pada linearization MMS, dan menyimpan
+kode/URI hanya jika WHO mengembalikan hasil yang valid. Jika kredensial WHO
+tidak tersedia, `ontology_code` dibiarkan kosong—tidak pernah ditebak.
+
+Script bersifat idempotent dan tidak menghapus data lama. Bootstrap memproses
+`raw_reports`, `disease_events`, `nlp_labels`, dan `nlp_keywords` yang sudah ada
+serta melakukan resolusi istilah ke WHO ICD-11. Bootstrap tidak membutuhkan
+DeepSeek.
+
+Hasil otomatis disimpan di `disease_concepts`, `disease_aliases`, dan
+`nlp_training_examples`. `disease_concepts.english_name`, `ontology_code`, dan
+`ontology_uri` berasal dari WHO bila istilah berhasil ditemukan. DeepSeek hanya
+dipanggil oleh NLP runtime sebagai fallback saat laporan belum dapat dipetakan;
+hasilnya harus cocok dengan concept WHO yang sudah ada.
+
 ### Deploy Model ke Server
 
 ```bash

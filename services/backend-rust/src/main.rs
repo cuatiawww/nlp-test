@@ -607,34 +607,139 @@ fn extract_title_from_html(html: &str) -> String {
     }
 }
 
-fn extract_body_text(html: &str) -> String {
+fn find_iso_date_after(html: &str, marker: &str) -> Option<NaiveDate> {
+    let lower = html.to_lowercase();
+    let marker_lower = marker.to_lowercase();
+    let bytes = html.as_bytes();
+
+    for (marker_pos, _) in lower.match_indices(&marker_lower) {
+        let start = marker_pos.saturating_sub(32);
+        let end = (marker_pos + 768).min(html.len());
+        let mut index = start;
+        while index + 10 <= end {
+            if bytes[index].is_ascii_digit()
+                && bytes[index + 4] == b'-'
+                && bytes[index + 7] == b'-'
+                && bytes[index + 5].is_ascii_digit()
+                && bytes[index + 6].is_ascii_digit()
+                && bytes[index + 8].is_ascii_digit()
+                && bytes[index + 9].is_ascii_digit()
+            {
+                if let Ok(value) = std::str::from_utf8(&bytes[index..index + 10]) {
+                    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+                        return Some(date);
+                    }
+                }
+            }
+            index += 1;
+        }
+    }
+    None
+}
+
+fn extract_published_date(html: &str) -> Option<NaiveDate> {
+    [
+        "datepublished",
+        "article:published_time",
+        "published_time",
+        "datecreated",
+        "pubdate",
+    ]
+    .iter()
+    .find_map(|marker| find_iso_date_after(html, marker))
+}
+
+fn html_tag_name(tag: &str) -> String {
+    tag.trim_start_matches(|c: char| c.is_whitespace() || c == '/' || c == '<' || c == '>')
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == ':')
+        .collect::<String>()
+        .to_lowercase()
+}
+
+fn extract_element_by_marker(html: &str, marker: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    let marker_pos = lower.find(&marker.to_lowercase())?;
+    let open_start = lower[..=marker_pos].rfind('<')?;
+    if lower[open_start..].starts_with("</") {
+        return None;
+    }
+    let open_end = lower[open_start..].find('>').map(|i| open_start + i)?;
+    let tag_name = html_tag_name(&html[open_start..=open_end]);
+    if tag_name.is_empty() {
+        return None;
+    }
+
+    let mut depth = 1i32;
+    let mut cursor = open_end + 1;
+    while cursor < html.len() {
+        let relative = lower[cursor..].find('<')?;
+        let tag_start = cursor + relative;
+        if lower[tag_start..].starts_with("<!--") {
+            cursor = lower[tag_start..]
+                .find("-->")
+                .map(|i| tag_start + i + 3)
+                .unwrap_or(html.len());
+            continue;
+        }
+        let tag_end = lower[tag_start..].find('>').map(|i| tag_start + i)?;
+        let inside = &html[tag_start + 1..tag_end];
+        let trimmed = inside.trim_start();
+        let is_closing = trimmed.starts_with('/');
+        let candidate_name = html_tag_name(inside);
+        if candidate_name == tag_name {
+            if is_closing {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(html[open_start..=tag_end].to_string());
+                }
+            } else if !trimmed.ends_with('/') {
+                depth += 1;
+            }
+        }
+        cursor = tag_end + 1;
+    }
+    None
+}
+
+fn strip_html_text(html: &str) -> String {
     let mut result = String::new();
     let chars: Vec<char> = html.chars().collect();
     let n = chars.len();
     let mut i = 0;
     let mut in_tag = false;
     let mut in_skip = false;
+    let mut skip_tag = String::new();
 
     while i < n {
         match chars[i] {
             '<' => {
                 in_tag = true;
-                if !in_skip && i + 6 < n {
-                    let snip: String = chars[i..].iter().take(8).collect();
-                    let s = snip.to_lowercase();
-                    if s.starts_with("<script") || s.starts_with("<style") {
-                        in_skip = true;
+                if i + 1 < n {
+                    let mut j = i + 1;
+                    while j < n && chars[j].is_whitespace() { j += 1; }
+                    let mut name = String::new();
+                    while j < n && (chars[j].is_ascii_alphanumeric() || chars[j] == '/') {
+                        if chars[j] != '/' { name.push(chars[j].to_ascii_lowercase()); }
+                        j += 1;
                     }
-                }
-                if in_skip && i + 1 < n && chars[i + 1] == '/' {
-                    let snip: String = chars[i..].iter().take(9).collect();
-                    let s = snip.to_lowercase();
-                    if s.starts_with("</script") || s.starts_with("</style") {
+                    if !in_skip && matches!(name.as_str(), "script" | "style" | "noscript" | "template" | "svg" | "iframe" | "nav" | "header" | "footer" | "aside" | "form") {
+                        in_skip = true;
+                        skip_tag = name;
+                    } else if in_skip
+                        && name == skip_tag
+                        && i + 1 < n
+                        && chars[i + 1] == '/'
+                    {
                         in_skip = false;
+                        skip_tag.clear();
                     }
                 }
             }
-            '>' => in_tag = false,
+            '>' => {
+                in_tag = false;
+                if !in_skip { result.push(' '); }
+            }
             _ if !in_tag && !in_skip => result.push(chars[i]),
             _ => {}
         }
@@ -642,6 +747,38 @@ fn extract_body_text(html: &str) -> String {
     }
 
     result.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn extract_body_text(html: &str) -> String {
+    // Prefer the article body. The old implementation flattened the complete
+    // page, so related stories and navigation locations could win extraction.
+    let markers = [
+        "itemprop=\"articlebody\"",
+        "wrap__article-detail-content",
+        "class=\"article-content\"",
+        "class=\"field-body\"",
+        "post-content",
+        "article-body",
+        "article-content",
+        "story-body",
+        "entry-content",
+        "<article",
+        "<main",
+    ];
+    for marker in markers {
+        if let Some(fragment) = extract_element_by_marker(html, marker) {
+            let mut text = strip_html_text(&fragment);
+            for boundary in [" Baca juga:", " Pewarta:", " Editor:", " Copyright ©", " Dilarang keras"] {
+                if let Some(pos) = text.find(boundary) {
+                    text.truncate(pos);
+                }
+            }
+            if text.split_whitespace().count() >= 20 {
+                return text;
+            }
+        }
+    }
+    strip_html_text(html)
 }
 
 async fn analyze_url(
@@ -652,6 +789,101 @@ async fn analyze_url(
 
     if url.is_empty() {
         return Err((StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "URL tidak boleh kosong" }))));
+    }
+
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let row = client
+        .query_opt(
+            "SELECT de.id, de.raw_report_id, de.original_text, de.language,
+                    de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude,
+                    de.symptoms, de.disease_extracted,
+                    de.disease_classification, de.case_count, de.death_count, de.confidence,
+                    de.outbreak_alert, de.sentiment, de.needs_review, de.event_type,
+                    de.event_confidence::float8, de.relevance_score, de.relevance_confidence::float8,
+                    de.source_credibility::float8, de.source_credibility_label, de.is_health_related
+             FROM disease_events de
+             JOIN raw_reports rr ON de.raw_report_id = rr.id
+             WHERE rr.url = $1
+               AND de.created_at > NOW() - INTERVAL '7 days'
+             ORDER BY de.created_at DESC
+             LIMIT 1",
+            &[&url],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    if let Some(row) = row {
+        let original_text: String = row.get("original_text");
+        let (cached_title, cached_content) = if let Some(pos) = original_text.find(".\n") {
+            (original_text[..pos].to_string(), original_text[pos + 2..].to_string())
+        } else {
+            (String::new(), original_text.clone())
+        };
+
+        let symptoms_val: serde_json::Value = row.get("symptoms");
+        let symptoms: Vec<String> = serde_json::from_value(symptoms_val).unwrap_or_default();
+        let disease_val: serde_json::Value = row.get("disease_extracted");
+        let disease_extracted: Vec<String> = serde_json::from_value(disease_val).unwrap_or_default();
+
+        let event_id: Uuid = row.get("id");
+        let raw_report_id: Uuid = row.get("raw_report_id");
+
+        let mut sources = serde_json::Map::new();
+        let cached_msg = "Data diambil dari database (hasil analisis sebelumnya)";
+        sources.insert("title".to_string(), json!(cached_msg));
+        sources.insert("content".to_string(), json!(cached_msg));
+        sources.insert("language".to_string(), json!(cached_msg));
+        sources.insert("location_name".to_string(), json!(cached_msg));
+        sources.insert("symptoms".to_string(), json!(cached_msg));
+        sources.insert("disease_extracted".to_string(), json!(cached_msg));
+        sources.insert("disease_classification".to_string(), json!(cached_msg));
+        sources.insert("case_count".to_string(), json!(cached_msg));
+        sources.insert("death_count".to_string(), json!(cached_msg));
+        sources.insert("confidence".to_string(), json!(cached_msg));
+        sources.insert("outbreak_alert".to_string(), json!(cached_msg));
+        sources.insert("sentiment".to_string(), json!(cached_msg));
+        sources.insert("event_type".to_string(), json!(cached_msg));
+        sources.insert("relevance_score".to_string(), json!(cached_msg));
+        sources.insert("source_credibility".to_string(), json!(cached_msg));
+        sources.insert("is_health_related".to_string(), json!(cached_msg));
+
+        return Ok(Json(ApiResponse {
+            success: true,
+            data: json!({
+                "title": cached_title,
+                "content": cached_content,
+                "url": url,
+                "language": row.get::<_, String>("language"),
+                "location_name": row.get::<_, Option<String>>("location_name"),
+                "latitude": row.get::<_, Option<f64>>("latitude"),
+                "longitude": row.get::<_, Option<f64>>("longitude"),
+                "symptoms": symptoms,
+                "disease_extracted": disease_extracted,
+                "disease_classification": row.get::<_, String>("disease_classification"),
+                "case_count": row.get::<_, i32>("case_count"),
+                "death_count": row.get::<_, i32>("death_count"),
+                "confidence": row.get::<_, f64>("confidence"),
+                "outbreak_alert": row.get::<_, bool>("outbreak_alert"),
+                "sentiment": row.get::<_, Option<String>>("sentiment"),
+                "sentiment_score": Value::Null,
+                "event_type": row.get::<_, Option<String>>("event_type"),
+                "event_confidence": row.get::<_, Option<f64>>("event_confidence"),
+                "relevance_score": row.get::<_, Option<String>>("relevance_score"),
+                "relevance_confidence": row.get::<_, Option<f64>>("relevance_confidence"),
+                "source_credibility": row.get::<_, Option<f64>>("source_credibility"),
+                "source_credibility_label": row.get::<_, Option<String>>("source_credibility_label"),
+                "needs_review": row.get::<_, Option<bool>>("needs_review"),
+                "is_health_related": row.get::<_, Option<bool>>("is_health_related"),
+                "raw_report_id": raw_report_id,
+                "event_id": event_id,
+                "sources": Value::Object(sources),
+            }),
+            total: None,
+            page: None,
+            per_page: None,
+            total_pages: None,
+        }))
     }
 
     let resp = state
@@ -676,13 +908,18 @@ async fn analyze_url(
     })?;
 
     let title = extract_title_from_html(&html);
+    let published_date = extract_published_date(&html);
     let body_text = extract_body_text(&html);
     let max_len: usize = env::var("ANALYZE_MAX_CONTENT_LENGTH")
         .unwrap_or_else(|_| "10000".to_string())
         .parse()
         .unwrap_or(10000);
     let content = if body_text.len() > max_len {
-        format!("{}...", &body_text[..max_len])
+        // `max_len` is a byte-oriented limit, but Rust strings are UTF-8.
+        // Truncate on a character boundary so Khmer/Lao/Myanmar content
+        // cannot panic the request handler.
+        let safe_prefix: String = body_text.chars().take(max_len).collect();
+        format!("{}...", safe_prefix)
     } else {
         body_text
     };
@@ -730,6 +967,16 @@ async fn analyze_url(
         .await
         .map_err(internal_error)?
         .get(0);
+
+    if let Some(date) = published_date {
+        client
+            .execute(
+                "UPDATE raw_reports SET published_at=$1 WHERE id=$2",
+                &[&date, &raw_id],
+            )
+            .await
+            .map_err(internal_error)?;
+    }
 
     let event_id: Uuid = client
         .query_one(
@@ -789,9 +1036,19 @@ async fn analyze_url(
         })?
         .get(0);
 
+    if let Some(date) = published_date {
+        client
+            .execute(
+                "UPDATE disease_events SET published_at=$1 WHERE id=$2",
+                &[&date, &event_id],
+            )
+            .await
+            .map_err(internal_error)?;
+    }
+
     let mut sources = serde_json::Map::new();
     sources.insert("title".to_string(), json!("Diambil dari tag <title> di halaman web"));
-    sources.insert("content".to_string(), json!("Diambil dari elemen body halaman web setelah menghapus tag HTML (script, style, dll.)"));
+    sources.insert("content".to_string(), json!("Diambil dari blok artikel utama (article body/content) setelah menghapus navigasi, sidebar, script, dan style"));
     sources.insert("language".to_string(), json!("Dideteksi oleh library Language Detection (langdetect)"));
     sources.insert("location_name".to_string(), json!("Dicocokkan dari database lokasi (tabel locations) berdasarkan penyebutan nama tempat dalam teks"));
     sources.insert("symptoms".to_string(), json!("Ditemukan melalui pencocokan kata kunci gejala dari database NLP Keywords (kategori 'symptom')"));
@@ -812,6 +1069,7 @@ async fn analyze_url(
             "title": title,
             "content": content,
             "url": url,
+            "published_at": published_date.map(|date| date.to_string()),
             "language": nlp.language,
             "location_name": nlp.location_name,
             "latitude": nlp.latitude,
