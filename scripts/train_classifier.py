@@ -13,7 +13,7 @@ import argparse
 import json
 import os
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from inspect import signature
 from pathlib import Path
 
@@ -48,6 +48,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     parser.add_argument("--warmup-ratio", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument(
+        "--class-weighting",
+        choices=["none", "sqrt", "balanced"],
+        default=os.getenv("TRAINING_CLASS_WEIGHTING", "sqrt"),
+        help="Reduce majority-class bias; sqrt is safer than full inverse-frequency weighting.",
+    )
     parser.add_argument("--seed", type=int, default=20260819)
     parser.add_argument("--exclude-label", action="append", default=[])
     parser.add_argument("--fp16", action="store_true", help="Use fp16 when CUDA is available")
@@ -90,6 +96,47 @@ def as_dataset(rows: list[dict], label2id: dict[str, int]) -> Dataset:
     ])
 
 
+def class_weights(rows: list[dict], labels: list[str], mode: str) -> torch.Tensor | None:
+    if mode == "none":
+        return None
+    counts = Counter(row["label"] for row in rows)
+    total = len(rows)
+    number_of_classes = len(labels)
+    values = []
+    for label in labels:
+        count = max(counts.get(label, 0), 1)
+        inverse = total / (number_of_classes * count)
+        values.append(inverse if mode == "balanced" else inverse ** 0.5)
+    weights = torch.tensor(values, dtype=torch.float32)
+    weights = weights / weights.mean()
+    return weights.clamp(min=0.25, max=5.0)
+
+
+class WeightedTrainer(Trainer):
+    def __init__(self, *args, class_weights: torch.Tensor | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        if self.class_weights is None:
+            try:
+                return super().compute_loss(
+                    model,
+                    inputs,
+                    return_outputs=return_outputs,
+                    num_items_in_batch=num_items_in_batch,
+                )
+            except TypeError:
+                # Older Transformers releases do not have num_items_in_batch.
+                return super().compute_loss(model, inputs, return_outputs=return_outputs)
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+        weights = self.class_weights.to(device=logits.device, dtype=logits.dtype)
+        loss = torch.nn.functional.cross_entropy(logits, labels, weight=weights)
+        return (loss, outputs) if return_outputs else loss
+
+
 def main() -> None:
     args = parse_args()
     if args.max_per_label < 1:
@@ -121,6 +168,7 @@ def main() -> None:
         id2label=id2label,
         label2id=label2id,
     )
+    weights = class_weights(train_rows, labels, args.class_weighting)
     use_bf16 = args.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     use_fp16 = args.fp16 and torch.cuda.is_available() and not use_bf16
     training_kwargs = dict(
@@ -191,7 +239,10 @@ def main() -> None:
         trainer_kwargs["processing_class"] = tokenizer
     elif "tokenizer" in trainer_parameters:
         trainer_kwargs["tokenizer"] = tokenizer
-    trainer = Trainer(**trainer_kwargs)
+    trainer_class = WeightedTrainer if weights is not None else Trainer
+    if weights is not None:
+        trainer_kwargs["class_weights"] = weights
+    trainer = trainer_class(**trainer_kwargs)
     trainer.train()
     result = trainer.evaluate()
     trainer.save_model(args.output_dir)
@@ -202,6 +253,8 @@ def main() -> None:
         "labels": labels,
         "train_samples": len(train_rows),
         "eval_samples": len(eval_rows),
+        "class_counts": dict(sorted(Counter(row["label"] for row in train_rows).items())),
+        "class_weighting": args.class_weighting,
         "metrics": result,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
     }
