@@ -28,6 +28,8 @@ def run_source(source_id: str):
 
 
 async def run_source_async(source_id: str):
+    import asyncio
+
     source = db.fetch_source(source_id)
     if not source:
         logger.warning("Source %s not found", source_id)
@@ -40,7 +42,10 @@ async def run_source_async(source_id: str):
 
     run_id = db.create_run(str(source["id"]))
     collector = collector_cls(source)
-    result = collector.collect()
+    # Collectors use synchronous HTTP/feed parsers. Run them outside the
+    # asyncio event loop so one slow source cannot make every scheduled job
+    # miss its interval.
+    result = await asyncio.to_thread(collector.collect)
     db.finish_run(
         run_id,
         "SUCCESS" if not result.error_message else "FAILED",
