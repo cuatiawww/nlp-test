@@ -40,26 +40,40 @@ AFTER INSERT ON disease_events
 FOR EACH ROW EXECUTE FUNCTION capture_nlp_training_example();
 
 -- Backfill events collected before this trigger existed.
+-- Beberapa disease_events lama dapat mempunyai payload klasifikasi identik dan
+-- karena itu menghasilkan content_hash yang sama. Pilih satu event terbaik per
+-- hash sebelum INSERT; PostgreSQL melarang satu ON CONFLICT memperbarui row
+-- target yang sama lebih dari sekali dalam satu statement.
+WITH candidates AS (
+  SELECT
+    e.*,
+    encode(
+      digest(
+        COALESCE(e.original_text, '') || E'\n' || COALESCE(e.language, 'unknown') || E'\n' ||
+        COALESCE(e.disease_classification, '') || E'\n' || COALESCE(e.event_type, ''),
+        'sha256'
+      ),
+      'hex'
+    ) AS generated_content_hash
+  FROM disease_events e
+  WHERE COALESCE(e.original_text, '') <> ''
+), deduplicated AS (
+  SELECT DISTINCT ON (generated_content_hash) *
+  FROM candidates
+  ORDER BY generated_content_hash, confidence DESC NULLS LAST, created_at DESC, id
+)
 INSERT INTO nlp_training_examples
   (raw_report_id, content_hash, text, language, disease_label,
    event_type, relevance_score, is_health_related, case_count,
    death_count, source, confidence, split)
 SELECT
   e.raw_report_id,
-  encode(
-    digest(
-      COALESCE(e.original_text, '') || E'\n' || COALESCE(e.language, 'unknown') || E'\n' ||
-      COALESCE(e.disease_classification, '') || E'\n' || COALESCE(e.event_type, ''),
-      'sha256'
-    ),
-    'hex'
-  ),
+  e.generated_content_hash,
   COALESCE(e.original_text, ''), e.language,
   NULLIF(e.disease_classification, 'UNKNOWN'), e.event_type,
   e.relevance_score, e.is_health_related, e.case_count, e.death_count,
   'auto_event', COALESCE(e.confidence, 0.0), 'train'
-FROM disease_events e
-WHERE COALESCE(e.original_text, '') <> ''
+FROM deduplicated e
 ON CONFLICT (content_hash) DO UPDATE SET
   confidence = GREATEST(nlp_training_examples.confidence, EXCLUDED.confidence),
   updated_at = NOW();
