@@ -2,6 +2,11 @@
 const nextConfig = {
   output: 'standalone',
   basePath: '/nlp',
+  // Static branding assets are already optimized PNG files. Serving them
+  // directly also avoids reverse-proxy issues with /nlp/_next/image.
+  images: {
+    unoptimized: true,
+  },
   async rewrites() {
     return [
       {
