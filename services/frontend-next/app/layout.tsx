@@ -1,12 +1,12 @@
 import type { Metadata } from "next"
-import { Manrope } from "next/font/google"
+import { Roboto } from "next/font/google"
 import "./globals.css"
 import LayoutContent from "@/components/layout/LayoutContent"
 
-const manrope = Manrope({
-  weight: ['300', '400', '500', '600', '700', '800'],
+const roboto = Roboto({
+  weight: ['300', '400', '500', '700', '900'],
   subsets: ["latin"],
-  variable: "--font-manrope",
+  variable: "--font-roboto",
   display: 'swap',
 })
 
@@ -22,7 +22,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id">
-      <body className={`${manrope.variable} font-manrope antialiased`}>
+      <body className={`${roboto.variable} font-roboto antialiased`}>
         <LayoutContent>{children}</LayoutContent>
       </body>
     </html>

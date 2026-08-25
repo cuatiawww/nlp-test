@@ -4,7 +4,7 @@ import { useState } from 'react'
 import {
   Search, Globe, Database, Brain, BarChart3, BookOpen, BookText,
   CheckCircle, MapPin, Bug, Activity, Heart, MessageSquare,
-  AlertTriangle, Shield, Users, Skull, TrendingUp, FileText,
+  AlertTriangle, Shield, ShieldCheck, Users, Skull, TrendingUp, FileText,
   ExternalLink, Languages, Braces, Cpu, Tags, Radio, Clock,
   ArrowRight, ChevronDown, ChevronUp
 } from 'lucide-react'
@@ -339,7 +339,9 @@ export default function BusinessProcessPage() {
               { step: '5', title: 'REST API', icon: <BarChart3 className="h-4 w-4 text-teal-600" />,
                 desc: 'Backend Rust (Axum) menyediakan REST API untuk CRUD semua data: events, sources, labels, keywords, locations, dll. Juga endpoint khusus /analyze-url untuk analisis URL manual.' },
               { step: '6', title: 'Dashboard & Analisis URL', icon: <Globe className="h-4 w-4 text-cyan-600" />,
-                desc: 'Frontend Next.js menampilkan: KPI dashboard, Events table (filter+search+pagination), Processing monitor (real-time), URL Analyzer (input URL → fetch → NLP → display hasil + sumber).' },
+                desc: 'Dashboard publik menampilkan KPI dan tren bulanan, filter negara/tahun yang tersedia, peta spasial, layer BNPB dan angin GFS, grafik, tabel, serta ringkasan AI lokal. Card dan baris lokasi membuka detail NLP, main content bersih, dan URL sumber.' },
+              { step: '7', title: 'Validasi Dashboard & EWS', icon: <ShieldCheck className="h-4 w-4 text-amber-600" />,
+                desc: 'Event non-outbreak dengan confidence ≥0,15 tetap tampil sebagai NORMAL. EWS hanya aktif untuk confidence ≥0,35, published_at valid, lokasi berkoordinat, dan ambang outbreak terpenuhi. UNKNOWN, NEGATIVE, tanggal kosong, dan URL duplikat tidak masuk agregasi.' },
             ].map(item => (
               <div key={item.step} className="flex gap-4 px-6 py-4 hover:bg-slate-50/50">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
@@ -376,7 +378,8 @@ export default function BusinessProcessPage() {
             </div>
             <ul className="mt-3 space-y-1.5 text-xs text-slate-600">
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-sky-500" /> RSS collector — feedparser untuk multi-source</li>
-              <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-sky-500" /> Web scraper — BeautifulSoup + CSS selectors</li>
+              <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-sky-500" /> Web scraper — HTTP + Scrapling stealth fallback untuk proteksi Cloudflare</li>
+              <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-sky-500" /> Main-content extraction — Trafilatura + pembersihan boilerplate</li>
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-sky-500" /> CSV ingest — batch import dari URL</li>
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-sky-500" /> RabbitMQ pipeline — async processing</li>
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-sky-500" /> MinIO storage — raw HTML archive</li>
@@ -400,6 +403,7 @@ export default function BusinessProcessPage() {
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-purple-500" /> Case/death count — regex extraction DB-driven</li>
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-purple-500" /> Language detection — langdetect + markers DB</li>
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-purple-500" /> 7 language→model mappings (DB-driven)</li>
+              <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-purple-500" /> NLLB-200 lokal — translasi bahasa non-Latin, preload startup, dan cache</li>
             </ul>
           </div>
 
@@ -413,6 +417,9 @@ export default function BusinessProcessPage() {
             </div>
             <ul className="mt-3 space-y-1.5 text-xs text-slate-600">
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-teal-500" /> KPI Dashboard — total lokasi, kasus, kematian, alert</li>
+              <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-teal-500" /> Filter negara/tahun — seluruh widget mengikuti snapshot backend</li>
+              <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-teal-500" /> Peta spasial — outbreak, EWS radius, GFS wind, dan layer BNPB</li>
+              <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-teal-500" /> Dashboard publik/TV — guest menu terbatas, admin menu lengkap setelah login</li>
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-teal-500" /> Events Table — filter health/non-health, search, pagination</li>
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-teal-500" /> URL Analyzer — input URL → NLP → hasil detail + sumber</li>
               <li className="flex items-start gap-1.5"><CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-teal-500" /> Processing Monitor — real-time status collector</li>

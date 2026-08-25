@@ -116,12 +116,16 @@ def _extract_count(text: str, field: str, default: int) -> int:
     )
     localized_patterns = {
         "case_count": [
+            # Myanmar daily bulletin: distinguish positive cases from the
+            # number of laboratory samples and earlier cumulative totals.
+            r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"([0-9][0-9,.]*)(?:\s+[a-z-]+){0,3}\s+cases?\b",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីឆ្លងថ្មី|ករណីឆ្លង|អ្នកឆ្លង)\s*([0-9][0-9,.]*)\s*នាក់",
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
         ],
         "death_count": [
+            r"ယမန်နေ့တွင်\s*သေဆုံးသူ\s*([0-9][0-9,.]*)\s*ဦး",
             r"([0-9][0-9,.]*)\s+deaths?\b",
             r"(?:ผู้เสียชีวิต|เสียชีวิต)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីស្លាប់|អ្នកស្លាប់)\s*([0-9][0-9,.]*)\s*នាក់",
@@ -161,3 +165,26 @@ def extract_death_count(text: str) -> int:
 def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
     lower_text = text.lower()
     return sorted(set(value for key, value in dictionary.items() if key in lower_text))
+
+
+DISEASE_ALIASES = {
+    "โรคเอ็มพ็อกซ์": "MPOX",
+    "เอ็มพ็อกซ์": "MPOX",
+    "mpox": "MPOX",
+    "monkeypox": "MPOX",
+}
+
+
+def extract_diseases(text: str) -> list[str]:
+    diseases = set(extract_terms(text, config.DISEASE_DICT))
+    lower_text = text.lower()
+    diseases.update(value for key, value in DISEASE_ALIASES.items() if key in lower_text)
+    return sorted(diseases)
+
+
+def extract_alias_diseases(text: str) -> list[str]:
+    """Return high-precision explicit aliases, primarily for title matching."""
+    lower_text = text.lower()
+    return sorted(set(
+        value for key, value in DISEASE_ALIASES.items() if key in lower_text
+    ))

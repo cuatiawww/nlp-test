@@ -1,15 +1,42 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { sidebarMenu } from '@/lib/menu'
-import DashboardSidebar from './DashboardSidebar'
-import DashboardHeader from './DashboardHeader'
+import { useEffect, useState } from "react";
+import { sidebarMenu } from "@/lib/menu";
+import DashboardSidebar from "./DashboardSidebar";
+import DashboardHeader from "./DashboardHeader";
+import { isLoggedIn } from "@/lib/auth";
+import Footer from "./Footer";
+import EwsConsent from "./EwsConsent";
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+const guestMenu = [
+  {
+    title: "PEMANTAUAN",
+    items: [{ label: "Dashboard", icon: undefined, href: "/" }],
+  },
+];
+
+export default function AppShell({
+  children,
+  publicMode = false,
+  tvMode = false,
+}: {
+  children: React.ReactNode;
+  publicMode?: boolean;
+  tvMode?: boolean;
+}) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [authenticated, setAuthenticated] = useState(!publicMode);
+  useEffect(() => {
+    setAuthenticated(isLoggedIn());
+  }, []);
+
+  if (tvMode)
+    return (
+      <main className="min-h-screen bg-slate-950 text-white">{children}</main>
+    );
 
   return (
-    <main className="min-h-screen bg-white text-slate-900">
+    <main className="flex min-h-screen flex-col bg-[#fbffff] text-slate-900">
       {sidebarOpen && (
         <button
           type="button"
@@ -20,13 +47,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       )}
       <DashboardSidebar
         open={sidebarOpen}
-        menuGroups={sidebarMenu}
+        menuGroups={authenticated ? sidebarMenu : guestMenu}
         onClose={() => setSidebarOpen(false)}
       />
-      <DashboardHeader onToggleSidebar={() => setSidebarOpen((prev) => !prev)} />
-      <div className="w-full py-3 md:py-5">
-        {children}
-      </div>
+      <DashboardHeader
+        authenticated={authenticated}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+      />
+      <div className="w-full flex-1 py-3 md:py-5">{children}</div>
+      <Footer />
+      <EwsConsent />
     </main>
-  )
+  );
 }

@@ -62,7 +62,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     lat, lon = config.LOCATION_COORDS.get(location, (None, None))
     country = config.LOCATION_COUNTRIES.get(location) if location else (location_country or None)
     symptoms = extractors.extract_terms(analysis_text, config.SYMPTOM_DICT)
-    extracted = extractors.extract_terms(analysis_text, config.DISEASE_DICT)
+    # Prefer explicit diseases in the title/opening section. Mentions deeper in
+    # an article are often comparisons or differential diagnoses (the Thai
+    # Mpox fact sheet also mentions influenza and malaria).
+    primary_aliases = sorted(set(
+        extractors.extract_alias_diseases(text[:1200])
+        + extractors.extract_alias_diseases(analysis_text[:1200])
+    ))
+    primary_extracted = primary_aliases or sorted(set(
+        extractors.extract_diseases(text[:1200])
+        + extractors.extract_diseases(analysis_text[:1200])
+    ))
+    extracted = primary_extracted or extractors.extract_diseases(analysis_text)
     for value in structured.get("diseases") or []:
         if isinstance(value, str) and value.strip():
             extracted.append(value.strip().upper().replace("-", ""))
@@ -146,6 +157,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if translated_text and extracted:
         disease = extracted[0]
         confidence = max(confidence, 0.85)
+    if extracted:
+        is_health_related = True
 
     case_count = extractors.extract_case_count(text)
     death_count = extractors.extract_death_count(text)
@@ -157,6 +170,21 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         case_count = max(0, structured["case_count"])
     if death_count == 0 and isinstance(structured.get("death_count"), int):
         death_count = max(0, structured["death_count"])
+    reference_markers = (
+        "signs and symptoms", "diagnosis", "treatment", "prevention",
+        "อาการแสดงและอาการ", "การวินิจฉัย", "การรักษา", "การป้องกัน",
+    )
+    is_reference_content = sum(
+        marker in analysis_text.lower() or marker in text.lower()
+        for marker in reference_markers
+    ) >= 2
+    if is_reference_content:
+        # Educational/fact-sheet pages contain historical and comparison
+        # figures. They are health information, not a local incident report.
+        case_count = 0
+        death_count = 0
+        event_type = "health update"
+        event_confidence = max(event_confidence, 0.85)
     if case_count == 1 and disease == "UNKNOWN" and not extracted:
         # DEFAULT_CASE_COUNT=1 is useful for disease reports with no explicit
         # number, but must not fabricate a case in a general health article.
@@ -179,6 +207,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if db_name != "UNKNOWN" and (db_name in disease_tokens or any(t in db_name for t in disease_tokens)):
             outbreak_alert = case_count >= min_count
             break
+    if is_reference_content:
+        outbreak_alert = False
     needs_review = confidence < config.LOW_CONFIDENCE_THRESHOLD
 
     source_type = payload.source_type or "web"

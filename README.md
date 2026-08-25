@@ -63,7 +63,9 @@ Semua halaman diakses via prefix **`/nlp/`** (Next.js basePath).
 
 | Route | Fitur |
 |-------|-------|
-| `/` | Dashboard: KPI cards + summary table |
+| `/` | Dashboard publik fullscreen: KPI tren bulanan, filter negara/tahun, EWS, peta spasial, grafik, tabel lokasi, dan ringkasan AI lokal |
+| `/tv` | Command-center fullscreen untuk pemantauan outbreak |
+| `/analyze` | Analisis URL: main content bersih, translasi lokal, detail NLP, sumber lengkap, dan peta |
 | `/sources` | CRUD sumber data (modal popup), Trigger per-source + Trigger All |
 | `/events` | Data events hasil NLP — filter Semua/Health/Non Health, search, pagination angka, kolom Diproses |
 | `/nlp-keywords` | CRUD keyword dictionary (symptom/disease), search, pagination, modal popup |
@@ -83,6 +85,8 @@ Semua halaman CRUD menggunakan **modal popup** (bukan inline form). Semua tabel 
 | Method | Endpoint | Deskripsi |
 |--------|----------|-----------|
 | `GET` | `/health` | Health check |
+| `GET` | `/api/v1/public-dashboard?country=&year=` | Snapshot dashboard publik terfilter, tahun tersedia, detail sumber, dan EWS |
+| `POST` | `/api/auth/login` | Login admin; guest tetap dapat mengakses dashboard publik |
 | `POST` | `/api/v1/ingest` | Submit teks → antrian async |
 | `GET` | `/api/v1/events` | List events + pagination + filter |
 | `POST` | `/api/v1/sources` | CRUD sumber data |
@@ -122,6 +126,23 @@ Semua halaman CRUD menggunakan **modal popup** (bukan inline form). Semua tabel 
 
 ## NLP Pipeline
 
+### Pengambilan main content dan bahasa non-Latin
+
+- Collector mencoba HTTP biasa terlebih dahulu dan memakai Scrapling/stealth
+  sebagai fallback untuk situs yang memblokir scraper atau memakai Cloudflare.
+- Trafilatura dan pembersihan DOM membuang menu, footer, iklan, rekomendasi,
+  script, style, serta boilerplate. Hanya judul, tanggal publikasi, dan main
+  content yang diteruskan ke NLP.
+- Analisis URL menggunakan jalur ekstraksi yang sama agar hasil manual dan
+  collector konsisten.
+- Aksara Thai, Khmer, Lao, Myanmar, dan bahasa non-Latin lain diterjemahkan
+  menggunakan NLLB-200 lokal. Model dan classifier dimuat saat service startup,
+  bukan pada request pertama. Hasil terjemahan disimpan di cache.
+- DeepSeek hanya fallback akurasi jika resolusi lokal gagal; jalur normal tidak
+  membutuhkan API berbayar.
+- Angka kasus/kematian dan lokasi diperiksa terhadap teks asli agar terjemahan
+  tidak mengubah nilai faktual.
+
 ### Arsitektur Model
 
 | Mode | Model Digunakan | Fungsi |
@@ -140,6 +161,21 @@ environment:
 ### Alur Pipeline
 
 ```
+
+### Aturan data dashboard dan EWS
+
+- Dashboard umum menerima event kesehatan dengan `published_at` valid,
+  penyakit dikenal, bukan label `UNKNOWN/NEGATIVE`, dan confidence minimal
+  `0.15`. Event non-outbreak tetap tampil dengan status `NORMAL`.
+- `created_at` tidak pernah dipakai sebagai pengganti `published_at`; artikel
+  lama yang baru dikoleksi tidak boleh terlihat sebagai kejadian baru.
+- URL duplikat dihitung sekali. Master lokasi juga dipilih satu baris agar
+  agregasi tidak berlipat.
+- EWS lebih ketat: confidence minimal `0.35`, koordinat lokasi harus tersedia,
+  tanggal publikasi valid, dan event harus melewati aturan outbreak penyakit.
+- Dropdown tahun berasal dari tahun yang benar-benar memiliki data valid.
+- Card EWS dan tabel lokasi dapat dibuka untuk melihat detail analisis, main
+  content bersih, nama/tipe sumber, dan URL lengkap ke tab baru.
 Input Text → Keyword Extraction (DISEASE_DICT / SYMPTOM_DICT dari DB)
            → Jika keyword cocok → Model klasifikasi
            → Jika tidak → UNKNOWN, is_health_related=False, confidence rendah
@@ -222,6 +258,105 @@ make retrain-dry-run
 make retrain
 ```
 
+### Cara training model
+
+1. Pasang dependency training pada host atau Google Colab:
+
+```bash
+python3 -m pip install -r scripts/requirements-training.txt
+```
+
+2. Ekspor dataset tervalidasi secara streaming. Jangan memakai password contoh;
+   isi URL database dari secret environment host:
+
+```bash
+export TRAINING_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/disease_ai'
+python3 scripts/export_training_data.py \
+  --output-dir /tmp/disease-training \
+  --min-confidence 0.90 \
+  --max-per-label 100000
+```
+
+3. Latih kandidat XLM-RoBERTa (gunakan GPU/Colab untuk dataset besar):
+
+```bash
+python3 scripts/train_classifier.py \
+  --train /tmp/disease-training/train.jsonl \
+  --eval /tmp/disease-training/test.jsonl \
+  --label-field disease \
+  --model-name xlm-roberta-base \
+  --output-dir /tmp/disease-model \
+  --epochs 3 \
+  --train-batch-size 16 \
+  --gradient-accumulation-steps 2 \
+  --fp16
+```
+
+4. Untuk pipeline otomatis production, selalu mulai dengan dry-run:
+
+```bash
+python3 scripts/retrain_from_db.py --dry-run
+python3 scripts/retrain_from_db.py \
+  --task disease \
+  --min-confidence 0.90 \
+  --min-macro-f1 0.80 \
+  --min-eval-samples 100 \
+  --max-steps 30000 \
+  --fp16 \
+  --restart-service
+```
+
+Kandidat hanya dipromosikan jika evaluasi memenuhi ambang macro-F1. Model lama
+disimpan untuk rollback. Rincian Colab, self-training bulanan, dataset besar,
+dan deploy release tersedia di
+[`docs/PRODUCTION_TRAINING.md`](docs/PRODUCTION_TRAINING.md).
+
+### Cron training otomatis
+
+Siapkan virtualenv dan dependency sekali saja:
+
+```bash
+cd /home/mci/app/SCRIPT/NLP
+python3 -m venv .venv-training
+.venv-training/bin/pip install -r scripts/requirements-training.txt
+```
+
+Simpan credential training di luar repository:
+
+```bash
+sudo install -m 600 /dev/null /etc/disease-nlp-training.env
+sudo editor /etc/disease-nlp-training.env
+```
+
+Isi minimal file tersebut (ganti nilainya sesuai server):
+
+```bash
+TRAINING_DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/disease_ai
+TRAINING_MIN_CONFIDENCE=0.90
+TRAINING_MAX_PER_LABEL=100000
+TRAINING_MIN_MACRO_F1=0.80
+TRAINING_MIN_EVAL_SAMPLES=100
+```
+
+Buka crontab user deployment dengan `crontab -e`, lalu tambahkan:
+
+```cron
+# Dry-run setiap Minggu pukul 01:30 untuk memeriksa kesiapan dataset
+30 1 * * 0 cd /home/mci/app/SCRIPT/NLP && /usr/bin/flock -n /tmp/disease-nlp-training.lock /usr/bin/env bash -lc 'set -a; source /etc/disease-nlp-training.env; set +a; .venv-training/bin/python scripts/retrain_from_db.py --dry-run >> /var/log/disease-nlp-training-dry-run.log 2>&1'
+
+# Training tanggal 1 setiap bulan pukul 02:00; promosi/restart hanya jika evaluasi lolos
+0 2 1 * * cd /home/mci/app/SCRIPT/NLP && /usr/bin/flock -n /tmp/disease-nlp-training.lock /usr/bin/env bash -lc 'set -a; source /etc/disease-nlp-training.env; set +a; .venv-training/bin/python scripts/retrain_from_db.py --task disease --min-confidence 0.90 --max-per-label 100000 --min-macro-f1 0.80 --min-eval-samples 100 --max-steps 30000 --fp16 --restart-service >> /var/log/disease-nlp-training.log 2>&1'
+```
+
+Catatan operasional:
+
+- Jalankan command dry-run secara manual sebelum mengaktifkan cron.
+- Pastikan user cron memiliki akses Docker jika memakai `--restart-service`.
+- Hapus `--fp16` bila training hanya menggunakan CPU.
+- Pantau log dengan `tail -f /var/log/disease-nlp-training.log`.
+- `flock` mencegah job baru dimulai jika training sebelumnya belum selesai.
+- Jangan menyimpan credential database di crontab atau repository.
+
 Retraining hanya menggunakan data ber-confidence tinggi, mengevaluasi kandidat
 terlebih dahulu, dan menyimpan model lama untuk rollback.
 
@@ -275,6 +410,10 @@ curl -s http://localhost:8001/health | python3 -m json.tool
 ```bash
 # Build & start
 docker compose up -d --build
+
+# Migration database berjalan otomatis saat backend startup.
+# Model translasi dan classifier dipreload saat NLP startup; tunggu status sehat.
+docker compose ps
 
 # Build & start service tertentu
 docker compose build frontend-next && docker compose up -d frontend-next

@@ -1,211 +1,739 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import { MapPin, Users, Skull, AlertTriangle, Bug, TrendingUp, MessageSquare, Shield, Radio } from 'lucide-react'
+import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
-} from 'recharts'
-import { fetchDashboardStats, fetchSummary } from '@/lib/api'
-import type { DashboardStats } from '@/types'
+  Activity,
+  AlertTriangle,
+  Bug,
+  CalendarDays,
+  Clock3,
+  ChevronDown,
+  ChevronUp,
+  Filter,
+  ExternalLink,
+  FileText,
+  Globe2,
+  MapPin,
+  RefreshCw,
+  Skull,
+  Sparkles,
+  X,
+} from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { fetchPublicDashboard } from "@/lib/api";
+import type { OutbreakLocation, PublicDashboard } from "@/types";
 
-const COLORS = ['#0d9488', '#0891b2', '#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#ca8a04', '#65a30d', '#059669']
-const SENTIMENT_COLORS: Record<string, string> = { negative: '#dc2626', neutral: '#94a3b8', positive: '#16a34a' }
-const RELEVANCE_COLORS: Record<string, string> = { high: '#16a34a', medium: '#eab308', low: '#94a3b8' }
+const SpatialOutbreakMap = dynamic(
+  () => import("@/components/SpatialOutbreakMap"),
+  { ssr: false },
+);
+const colors = [
+  "#0f8f96",
+  "#06b6d4",
+  "#2563eb",
+  "#7c3aed",
+  "#db2777",
+  "#f97316",
+];
+const severityClass = {
+  AWAS: "bg-red-600 text-white",
+  SIAGA: "bg-orange-500 text-white",
+  WASPADA: "bg-yellow-400 text-slate-900",
+  NORMAL: "bg-emerald-100 text-emerald-800",
+};
 
-function KpiCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string | number; sub?: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
-        <span className="text-slate-400">{icon}</span>
-      </div>
-      <p className="mt-2 text-2xl font-extrabold text-slate-900">{value}</p>
-      {sub && <p className="mt-1 text-xs text-slate-400">{sub}</p>}
-    </div>
-  )
+function cleanArticleContent(value?: string | null): string {
+  if (!value) return "Konten sumber tidak tersedia.";
+  return value
+    .replace(
+      /<(script|style|noscript|svg|nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi,
+      " ",
+    )
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|section|article|h[1-6]|li|blockquote)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;|&#34;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, code: string) =>
+      String.fromCodePoint(Number(code)),
+    )
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-function ChartCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+function Kpi({
+  label,
+  value,
+  icon,
+  tone = "teal",
+  trend,
+  previousMonth,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+  tone?: string;
+  trend?: { current: number; previous: number };
+  previousMonth?: string;
+}) {
+  const difference = (trend?.current ?? 0) - (trend?.previous ?? 0);
+  const percentage = trend
+    ? trend.previous > 0
+      ? Math.abs((difference / trend.previous) * 100)
+      : trend.current > 0
+        ? 100
+        : 0
+    : 0;
+  const isUp = difference >= 0;
+  const monthLabel = previousMonth
+    ? new Intl.DateTimeFormat("id-ID", { month: "long" }).format(
+        new Date(`${previousMonth}-01T00:00:00Z`),
+      )
+    : "Bulan lalu";
+  const color =
+    tone === "red"
+      ? "text-red-600 bg-red-50/80"
+      : tone === "orange"
+        ? "text-amber-600 bg-amber-50/80"
+        : "text-teal-700 bg-teal-50/80";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-slate-400">{icon}</span>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600">{title}</h3>
+    <article
+      className="flex min-h-[128px] items-center gap-3 border border-[#bedbda] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(20,120,116,.06)] transition hover:-translate-y-0.5 hover:border-teal-400"
+      style={{ borderRadius: "17px 17px 22px 17px" }}
+    >
+      <div
+        className={`flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full ${color}`}
+      >
+        {icon}
       </div>
-      <div className="h-[280px]">{children}</div>
-    </div>
-  )
-}
-
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-lg text-xs">
-      <p className="font-semibold text-slate-800">{label}</p>
-      {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color }}>{p.name}: <strong>{p.value}</strong></p>
-      ))}
-    </div>
-  )
+      <div className="min-w-0">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
+          {label}
+        </p>
+        <p
+          className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-red-600" : tone === "orange" ? "text-amber-600" : "text-teal-700"}`}
+        >
+          {value.toLocaleString("id-ID")}
+        </p>
+        <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
+          <p className="uppercase">
+            {monthLabel} ({(trend?.previous ?? 0).toLocaleString("id-ID")})
+          </p>
+          <p
+            className={`mt-1 flex items-center gap-0.5 ${isUp ? "text-emerald-600" : "text-red-600"}`}
+          >
+            {isUp ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+            {percentage.toLocaleString("id-ID", { maximumFractionDigits: 1 })}%
+            dari bulan sebelumnya
+          </p>
+        </div>
+      </div>
+    </article>
+  );
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [summaryData, setSummaryData] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-
+  const currentYear = new Date().getFullYear();
+  const [country, setCountry] = useState("all");
+  const [year, setYear] = useState(currentYear);
+  const [data, setData] = useState<PublicDashboard | null>(null);
+  const [selected, setSelected] = useState<OutbreakLocation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try {
+      setError("");
+      setData(await fetchPublicDashboard({ country, year }));
+    } catch {
+      setError("Data dashboard belum dapat dijangkau.");
+    } finally {
+      setLoading(false);
+    }
+  }, [country, year]);
   useEffect(() => {
-    Promise.all([
-      fetchDashboardStats(),
-      fetchSummary(),
-    ])
-      .then(([s, sum]) => { setStats(s); setSummaryData(sum) })
-      .catch(() => { setStats(null); setSummaryData([]) })
-      .finally(() => setLoading(false))
-  }, [])
-
-  const total = stats
-    ? {
-        locations: stats.by_location.length,
-        cases: stats.by_disease.reduce((s, d) => s + d.cases, 0),
-        deaths: stats.by_disease.reduce((s, d) => s + d.deaths, 0),
-        events: stats.by_sentiment.reduce((s, d) => s + d.count, 0),
-      }
-    : { locations: 0, cases: 0, deaths: 0, events: 0 }
-
-  if (loading) {
+    load();
+    const id = window.setInterval(load, 60_000);
+    return () => window.clearInterval(id);
+  }, [load]);
+  useEffect(() => {
+    const available = data?.available_years;
+    if (available?.length && !available.includes(year)) setYear(available[0]);
+  }, [data?.available_years, year]);
+  const countryData = data?.by_country ?? [];
+  if (loading)
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-sm text-slate-400">Memuat dashboard...</div>
+      <div className="grid min-h-[60vh] place-items-center text-sm font-semibold text-teal-700">
+        Memuat pemantauan outbreak ASEAN...
       </div>
-    )
-  }
+    );
 
   return (
-    <div className="px-4 md:px-6">
-      <div className="flex items-center justify-between">
+    <div className="w-full space-y-6 bg-[#fbffff] px-4 py-6 sm:px-6 lg:px-8">
+      <section className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Beranda</h1>
-          <p className="mt-1 text-sm text-slate-500">Ringkasan surveilans penyakit berbasis AI</p>
+          <h1 className="text-2xl font-black uppercase tracking-wide text-slate-900">
+            Dashboard Outbreak Penyakit ASEAN
+          </h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Pemantauan multilingual berbasis berita dan sumber kesehatan kawasan
+            Asia Tenggara.
+          </p>
         </div>
+        <div className="flex gap-2">
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#047D78]"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Perbarui
+          </button>
+        </div>
+      </section>
+      <section className="rounded-2xl border border-[#bedbda] bg-white p-3 shadow-[0_6px_18px_rgba(20,120,116,.06)]">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="flex items-center gap-2 px-1 text-[#047D78]">
+            <Filter className="h-4 w-4" />
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-wider">
+                Filter Pemantauan
+              </p>
+              <p className="text-[10px] text-slate-500">
+                Seluruh komponen mengikuti filter aktif
+              </p>
+            </div>
+          </div>
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <Globe2 className="h-4 w-4 shrink-0 text-teal-600" />
+            <span className="text-[10px] font-bold uppercase text-slate-500">
+              Negara
+            </span>
+            <select
+              value={country}
+              onChange={(event) => setCountry(event.target.value)}
+              className="min-w-0 flex-1 bg-transparent text-xs font-bold text-slate-800 outline-none"
+            >
+              <option value="all">Semua Negara ASEAN</option>
+              {[
+                "Brunei",
+                "Cambodia",
+                "Indonesia",
+                "Laos",
+                "Malaysia",
+                "Myanmar",
+                "Philippines",
+                "Singapore",
+                "Thailand",
+                "Timor-Leste",
+                "Vietnam",
+              ].map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 lg:w-56">
+            <CalendarDays className="h-4 w-4 shrink-0 text-teal-600" />
+            <span className="text-[10px] font-bold uppercase text-slate-500">
+              Tahun
+            </span>
+            <select
+              value={year}
+              onChange={(event) => setYear(Number(event.target.value))}
+              className="flex-1 bg-transparent text-xs font-bold text-slate-800 outline-none"
+            >
+              {(data?.available_years?.length
+                ? data.available_years
+                : [currentYear]
+              ).map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                  {value === currentYear ? " (Tahun Ini)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(country !== "all" || year !== currentYear) && (
+            <button
+              onClick={() => {
+                setCountry("all");
+                setYear(currentYear);
+              }}
+              className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-[#047D78]"
+            >
+              Reset Filter
+            </button>
+          )}
+        </div>
+      </section>
+      {error && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      )}
+      <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <Kpi
+          label="Kasus Terdeteksi"
+          value={data?.trends?.cases.current ?? data?.kpis.cases ?? 0}
+          icon={<Bug className="h-5 w-5" />}
+          trend={data?.trends?.cases}
+          previousMonth={data?.trends?.previous_month}
+        />
+        <Kpi
+          label="Kematian"
+          value={data?.trends?.deaths.current ?? data?.kpis.deaths ?? 0}
+          icon={<Skull className="h-5 w-5" />}
+          tone="red"
+          trend={data?.trends?.deaths}
+          previousMonth={data?.trends?.previous_month}
+        />
+        <Kpi
+          label="Event Tervalidasi"
+          value={data?.trends?.events.current ?? data?.kpis.events ?? 0}
+          icon={<Activity className="h-5 w-5" />}
+          trend={data?.trends?.events}
+          previousMonth={data?.trends?.previous_month}
+        />
+        <Kpi
+          label="Lokasi"
+          value={data?.trends?.locations.current ?? data?.kpis.locations ?? 0}
+          icon={<MapPin className="h-5 w-5" />}
+          trend={data?.trends?.locations}
+          previousMonth={data?.trends?.previous_month}
+        />
+        <Kpi
+          label="Peringatan Aktif"
+          value={data?.trends?.alerts.current ?? data?.kpis.active_alerts ?? 0}
+          icon={<AlertTriangle className="h-5 w-5" />}
+          tone="orange"
+          trend={data?.trends?.alerts}
+          previousMonth={data?.trends?.previous_month}
+        />
       </div>
-
-      {/* KPI Cards */}
-      <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiCard icon={<MapPin className="h-5 w-5" />} label="Lokasi Terdeteksi" value={total.locations} sub={`Dari ${stats?.by_disease.length || 0} penyakit`} />
-        <KpiCard icon={<Bug className="h-5 w-5" />} label="Total Kasus" value={total.cases.toLocaleString()} sub={`${total.events} events diproses`} />
-        <KpiCard icon={<Skull className="h-5 w-5" />} label="Total Kematian" value={total.deaths.toLocaleString()} sub="Yang tercatat dalam events" />
-        <KpiCard icon={<AlertTriangle className="h-5 w-5" />} label="Total Events" value={total.events.toLocaleString()} sub="Semua sumber & bahasa" />
+      <section className="w-full bg-[#fbffff] pb-5">
+        <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[381px_minmax(0,1fr)] xl:items-stretch">
+          <section
+            className="flex overflow-hidden border border-[#b7d9d8] bg-gradient-to-b from-[#edfbfa] to-[#e7f7f6] xl:h-[550px] xl:w-[381px]"
+            style={{ borderRadius: "17px 17px 22px 17px" }}
+          >
+            <div className="flex w-full flex-col">
+              <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+                <AlertTriangle className="h-5 w-5 text-orange-500" />
+                <div>
+                  <h2 className="text-sm font-black uppercase tracking-wide">
+                    Early Warning System
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Berbasis penyakit dan lokasi
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 space-y-2 overflow-y-auto p-3">
+                {data?.alerts.length ? (
+                  data.alerts.slice(0, 12).map((a, i) => (
+                    <button
+                      key={`${a.location_name}-${a.disease}-${i}`}
+                      type="button"
+                      onClick={() => setSelected(a)}
+                      className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 text-left transition hover:border-teal-300 hover:bg-teal-50/60"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-slate-900">
+                            {a.disease}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {a.location_name}, {a.country}
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-2 py-1 text-[10px] font-black ${severityClass[a.severity]}`}
+                        >
+                          {a.severity}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-600">
+                        <b>{a.cases.toLocaleString("id-ID")}</b> kasus ·{" "}
+                        <b>{a.deaths}</b> kematian · ambang {a.threshold}
+                      </p>
+                    </button>
+                  ))
+                ) : (
+                  <p className="p-8 text-center text-sm text-slate-400">
+                    Tidak ada peringatan aktif.
+                  </p>
+                )}
+              </div>
+              <div className="border-t border-teal-200/70 bg-white/55 px-4 py-3 text-[10px] font-bold text-slate-500">
+                EWS menggunakan ambang penyakit, lokasi, confidence, dan radius
+                pengguna aktif.
+              </div>
+            </div>
+          </section>
+          <article
+            className="flex flex-col border border-[#cdcdcd] bg-white p-4 xl:h-[550px]"
+            style={{ borderRadius: "17px 17px 22px 17px" }}
+          >
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="flex-1">
+                <h3 className="text-xl font-black uppercase leading-tight text-slate-900 sm:text-2xl">
+                  Sebaran Spasial Outbreak Penyakit
+                </h3>
+                <p className="mt-1.5 text-sm font-normal leading-relaxed text-slate-600 sm:text-base">
+                  Pemetaan ini menyajikan distribusi geografis kasus, kematian,
+                  dan status peringatan penyakit di kawasan Asia Tenggara.
+                </p>
+                <div className="mt-2 inline-flex max-w-full items-center gap-1.5 truncate rounded-lg border border-teal-200/80 bg-teal-50 px-2.5 py-1 text-xs font-bold text-[#047D78]">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+                  <span className="truncate">
+                    Wilayah: ASEAN · {data?.kpis.locations ?? 0} lokasi
+                    terdeteksi
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 min-h-[300px] w-full flex-1 overflow-hidden rounded-xl">
+              <SpatialOutbreakMap
+                countries={countryData}
+                locations={data?.locations ?? []}
+              />
+            </div>
+          </article>
+        </div>
+      </section>
+      <section className="mt-4 rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 shadow-sm">
+        <div className="flex gap-3">
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" />
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-teal-800">
+              Ringkasan AI Lokal
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              {data?.ai_summary.text}
+            </p>
+            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">
+              Tanpa pemanggilan API berbayar · diperbarui bersama snapshot
+            </p>
+          </div>
+        </div>
+      </section>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
+            Kasus per Penyakit
+          </h2>
+          <div className="mt-4 h-72">
+            <ResponsiveContainer>
+              <BarChart
+                data={(data?.by_disease ?? []).slice(0, 8)}
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={110}
+                  tick={{ fontSize: 10 }}
+                />
+                <Tooltip />
+                <Bar dataKey="cases" fill="#0f8f96" radius={[0, 5, 5, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
+            Distribusi Negara
+          </h2>
+          <div className="mt-4 h-72">
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={countryData}
+                  dataKey="cases"
+                  nameKey="name"
+                  innerRadius={55}
+                  outerRadius={95}
+                  label={({ name }) => name}
+                >
+                  {countryData.map((_, i) => (
+                    <Cell key={i} fill={colors[i % colors.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
       </div>
-
-      {/* Row 1: Disease + Location */}
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ChartCard title="Kasus per Penyakit (Top 10)" icon={<Bug className="h-4 w-4" />}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats?.by_disease || []} layout="vertical" margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
-              <XAxis type="number" tick={{ fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10 }} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="cases" fill="#0d9488" radius={[0, 4, 4, 0]} name="Kasus" />
-              <Bar dataKey="deaths" fill="#dc2626" radius={[0, 4, 4, 0]} name="Meninggal" />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Kasus per Lokasi (Top 10)" icon={<MapPin className="h-4 w-4" />}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats?.by_location || []} layout="vertical" margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
-              <XAxis type="number" tick={{ fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10 }} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="cases" fill="#0891b2" radius={[0, 4, 4, 0]} name="Kasus" />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
-
-      {/* Row 2: Sentiment + Relevance + Source */}
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <ChartCard title="Distribusi Sentimen" icon={<MessageSquare className="h-4 w-4" />}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie data={stats?.by_sentiment || []} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                {(stats?.by_sentiment || []).map((entry, i) => (
-                  <Cell key={i} fill={SENTIMENT_COLORS[entry.name] || COLORS[i % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<ChartTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Distribusi Relevansi" icon={<TrendingUp className="h-4 w-4" />}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie data={stats?.by_relevance || []} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                {(stats?.by_relevance || []).map((entry, i) => (
-                  <Cell key={i} fill={RELEVANCE_COLORS[entry.name] || COLORS[i % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<ChartTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Kasus per Sumber" icon={<Radio className="h-4 w-4" />}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats?.by_source || []} layout="vertical" margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
-              <XAxis type="number" tick={{ fontSize: 10 }} />
-              <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 9 }} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="cases" fill="#7c3aed" radius={[0, 4, 4, 0]} name="Kasus" />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
-
-      {/* Summary Table */}
-      <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600">Ringkasan per Lokasi</h3>
+      <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
+            Ringkasan Outbreak per Lokasi
+          </h2>
+          <span className="flex items-center gap-1 text-xs text-slate-400">
+            <Clock3 className="h-3.5 w-3.5" />
+            {data ? new Date(data.updated_at).toLocaleString("id-ID") : "-"}
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-slate-50 text-left">
-                <th className="px-4 py-3 font-semibold text-slate-600">Lokasi</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Penyakit</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Kasus</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Kematian</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Confidence</th>
-                <th className="px-4 py-3 text-center font-semibold text-slate-600">Alert</th>
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Lokasi</th>
+                <th className="px-4 py-3">Penyakit</th>
+                <th className="px-4 py-3 text-right">Kasus</th>
+                <th className="px-4 py-3 text-right">Kematian</th>
+                <th className="px-4 py-3 text-right">Confidence</th>
+                <th className="px-4 py-3 text-center">Status</th>
               </tr>
             </thead>
             <tbody>
-              {summaryData.map((row: any, idx: number) => (
-                <tr key={idx} className="border-b border-slate-50 hover:bg-teal-50/40">
-                  <td className="px-4 py-3 font-medium text-slate-800">{row.location_name || '-'}</td>
-                  <td className="px-4 py-3 text-slate-600">{row.disease_classification || '-'}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{row.total_cases}</td>
-                  <td className="px-4 py-3 text-right text-slate-500">{row.total_deaths}</td>
-                  <td className="px-4 py-3 text-right text-slate-500">
-                    {row.max_confidence != null ? `${(row.max_confidence * 100).toFixed(0)}%` : '-'}
+              {data?.locations.slice(0, 20).map((r, i) => (
+                <tr
+                  key={i}
+                  onClick={() => setSelected(r)}
+                  className="cursor-pointer border-t border-slate-100 transition hover:bg-teal-50/60"
+                  title="Klik untuk melihat detail analisis"
+                >
+                  <td className="px-4 py-3 font-semibold">
+                    {r.location_name}
+                    <span className="block text-xs font-normal text-slate-400">
+                      {r.country}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">{r.disease}</td>
+                  <td className="px-4 py-3 text-right">
+                    {r.cases.toLocaleString("id-ID")}
+                  </td>
+                  <td className="px-4 py-3 text-right">{r.deaths}</td>
+                  <td className="px-4 py-3 text-right">
+                    {r.confidence == null
+                      ? "-"
+                      : `${Math.round(r.confidence * 100)}%`}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {row.has_alert
-                      ? <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">Ya</span>
-                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">Tidak</span>
-                    }
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] font-black ${severityClass[r.severity]}`}
+                    >
+                      {r.severity}
+                    </span>
                   </td>
                 </tr>
               ))}
-              {summaryData.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">Belum ada data</td></tr>
-              )}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
+      {selected && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
+          onMouseDown={() => setSelected(null)}
+        >
+          <section
+            className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-[#fbffff] shadow-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
+              <div className="flex min-w-0 gap-3">
+                <FileText className="mt-1 h-5 w-5 shrink-0 text-teal-600" />
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-teal-700">
+                    Detail Hasil Analisis
+                  </p>
+                  <h2 className="mt-1 text-lg font-black text-slate-900">
+                    {selected.disease} — {selected.location_name}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    {selected.detail?.source_name ||
+                      selected.detail?.source_type ||
+                      "Sumber terkoleksi"}{" "}
+                    · {selected.latest_date}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelected(null)}
+                className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
+                aria-label="Tutup detail"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+            <div className="space-y-5 p-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ["Penyakit", selected.disease],
+                  ["Lokasi", `${selected.location_name}, ${selected.country}`],
+                  ["Jumlah Kasus", selected.cases.toLocaleString("id-ID")],
+                  ["Kematian", selected.deaths.toLocaleString("id-ID")],
+                  [
+                    "Confidence",
+                    selected.confidence == null
+                      ? "-"
+                      : `${Math.round(selected.confidence * 100)}%`,
+                  ],
+                  ["Status EWS", selected.severity],
+                  [
+                    "Tipe Kejadian",
+                    selected.detail?.event_type?.replace(/_/g, " ") || "-",
+                  ],
+                  ["Relevansi", selected.detail?.relevance_score || "-"],
+                  ["Sentimen", selected.detail?.sentiment || "-"],
+                  [
+                    "Health Related",
+                    selected.detail?.is_health_related ? "Ya" : "Tidak",
+                  ],
+                  [
+                    "Perlu Review",
+                    selected.detail?.needs_review ? "Ya" : "Tidak",
+                  ],
+                  [
+                    "Kredibilitas",
+                    selected.detail?.source_credibility == null
+                      ? "-"
+                      : `${Math.round(Number(selected.detail.source_credibility) * 100)}%`,
+                  ],
+                ].map(([label, value]) => (
+                  <article
+                    key={label}
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {label}
+                    </p>
+                    <p className="mt-2 break-words text-sm font-bold capitalize text-slate-800">
+                      {value}
+                    </p>
+                  </article>
+                ))}
+              </div>
+              {selected.detail?.symptoms?.length ||
+              selected.detail?.disease_extracted?.length ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <article className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-black uppercase text-slate-500">
+                      Gejala Terdeteksi
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selected.detail?.symptoms?.map((item) => (
+                        <span
+                          key={item}
+                          className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
+                  <article className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-black uppercase text-slate-500">
+                      Penyakit dari Konten
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selected.detail?.disease_extracted?.map((item) => (
+                        <span
+                          key={item}
+                          className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-200"
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
+                </div>
+              ) : null}
+              <article className="rounded-xl border border-teal-200 bg-teal-50/50 p-5">
+                <p className="text-xs font-black uppercase tracking-wider text-teal-800">
+                  Sumber Data
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-slate-400">
+                      Nama Sumber
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-slate-800">
+                      {selected.detail?.source_name || "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-slate-400">
+                      Tipe Sumber
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-slate-800">
+                      {selected.detail?.source_type || "-"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 border-t border-teal-100 pt-3">
+                  <p className="text-[10px] font-bold uppercase text-slate-400">
+                    URL Lengkap
+                  </p>
+                  {selected.detail?.url ? (
+                    <a
+                      href={selected.detail.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 flex items-start gap-2 break-all text-xs font-semibold leading-5 text-teal-700 hover:text-teal-900 hover:underline"
+                    >
+                      <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      {selected.detail.url}
+                    </a>
+                  ) : (
+                    <p className="mt-1 text-xs text-slate-400">
+                      URL sumber tidak tersedia.
+                    </p>
+                  )}
+                </div>
+              </article>
+              <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-500">
+                    Main Content Asli
+                  </p>
+                  {selected.detail?.url && (
+                    <a
+                      href={selected.detail.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-teal-600 hover:underline"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" /> Buka sumber
+                    </a>
+                  )}
+                </div>
+                <p className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-slate-600">
+                  {cleanArticleContent(selected.detail?.content)}
+                </p>
+              </article>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
-  )
+  );
 }

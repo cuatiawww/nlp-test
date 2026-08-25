@@ -1,101 +1,204 @@
-'use client'
+"use client";
 
-import { useEffect, useRef, useState } from 'react'
-import 'ol/ol.css'
-import Map from 'ol/Map'
-import View from 'ol/View'
-import TileLayer from 'ol/layer/Tile'
-import VectorLayer from 'ol/layer/Vector'
-import VectorSource from 'ol/source/Vector'
-import OSM from 'ol/source/OSM'
-import GeoJSON from 'ol/format/GeoJSON'
-import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style'
-import type Feature from 'ol/Feature'
-import type Geometry from 'ol/geom/Geometry'
-import type { FeatureLike } from 'ol/Feature'
-import { fromLonLat } from 'ol/proj'
-import { unByKey } from 'ol/Observable'
-import { defaults as defaultControls } from 'ol/control'
-import { X, MapPin, RotateCcw } from 'lucide-react'
-import type { AnalyzeResponse } from '@/types'
-import { ASEAN_GEOJSON } from '@/data/asean-countries'
+import { useEffect, useRef, useState } from "react";
+import "ol/ol.css";
+import Map from "ol/Map";
+import View from "ol/View";
+import TileLayer from "ol/layer/Tile";
+import VectorLayer from "ol/layer/Vector";
+import VectorSource from "ol/source/Vector";
+import OSM from "ol/source/OSM";
+import XYZ from "ol/source/XYZ";
+import TileArcGISRest from "ol/source/TileArcGISRest";
+import { WindLayer } from "ol-wind";
+import GeoJSON from "ol/format/GeoJSON";
+import { Style, Fill, Stroke, Circle as CircleStyle } from "ol/style";
+import Feature from "ol/Feature";
+import type Geometry from "ol/geom/Geometry";
+import CircleGeom from "ol/geom/Circle";
+import type { FeatureLike } from "ol/Feature";
+import { fromLonLat } from "ol/proj";
+import { unByKey } from "ol/Observable";
+import { defaults as defaultControls } from "ol/control";
+import { X, MapPin, RotateCcw } from "lucide-react";
+import type { AnalyzeResponse, OutbreakLocation } from "@/types";
+import { ASEAN_GEOJSON } from "@/data/asean-countries";
 
 type Props = {
-  result?: AnalyzeResponse | null
-  countryData?: { name: string; cases: number }[]
-  locationsData?: { name: string; cases: number; country?: string }[]
-  hideLegend?: boolean
-}
+  result?: AnalyzeResponse | null;
+  countryData?: { name: string; cases: number }[];
+  locationsData?: { name: string; cases: number; country?: string }[];
+  hideLegend?: boolean;
+  outbreakLocations?: OutbreakLocation[];
+  compact?: boolean;
+  fullBleed?: boolean;
+  baseMap?: "osm" | "terrain" | "satellite" | "light" | "dark";
+  showAdmin?: boolean;
+  showMarkers?: boolean;
+  bnpbLayers?: {
+    flood?: boolean;
+    earthquake?: boolean;
+    landslide?: boolean;
+    forestFire?: boolean;
+    hillshade?: boolean;
+    population?: boolean;
+  };
+  showWind?: boolean;
+  ewsRadiusKm?: number | null;
+  embedded?: boolean;
+};
 
-const HIGHLIGHT = '#0d9488'
-const MARKER = '#2563eb'
+const HIGHLIGHT = "#0d9488";
+const MARKER = "#2563eb";
 
 function countryFill(cases: number | undefined): string {
-  if (cases == null) return '#94a3b8'
-  if (cases > 30) return '#dc2626'
-  if (cases > 0) return '#eab308'
-  return '#94a3b8'
+  const opacity = 0.22;
+  if (!cases) return `rgba(241,245,249,${opacity * 0.5})`;
+  if (cases <= 25) return `rgba(234,179,8,${opacity})`;
+  if (cases <= 75) return `rgba(249,115,22,${opacity})`;
+  if (cases <= 200) return `rgba(239,68,68,${opacity})`;
+  return `rgba(185,28,28,${opacity})`;
 }
 
-export default function AseanMap({ result, countryData, locationsData, hideLegend }: Props) {
-  const el = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<Map | null>(null)
-  const vectorRef = useRef<VectorLayer<VectorSource> | null>(null)
-  const markerRef = useRef<VectorLayer<VectorSource> | null>(null)
+export default function AseanMap({
+  result,
+  countryData,
+  locationsData,
+  hideLegend,
+  outbreakLocations,
+  compact,
+  fullBleed,
+  baseMap = "osm",
+  showAdmin = true,
+  showMarkers = true,
+  bnpbLayers,
+  showWind,
+  ewsRadiusKm,
+  embedded,
+}: Props) {
+  const el = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<Map | null>(null);
+  const vectorRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const markerRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const tileRef = useRef<TileLayer<OSM | XYZ> | null>(null);
+  const bnpbRef = useRef<Record<string, TileLayer<TileArcGISRest>>>({});
+  const radiusRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const windRef = useRef<any>(null);
 
   const [selected, setSelected] = useState<{
-    name: string
-    totalCases: number
-    locations: { name: string; cases: number }[]
-  } | null>(null)
+    name: string;
+    totalCases: number;
+    locations: { name: string; cases: number }[];
+  } | null>(null);
 
   useEffect(() => {
-    if (!el.current || mapRef.current) return
+    if (!el.current || mapRef.current) return;
 
     const vectorSrc = new VectorSource({
       features: new GeoJSON().readFeatures(ASEAN_GEOJSON, {
-        featureProjection: 'EPSG:3857',
+        featureProjection: "EPSG:3857",
       }),
-    })
+    });
 
     const vectorLayer = new VectorLayer({
       source: vectorSrc,
       style: (f: FeatureLike) => {
-        const name = (f.get('name') as string).toLowerCase()
-        const item = countryData?.find((d) => d.name.toLowerCase() === name)
-        const fill = countryFill(item?.cases)
+        const name = (f.get("name") as string).toLowerCase();
+        const item = countryData?.find((d) => d.name.toLowerCase() === name);
+        const fill = countryFill(item?.cases);
         return new Style({
           fill: new Fill({ color: fill }),
-          stroke: new Stroke({ color: '#475569', width: 1 }),
-        })
+          stroke: new Stroke({ color: "#475569", width: 1 }),
+        });
       },
-    })
-    vectorRef.current = vectorLayer
+    });
+    vectorRef.current = vectorLayer;
 
-    const markerSrc = new VectorSource()
+    const markerSrc = new VectorSource();
     const markerLayer = new VectorLayer({
       source: markerSrc,
       style: (f) => {
-        const exact = f.get('type') === 'exact'
+        const exact = f.get("type") === "exact";
+        const severity = f.get("severity");
+        const color =
+          severity === "AWAS"
+            ? "#ef4444"
+            : severity === "SIAGA"
+              ? "#f97316"
+              : severity === "WASPADA"
+                ? "#eab308"
+                : MARKER;
         return new Style({
           image: new CircleStyle({
-            radius: exact ? 8 : 6,
-            fill: new Fill({ color: exact ? MARKER : HIGHLIGHT }),
-            stroke: new Stroke({ color: '#fff', width: 2 }),
+            radius: exact ? 8 : severity ? 9 : 6,
+            fill: new Fill({ color: exact ? MARKER : color }),
+            stroke: new Stroke({ color: "#fff", width: 2 }),
           }),
-        })
+        });
       },
-    })
-    markerRef.current = markerLayer
+    });
+    markerRef.current = markerLayer;
+
+    const radiusLayer = new VectorLayer({
+      source: new VectorSource(),
+      zIndex: 19,
+    });
+    radiusRef.current = radiusLayer;
 
     const tileLayer = new TileLayer({
       source: new OSM(),
-      opacity: 0.35,
-    })
+      opacity: fullBleed ? 1 : 0.35,
+    });
+    tileRef.current = tileLayer;
+    const makeBnpb = (key: string, url: string, opacity = 0.58) => {
+      const layer = new TileLayer({
+        source: new TileArcGISRest({ url }),
+        visible: false,
+        opacity,
+        zIndex: 5,
+      });
+      bnpbRef.current[key] = layer;
+      return layer;
+    };
+    const externalLayers = [
+      makeBnpb(
+        "hillshade",
+        "https://gis.bnpb.go.id/server/rest/services/Basemap/Indo_Hillshade/MapServer",
+        0.45,
+      ),
+      makeBnpb(
+        "population",
+        "https://gis.bnpb.go.id/server/rest/services/Basemap/Kepadatan_penduduk_2020/MapServer",
+        0.5,
+      ),
+      makeBnpb(
+        "flood",
+        "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_bahaya_banjir/ImageServer",
+      ),
+      makeBnpb(
+        "earthquake",
+        "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_bahaya_gempabumi/ImageServer",
+        0.65,
+      ),
+      makeBnpb(
+        "landslide",
+        "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_bahaya_tanah_longsor/ImageServer",
+      ),
+      makeBnpb(
+        "forestFire",
+        "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_bahaya_kebakaran_hutan_dan_lahan/ImageServer",
+      ),
+    ];
 
     const map = new Map({
       target: el.current,
-      layers: [tileLayer, vectorLayer, markerLayer],
+      layers: [
+        tileLayer,
+        ...externalLayers,
+        vectorLayer,
+        radiusLayer,
+        markerLayer,
+      ],
       view: new View({
         center: fromLonLat([110, 2]),
         zoom: 4,
@@ -103,168 +206,361 @@ export default function AseanMap({ result, countryData, locationsData, hideLegen
         maxZoom: 10,
       }),
       controls: defaultControls({ attribution: false }),
-    })
+    });
 
-    const clickKey = map.on('singleclick', (evt) => {
-      const hits: FeatureLike[] = []
+    const clickKey = map.on("singleclick", (evt) => {
+      const hits: FeatureLike[] = [];
       map.forEachFeatureAtPixel(
         evt.pixel,
         (f) => {
-          hits.push(f)
-          return true
+          hits.push(f);
+          return true;
         },
         { hitTolerance: 8, layerFilter: (l) => l === vectorLayer },
-      )
+      );
 
       if (hits.length === 0) {
-        setSelected(null)
-        return
+        setSelected(null);
+        return;
       }
 
-      const name = hits[0].get('name') as string
-      const item = countryData?.find((d) => d.name === name)
-      const locs = locationsData?.filter((l) => l.country === name) ?? []
+      const name = hits[0].get("name") as string;
+      const item = countryData?.find((d) => d.name === name);
+      const locs = locationsData?.filter((l) => l.country === name) ?? [];
 
       setSelected({
         name,
         totalCases: item?.cases ?? 0,
         locations: locs.sort((a, b) => b.cases - a.cases),
-      })
+      });
 
-      const geom = (hits[0] as Feature<Geometry>).getGeometry()
+      const geom = (hits[0] as Feature<Geometry>).getGeometry();
       if (geom) {
         map.getView().fit(geom.getExtent(), {
           duration: 450,
           padding: [50, 200, 50, 50],
           maxZoom: 6,
-        })
+        });
       }
-    })
+    });
 
-    const hoverKey = map.on('pointermove', (evt) => {
-      if (evt.dragging) return
+    const hoverKey = map.on("pointermove", (evt) => {
+      if (evt.dragging) return;
       const hit = map.hasFeatureAtPixel(evt.pixel, {
         hitTolerance: 8,
         layerFilter: (l) => l === vectorLayer,
-      })
-      ;(map.getTargetElement() as HTMLElement).style.cursor = hit ? 'pointer' : ''
-    })
+      });
+      (map.getTargetElement() as HTMLElement).style.cursor = hit
+        ? "pointer"
+        : "";
+    });
 
-    mapRef.current = map
+    mapRef.current = map;
 
     return () => {
-      unByKey([clickKey, hoverKey])
-      map.setTarget(undefined)
-      mapRef.current = null
-    }
-  }, [])
+      unByKey([clickKey, hoverKey]);
+      map.setTarget(undefined);
+      if (windRef.current) {
+        try {
+          windRef.current.setVisible?.(false);
+          windRef.current.stop?.();
+          windRef.current.dispose?.();
+        } catch {}
+        windRef.current = null;
+      }
+      mapRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
-    const vectorLayer = vectorRef.current
-    const markerLayer = markerRef.current
-    if (!vectorLayer || !markerLayer) return
+    const map = mapRef.current;
+    if (!map) return;
+    if (windRef.current) {
+      windRef.current.setVisible?.(showWind);
+      if (showWind) windRef.current.start?.();
+      else windRef.current.stop?.();
+      return;
+    }
+    if (!showWind) return;
+    let cancelled = false;
+    const start = async () => {
+      try {
+        const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "/nlp",
+          path = (() => {
+            try {
+              return new URL(apiBase).pathname.replace(/\/$/, "");
+            } catch {
+              return apiBase.replace(/\/$/, "");
+            }
+          })(),
+          response = await fetch(`${path}/api/gfs`);
+        if (!response.ok || cancelled) return;
+        const windData = await response.json();
+        const layer = new WindLayer(
+          windData as any,
+          {
+            zIndex: 18,
+            windOptions: {
+              velocityScale: 0.015,
+              paths: 1600,
+              colorScale: [
+                "rgb(15,60,140)",
+                "rgb(70,150,145)",
+                "rgb(85,160,115)",
+                "rgb(215,195,60)",
+                "rgb(210,125,35)",
+                "rgb(185,35,10)",
+                "rgb(155,8,12)",
+              ],
+              lineWidth: 2.2,
+              generateParticleOption: true,
+            },
+            fieldOptions: { wrapX: true },
+          } as any,
+        );
+        map.addLayer(layer as any);
+        windRef.current = layer;
+        layer.setVisible?.(true);
+        (layer as any).start?.();
+      } catch {}
+    };
+    void start();
+    return () => {
+      cancelled = true;
+    };
+  }, [showWind]);
 
-    const vectorSource = vectorLayer.getSource()!
-    const markerSource = markerLayer.getSource()!
+  useEffect(() => {
+    const layer = tileRef.current;
+    if (!layer) return;
+    const sources = {
+      osm: () => new OSM(),
+      terrain: () =>
+        new XYZ({
+          url: "https://{a-c}.tile.opentopomap.org/{z}/{x}/{y}.png",
+          crossOrigin: "anonymous",
+        }),
+      satellite: () =>
+        new XYZ({
+          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          crossOrigin: "anonymous",
+        }),
+      light: () =>
+        new XYZ({
+          url: "https://{a-d}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+          crossOrigin: "anonymous",
+        }),
+      dark: () =>
+        new XYZ({
+          url: "https://{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+          crossOrigin: "anonymous",
+        }),
+    };
+    layer.setSource(sources[baseMap]());
+    layer.setOpacity(fullBleed ? 1 : 0.35);
+  }, [baseMap, fullBleed]);
 
-    markerSource.clear()
+  useEffect(() => {
+    vectorRef.current?.setVisible(showAdmin);
+    markerRef.current?.setVisible(showMarkers);
+  }, [showAdmin, showMarkers]);
 
-    const hasLocation = result?.latitude != null && result?.longitude != null
-    const hasCountry = !!result?.country && result?.language !== 'en'
+  useEffect(() => {
+    Object.entries(bnpbRef.current).forEach(([key, layer]) =>
+      layer.setVisible(Boolean(bnpbLayers?.[key as keyof typeof bnpbLayers])),
+    );
+  }, [bnpbLayers]);
 
-    const targetCountry = result?.country?.toLowerCase()
+  useEffect(() => {
+    const source = radiusRef.current?.getSource();
+    if (!source) return;
+    source.clear();
+    if (!ewsRadiusKm || ewsRadiusKm <= 0) return;
+    outbreakLocations
+      ?.filter((x) => x.has_alert && x.latitude != null && x.longitude != null)
+      .forEach((item) => {
+        const feature = new Feature({
+          geometry: new CircleGeom(
+            fromLonLat([item.longitude!, item.latitude!]),
+            ewsRadiusKm * 1000,
+          ),
+        });
+        feature.set("severity", item.severity);
+        source.addFeature(feature);
+      });
+    radiusRef.current?.setStyle((f) => {
+      const danger = f.get("severity") === "AWAS",
+        pulse = (Math.sin(Date.now() / 280) + 1) / 2;
+      return new Style({
+        fill: new Fill({
+          color: danger
+            ? `rgba(239,68,68,${0.08 + pulse * 0.08})`
+            : `rgba(249,115,22,${0.07 + pulse * 0.06})`,
+        }),
+        stroke: new Stroke({
+          color: danger ? "rgba(220,38,38,.85)" : "rgba(249,115,22,.8)",
+          width: 2 + pulse * 2,
+        }),
+      });
+    });
+    let frame = 0;
+    const animate = () => {
+      radiusRef.current?.changed();
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [outbreakLocations, ewsRadiusKm]);
+
+  useEffect(() => {
+    const vectorLayer = vectorRef.current;
+    const markerLayer = markerRef.current;
+    if (!vectorLayer || !markerLayer) return;
+
+    const vectorSource = vectorLayer.getSource()!;
+    const markerSource = markerLayer.getSource()!;
+
+    markerSource.clear();
+
+    outbreakLocations?.forEach((item) => {
+      if (item.latitude == null || item.longitude == null) return;
+      const feature = new GeoJSON().readFeature(
+        {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [item.longitude, item.latitude],
+          },
+          properties: {},
+        },
+        { featureProjection: "EPSG:3857" },
+      ) as Feature;
+      feature.set("severity", item.severity);
+      markerSource.addFeature(feature);
+    });
+
+    const hasLocation = result?.latitude != null && result?.longitude != null;
+    const hasCountry = !!result?.country && result?.language !== "en";
+
+    const targetCountry = result?.country?.toLowerCase();
 
     vectorLayer.setStyle((f: FeatureLike) => {
-      const name = (f.get('name') as string).toLowerCase()
-      const item = countryData?.find((d) => d.name.toLowerCase() === name)
+      const name = (f.get("name") as string).toLowerCase();
+      const item = countryData?.find((d) => d.name.toLowerCase() === name);
       const isHighlighted =
-        hasCountry && !!targetCountry && name === targetCountry
-      const fill = isHighlighted
-        ? '#dc2626'
-        : countryFill(item?.cases)
-      const stroke = isHighlighted ? '#dc2626' : '#475569'
-      const sw = isHighlighted ? 2 : 1
+        hasCountry && !!targetCountry && name === targetCountry;
+      const fill = isHighlighted ? "#dc2626" : countryFill(item?.cases);
+      const stroke = isHighlighted ? "#dc2626" : "#475569";
+      const sw = isHighlighted ? 2 : 1;
       return new Style({
         fill: new Fill({ color: fill }),
         stroke: new Stroke({ color: stroke, width: sw }),
-      })
-    })
-    vectorLayer.changed()
+      });
+    });
+    vectorLayer.changed();
 
     if (hasLocation) {
       const f = new GeoJSON().readFeature(
         {
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [result.longitude!, result.latitude!] },
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [result.longitude!, result.latitude!],
+          },
         },
-        { featureProjection: 'EPSG:3857' },
-      ) as Feature
-      f.set('type', 'exact')
-      markerSource.addFeature(f)
+        { featureProjection: "EPSG:3857" },
+      ) as Feature;
+      f.set("type", "exact");
+      markerSource.addFeature(f);
     } else if (hasCountry && targetCountry) {
       const feature = vectorSource
         .getFeatures()
-        .find((f) => (f.get('name') as string).toLowerCase() === targetCountry)
+        .find((f) => (f.get("name") as string).toLowerCase() === targetCountry);
       if (feature) {
-        const extent = feature.getGeometry()!.getExtent()
+        const extent = feature.getGeometry()!.getExtent();
         mapRef.current?.getView().fit(extent, {
           padding: [50, 50, 50, 50],
           duration: 500,
           maxZoom: 6,
-        })
+        });
       }
     } else if (!selected) {
       mapRef.current
         ?.getView()
-        .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 500 })
+        .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 500 });
     }
-  }, [countryData, result])
+  }, [countryData, result, outbreakLocations]);
 
   const resetView = () => {
-    setSelected(null)
+    setSelected(null);
     mapRef.current
       ?.getView()
-      .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 450 })
-  }
+      .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 450 });
+  };
 
   const zoom = (d: number) => {
-    const v = mapRef.current?.getView()
-    if (v) v.animate({ zoom: (v.getZoom() ?? 4) + d, duration: 250 })
-  }
+    const v = mapRef.current?.getView();
+    if (v) v.animate({ zoom: (v.getZoom() ?? 4) + d, duration: 250 });
+  };
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-             Pemetaan Media Monitoring Kawasan Asia Tenggara
-          </span>
-          {result && (
-            <span className="ml-2 text-xs text-slate-400">
-              {result.latitude != null
-                ? `📍 ${result.location_name || 'Lokasi'}`
-                : result.country
-                  ? `🌏 ${result.country}`
-                  : ''}
+    <div
+      className={
+        fullBleed
+          ? "relative h-full w-full overflow-hidden bg-white"
+          : embedded
+            ? "relative h-full w-full overflow-hidden rounded-xl bg-white"
+            : "relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+      }
+    >
+      {!fullBleed && !embedded && (
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Pemetaan Media Monitoring Kawasan Asia Tenggara
             </span>
-          )}
+            {result && (
+              <span className="ml-2 text-xs text-slate-400">
+                {result.latitude != null
+                  ? `📍 ${result.location_name || "Lokasi"}`
+                  : result.country
+                    ? `🌏 ${result.country}`
+                    : ""}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div ref={el} className="h-[500px] w-full" />
+      <div
+        ref={el}
+        className={
+          fullBleed
+            ? "h-full min-h-screen w-full"
+            : embedded
+              ? "h-full min-h-[300px] w-full"
+              : compact
+                ? "h-[390px] w-full"
+                : "h-[500px] w-full"
+        }
+      />
 
       {countryData && !hideLegend && (
         <div className="pointer-events-none absolute bottom-3 left-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg">
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
             Legenda
           </p>
-          <p className="mt-0.5 text-[9px] text-slate-400">Jumlah kasus per negara</p>
+          <p className="mt-0.5 text-[9px] text-slate-400">
+            Jumlah kasus per negara
+          </p>
           <ul className="mt-2 space-y-1.5">
             <li className="flex items-center gap-2 text-[10px] text-slate-600">
-              <span className="h-3 w-3 shrink-0 rounded-[3px] bg-red-500" /> &gt;30
+              <span className="h-3 w-3 shrink-0 rounded-[3px] bg-red-500" />{" "}
+              &gt;30
             </li>
             <li className="flex items-center gap-2 text-[10px] text-slate-600">
-              <span className="h-3 w-3 shrink-0 rounded-[3px] bg-yellow-500" /> 1-30
+              <span className="h-3 w-3 shrink-0 rounded-[3px] bg-yellow-500" />{" "}
+              1-30
             </li>
             <li className="flex items-center gap-2 text-[10px] text-slate-600">
               <span className="h-3 w-3 shrink-0 rounded-[3px] bg-slate-400" /> 0
@@ -276,7 +572,7 @@ export default function AseanMap({ result, countryData, locationsData, hideLegen
       {selected && (
         <div
           className="absolute right-3 top-14 w-[min(296px,calc(100%-24px))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.18)]"
-          style={{ animation: 'fadeSlideIn 180ms ease' }}
+          style={{ animation: "fadeSlideIn 180ms ease" }}
         >
           <div className="flex items-center justify-between gap-2 bg-teal-700 px-4 py-3">
             <div className="flex items-center gap-2">
@@ -375,5 +671,5 @@ export default function AseanMap({ result, countryData, locationsData, hideLegen
         }
       `}</style>
     </div>
-  )
+  );
 }

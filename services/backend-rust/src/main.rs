@@ -4,7 +4,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -149,6 +149,12 @@ struct RunsQuery {
 struct LoginRequest {
     username: String,
     password: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PublicDashboardQuery {
+    country: Option<String>,
+    year: Option<i32>,
 }
 
 
@@ -412,6 +418,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/events/stats", get(dashboard_stats))
         .route("/api/v1/summary", get(summary))
+        .route("/api/v1/public-dashboard", get(public_dashboard))
         .route("/api/v1/sources", get(list_sources).post(create_source))
         .route("/api/v1/sources/collect-all", post(trigger_collect_all))
         .route(
@@ -1328,6 +1335,247 @@ async fn dashboard_stats(
             "by_source": by_source,
         }
     })))
+}
+
+/// Public, read-only snapshot used by the landing page and command-center TV.
+/// Only validated health events with a known disease are exposed. Aggregation is
+/// intentionally done once here so every dashboard widget shows the same totals.
+async fn public_dashboard(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PublicDashboardQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let selected_year = query.year.unwrap_or_else(|| chrono::Utc::now().year());
+    let selected_country = query.country.filter(|value| !value.trim().is_empty() && value != "all");
+
+    let available_years = client.query(
+        "SELECT DISTINCT EXTRACT(YEAR FROM published_at)::int AS year
+         FROM disease_events
+         WHERE published_at IS NOT NULL
+           AND is_health_related = TRUE
+           AND disease_classification IS NOT NULL
+           AND UPPER(disease_classification) <> 'UNKNOWN'
+           AND UPPER(disease_classification) NOT LIKE 'NEGATIVE%'
+           AND COALESCE(confidence, 0) >= 0.15
+         ORDER BY year DESC",
+        &[],
+    ).await.map_err(internal_error)?
+      .into_iter().map(|row| row.get::<_, i32>(0)).collect::<Vec<_>>();
+
+    let rows = client.query(
+        "SELECT COALESCE(e.location_name, 'Unknown') AS location_name,
+                e.disease_classification,
+                COALESCE(l.country, CASE
+                    WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+                    WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                      THEN INITCAP(LOWER(e.location_name))
+                    ELSE 'ASEAN' END) AS country,
+                COALESCE(ST_Y(ST_Centroid(ST_Collect(e.geom))), l.latitude) AS latitude,
+                COALESCE(ST_X(ST_Centroid(ST_Collect(e.geom))), l.longitude) AS longitude,
+                SUM(GREATEST(COALESCE(e.case_count, 0), 0)) AS cases,
+                SUM(GREATEST(COALESCE(e.death_count, 0), 0)) AS deaths,
+                COUNT(*) AS event_count,
+                MAX(e.confidence::float8) AS confidence,
+                BOOL_OR(COALESCE(e.outbreak_alert, FALSE)) AS model_alert,
+                COALESCE(MAX(r.min_case_count), 1) AS threshold,
+                MAX(e.published_at)::text AS latest_date,
+                (JSONB_AGG(JSONB_BUILD_OBJECT(
+                  'event_id', e.id::text, 'raw_report_id', e.raw_report_id::text,
+                  'url', e.report_url, 'content', e.original_text, 'language', e.language,
+                  'source_type', e.source_type, 'source_name', e.source_name,
+                  'published_at', e.published_at::text, 'symptoms', e.symptoms,
+                  'disease_extracted', e.disease_extracted, 'sentiment', e.sentiment,
+                  'event_type', e.event_type, 'event_confidence', e.event_confidence,
+                  'relevance_score', e.relevance_score, 'relevance_confidence', e.relevance_confidence,
+                  'source_credibility', e.source_credibility,
+                  'source_credibility_label', e.source_credibility_label,
+                  'needs_review', e.needs_review, 'is_health_related', e.is_health_related,
+                  'outbreak_alert', e.outbreak_alert
+                ) ORDER BY e.published_at DESC, e.confidence DESC)->0) AS detail
+         FROM (
+           SELECT e0.*, rr.url AS report_url,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(NULLIF(rr.url, ''), e0.raw_report_id::text, e0.id::text)
+                    ORDER BY e0.confidence DESC NULLS LAST, e0.created_at DESC
+                  ) AS dedup_rank
+           FROM disease_events e0
+           LEFT JOIN raw_reports rr ON rr.id = e0.raw_report_id
+         ) e
+         LEFT JOIN LATERAL (
+           SELECT l0.* FROM locations l0
+           WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
+           ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+           LIMIT 1
+         ) l ON TRUE
+         LEFT JOIN disease_outbreak_rules r
+           ON LOWER(r.disease_name) = LOWER(e.disease_classification) AND r.is_active = TRUE
+         WHERE e.is_health_related = TRUE
+           AND e.disease_classification IS NOT NULL
+           AND UPPER(e.disease_classification) <> 'UNKNOWN'
+           AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
+           AND COALESCE(e.confidence, 0) >= 0.15
+           AND e.dedup_rank = 1
+           AND e.published_at IS NOT NULL
+           AND EXTRACT(YEAR FROM e.published_at)::int = $1
+           AND ($2::text IS NULL OR LOWER(COALESCE(l.country, CASE
+             WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+             WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+               THEN INITCAP(LOWER(e.location_name)) ELSE 'ASEAN' END)) = LOWER($2))
+         GROUP BY COALESCE(e.location_name, 'Unknown'), e.disease_classification,
+                  COALESCE(l.country, CASE
+                    WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+                    WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                      THEN INITCAP(LOWER(e.location_name))
+                    ELSE 'ASEAN' END), l.latitude, l.longitude
+         ORDER BY cases DESC, latest_date DESC
+         LIMIT 100",
+        &[&selected_year, &selected_country],
+    ).await.map_err(internal_error)?;
+
+    let trend_row = client.query_one(
+        "WITH valid AS (
+           SELECT e.*, COALESCE(l.country, CASE
+             WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+             WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+               THEN INITCAP(LOWER(e.location_name)) ELSE 'ASEAN' END) AS resolved_country
+           FROM disease_events e
+           LEFT JOIN LATERAL (
+             SELECT l0.* FROM locations l0
+             WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
+             ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+             LIMIT 1
+           ) l ON TRUE
+           WHERE e.is_health_related = TRUE
+             AND e.disease_classification IS NOT NULL
+             AND UPPER(e.disease_classification) <> 'UNKNOWN'
+             AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
+             AND COALESCE(e.confidence, 0) >= 0.15
+             AND e.published_at IS NOT NULL
+             AND EXTRACT(YEAR FROM e.published_at)::int = $1
+         ), bounds AS (
+           SELECT CASE WHEN $1 = EXTRACT(YEAR FROM CURRENT_DATE)::int
+                    THEN date_trunc('month', CURRENT_DATE)::date
+                    ELSE make_date($1, 12, 1) END AS current_start,
+                  CASE WHEN $1 = EXTRACT(YEAR FROM CURRENT_DATE)::int
+                    THEN (date_trunc('month', CURRENT_DATE) - interval '1 month')::date
+                    ELSE make_date($1, 11, 1) END AS previous_start
+         )
+         SELECT
+           COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
+           COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
+           COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
+           COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
+           COUNT(*) FILTER (WHERE published_at>=b.current_start)::bigint,
+           COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
+           COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.current_start)::bigint,
+           COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
+           COUNT(*) FILTER (WHERE published_at>=b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL)::bigint,
+           COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL)::bigint,
+           TO_CHAR(b.current_start,'YYYY-MM'), TO_CHAR(b.previous_start,'YYYY-MM')
+         FROM bounds b
+         LEFT JOIN valid ON ($2::text IS NULL OR LOWER(valid.resolved_country) = LOWER($2))
+         GROUP BY b.current_start,b.previous_start",
+        &[&selected_year, &selected_country],
+    ).await.map_err(internal_error)?;
+    let trends = json!({
+        "current_month": trend_row.get::<_, String>(10), "previous_month": trend_row.get::<_, String>(11),
+        "cases": {"current": trend_row.get::<_, i64>(0), "previous": trend_row.get::<_, i64>(1)},
+        "deaths": {"current": trend_row.get::<_, i64>(2), "previous": trend_row.get::<_, i64>(3)},
+        "events": {"current": trend_row.get::<_, i64>(4), "previous": trend_row.get::<_, i64>(5)},
+        "locations": {"current": trend_row.get::<_, i64>(6), "previous": trend_row.get::<_, i64>(7)},
+        "alerts": {"current": trend_row.get::<_, i64>(8), "previous": trend_row.get::<_, i64>(9)}
+    });
+
+    let mut locations = Vec::new();
+    let mut alerts = Vec::new();
+    let mut disease_totals = std::collections::HashMap::<String, (i64, i64, i64)>::new();
+    let mut country_totals = std::collections::HashMap::<String, i64>::new();
+    let mut total_cases = 0i64;
+    let mut total_deaths = 0i64;
+    let mut total_events = 0i64;
+
+    for row in rows {
+        let location: String = row.get(0);
+        let disease: String = row.get(1);
+        let country: String = row.get(2);
+        let latitude: Option<f64> = row.get(3);
+        let longitude: Option<f64> = row.get(4);
+        let cases: i64 = row.get(5);
+        let deaths: i64 = row.get(6);
+        let event_count: i64 = row.get(7);
+        let confidence: Option<f64> = row.get(8);
+        let model_alert: bool = row.get(9);
+        let threshold: i32 = row.get(10);
+        let latest_date: String = row.get(11);
+        let detail: Value = row.get(12);
+        let threshold_i64 = i64::from(threshold.max(1));
+        let ratio = cases as f64 / threshold_i64 as f64;
+        let candidate_severity = if cases >= threshold_i64 * 2 || deaths > 0 { "AWAS" }
+            else if cases >= threshold_i64 || model_alert { "SIAGA" }
+            else if ratio >= 0.75 { "WASPADA" }
+            else { "NORMAL" };
+        let ews_verified = confidence.unwrap_or(0.0) >= 0.35
+            && !location.trim().is_empty()
+            && latitude.is_some()
+            && longitude.is_some();
+        let severity = if ews_verified { candidate_severity } else { "NORMAL" };
+        let is_alert = severity != "NORMAL";
+
+        total_cases += cases;
+        total_deaths += deaths;
+        total_events += event_count;
+        let entry = disease_totals.entry(disease.clone()).or_insert((0, 0, 0));
+        entry.0 += cases; entry.1 += deaths; entry.2 += event_count;
+        *country_totals.entry(country.clone()).or_insert(0) += cases;
+
+        let item = json!({
+            "location_name": location, "disease": disease, "country": country,
+            "latitude": latitude, "longitude": longitude, "cases": cases,
+            "deaths": deaths, "event_count": event_count, "confidence": confidence,
+            "threshold": threshold_i64, "severity": severity, "has_alert": is_alert,
+            "latest_date": latest_date, "detail": detail
+        });
+        if is_alert { alerts.push(item.clone()); }
+        locations.push(item);
+    }
+
+    alerts.sort_by(|a, b| {
+        let rank = |v: &Value| match v["severity"].as_str().unwrap_or("NORMAL") {
+            "AWAS" => 3, "SIAGA" => 2, "WASPADA" => 1, _ => 0
+        };
+        rank(b).cmp(&rank(a)).then_with(|| b["cases"].as_i64().cmp(&a["cases"].as_i64()))
+    });
+    let mut by_disease: Vec<Value> = disease_totals.into_iter().map(|(name, v)|
+        json!({"name": name, "cases": v.0, "deaths": v.1, "events": v.2})
+    ).collect();
+    by_disease.sort_by(|a, b| b["cases"].as_i64().cmp(&a["cases"].as_i64()));
+    let mut by_country: Vec<Value> = country_totals.into_iter().map(|(name, cases)|
+        json!({"name": name, "cases": cases})
+    ).collect();
+    by_country.sort_by(|a, b| b["cases"].as_i64().cmp(&a["cases"].as_i64()));
+
+    let active_alerts = alerts.len();
+    let top_alert = alerts.first();
+    let summary_text = match top_alert {
+        Some(a) => format!(
+            "Terdapat {} peringatan aktif. Prioritas saat ini adalah {} di {} dengan {} kasus dan status {}. Verifikasi sumber dan koordinasikan respons epidemiologi setempat.",
+            active_alerts, a["disease"].as_str().unwrap_or("penyakit"),
+            a["location_name"].as_str().unwrap_or("lokasi terdeteksi"),
+            a["cases"].as_i64().unwrap_or(0), a["severity"].as_str().unwrap_or("SIAGA")
+        ),
+        None => "Belum ada peringatan outbreak aktif dari data tervalidasi. Pemantauan sumber ASEAN tetap berjalan.".to_string(),
+    };
+
+    Ok(Json(json!({"success": true, "data": {
+        "updated_at": chrono::Utc::now().to_rfc3339(),
+        "available_years": available_years,
+        "filters": {"country": selected_country, "year": selected_year},
+        "kpis": {"cases": total_cases, "deaths": total_deaths, "events": total_events,
+                 "locations": locations.len(), "active_alerts": active_alerts},
+        "alerts": alerts, "locations": locations, "by_disease": by_disease, "trends": trends,
+        "by_country": by_country,
+        "ai_summary": {"text": summary_text, "provider": "local-rule-engine", "cached": true}
+    }})))
 }
 
 async fn summary(

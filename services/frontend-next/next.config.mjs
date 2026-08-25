@@ -6,7 +6,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://backend-rust:8081/api/:path*',
+        destination: `${process.env.BACKEND_INTERNAL_URL || 'http://backend-rust:8081'}/api/:path*`,
       },
     ];
   },

@@ -16,7 +16,8 @@ const config: Config = {
         },
       },
       fontFamily: {
-        manrope: ["var(--font-manrope)", "sans-serif"],
+        manrope: ["var(--font-roboto)", "sans-serif"],
+        roboto: ["var(--font-roboto)", "sans-serif"],
       },
     },
   },
