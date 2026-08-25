@@ -140,6 +140,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         except Exception as e:
             logger.info("DeepSeek fallback unavailable; continuing without it: %s", e)
 
+    # An explicit disease entity found in locally translated text is stronger
+    # than a contradictory generic zero-shot label (observed as Thai COVID-19
+    # being classified as hantavirus). This path does not require an API call.
+    if translated_text and extracted:
+        disease = extracted[0]
+        confidence = max(confidence, 0.85)
+
     case_count = extractors.extract_case_count(text)
     death_count = extractors.extract_death_count(text)
     if translated_text and case_count == 1:
@@ -150,9 +157,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         case_count = max(0, structured["case_count"])
     if death_count == 0 and isinstance(structured.get("death_count"), int):
         death_count = max(0, structured["death_count"])
+    if case_count == 1 and disease == "UNKNOWN" and not extracted:
+        # DEFAULT_CASE_COUNT=1 is useful for disease reports with no explicit
+        # number, but must not fabricate a case in a general health article.
+        case_count = 0
     if structured.get("is_health_related") is True:
         is_health_related = True
-    if is_health_related and not any(
+    if is_health_related and disease == "UNKNOWN" and not extracted:
+        event_type = "health update"
+        event_confidence = max(event_confidence, 0.75)
+    elif is_health_related and not any(
         token in event_type.lower()
         for token in ("disease", "outbreak", "wabah", "health", "medical")
     ):
