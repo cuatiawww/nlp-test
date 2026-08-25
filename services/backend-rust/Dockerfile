@@ -7,7 +7,10 @@ RUN cargo build --release
 
 FROM debian:bookworm-slim
 WORKDIR /app
-RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/backend-rust /app/backend-rust
-EXPOSE 8080
+EXPOSE 8081
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
+    CMD curl --fail --silent --show-error http://127.0.0.1:8081/health >/dev/null || exit 1
 CMD ["/app/backend-rust"]

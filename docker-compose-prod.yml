@@ -59,6 +59,12 @@ services:
       - "127.0.0.1:${BACKEND_PORT:-8081}:8081"
     volumes:
       - ./database/init:/init:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     depends_on:
       nlp-python:
         condition: service_started
@@ -109,7 +115,8 @@ services:
     ports:
       - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-3010}:3000"
     depends_on:
-      - backend-rust
+      backend-rust:
+        condition: service_healthy
 
   init:
     image: alpine:3.20
