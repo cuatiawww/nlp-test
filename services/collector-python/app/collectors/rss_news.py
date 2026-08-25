@@ -21,7 +21,13 @@ def _is_current_year(published: str) -> bool:
         return True
     if not published or len(published) < 4 or not published[:4].isdigit():
         return False
-    target_year = int(os.getenv("CURRENT_YEAR", str(datetime.date.today().year)))
+    raw_year = os.getenv("CURRENT_YEAR", "").strip()
+    try:
+        target_year = int(raw_year)
+        if not 1900 <= target_year <= 2200:
+            raise ValueError("year outside supported range")
+    except ValueError:
+        target_year = datetime.date.today().year
     return int(published[:4]) == target_year
 
 

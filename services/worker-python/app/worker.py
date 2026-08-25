@@ -17,7 +17,21 @@ RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "disease.raw")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
 CURRENT_YEAR_ONLY = os.getenv("CURRENT_YEAR_ONLY", "true").lower() in {"1", "true", "yes", "on"}
-CURRENT_YEAR = int(os.getenv("CURRENT_YEAR", str(datetime.date.today().year)))
+
+
+def env_year(name: str = "CURRENT_YEAR") -> int:
+    """Return a sane year when an optional env value is blank or malformed."""
+    raw_value = os.getenv(name, "").strip()
+    try:
+        year = int(raw_value)
+        if 1900 <= year <= 2200:
+            return year
+    except ValueError:
+        pass
+    return datetime.date.today().year
+
+
+CURRENT_YEAR = env_year()
 HISTORICAL_FAST_NON_HEALTH = os.getenv("HISTORICAL_FAST_NON_HEALTH", "false").lower() in {"1", "true", "yes", "on"}
 HEALTH_HINTS = (
     "health", "disease", "illness", "hospital", "patient", "virus", "fever", "dengue",
