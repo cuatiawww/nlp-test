@@ -9,12 +9,22 @@ CREATE TABLE IF NOT EXISTS locations (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
-INSERT INTO locations (name, latitude, longitude) VALUES
-    ('Kabupaten Bogor', -6.5950, 106.8166),
-    ('Bandung', -6.9175, 107.6191),
-    ('Kota Depok', -6.4025, 106.7942),
-    ('Bekasi', -6.2383, 106.9756),
-    ('Jakarta', -6.2088, 106.8456)
-ON CONFLICT (name) DO NOTHING;
+-- Database lama dapat sudah memiliki tabel `locations` tanpa UNIQUE(name).
+-- Jangan memakai ON CONFLICT(name), karena conflict target hanya valid jika
+-- constraint/index unik tersebut memang sudah ada. Seed secara idempotent
+-- dengan pemeriksaan nama case-insensitive agar migration aman untuk skema lama.
+INSERT INTO locations (name, latitude, longitude)
+SELECT seed.name, seed.latitude, seed.longitude
+FROM (VALUES
+    ('Kabupaten Bogor', -6.5950::DOUBLE PRECISION, 106.8166::DOUBLE PRECISION),
+    ('Bandung', -6.9175::DOUBLE PRECISION, 107.6191::DOUBLE PRECISION),
+    ('Kota Depok', -6.4025::DOUBLE PRECISION, 106.7942::DOUBLE PRECISION),
+    ('Bekasi', -6.2383::DOUBLE PRECISION, 106.9756::DOUBLE PRECISION),
+    ('Jakarta', -6.2088::DOUBLE PRECISION, 106.8456::DOUBLE PRECISION)
+) AS seed(name, latitude, longitude)
+WHERE NOT EXISTS (
+    SELECT 1 FROM locations existing
+    WHERE LOWER(existing.name) = LOWER(seed.name)
+);
 
 CREATE INDEX IF NOT EXISTS idx_locations_name ON locations(name);

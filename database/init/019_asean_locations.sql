@@ -8,6 +8,19 @@ BEGIN
   DROP INDEX IF EXISTS idx_locations_name;
 END $$;
 
+-- Skema lama mungkin sudah berisi baris lokasi yang sama lebih dari sekali
+-- karena sebelumnya tidak mempunyai constraint unik. Pertahankan satu baris
+-- per pasangan nama-negara agar pembuatan index di bawah tidak gagal.
+UPDATE locations
+SET country = 'Indonesia'
+WHERE country IS NULL OR BTRIM(country) = '';
+
+DELETE FROM locations duplicate
+USING locations canonical
+WHERE duplicate.ctid > canonical.ctid
+  AND duplicate.name = canonical.name
+  AND duplicate.country = canonical.country;
+
 -- Add new composite unique index for (name, country) based upsert
 CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_name_country ON locations(name, country);
 
