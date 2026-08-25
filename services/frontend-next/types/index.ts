@@ -54,6 +54,13 @@ export type AnalyzeResponse = {
   location_name: string | null
   latitude: number | null
   longitude: number | null
+  country?: string | null
+  translated?: boolean
+  translation_provider?: string
+  translated_text?: string
+  original_location_name?: string | null
+  fetch_mode?: 'http' | 'stealth'
+  http_status?: number
   symptoms: string[]
   disease_extracted: string[]
   disease_classification: string

@@ -1,50 +1,232 @@
-import requests
-from bs4 import BeautifulSoup
+import asyncio
+import hashlib
+import logging
+from contextlib import AsyncExitStack
+from dataclasses import dataclass
+from typing import Any, Optional
+
 from .base import BaseCollector, CollectResult
-from .. import rabbitmq
-from ..minio_client import upload_file
+
+logger = logging.getLogger(__name__)
+BLOCKED_STATUSES = {403, 429, 503}
+CHALLENGE_MARKERS = (
+    "just a moment", "checking your browser", "cf-browser-verification",
+    "cf-chl-", "cloudflare ray id", "challenge-platform",
+)
+
+
+@dataclass
+class FetchOutcome:
+    page: Any
+    html: str
+    status: int
+    mode: str
+
+
+def _response_html(page: Any) -> str:
+    html = getattr(page, "html_content", "")
+    if html:
+        return str(html)
+    body = getattr(page, "body", b"")
+    if isinstance(body, bytes):
+        return body.decode("utf-8", errors="replace")
+    return str(body or "")
+
+
+def _is_challenge(status: int, html: str) -> bool:
+    if status in BLOCKED_STATUSES:
+        return True
+    sample = html[:100_000].lower()
+    return any(marker in sample for marker in CHALLENGE_MARKERS)
+
+
+def _selected_text(page: Any, selector: str) -> str:
+    if not selector:
+        return ""
+    matches = page.css(selector)
+    element = getattr(matches, "first", None)
+    if element is None and matches:
+        element = matches[0]
+    if element is None:
+        return ""
+    return str(element.get_all_text(separator=" ", strip=True)).strip()
+
+
+def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str]:
+    """Return title and boilerplate-free main content; never fall back to full body."""
+    from bs4 import BeautifulSoup
+    from trafilatura import extract, extract_metadata
+
+    content = extract(
+        html,
+        output_format="txt",
+        include_comments=False,
+        include_tables=False,
+        favor_precision=True,
+        deduplicate=True,
+    )
+    metadata = extract_metadata(html)
+    title = (metadata.title or "").strip() if metadata else ""
+
+    soup = BeautifulSoup(html, "lxml")
+    for node in soup.select(
+        "script, style, noscript, svg, template, nav, footer, header, aside, "
+        ".advertisement, .ads, .social-share, .related, .recommended"
+    ):
+        node.decompose()
+    if title_selector:
+        title_node = soup.select_one(title_selector)
+        if title_node:
+            title = title_node.get_text(" ", strip=True)
+    if not title:
+        title_node = soup.select_one("h1") or soup.select_one("title")
+        title = title_node.get_text(" ", strip=True) if title_node else ""
+
+    if not content:
+        main_node = (
+            soup.select_one("article")
+            or soup.select_one("main")
+            or soup.select_one('[role="main"]')
+        )
+        content = main_node.get_text(" ", strip=True) if main_node else ""
+    content = " ".join((content or "").split())
+    if len(content) < 80:
+        raise ValueError("No sufficiently long main content found on page")
+    return title, content
 
 
 class WebScraperCollector(BaseCollector):
-    def collect(self) -> CollectResult:
+    async def extract_url(self, url: str) -> dict:
+        """Fetch one URL for interactive analysis without publishing it."""
+        fetch_mode = str(self.config.get("fetch_mode", "auto")).lower()
+        if fetch_mode not in {"auto", "http", "stealth"}:
+            raise ValueError(f"Invalid fetch_mode: {fetch_mode}")
+
+        async with AsyncExitStack() as stack:
+            outcome, _ = await self._fetch(url, fetch_mode, "body", None, stack)
+
+        title, content = _extract_main_content(outcome.html)
+        return {
+            "url": url,
+            "title": title,
+            "content": content,
+            "fetch_mode": outcome.mode,
+            "http_status": outcome.status,
+        }
+
+    async def collect(self) -> CollectResult:
         result = CollectResult()
         urls = self.config.get("urls", [self.config.get("url", "")])
-        title_sel = self.config.get("title_selector", "h1")
-        body_sel = self.config.get("body_selector", "article")
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; DiseaseCollector/1.0)"}
+        if isinstance(urls, str):
+            urls = [urls]
+        fetch_mode = str(self.config.get("fetch_mode", "auto")).lower()
+        if fetch_mode not in {"auto", "http", "stealth"}:
+            result.error_message = f"Invalid fetch_mode: {fetch_mode}"
+            return result
 
-        for url in urls:
-            if not url:
-                continue
-            result.records_found += 1
-            try:
-                resp = requests.get(url, headers=headers, timeout=30)
-                resp.raise_for_status()
-                soup = BeautifulSoup(resp.text, "lxml")
-                title_el = soup.select_one(title_sel)
-                title = title_el.get_text(strip=True) if title_el else ""
-                body_el = soup.select_one(body_sel)
-                body_text = body_el.get_text(strip=True) if body_el else resp.text[:5000]
-
-                text = f"{title}\n\n{body_text}" if title else body_text
-                if not text.strip():
+        title_selector = self.config.get("title_selector", "h1")
+        body_selector = self.config.get("body_selector", "article")
+        failures = []
+        async with AsyncExitStack() as stack:
+            stealth_session = None
+            for url in urls:
+                if not url:
                     continue
+                result.records_found += 1
+                try:
+                    outcome, stealth_session = await self._fetch(
+                        url, fetch_mode, body_selector, stealth_session, stack
+                    )
+                    title, body_text = _extract_main_content(
+                        outcome.html, title_selector=title_selector
+                    )
+                    text = f"{title}\n\n{body_text}" if title else body_text
+                    url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
+                    obj_path = f"web/{self.source['id']}/{url_hash}.html"
+                    from .. import rabbitmq
+                    from ..minio_client import upload_file
 
-                obj_path = f"web/{self.source['id']}/{hash(url)}.html"
-                upload_file(obj_path, resp.text.encode("utf-8"), "text/html; charset=utf-8")
-
-                rabbitmq.publish({
-                    "source_type": "web",
-                    "source_name": self.source.get("name", ""),
-                    "published_at": "",
-                    "text": text,
-                    "url": url,
-                    "object_path": obj_path,
-                    "collector_run_id": "",
-                    "collector_source_id": str(self.source["id"]),
-                })
-                result.records_ingested += 1
-            except Exception as e:
-                result.error_message = f"Failed to scrape {url}: {e}"
-
+                    await asyncio.to_thread(
+                        upload_file, obj_path, outcome.html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    await asyncio.to_thread(rabbitmq.publish, {
+                        "source_type": "web",
+                        "source_name": self.source.get("name", ""),
+                        "published_at": "",
+                        "text": text,
+                        "url": url,
+                        "object_path": obj_path,
+                        "collector_run_id": "",
+                        "collector_source_id": str(self.source["id"]),
+                        "fetch_mode": outcome.mode,
+                        "http_status": outcome.status,
+                    })
+                    result.records_ingested += 1
+                    logger.info("Scraped %s mode=%s status=%d", url, outcome.mode, outcome.status)
+                except Exception as exc:
+                    logger.exception("Failed to scrape %s", url)
+                    failures.append(f"{url}: {exc}")
+        if failures:
+            result.error_message = "; ".join(failures)[:4000]
         return result
+
+    async def _fetch(self, url: str, fetch_mode: str, body_selector: str,
+                     stealth_session: Optional[Any], stack: AsyncExitStack):
+        if fetch_mode != "stealth":
+            outcome = await self._fetch_http(url)
+            selector_missing = not _selected_text(outcome.page, body_selector)
+            blocked = _is_challenge(outcome.status, outcome.html)
+            if fetch_mode == "http" or (not blocked and not selector_missing):
+                if blocked:
+                    raise RuntimeError(f"blocked response status={outcome.status} and fetch_mode=http")
+                return outcome, stealth_session
+            logger.warning(
+                "Falling back to stealth for %s status=%d challenge=%s selector_missing=%s",
+                url, outcome.status, blocked, selector_missing,
+            )
+        if stealth_session is None:
+            stealth_session = await stack.enter_async_context(self._new_stealth_session())
+        return await self._fetch_stealth(url, stealth_session), stealth_session
+
+    async def _fetch_http(self, url: str) -> FetchOutcome:
+        from scrapling.fetchers import AsyncFetcher
+        timeout_seconds = max(1, int(self.config.get("timeout_ms", 30_000)) // 1000)
+        kwargs = {
+            "timeout": timeout_seconds,
+            "retries": int(self.config.get("max_retries", 2)),
+            "stealthy_headers": True,
+            "impersonate": self.config.get("impersonate", "chrome"),
+        }
+        if self.config.get("proxy"):
+            kwargs["proxy"] = self.config["proxy"]
+        page = await AsyncFetcher.get(url, **kwargs)
+        return FetchOutcome(page, _response_html(page), int(getattr(page, "status", 0) or 0), "http")
+
+    def _new_stealth_session(self):
+        from scrapling.fetchers import AsyncStealthySession
+        kwargs = {
+            "headless": True,
+            "solve_cloudflare": bool(self.config.get("solve_cloudflare", True)),
+            "block_webrtc": True,
+            "disable_resources": bool(self.config.get("disable_resources", True)),
+            "timeout": int(self.config.get("timeout_ms", 60_000)),
+            "max_pages": max(1, int(self.config.get("max_pages", 2))),
+        }
+        if self.config.get("proxy"):
+            kwargs["proxy"] = self.config["proxy"]
+        return AsyncStealthySession(**kwargs)
+
+    async def _fetch_stealth(self, url: str, session: Any) -> FetchOutcome:
+        kwargs = {
+            "network_idle": bool(self.config.get("network_idle", False)),
+            "retries": int(self.config.get("max_retries", 2)),
+        }
+        if self.config.get("wait_selector"):
+            kwargs["wait_selector"] = self.config["wait_selector"]
+        page = await session.fetch(url, **kwargs)
+        html = _response_html(page)
+        status = int(getattr(page, "status", 0) or 0)
+        if _is_challenge(status, html):
+            raise RuntimeError(f"challenge still present after stealth fetch status={status}")
+        return FetchOutcome(page, html, status, "stealth")

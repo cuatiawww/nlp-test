@@ -329,11 +329,11 @@ export default function BusinessProcessPage() {
           <div className="divide-y divide-slate-100 text-sm">
             {[
               { step: '1', title: 'Data Collection', icon: <Radio className="h-4 w-4 text-sky-600" />,
-                desc: 'Collector Python mengambil data dari sumber: RSS feeds, Web scraper (BeautifulSoup), CSV dari URL, Social media (RSS Twitter). Data mentah (title + body text) dikirim ke RabbitMQ queue.' },
+                desc: 'Collector Python mengambil sumber RSS, web, CSV, dan social media. Web collector memakai Scrapling (HTTP lalu stealth saat Cloudflare memblokir) serta Trafilatura agar hanya main content yang diteruskan.' },
               { step: '2', title: 'Async Processing', icon: <Clock className="h-4 w-4 text-purple-600" />,
                 desc: 'Worker Python menerima pesan dari RabbitMQ, memanggil NLP service untuk analisis, lalu menyimpan hasil ke PostgreSQL + PostGIS.' },
-              { step: '3', title: 'NLP Analysis', icon: <Brain className="h-4 w-4 text-pink-600" />,
-                desc: 'NLP Python menjalankan pipeline: XLM-RoBERTa fine-tuned (disease), zero-shot XLM-RoBERTa (sentiment, event type, relevance), regex (cases, deaths), location matching, language detection, keyword extraction dari DB.' },
+              { step: '3', title: 'Translation & NLP Analysis', icon: <Brain className="h-4 w-4 text-pink-600" />,
+                desc: 'Aksara non-Latin diterjemahkan lebih dulu dengan NLLB-200 lokal yang sudah dimuat saat startup dan hasilnya di-cache. DeepSeek hanya fallback. NLP membaca terjemahan, sementara angka dan lokasi diverifikasi dari teks asli dan gazetteer ASEAN.' },
               { step: '4', title: 'Data Storage', icon: <Database className="h-4 w-4 text-emerald-600" />,
                 desc: 'Hasil disimpan ke disease_events + raw_reports. Geospasial menggunakan PostGIS (geometry type). Semua konfigurasi NLP disimpan di tabel DB untuk edit via frontend.' },
               { step: '5', title: 'REST API', icon: <BarChart3 className="h-4 w-4 text-teal-600" />,

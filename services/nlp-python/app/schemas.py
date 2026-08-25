@@ -18,6 +18,11 @@ class AnalyzeResponse(BaseModel):
     location_name: Optional[str]
     latitude: Optional[float]
     longitude: Optional[float]
+    country: Optional[str] = None
+    translated: bool = False
+    translation_provider: str = "none"
+    translated_text: str = ""
+    original_location_name: Optional[str] = None
     symptoms: list[str]
     disease_extracted: list[str]
     disease_classification: str

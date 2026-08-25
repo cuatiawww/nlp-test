@@ -1,7 +1,12 @@
 import logging
+from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi import HTTPException
+from pydantic import BaseModel
 from . import db, minio_client, scheduler
+from . import config
+from .collectors.web_scraper import WebScraperCollector
 from .scheduler import run_source_async
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -9,6 +14,22 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 _scheduler = AsyncIOScheduler()
+_extract_semaphore = None
+
+
+class ExtractUrlRequest(BaseModel):
+    url: str
+    fetch_mode: str = "auto"
+    timeout_ms: int = 60_000
+    max_retries: int = 2
+
+
+def _get_extract_semaphore():
+    global _extract_semaphore
+    if _extract_semaphore is None:
+        import asyncio
+        _extract_semaphore = asyncio.Semaphore(config.COLLECTOR_MAX_CONCURRENT_RUNS)
+    return _extract_semaphore
 
 
 @asynccontextmanager
@@ -27,6 +48,34 @@ app = FastAPI(title="Disease Collector Service", lifespan=lifespan)
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "collector-python"}
+
+
+@app.post("/extract-url")
+async def extract_url(payload: ExtractUrlRequest):
+    parsed = urlparse(payload.url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="URL harus menggunakan http atau https")
+    if payload.fetch_mode not in {"auto", "http", "stealth"}:
+        raise HTTPException(status_code=400, detail="fetch_mode tidak valid")
+
+    collector = WebScraperCollector({
+        "id": "interactive-analyzer",
+        "name": "URL Analyzer",
+        "config": {
+            "fetch_mode": payload.fetch_mode,
+            "timeout_ms": min(max(payload.timeout_ms, 1_000), 120_000),
+            "max_retries": min(max(payload.max_retries, 0), 5),
+            "solve_cloudflare": True,
+            "max_pages": 1,
+        },
+    })
+    try:
+        async with _get_extract_semaphore():
+            data = await collector.extract_url(payload.url.strip())
+        return {"success": True, "data": data}
+    except Exception as exc:
+        logger.exception("Interactive extraction failed for %s", payload.url)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/collect/all")

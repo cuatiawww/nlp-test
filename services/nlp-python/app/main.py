@@ -29,6 +29,14 @@ def startup():
     load_language_markers_from_db()
     load_extraction_rules_from_db()
     load_language_models_from_db()
+    # Load the local translator before the health endpoint becomes available,
+    # so the first non-Latin request does not pay model initialization cost.
+    try:
+        from .translator import preload_local_model
+        preload_local_model()
+        logger.info("Local NLLB translation model preloaded")
+    except Exception as e:
+        logger.warning("Local translation preload failed; API fallback remains available: %s", e)
     if NLP_MODEL != "none":
         from .models.classifier import classify_disease, _get_pipe
         from .config import LANGUAGE_MODEL_MAP

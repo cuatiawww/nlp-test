@@ -43,6 +43,22 @@ struct AnalyzeUrlRequest {
     url: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct CollectorExtractData {
+    title: String,
+    content: String,
+    #[serde(default)]
+    fetch_mode: Option<String>,
+    #[serde(default)]
+    http_status: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CollectorExtractResponse {
+    success: bool,
+    data: CollectorExtractData,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct NlpResponse {
     language: String,
@@ -50,6 +66,16 @@ struct NlpResponse {
     location_name: Option<String>,
     latitude: Option<f64>,
     longitude: Option<f64>,
+    #[serde(default)]
+    country: Option<String>,
+    #[serde(default)]
+    translated: bool,
+    #[serde(default)]
+    translation_provider: String,
+    #[serde(default)]
+    translated_text: String,
+    #[serde(default)]
+    original_location_name: Option<String>,
     symptoms: Vec<String>,
     disease_extracted: Vec<String>,
     disease_classification: String,
@@ -886,30 +912,36 @@ async fn analyze_url(
         }))
     }
 
+    let collector_endpoint = format!("{}/extract-url", state.collector_url.trim_end_matches('/'));
     let resp = state
         .http
-        .get(&url)
-        .header("User-Agent", "Mozilla/5.0 (compatible; DiseaseAnalyzer/1.0)")
-        .timeout(std::time::Duration::from_secs(30))
+        .post(&collector_endpoint)
+        .json(&json!({ "url": url, "fetch_mode": "auto" }))
+        .timeout(std::time::Duration::from_secs(130))
         .send()
         .await
         .map_err(|e| {
             (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "success": false, "error": format!("Gagal mengambil URL: {}", e) })),
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "success": false, "error": format!("Collector tidak dapat mengambil URL: {}", e) })),
             )
         })?;
-
-    let html = resp.text().await.map_err(|_| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "Gagal membaca response URL" })),
-        )
-    })?;
-
-    let title = extract_title_from_html(&html);
-    let published_date = extract_published_date(&html);
-    let body_text = extract_body_text(&html);
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let detail = resp.text().await.unwrap_or_default();
+        return Err((StatusCode::BAD_REQUEST, Json(json!({
+            "success": false, "error": format!("Gagal mengambil URL ({}): {}", status, detail)
+        }))));
+    }
+    let extracted: CollectorExtractResponse = resp.json().await.map_err(|_| (
+        StatusCode::BAD_GATEWAY,
+        Json(json!({ "success": false, "error": "Response collector tidak valid" })),
+    ))?;
+    if !extracted.success {
+        return Err((StatusCode::BAD_GATEWAY, Json(json!({ "success": false, "error": "Collector gagal mengekstrak URL" }))));
+    }
+    let CollectorExtractData { title, content: body_text, fetch_mode, http_status } = extracted.data;
+    let published_date: Option<NaiveDate> = None;
     let max_len: usize = env::var("ANALYZE_MAX_CONTENT_LENGTH")
         .unwrap_or_else(|_| "10000".to_string())
         .parse()
@@ -1047,8 +1079,12 @@ async fn analyze_url(
     }
 
     let mut sources = serde_json::Map::new();
-    sources.insert("title".to_string(), json!("Diambil dari tag <title> di halaman web"));
-    sources.insert("content".to_string(), json!("Diambil dari blok artikel utama (article body/content) setelah menghapus navigasi, sidebar, script, dan style"));
+    sources.insert("title".to_string(), json!("Diekstrak oleh Scrapling/Trafilatura dari judul artikel"));
+    sources.insert("content".to_string(), json!(format!(
+        "Main content bersih via collector (mode: {}, HTTP: {})",
+        fetch_mode.as_deref().unwrap_or("unknown"),
+        http_status.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string())
+    )));
     sources.insert("language".to_string(), json!("Dideteksi oleh library Language Detection (langdetect)"));
     sources.insert("location_name".to_string(), json!("Dicocokkan dari database lokasi (tabel locations) berdasarkan penyebutan nama tempat dalam teks"));
     sources.insert("symptoms".to_string(), json!("Ditemukan melalui pencocokan kata kunci gejala dari database NLP Keywords (kategori 'symptom')"));
@@ -1068,12 +1104,19 @@ async fn analyze_url(
         data: json!({
             "title": title,
             "content": content,
+            "fetch_mode": fetch_mode,
+            "http_status": http_status,
             "url": url,
             "published_at": published_date.map(|date| date.to_string()),
             "language": nlp.language,
             "location_name": nlp.location_name,
             "latitude": nlp.latitude,
             "longitude": nlp.longitude,
+            "country": nlp.country,
+            "translated": nlp.translated,
+            "translation_provider": nlp.translation_provider,
+            "translated_text": nlp.translated_text,
+            "original_location_name": nlp.original_location_name,
             "symptoms": nlp.symptoms,
             "disease_extracted": nlp.disease_extracted,
             "disease_classification": nlp.disease_classification,
@@ -2686,6 +2729,14 @@ fn internal_error<E: std::fmt::Debug + std::fmt::Display>(err: E) -> (StatusCode
 
 async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
     tracing::info!("Running init SQL from {dir}");
+    let client = pool.get().await?;
+    client.batch_execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
+            filename TEXT PRIMARY KEY,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"
+    ).await?;
+    drop(client);
     let mut paths: Vec<_> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("sql"))
@@ -2694,18 +2745,25 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
 
     for entry in &paths {
         let name = entry.file_name().to_string_lossy().to_string();
-        let path = entry.path();
-        match std::fs::read_to_string(&path) {
-            Ok(sql) => {
-                tracing::info!("  init: {name}");
-                let mut conn = pool.get().await?;
-                match conn.batch_execute(&sql).await {
-                    Ok(_) => tracing::info!("  OK   {name}"),
-                    Err(e) => tracing::error!("  FAIL {name}: {e}"),
-                }
-            }
-            Err(e) => tracing::error!("  SKIP {name}: {e}"),
+        let client = pool.get().await?;
+        if client.query_opt(
+            "SELECT 1 FROM schema_migrations WHERE filename = $1", &[&name]
+        ).await?.is_some() {
+            tracing::info!("  skip: {name} (already applied)");
+            continue;
         }
+        drop(client);
+        let path = entry.path();
+        let sql = std::fs::read_to_string(&path)?;
+        tracing::info!("  migrate: {name}");
+        let mut client = pool.get().await?;
+        let transaction = client.transaction().await?;
+        transaction.batch_execute(&sql).await?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(filename) VALUES($1)", &[&name]
+        ).await?;
+        transaction.commit().await?;
+        tracing::info!("  OK   {name}");
     }
     tracing::info!("Init SQL complete");
     Ok(())

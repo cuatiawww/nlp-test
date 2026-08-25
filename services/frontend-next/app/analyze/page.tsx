@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { analyzeUrl } from '@/lib/api'
 import AnalyzeResultCard from '@/components/AnalyzeResultCard'
+import AseanMap from '@/components/AseanMap'
 import type { AnalyzeResponse } from '@/types'
 import { toast } from 'sonner'
 import {
@@ -216,6 +217,29 @@ export default function AnalyzePage() {
               value={healthBadge(result.is_health_related)}
               source={result.sources?.is_health_related || ''}
             />
+          </div>
+
+          <AseanMap result={result} hideLegend />
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Languages className="h-4 w-4 text-slate-500" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Konten Analisis</span>
+            </div>
+            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+              <div><span className="text-slate-500">Bahasa asli</span><p className="font-semibold">{result.language || '-'}</p></div>
+              <div><span className="text-slate-500">Diterjemahkan</span><p className="font-semibold">{result.translated ? 'Ya' : 'Tidak'}</p></div>
+              <div><span className="text-slate-500">Provider</span><p className="font-semibold">{result.translation_provider || 'none'}</p></div>
+            </div>
+            {result.original_location_name && <p className="mt-3 text-xs text-slate-500">Lokasi asli: <span className="font-semibold">{result.original_location_name}</span> → {result.location_name}</p>}
+            <details className="mt-4 rounded-lg border border-slate-200 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">Lihat main content asli</summary>
+              <p className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-600">{result.content}</p>
+            </details>
+            {result.translated_text && <details className="mt-2 rounded-lg border border-slate-200 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">Lihat hasil terjemahan lokal</summary>
+              <p className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-600">{result.translated_text}</p>
+            </details>}
           </div>
 
           {result.symptoms && result.symptoms.length > 0 && (

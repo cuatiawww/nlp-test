@@ -4,6 +4,7 @@ from typing import Optional
 from . import config, extractors
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
 from .schemas import AnalyzeRequest, AnalyzeResponse
+from .translator import translate_and_extract
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     language = extractors.detect_language(text)
     if language == "unknown" and payload.source_language:
         language = payload.source_language
+    translation = translate_and_extract(text, language)
+    translated_text = translation["translated_text"]
+    analysis_text = translated_text or text
+    structured = translation["structured"]
     country_by_language = {
         "id": "Indonesia", "ms": "Malaysia", "th": "Thailand",
         "vi": "Vietnam", "km": "Cambodia", "lo": "Laos",
@@ -29,11 +34,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     relevance_confidence = 0.0
 
     location = extractors.extract_location(text)
+    original_location = location
+    if not location and translated_text:
+        location = extractors.extract_location(translated_text)
     if not location:
         try:
             from .deepseek import detect_location
             resolved_location = detect_location(
-                text,
+                analysis_text,
                 source_language=payload.source_language or language,
                 source_country=location_country,
             )
@@ -52,8 +60,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         }
         location = fallback_locations.get(fallback_country)
     lat, lon = config.LOCATION_COORDS.get(location, (None, None))
-    symptoms = extractors.extract_terms(text, config.SYMPTOM_DICT)
-    extracted = extractors.extract_terms(text, config.DISEASE_DICT)
+    country = config.LOCATION_COUNTRIES.get(location) if location else (location_country or None)
+    symptoms = extractors.extract_terms(analysis_text, config.SYMPTOM_DICT)
+    extracted = extractors.extract_terms(analysis_text, config.DISEASE_DICT)
+    for value in structured.get("diseases") or []:
+        if isinstance(value, str) and value.strip():
+            extracted.append(value.strip().upper().replace("-", ""))
+    extracted = sorted(set(extracted))
     has_keywords = bool(extracted or symptoms)
     is_health_related = has_keywords
 
@@ -63,7 +76,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         try:
             zero_shot = config.NLP_MODEL == "fine-tuned"
             if zero_shot:
-                disease, confidence = classify_disease(text)
+                disease, confidence = classify_disease(analysis_text)
                 if payload.historical_fast:
                     # Historical disease training does not need the three
                     # additional zero-shot passes. Keep their fields valid
@@ -71,14 +84,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     relevance = "high" if disease != "UNKNOWN" or has_keywords else "low"
                     relevance_confidence = confidence if relevance == "high" else 0.99
                 else:
-                    sentiment, sentiment_score = classify_sentiment(text, model_key="xlm-roberta")
-                    event_type, event_confidence = classify_event_type(text, model_key="xlm-roberta")
-                    relevance, relevance_confidence = classify_relevance(text, model_key="xlm-roberta")
+                    sentiment, sentiment_score = classify_sentiment(analysis_text, model_key="xlm-roberta")
+                    event_type, event_confidence = classify_event_type(analysis_text, model_key="xlm-roberta")
+                    relevance, relevance_confidence = classify_relevance(analysis_text, model_key="xlm-roberta")
             else:
-                disease, confidence = classify_disease(text)
-                sentiment, sentiment_score = classify_sentiment(text)
-                event_type, event_confidence = classify_event_type(text)
-                relevance, relevance_confidence = classify_relevance(text)
+                disease, confidence = classify_disease(analysis_text)
+                sentiment, sentiment_score = classify_sentiment(analysis_text)
+                event_type, event_confidence = classify_event_type(analysis_text)
+                relevance, relevance_confidence = classify_relevance(analysis_text)
 
             # A3: hanya override event type kalau keyword juga match (bukan ML saja)
             if disease != "UNKNOWN" and extracted:
@@ -117,7 +130,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if should_use_deepseek:
         try:
             from .deepseek import detect_disease
-            resolved = detect_disease(text)
+            resolved = detect_disease(analysis_text)
             if resolved:
                 disease = resolved["canonical_name"]
                 confidence = resolved["confidence"]
@@ -129,6 +142,22 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     case_count = extractors.extract_case_count(text)
     death_count = extractors.extract_death_count(text)
+    if translated_text and case_count == 1:
+        case_count = extractors.extract_case_count(translated_text)
+    if translated_text and death_count == 0:
+        death_count = extractors.extract_death_count(translated_text)
+    if case_count == 1 and isinstance(structured.get("case_count"), int):
+        case_count = max(0, structured["case_count"])
+    if death_count == 0 and isinstance(structured.get("death_count"), int):
+        death_count = max(0, structured["death_count"])
+    if structured.get("is_health_related") is True:
+        is_health_related = True
+    if is_health_related and not any(
+        token in event_type.lower()
+        for token in ("disease", "outbreak", "wabah", "health", "medical")
+    ):
+        event_type = "health update"
+        event_confidence = max(event_confidence, 0.75)
     outbreak_alert = case_count >= config.OUTBREAK_RULES.get("UNKNOWN", 25)
     # B4: disease-outbreak matching — token-based (bukan partial substring)
     disease_tokens = set(disease.upper().split())
@@ -151,6 +180,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         location_name=location,
         latitude=lat,
         longitude=lon,
+        country=country,
+        translated=translation["translated"],
+        translation_provider=translation["provider"],
+        translated_text=translated_text,
+        original_location_name=original_location,
         symptoms=symptoms,
         disease_extracted=extracted,
         disease_classification=disease,

@@ -4,6 +4,7 @@
 .env.*.local
 
 .docker-compose.yml
+docker-compose.yml
 # ─── Node.js / Next.js ────────────────────────────
 node_modules/
 .next/

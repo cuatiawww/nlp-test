@@ -110,14 +110,43 @@ def extract_location(text: str) -> Optional[str]:
 
 
 def _extract_count(text: str, field: str, default: int) -> int:
+    search_text = "".join(
+        str(unicodedata.digit(char)) if unicodedata.category(char) == "Nd" else char
+        for char in text
+    )
+    localized_patterns = {
+        "case_count": [
+            r"([0-9][0-9,.]*)(?:\s+[a-z-]+){0,3}\s+cases?\b",
+            r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
+            r"(?:ករណីឆ្លងថ្មី|ករណីឆ្លង|អ្នកឆ្លង)\s*([0-9][0-9,.]*)\s*នាក់",
+            r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
+        ],
+        "death_count": [
+            r"([0-9][0-9,.]*)\s+deaths?\b",
+            r"(?:ผู้เสียชีวิต|เสียชีวิต)\s*([0-9][0-9,.]*)\s*ราย",
+            r"(?:ករណីស្លាប់|អ្នកស្លាប់)\s*([0-9][0-9,.]*)\s*នាក់",
+            r"(?:သေဆုံးသူ|သေဆုံး)\s*([0-9][0-9,.]*)",
+        ],
+    }
+    for pattern in localized_patterns.get(field, []):
+        match = re.search(pattern, search_text)
+        if match:
+            return _parse_count(match.group(1))
     patterns = config.EXTRACTION_RULES.get(field, [])
     if not patterns:
         return default
     for pattern in patterns:
-        match = re.search(pattern, text.lower())
+        match = re.search(pattern, search_text.lower())
         if match:
-            return int(match.group(1))
+            return _parse_count(match.group(1))
     return default
+
+
+def _parse_count(value: str) -> int:
+    value = value.strip()
+    if re.fullmatch(r"\d{1,3}(?:[,.]\d{3})+", value):
+        value = re.sub(r"[,.]", "", value)
+    return int(value)
 
 
 def extract_case_count(text: str) -> int:
