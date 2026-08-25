@@ -67,8 +67,23 @@ export async function GET() {
           payload && typeof payload === "object" && "data" in payload
             ? payload.data
             : payload;
-      if (Array.isArray(result) && result.length >= 2)
-        return NextResponse.json(result);
+      if (Array.isArray(result)) {
+        const uWind = result.find(
+            (entry) =>
+              entry?.header?.parameterNumber === 2 ||
+              String(entry?.header?.parameterNumberName || "")
+                .toLowerCase()
+                .startsWith("u-component"),
+          ),
+          vWind = result.find(
+            (entry) =>
+              entry?.header?.parameterNumber === 3 ||
+              String(entry?.header?.parameterNumberName || "")
+                .toLowerCase()
+                .startsWith("v-component"),
+          );
+        if (uWind && vWind) return NextResponse.json([uWind, vWind]);
+      }
     }
   } catch {}
   return NextResponse.json(fallbackWind());

@@ -23,6 +23,7 @@ import { defaults as defaultControls } from "ol/control";
 import { X, MapPin, RotateCcw } from "lucide-react";
 import type { AnalyzeResponse, OutbreakLocation } from "@/types";
 import { ASEAN_GEOJSON } from "@/data/asean-countries";
+import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 
 type Props = {
   result?: AnalyzeResponse | null;
@@ -285,15 +286,7 @@ export default function AseanMap({
     let cancelled = false;
     const start = async () => {
       try {
-        const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "/nlp",
-          path = (() => {
-            try {
-              return new URL(apiBase).pathname.replace(/\/$/, "");
-            } catch {
-              return apiBase.replace(/\/$/, "");
-            }
-          })(),
-          response = await fetch(`${path}/api/gfs`);
+        const response = await fetch(`${PUBLIC_BASE_PATH}/wind-data`);
         if (!response.ok || cancelled) return;
         const windData = await response.json();
         const layer = new WindLayer(
