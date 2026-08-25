@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import type { SidebarGroup } from "@/lib/menu";
+import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 
 type Props = {
   open: boolean;
@@ -14,14 +15,6 @@ type Props = {
 };
 
 const iconMap: Record<string, any> = {};
-const configuredBase = process.env.NEXT_PUBLIC_API_BASE_URL || "/nlp";
-const basePath = (() => {
-  try {
-    return new URL(configuredBase).pathname.replace(/\/$/, "");
-  } catch {
-    return configuredBase.replace(/\/$/, "");
-  }
-})();
 
 export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
   const pathname = usePathname();
@@ -51,7 +44,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
             <Image
-              src={`${basePath}/Logo-Kemenkes.png`}
+              src={`${PUBLIC_BASE_PATH}/Logo-Kemenkes.png`}
               alt="Logo Kementerian Kesehatan"
               width={38}
               height={38}

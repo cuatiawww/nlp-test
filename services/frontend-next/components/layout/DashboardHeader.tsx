@@ -11,14 +11,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getAuthUser, logout, AuthUser } from "@/lib/auth";
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "/nlp";
-const basePath = (() => {
-  try {
-    return new URL(apiBase).pathname.replace(/\/$/, "");
-  } catch {
-    return apiBase.replace(/\/$/, "");
-  }
-})();
+import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 
 export default function DashboardHeader({
   onToggleSidebar,
@@ -35,7 +28,7 @@ export default function DashboardHeader({
       <div className="relative flex min-h-[118px] items-stretch overflow-visible bg-[#eef9f8]">
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-100"
-          style={{ backgroundImage: `url('${basePath}/bg header.png')` }}
+          style={{ backgroundImage: `url('${PUBLIC_BASE_PATH}/bg%20header.png')` }}
         />
         <div className="absolute inset-0 bg-gradient-to-r from-white/75 via-white/45 to-white/65" />
         <div className="relative grid w-full gap-5 px-4 py-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -52,7 +45,7 @@ export default function DashboardHeader({
               className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:gap-5"
             >
               <Image
-                src={`${basePath}/Logo-Kemenkes.png`}
+                src={`${PUBLIC_BASE_PATH}/Logo-Kemenkes.png`}
                 alt="Logo Kemenkes"
                 width={170}
                 height={62}
