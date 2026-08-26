@@ -53,6 +53,10 @@ SOURCE_CREDIBILITY_MAP = {
 }
 
 LOW_CONFIDENCE_THRESHOLD = float(os.getenv("LOW_CONFIDENCE_THRESHOLD", "0.5"))
+# Explicit outbreak/cluster reports for a WHO-known disease without a
+# disease-specific DB rule use the normal 25-case floor. The incident wording
+# is still mandatory, so statistics and policy articles cannot trigger it.
+EXPLICIT_KNOWN_DISEASE_MIN_CASES = int(os.getenv("EXPLICIT_KNOWN_DISEASE_MIN_CASES", "25"))
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 SYMPTOM_DICT: dict[str, str] = {}
@@ -71,6 +75,12 @@ LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
 WHO_DISEASE_CONCEPTS: list[dict] = []
+
+ASEAN_COUNTRIES = frozenset({
+    "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar",
+    "Philippines", "Singapore", "Thailand", "Timor-Leste", "Vietnam",
+})
+OUTSIDE_ASEAN_COUNTRY = "OUTSIDE ASEAN"
 
 
 def load_keywords_from_db():

@@ -56,13 +56,100 @@ def _fold_with_positions(value: str) -> tuple[str, list[int]]:
     return "".join(folded), positions
 
 
-def extract_location(text: str) -> Optional[str]:
+COUNTRY_ALIASES = {
+    "brunei": "Brunei",
+    "brunei darussalam": "Brunei",
+    "cambodia": "Cambodia",
+    "kampuchea": "Cambodia",
+    "indonesia": "Indonesia",
+    "laos": "Laos",
+    "lao pdr": "Laos",
+    "malaysia": "Malaysia",
+    "myanmar": "Myanmar",
+    "burma": "Myanmar",
+    "philippines": "Philippines",
+    "the philippines": "Philippines",
+    "singapore": "Singapore",
+    "thailand": "Thailand",
+    "timor-leste": "Timor-Leste",
+    "timor leste": "Timor-Leste",
+    "east timor": "Timor-Leste",
+    "vietnam": "Vietnam",
+    "viet nam": "Vietnam",
+    "south sudan": "South Sudan",
+    "sudan": "Sudan",
+    "democratic republic of the congo": "Democratic Republic of the Congo",
+    "dr congo": "Democratic Republic of the Congo",
+    "rd congo": "Democratic Republic of the Congo",
+    "rd kongo": "Democratic Republic of the Congo",
+    "congo": "Democratic Republic of the Congo",
+    "kongo": "Democratic Republic of the Congo",
+}
+
+
+def extract_country_hint(text: str) -> Optional[str]:
+    folded = _fold_location_text(text or "")
+    for alias in sorted(COUNTRY_ALIASES, key=len, reverse=True):
+        if re.search(rf"(?<![A-Za-z]){re.escape(_fold_location_text(alias))}(?![A-Za-z])", folded, re.IGNORECASE):
+            return COUNTRY_ALIASES[alias]
+    return None
+
+
+def country_scope(country: Optional[str]) -> Optional[str]:
+    """Return the display/filter country without relabeling known ASEAN data."""
+    value = (country or "").strip()
+    if not value:
+        return None
+    if value in config.ASEAN_COUNTRIES:
+        return value
+    return config.OUTSIDE_ASEAN_COUNTRY
+
+
+def extract_who_disease_mentions(text: str, concepts: list[dict]) -> list[str]:
+    """Match explicit WHO concept names without asking the model to infer."""
+    value = re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+    mentions: list[str] = []
+    for concept in concepts:
+        canonical = str(concept.get("canonical_name") or "").strip()
+        english = str(concept.get("english_name") or "").strip()
+        for name in (canonical, english):
+            folded = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+            if folded and re.search(rf"(?<![a-z0-9]){re.escape(folded)}(?![a-z0-9])", value):
+                mentions.append(canonical)
+                break
+    return sorted(set(mentions))
+
+
+def canonicalize_who_disease_labels(labels: list[str], concepts: list[dict]) -> list[str]:
+    """Map local keyword labels (e.g. KOLERA/MEASLES) to WHO canonicals."""
+    by_name = {
+        str(concept.get("canonical_name") or "").strip().upper(): str(
+            concept.get("canonical_name") or ""
+        ).strip()
+        for concept in concepts
+        if concept.get("canonical_name")
+    }
+    return sorted(set(by_name[label.strip().upper()] for label in labels if label.strip().upper() in by_name))
+
+
+def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
     hits: list[tuple[str, int]] = []
+    country_folded = _fold_location_text(country) if country else ""
+    allowed_names = {
+        name for name in config.LOCATION_COORDS
+        if not country_folded
+        or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) == country_folded
+    }
+    if country and not allowed_names:
+        # A country hint is a restriction, not permission to select a similarly
+        # named place from another country (e.g. Sudan, Indonesia).
+        return None
     folded_names = {
         _fold_location_text(name): name
         for name in config.LOCATION_COORDS
+        if name in allowed_names
     }
     if config.LOCATION_PATTERNS:
         pattern = config.LOCATION_PATTERNS[0][1]
@@ -109,6 +196,57 @@ def extract_location(text: str) -> Optional[str]:
     return max(hits, key=lambda item: (counts[item[0]], item[1], len(item[0])))[0]
 
 
+def is_policy_or_statistical_health_content(text: str) -> bool:
+    """Detect health-policy/statistical articles, not a local incident."""
+    value = normalize_text(text or "")
+    markers = (
+        "rencana aksi", "strategi", "kebijakan", "program", "inovasi",
+        "wolbachia", "vaksinasi", "vaksin", "deteksi dini", "deteksi lebih kuat",
+        "surveilans", "pencegahan", "prevention", "policy", "strategy",
+        "national action plan", "asean dengue day", "zero death",
+        "secara nasional", "nasional", "regional", "global", "world",
+        "cumulative", "kumulatif", "as of", "per mei", "since january",
+        "sejak januari", "menyumbang", "terbesar di dunia",
+    )
+    return any(marker in value for marker in markers)
+
+
+def is_explicit_outbreak_report(text: str) -> bool:
+    """Return true only for explicit outbreak/cluster/transmission evidence."""
+    value = normalize_text(text or "")
+    if re.search(r"\b(?:no outbreak|not an outbreak|bukan wabah|tidak ada wabah)\b", value):
+        return False
+    if re.search(
+        r"\b(?:no|not|without|bukan|tidak ada|tidak terdapat|belum ada)\b"
+        r".{0,80}\b(?:new|current|local|incident|kejadian|kasus|outbreak|wabah|"
+        r"cluster|klaster|transmission|penularan)\b",
+        value,
+        re.IGNORECASE,
+    ):
+        return False
+    explicit_incident = re.search(
+        r"(?:\b(?:outbreak|epidemic|wabah)\b\s*(?:detected|declared|reported|occurred|confirmed|terjadi|dilaporkan|ditetapkan)?|"
+        r"\b(?:klb|kejadian luar biasa|cluster|klaster|local transmission|community transmission|"
+        r"penularan lokal|transmisi lokal)\b|"
+        r"\b(?:surge|spike|melonjak|lonjakan|meningkat tajam)\b.{0,80}\b(?:case|cases|kasus)\b)",
+        value,
+        re.IGNORECASE,
+    )
+    if not explicit_incident:
+        return False
+    # A policy article may mention "outbreak prevention/control" without
+    # reporting an outbreak. Require an incident qualifier in that case.
+    policy_only = is_policy_or_statistical_health_content(value)
+    incident_qualifier = re.search(
+        r"\b(?:outbreak|epidemic|wabah|klb|kejadian luar biasa|cluster|klaster)\b"
+        r".{0,60}\b(?:detected|declared|reported|occurred|confirmed|terjadi|dilaporkan|ditetapkan|"
+        r"reported cases|kasus baru|new cases|transmission|penularan)\b",
+        value,
+        re.IGNORECASE,
+    )
+    return not policy_only or bool(incident_qualifier)
+
+
 def _extract_count(text: str, field: str, default: int) -> int:
     search_text = "".join(
         str(unicodedata.digit(char)) if unicodedata.category(char) == "Nd" else char
@@ -116,6 +254,10 @@ def _extract_count(text: str, field: str, default: int) -> int:
     )
     localized_patterns = {
         "case_count": [
+            # Do not treat "2.300 orang telah meninggal" as case_count.
+            r"\b([0-9][0-9,.]*)\s+(?:warga|pasien|kasus|orang|residents|patients|cases)\b"
+            r"(?!\s*(?:telah|sudah|yang|were|was|have|has)?\s*"
+            r"(?:meninggal|kematian|tewas|died|death|deaths)\b)",
             # Myanmar daily bulletin: distinguish positive cases from the
             # number of laboratory samples and earlier cumulative totals.
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
@@ -125,6 +267,8 @@ def _extract_count(text: str, field: str, default: int) -> int:
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
         ],
         "death_count": [
+            r"\b([0-9][0-9,.]*)\s+(?:orang\s+)?(?:telah\s+|sudah\s+)?(?:meninggal(?:\s+dunia)?|kematian|tewas|died|death|deaths)\b",
+            r"\b([0-9][0-9,.]*)\s+(?:meninggal|kematian|korban jiwa|death|deaths|killed|died|tewas)\b",
             r"ယမန်နေ့တွင်\s*သေဆုံးသူ\s*([0-9][0-9,.]*)\s*ဦး",
             r"([0-9][0-9,.]*)\s+deaths?\b",
             r"(?:ผู้เสียชีวิต|เสียชีวิต)\s*([0-9][0-9,.]*)\s*ราย",
@@ -134,14 +278,20 @@ def _extract_count(text: str, field: str, default: int) -> int:
     }
     for pattern in localized_patterns.get(field, []):
         match = re.search(pattern, search_text)
-        if match:
+        if match and not (
+            match.start(1) > 0
+            and search_text[match.start(1) - 1] in ".,0123456789"
+        ):
             return _parse_count(match.group(1))
     patterns = config.EXTRACTION_RULES.get(field, [])
     if not patterns:
         return default
     for pattern in patterns:
         match = re.search(pattern, search_text.lower())
-        if match:
+        if match and not (
+            match.start(1) > 0
+            and search_text[match.start(1) - 1] in ".,0123456789"
+        ):
             return _parse_count(match.group(1))
     return default
 
@@ -156,6 +306,11 @@ def _parse_count(value: str) -> int:
 def extract_case_count(text: str) -> int:
     default = int(os.getenv("DEFAULT_CASE_COUNT", "1"))
     return _extract_count(text, "case_count", default)
+
+
+def has_explicit_case_count(text: str) -> bool:
+    """Whether a case number was actually present, excluding the default 1."""
+    return _extract_count(text, "case_count", -1) >= 0
 
 
 def extract_death_count(text: str) -> int:

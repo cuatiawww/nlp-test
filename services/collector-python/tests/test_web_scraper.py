@@ -6,6 +6,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.collectors.web_scraper import (
     _extract_main_content,
+    _extract_published_at,
+    _country_hint_from_url,
     _is_challenge,
     _response_html,
     _selected_text,
@@ -40,6 +42,17 @@ class FakePage:
 
 
 class WebScraperHelpersTest(unittest.TestCase):
+    def test_country_hint_from_reliefweb_url(self):
+        self.assertEqual(
+            _country_hint_from_url(
+                "https://reliefweb.int/report/south-sudan/unicef-south-sudan-humanitarian-situation-report"
+            ),
+            "South Sudan",
+        )
+
+    def test_country_hint_is_empty_for_unrecognised_path(self):
+        self.assertEqual(_country_hint_from_url("https://example.org/news/article"), "")
+
     def test_detects_blocked_statuses(self):
         for status in (403, 429, 503):
             self.assertTrue(_is_challenge(status, ""))
@@ -73,6 +86,14 @@ class WebScraperHelpersTest(unittest.TestCase):
         self.assertIn("Health officials", content)
         self.assertNotIn("Subscribe", content)
         self.assertNotIn("Privacy Terms", content)
+
+    def test_published_date_prefers_article_metadata(self):
+        html = """
+        <html><head>
+          <meta property="article:published_time" content="2026-08-19T11:05:00+07:00">
+        </head><body><article>Long enough article content.</article></body></html>
+        """
+        self.assertEqual(_extract_published_at(html), "2026-08-19")
 
 
 if __name__ == "__main__":

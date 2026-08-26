@@ -1,9 +1,12 @@
 import asyncio
 import hashlib
+import json
 import logging
+import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from .base import BaseCollector, CollectResult
 
@@ -13,6 +16,34 @@ CHALLENGE_MARKERS = (
     "just a moment", "checking your browser", "cf-browser-verification",
     "cf-chl-", "cloudflare ray id", "challenge-platform",
 )
+
+# ReliefWeb report URLs carry the affected country in a stable path segment,
+# e.g. /report/south-sudan/....  Use this as geographic context, never as a
+# coordinate source.  Coordinates still come only from the NLP gazetteer.
+URL_COUNTRY_SLUGS = {
+    "brunei": "Brunei",
+    "cambodia": "Cambodia",
+    "indonesia": "Indonesia",
+    "laos": "Laos",
+    "malaysia": "Malaysia",
+    "myanmar": "Myanmar",
+    "philippines": "Philippines",
+    "singapore": "Singapore",
+    "thailand": "Thailand",
+    "timor-leste": "Timor-Leste",
+    "vietnam": "Vietnam",
+    "south-sudan": "South Sudan",
+    "sudan": "Sudan",
+}
+
+
+def _country_hint_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    segments = [segment.strip().lower() for segment in parsed.path.split("/") if segment.strip()]
+    for index, segment in enumerate(segments[:-1]):
+        if segment == "report":
+            return URL_COUNTRY_SLUGS.get(segments[index + 1], "")
+    return ""
 
 
 @dataclass
@@ -95,6 +126,66 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
     return title, content
 
 
+def _normalize_published_date(value: Any) -> str:
+    """Normalize common publisher date formats to the DB DATE format."""
+    if not value:
+        return ""
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    # ISO/RFC dates are the common case.  Keep this deliberately strict so a
+    # page's update time or an arbitrary number is not stored as publication.
+    match = re.search(r"(20\d{2}-\d{2}-\d{2})", raw)
+    if match:
+        return match.group(1)
+    try:
+        from dateutil.parser import parse
+        return parse(raw, fuzzy=False).date().isoformat()
+    except (TypeError, ValueError, OverflowError):
+        return ""
+
+
+def _extract_published_at(html: str) -> str:
+    """Read publication time from metadata, not from article prose."""
+    from bs4 import BeautifulSoup
+    from trafilatura import extract_metadata
+
+    soup = BeautifulSoup(html, "lxml")
+    candidates: list[Any] = []
+    for selector in (
+        'meta[property="article:published_time"]',
+        'meta[property="og:published_time"]',
+        'meta[name="pubdate"]',
+        'meta[name="publishdate"]',
+        'meta[name="date"]',
+        'time[datetime]',
+    ):
+        node = soup.select_one(selector)
+        if node:
+            candidates.append(node.get("content") or node.get("datetime"))
+
+    # JSON-LD is often the only reliable source on news sites.
+    for node in soup.select('script[type="application/ld+json"]'):
+        try:
+            payload = json.loads(node.string or node.get_text())
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        objects = payload if isinstance(payload, list) else [payload]
+        for item in objects:
+            if isinstance(item, dict):
+                candidates.extend((item.get("datePublished"), item.get("dateCreated")))
+
+    metadata = extract_metadata(html)
+    if metadata:
+        candidates.append(getattr(metadata, "date", None))
+
+    for candidate in candidates:
+        normalized = _normalize_published_date(candidate)
+        if normalized:
+            return normalized
+    return ""
+
+
 class WebScraperCollector(BaseCollector):
     async def extract_url(self, url: str) -> dict:
         """Fetch one URL for interactive analysis without publishing it."""
@@ -112,6 +203,8 @@ class WebScraperCollector(BaseCollector):
             "content": content,
             "fetch_mode": outcome.mode,
             "http_status": outcome.status,
+            "source_country": _country_hint_from_url(url),
+            "published_at": _extract_published_at(outcome.html),
         }
 
     async def collect(self) -> CollectResult:
@@ -140,6 +233,7 @@ class WebScraperCollector(BaseCollector):
                     title, body_text = _extract_main_content(
                         outcome.html, title_selector=title_selector
                     )
+                    published_at = _extract_published_at(outcome.html)
                     text = f"{title}\n\n{body_text}" if title else body_text
                     url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
                     obj_path = f"web/{self.source['id']}/{url_hash}.html"
@@ -153,7 +247,7 @@ class WebScraperCollector(BaseCollector):
                     await asyncio.to_thread(rabbitmq.publish, {
                         "source_type": "web",
                         "source_name": self.source.get("name", ""),
-                        "published_at": "",
+                        "published_at": published_at,
                         "text": text,
                         "url": url,
                         "object_path": obj_path,
@@ -161,6 +255,7 @@ class WebScraperCollector(BaseCollector):
                         "collector_source_id": str(self.source["id"]),
                         "fetch_mode": outcome.mode,
                         "http_status": outcome.status,
+                        "source_country": self.config.get("country") or _country_hint_from_url(url),
                     })
                     result.records_ingested += 1
                     logger.info("Scraped %s mode=%s status=%d", url, outcome.mode, outcome.status)

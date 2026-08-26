@@ -74,6 +74,28 @@ def analyze(payload: AnalyzeRequest):
     return pipeline.run(payload)
 
 
+@app.post("/reload")
+def reload_runtime_data():
+    """Reload DB-backed concepts, aliases, locations, and extraction rules."""
+    from .config import (
+        load_keywords_from_db, load_outbreak_rules_from_db, load_locations_from_db,
+        load_credibility_from_db, load_language_markers_from_db,
+        load_extraction_rules_from_db, load_language_models_from_db,
+        load_who_disease_concepts_from_db,
+    )
+    load_keywords_from_db()
+    load_who_disease_concepts_from_db()
+    load_outbreak_rules_from_db()
+    load_locations_from_db()
+    load_credibility_from_db()
+    load_language_markers_from_db()
+    load_extraction_rules_from_db()
+    load_language_models_from_db()
+    from .models.classifier import refresh_labels_from_db
+    refresh_labels_from_db()
+    return {"status": "reloaded"}
+
+
 class LabelsUpdate(BaseModel):
     labels: list[str]
 

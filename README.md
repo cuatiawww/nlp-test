@@ -142,6 +142,10 @@ Semua halaman CRUD menggunakan **modal popup** (bukan inline form). Semua tabel 
   membutuhkan API berbayar.
 - Angka kasus/kematian dan lokasi diperiksa terhadap teks asli agar terjemahan
   tidak mengubah nilai faktual.
+- Lokasi di luar 11 negara ASEAN tetap disimpan sebagai wilayah aslinya,
+  sedangkan nama country untuk filter/API dinormalisasi menjadi `OUTSIDE ASEAN`.
+- Jika penyakit akhir tidak dapat dipetakan (`UNKNOWN`), event tetap disimpan
+  untuk audit tetapi `is_health_related` menjadi `FALSE`.
 
 ### Arsitektur Model
 
@@ -178,7 +182,7 @@ environment:
   content bersih, nama/tipe sumber, dan URL lengkap ke tab baru.
 Input Text → Keyword Extraction (DISEASE_DICT / SYMPTOM_DICT dari DB)
            → Jika keyword cocok → Model klasifikasi
-           → Jika tidak → UNKNOWN, is_health_related=False, confidence rendah
+           → Jika penyakit tidak dikenali → UNKNOWN, is_health_related=False
            → Hitung outbreak alert dari DB rules
            → Hitung source credibility dari DB
 ```
@@ -224,6 +228,81 @@ POST /api/v1/ingest → INSERT raw_reports
                     → INSERT disease_events
                     → Return "processed_sync"
 ```
+
+### Analisis URL dan aturan outbreak
+
+`POST /api/v1/analyze-url` mengambil main content yang sudah dibersihkan oleh
+collector, membaca negara dari konteks URL/teks, serta mengambil `published_at`
+dari metadata publikasi artikel. Report tingkat nasional disimpan sebagai nama
+negara, bukan dipaksa menjadi ibu kota. Negara non-ASEAN diberi scope
+`OUTSIDE ASEAN`.
+
+Angka kumulatif, suspek, estimasi, proyeksi, artikel kebijakan, program
+pencegahan, dan statistik nasional tidak otomatis menjadi outbreak. `outbreak_alert`
+hanya aktif jika ada sinyal kejadian eksplisit seperti outbreak/wabah/KLB,
+cluster/klaster, transmisi lokal, atau lonjakan yang terkait kasus; penyakitnya
+juga harus berhasil dipetakan. Nilai `-`/`n/a` tetap diperlakukan sebagai data
+tidak tersedia, bukan nol.
+
+### Re-analysis Data Health Lama
+
+Untuk menerapkan aturan NLP, WHO ICD-11, lokasi, dan deteksi outbreak terbaru
+ke data yang sudah tersimpan, gunakan command berikut. Proses ini membaca
+`disease_events.original_text` dan tidak mengambil ulang URL sumber.
+
+Pastikan service NLP aktif dan image worker sudah dibuild setelah update kode:
+
+```bash
+docker compose build disease-worker-python
+docker compose up -d disease-nlp-python
+```
+
+Jalankan simulasi terlebih dahulu tanpa mengubah database:
+
+```bash
+sh scripts/reanalyze_health.sh --dry-run --limit 20
+```
+
+Secara default command ini juga mencoba menemukan istilah pada event `UNKNOWN`,
+memvalidasinya ke WHO ICD-11, menyimpan konsep yang valid, lalu me-reload
+runtime NLP sebelum analisis event. Batasi pemindaian WHO dengan
+`--who-limit 500`, atau gunakan `--skip-who-sync` jika hanya ingin mengulang
+inferensi dari konsep yang sudah ada.
+
+Jika hasil sudah sesuai, proses seluruh event dengan `is_health_related = TRUE`:
+
+```bash
+sh scripts/reanalyze_health.sh --batch-size 50
+```
+
+Opsi yang tersedia:
+
+```bash
+# Batasi jumlah data yang diproses
+sh scripts/reanalyze_health.sh --limit 100
+
+# Lewati data awal berdasarkan urutan created_at/id
+sh scripts/reanalyze_health.sh --offset 1000 --batch-size 50
+
+# Hentikan seluruh proses jika satu data gagal
+sh scripts/reanalyze_health.sh --stop-on-error
+```
+
+Untuk compose production, gunakan nama service worker production:
+
+```bash
+COMPOSE_FILE=docker-compose-prod.yml \
+WORKER_SERVICE=worker-python \
+sh scripts/reanalyze_health.sh --dry-run --limit 20
+```
+
+Setiap event diperbarui dalam transaksi terpisah. Jika satu event gagal,
+event lainnya tetap diproses; gunakan `--stop-on-error` jika diperlukan.
+
+Catatan: hasil dengan `disease_classification = UNKNOWN` tetap disimpan untuk
+audit, tetapi otomatis diberi `is_health_related = FALSE` dan tidak dihitung
+sebagai data health maupun outbreak. Aturan ini berlaku untuk collector,
+worker, `analyze-url`, dan re-analysis.
 
 ## Environment Variables
 
@@ -390,6 +469,51 @@ Hasil otomatis disimpan di `disease_concepts`, `disease_aliases`, dan
 `ontology_uri` berasal dari WHO bila istilah berhasil ditemukan. DeepSeek hanya
 dipanggil oleh NLP runtime sebagai fallback saat laporan belum dapat dipetakan;
 hasilnya harus cocok dengan concept WHO yang sudah ada.
+
+### Melengkapi Penyakit UNKNOWN dari WHO
+
+Jika report memiliki `disease_classification = UNKNOWN`, gunakan importer berikut
+untuk menemukan nama penyakit yang tertulis dan memvalidasinya ke WHO ICD-11.
+DeepSeek hanya dipakai untuk mengambil surface name; canonical name, kode, dan
+URI selalu berasal dari WHO. Pastikan `DEEPSEEK_API_KEY`,
+`WHO_ICD_CLIENT_ID`, dan `WHO_ICD_CLIENT_SECRET` tersedia di `.env`.
+
+Uji kasus tertentu tanpa menulis database:
+
+```bash
+sh scripts/sync_who_unknowns.sh --term Ebola --dry-run
+```
+
+Jika hasilnya benar, simpan konsep WHO tersebut:
+
+```bash
+sh scripts/sync_who_unknowns.sh --term Ebola
+```
+
+Untuk memindai report UNKNOWN secara otomatis:
+
+```bash
+sh scripts/sync_who_unknowns.sh --limit 500 --dry-run
+sh scripts/sync_who_unknowns.sh --limit 500
+```
+
+Secara default hanya UNKNOWN yang sudah berstatus non-health yang dipindai.
+Gunakan `--include-health` untuk data lama yang masih memiliki kombinasi
+`UNKNOWN` dan `is_health_related = TRUE`:
+
+```bash
+sh scripts/sync_who_unknowns.sh --include-health --limit 500 --dry-run
+```
+
+Setelah konsep baru masuk, restart NLP agar cache konsep WHO dan keyword
+dimuat ulang:
+
+```bash
+docker compose up -d --force-recreate disease-nlp-python
+```
+
+Untuk production, gunakan `COMPOSE_FILE=docker-compose-prod.yml` dan
+`WORKER_SERVICE=worker-python`.
 
 ### Deploy Model ke Server
 

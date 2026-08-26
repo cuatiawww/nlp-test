@@ -122,6 +122,13 @@ def set_labels(category: str, labels: list[str]):
     logger.info("Updated labels for '%s': %s", category, labels)
 
 
+def refresh_labels_from_db():
+    """Force a refresh after a re-analysis job changes DB-backed labels."""
+    global _labels_last_fetch
+    _labels_last_fetch = 0
+    _fetch_labels_api()
+
+
 def get_labels(category: str) -> list[str]:
     _fetch_labels_api()
     if category not in _current_labels:

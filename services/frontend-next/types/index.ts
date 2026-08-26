@@ -115,6 +115,7 @@ export type AnalyzeResponse = {
   title: string;
   content: string;
   url: string;
+  published_at?: string | null;
   language: string;
   location_name: string | null;
   latitude: number | null;

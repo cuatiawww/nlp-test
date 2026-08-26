@@ -176,13 +176,13 @@ def callback(ch, method, properties, body):
                     """INSERT INTO disease_events
                        (raw_report_id, source_type, source_name, published_at, original_text, language,
                         location_name, geom, disease_extracted, disease_classification,
-                        confidence, outbreak_alert, sentiment, event_type, relevance_score,
+                        case_count, death_count, confidence, outbreak_alert, sentiment, event_type, relevance_score,
                         source_credibility, source_credibility_label, is_health_related)
                        VALUES (%s, %s, %s, %s, %s, %s, %s,
                                CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                     ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                                END,
-                               %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)""",
+                               %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)""",
                     (
                         raw_id,
                         msg.get("source_type"),
@@ -197,6 +197,8 @@ def callback(ch, method, properties, body):
                         nlp.get("longitude"),
                         json.dumps(nlp.get("disease_extracted", [])),
                         nlp.get("disease_classification"),
+                        nlp.get("case_count", 0),
+                        nlp.get("death_count", 0),
                         nlp.get("confidence", 0.0),
                         nlp.get("outbreak_alert", False),
                         nlp.get("sentiment"),

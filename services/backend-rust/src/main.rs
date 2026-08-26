@@ -51,6 +51,10 @@ struct CollectorExtractData {
     fetch_mode: Option<String>,
     #[serde(default)]
     http_status: Option<i32>,
+    #[serde(default)]
+    source_country: Option<String>,
+    #[serde(default)]
+    published_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -829,6 +833,17 @@ async fn analyze_url(
     let row = client
         .query_opt(
             "SELECT de.id, de.raw_report_id, de.original_text, de.language,
+                    COALESCE(de.published_at, rr.published_at) AS published_at,
+                    COALESCE(
+                        CASE WHEN LOWER(de.location_name) IN ('sudan', 'south sudan')
+                             THEN 'OUTSIDE ASEAN' ELSE l.country END,
+                        CASE
+                            WHEN LOWER(de.location_name) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
+                            WHEN LOWER(de.location_name) IN ('cambodia', 'indonesia', 'laos', 'malaysia', 'myanmar', 'philippines', 'singapore', 'thailand', 'timor-leste', 'vietnam')
+                              THEN INITCAP(LOWER(de.location_name))
+                            ELSE 'OUTSIDE ASEAN'
+                        END
+                    ) AS country,
                     de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude,
                     de.symptoms, de.disease_extracted,
                     de.disease_classification, de.case_count, de.death_count, de.confidence,
@@ -837,6 +852,7 @@ async fn analyze_url(
                     de.source_credibility::float8, de.source_credibility_label, de.is_health_related
              FROM disease_events de
              JOIN raw_reports rr ON de.raw_report_id = rr.id
+             LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
              WHERE rr.url = $1
                AND de.created_at > NOW() - INTERVAL '7 days'
              ORDER BY de.created_at DESC
@@ -887,10 +903,12 @@ async fn analyze_url(
                 "title": cached_title,
                 "content": cached_content,
                 "url": url,
+                "published_at": row.get::<_, Option<NaiveDate>>("published_at").map(|date| date.to_string()),
                 "language": row.get::<_, String>("language"),
                 "location_name": row.get::<_, Option<String>>("location_name"),
                 "latitude": row.get::<_, Option<f64>>("latitude"),
                 "longitude": row.get::<_, Option<f64>>("longitude"),
+                "country": row.get::<_, Option<String>>("country"),
                 "symptoms": symptoms,
                 "disease_extracted": disease_extracted,
                 "disease_classification": row.get::<_, String>("disease_classification"),
@@ -947,8 +965,17 @@ async fn analyze_url(
     if !extracted.success {
         return Err((StatusCode::BAD_GATEWAY, Json(json!({ "success": false, "error": "Collector gagal mengekstrak URL" }))));
     }
-    let CollectorExtractData { title, content: body_text, fetch_mode, http_status } = extracted.data;
-    let published_date: Option<NaiveDate> = None;
+    let CollectorExtractData {
+        title,
+        content: body_text,
+        fetch_mode,
+        http_status,
+        source_country,
+        published_at,
+    } = extracted.data;
+    let published_date: Option<NaiveDate> = published_at
+        .as_deref()
+        .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
     let max_len: usize = env::var("ANALYZE_MAX_CONTENT_LENGTH")
         .unwrap_or_else(|_| "10000".to_string())
         .parse()
@@ -977,6 +1004,7 @@ async fn analyze_url(
             "text": text,
             "source_type": "web",
             "source_name": "URL Analyzer",
+            "source_country": source_country,
         }))
         .send()
         .await
@@ -1365,11 +1393,11 @@ async fn public_dashboard(
     let rows = client.query(
         "SELECT COALESCE(e.location_name, 'Unknown') AS location_name,
                 e.disease_classification,
-                COALESCE(l.country, CASE
+                COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
                     WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
                     WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
                       THEN INITCAP(LOWER(e.location_name))
-                    ELSE 'ASEAN' END) AS country,
+                    ELSE 'OUTSIDE ASEAN' END) AS country,
                 COALESCE(ST_Y(ST_Centroid(ST_Collect(e.geom))), l.latitude) AS latitude,
                 COALESCE(ST_X(ST_Centroid(ST_Collect(e.geom))), l.longitude) AS longitude,
                 SUM(GREATEST(COALESCE(e.case_count, 0), 0)) AS cases,
@@ -1417,16 +1445,16 @@ async fn public_dashboard(
            AND e.dedup_rank = 1
            AND e.published_at IS NOT NULL
            AND EXTRACT(YEAR FROM e.published_at)::int = $1
-           AND ($2::text IS NULL OR LOWER(COALESCE(l.country, CASE
+           AND ($2::text IS NULL OR LOWER(COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
              WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
              WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-               THEN INITCAP(LOWER(e.location_name)) ELSE 'ASEAN' END)) = LOWER($2))
+               THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) = LOWER($2))
          GROUP BY COALESCE(e.location_name, 'Unknown'), e.disease_classification,
-                  COALESCE(l.country, CASE
+                  COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
                     WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
                     WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
                       THEN INITCAP(LOWER(e.location_name))
-                    ELSE 'ASEAN' END), l.latitude, l.longitude
+                    ELSE 'OUTSIDE ASEAN' END), l.latitude, l.longitude
          ORDER BY cases DESC, latest_date DESC
          LIMIT 100",
         &[&selected_year, &selected_country],
@@ -1434,10 +1462,10 @@ async fn public_dashboard(
 
     let trend_row = client.query_one(
         "WITH valid AS (
-           SELECT e.*, COALESCE(l.country, CASE
+           SELECT e.*, COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
              WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
              WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-               THEN INITCAP(LOWER(e.location_name)) ELSE 'ASEAN' END) AS resolved_country
+               THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) AS resolved_country
            FROM disease_events e
            LEFT JOIN LATERAL (
              SELECT l0.* FROM locations l0
