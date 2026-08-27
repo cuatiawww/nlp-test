@@ -452,7 +452,33 @@ export default function AseanMap({
     });
     vectorLayer.changed();
 
-    if (hasLocation) {
+    if (result?.locations && result.locations.length > 0) {
+      result.locations.forEach((loc) => {
+        if (loc.latitude != null && loc.longitude != null) {
+          const f = new GeoJSON().readFeature(
+            {
+              type: "Feature",
+              geometry: {
+                type: "Point",
+                coordinates: [loc.longitude, loc.latitude],
+              },
+            },
+            { featureProjection: "EPSG:3857" },
+          ) as Feature;
+          f.set("type", "exact");
+          f.set("name", loc.name);
+          markerSource.addFeature(f);
+        }
+      });
+      if (markerSource.getFeatures().length > 0) {
+        const extent = markerSource.getExtent();
+        mapRef.current?.getView().fit(extent, {
+          padding: [60, 60, 60, 60],
+          maxZoom: 8,
+          duration: 800,
+        });
+      }
+    } else if (hasLocation) {
       const f = new GeoJSON().readFeature(
         {
           type: "Feature",
@@ -514,7 +540,9 @@ export default function AseanMap({
             </span>
             {result && (
               <span className="ml-2 text-xs text-slate-400">
-                {result.latitude != null
+                {result.locations && result.locations.length > 1
+                  ? `📍 ${result.locations.length} Lokasi Terpetakan`
+                  : result.latitude != null
                   ? `📍 ${result.location_name || "Lokasi"}`
                   : result.country
                     ? `🌏 ${result.country}`

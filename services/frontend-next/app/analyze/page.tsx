@@ -151,8 +151,31 @@ export default function AnalyzePage() {
 
             <AnalyzeResultCard
               icon={<MapPin className="h-4 w-4" />}
-              label="Lokasi"
-              value={result.location_name || '-'}
+              label={result.locations && result.locations.length > 1 ? `Lokasi (${result.locations.length} Wilayah)` : "Lokasi"}
+              value={
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                    <span>📍 {result.location_name || '-'}</span>
+                    {result.locations && result.locations.length > 1 && (
+                      <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-semibold text-blue-700">Utama</span>
+                    )}
+                  </div>
+                  {result.locations && result.locations.length > 1 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {result.locations.filter((l) => l.name !== result.location_name).slice(0, 6).map((loc, idx) => (
+                        <span key={idx} className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">
+                          {loc.name}
+                        </span>
+                      ))}
+                      {result.locations.filter((l) => l.name !== result.location_name).length > 6 && (
+                        <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
+                          +{result.locations.filter((l) => l.name !== result.location_name).length - 6} lainnya
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              }
               source={result.sources?.location_name || ''}
             />
 

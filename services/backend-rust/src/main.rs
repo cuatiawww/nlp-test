@@ -63,6 +63,17 @@ struct CollectorExtractResponse {
     data: CollectorExtractData,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct LocationItem {
+    name: String,
+    #[serde(default)]
+    latitude: Option<f64>,
+    #[serde(default)]
+    longitude: Option<f64>,
+    #[serde(default)]
+    country: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct NlpResponse {
     language: String,
@@ -107,6 +118,8 @@ struct NlpResponse {
     needs_review: Option<bool>,
     #[serde(default)]
     is_health_related: Option<bool>,
+    #[serde(default)]
+    locations: Vec<LocationItem>,
 }
 
 #[derive(Debug, Serialize)]
@@ -897,6 +910,25 @@ async fn analyze_url(
         sources.insert("source_credibility".to_string(), json!(cached_msg));
         sources.insert("is_health_related".to_string(), json!(cached_msg));
 
+        let loc_rows = client
+            .query(
+                "SELECT DISTINCT de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude, l.country
+                 FROM disease_events de
+                 LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
+                 WHERE de.raw_report_id = $1 AND de.location_name IS NOT NULL",
+                &[&raw_report_id],
+            )
+            .await
+            .unwrap_or_default();
+        let cached_locations: Vec<serde_json::Value> = loc_rows.iter().map(|r| {
+            json!({
+                "name": r.get::<_, String>("location_name"),
+                "latitude": r.get::<_, Option<f64>>("latitude"),
+                "longitude": r.get::<_, Option<f64>>("longitude"),
+                "country": r.get::<_, Option<String>>("country"),
+            })
+        }).collect();
+
         return Ok(Json(ApiResponse {
             success: true,
             data: json!({
@@ -909,6 +941,7 @@ async fn analyze_url(
                 "latitude": row.get::<_, Option<f64>>("latitude"),
                 "longitude": row.get::<_, Option<f64>>("longitude"),
                 "country": row.get::<_, Option<String>>("country"),
+                "locations": cached_locations,
                 "symptoms": symptoms,
                 "disease_extracted": disease_extracted,
                 "disease_classification": row.get::<_, String>("disease_classification"),
@@ -1113,6 +1146,73 @@ async fn analyze_url(
             .map_err(internal_error)?;
     }
 
+    for loc in &nlp.locations {
+        if Some(&loc.name) == nlp.location_name.as_ref() {
+            continue;
+        }
+        let sec_event_id: Option<Uuid> = client
+            .query_opt(
+                "INSERT INTO disease_events (
+                    raw_report_id, source_type, source_name, original_text, language,
+                    location_name, geom, symptoms, disease_extracted, disease_classification,
+                    case_count, death_count, confidence, outbreak_alert,
+                    sentiment, needs_review, event_type, event_confidence,
+                    relevance_score, relevance_confidence, source_credibility,
+                    source_credibility_label, is_health_related
+                 ) VALUES (
+                    $1, $2, $3, $4, $5,
+                    $6,
+                    CASE WHEN $7::float8 IS NULL OR $8::float8 IS NULL THEN NULL
+                         ELSE ST_SetSRID(ST_MakePoint($8, $7), 4326)
+                    END,
+                    $9::jsonb, $10::jsonb, $11,
+                    $12, $13, $14, $15,
+                    $16, $17, $18, $19::float8,
+                    $20, $21::float8, $22::float8,
+                    $23, $24
+                 ) RETURNING id",
+                &[
+                    &raw_id,
+                    &"web",
+                    &"URL Analyzer",
+                    &text,
+                    &nlp.language,
+                    &loc.name,
+                    &loc.latitude,
+                    &loc.longitude,
+                    &json!(nlp.symptoms),
+                    &json!(nlp.disease_extracted),
+                    &nlp.disease_classification,
+                    &nlp.case_count,
+                    &nlp.death_count,
+                    &nlp.confidence,
+                    &nlp.outbreak_alert,
+                    &nlp.sentiment,
+                    &nlp.needs_review.unwrap_or(false),
+                    &nlp.event_type,
+                    &nlp.event_confidence,
+                    &nlp.relevance_score,
+                    &nlp.relevance_confidence,
+                    &nlp.source_credibility,
+                    &nlp.source_credibility_label,
+                    &nlp.is_health_related,
+                ],
+            )
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.get(0));
+
+        if let (Some(sec_id), Some(date)) = (sec_event_id, published_date) {
+            let _ = client
+                .execute(
+                    "UPDATE disease_events SET published_at=$1 WHERE id=$2",
+                    &[&date, &sec_id],
+                )
+                .await;
+        }
+    }
+
     let mut sources = serde_json::Map::new();
     sources.insert("title".to_string(), json!("Diekstrak oleh Scrapling/Trafilatura dari judul artikel"));
     sources.insert("content".to_string(), json!(format!(
@@ -1168,6 +1268,7 @@ async fn analyze_url(
             "source_credibility": nlp.source_credibility,
             "source_credibility_label": nlp.source_credibility_label,
             "needs_review": nlp.needs_review,
+            "locations": nlp.locations,
             "is_health_related": nlp.is_health_related,
             "raw_report_id": raw_id,
             "event_id": event_id,

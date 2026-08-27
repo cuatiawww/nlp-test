@@ -200,6 +200,62 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
     return max(hits, key=lambda item: (counts[item[0]], len(item[0]), -item[1]))[0]
 
 
+def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict]:
+    """Extract all distinct valid locations mentioned in the text with coordinates."""
+    compact_text = re.sub(r"\s+", " ", text)
+    lower_text, folded_positions = _fold_with_positions(compact_text)
+    hits: list[tuple[str, int]] = []
+    country_folded = _fold_location_text(country) if country else ""
+    allowed_names = {
+        name for name in config.LOCATION_COORDS
+        if not country_folded
+        or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) == country_folded
+    }
+    if country and not allowed_names:
+        return []
+    folded_names = {
+        _fold_location_text(name): name
+        for name in config.LOCATION_COORDS
+        if name in allowed_names
+    }
+    if config.LOCATION_PATTERNS:
+        pattern = config.LOCATION_PATTERNS[0][1]
+        for match in pattern.finditer(lower_text):
+            m_lower = match.group(0).lower()
+            if country and m_lower not in folded_names:
+                continue
+            loc = folded_names.get(m_lower, match.group(0))
+            raw_position = folded_positions[match.start()]
+            if " " not in loc and loc.isascii():
+                first = compact_text[raw_position:raw_position + 1]
+                if not (first.isupper() or first.isdigit()):
+                    continue
+            hits.append((loc, match.start()))
+
+    if not hits:
+        return []
+
+    primary = extract_location(text, country=country)
+    counts = Counter(loc for loc, _ in hits)
+    distinct_names = sorted(
+        counts.keys(),
+        key=lambda name: (1 if name == primary else 0, counts[name], len(name)),
+        reverse=True
+    )
+
+    results = []
+    for name in distinct_names:
+        lat, lon = config.LOCATION_COORDS.get(name, (None, None))
+        c = config.LOCATION_COUNTRIES.get(name, country)
+        results.append({
+            "name": name,
+            "latitude": lat,
+            "longitude": lon,
+            "country": c
+        })
+    return results
+
+
 def is_policy_or_statistical_health_content(text: str) -> bool:
     """Detect health-policy/statistical articles, not a local incident."""
     value = normalize_text(text or "")

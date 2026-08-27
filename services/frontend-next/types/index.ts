@@ -121,6 +121,7 @@ export type AnalyzeResponse = {
   latitude: number | null;
   longitude: number | null;
   country?: string | null;
+  locations?: { name: string; latitude?: number | null; longitude?: number | null; country?: string | null }[];
   translated?: boolean;
   translation_provider?: string;
   translated_text?: string;

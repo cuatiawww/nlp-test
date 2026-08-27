@@ -38,9 +38,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     relevance_confidence = 0.0
 
     location = extractors.extract_location(text, country=location_country)
+    all_locations = extractors.extract_all_locations(text, country=location_country)
     original_location = location
     if not location and translated_text:
         location = extractors.extract_location(translated_text, country=location_country)
+        if not all_locations:
+            all_locations = extractors.extract_all_locations(translated_text, country=location_country)
     if not location:
         try:
             from .deepseek import detect_location
@@ -317,4 +320,5 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         source_credibility=round(cred_score, 2),
         source_credibility_label=source_type,
         is_health_related=is_health_related,
+        locations=all_locations,
     )

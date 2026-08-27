@@ -128,6 +128,7 @@ test_cases = [
             "country": "Philippines",
             "disease_classification": "dengue fever DBD",
             "is_health_related": True,
+            "locations": lambda v: isinstance(v, list) and len(v) >= 3,
         },
         "note": "Memastikan artikel Filipina terdeteksi sebagai negara Philippines, bukan Indonesia"
     },
@@ -198,7 +199,9 @@ def run_tests():
         print(f"    Disease: {data.get('disease_classification', '-')} ({data.get('confidence', 0):.2f})")
         print(f"    Event:   {data.get('event_type', '-')} ({data.get('event_confidence', 0):.2f})")
         print(f"    Cases:   {data.get('case_count', '-')} Deaths: {data.get('death_count', '-')}")
-        print(f"    Sent:    {data.get('sentiment', '-')} ({data.get('sentiment_score', 0):.2f})")
+        sent_score = data.get('sentiment_score')
+        score_repr = f"({sent_score:.2f})" if isinstance(sent_score, (int, float)) else ""
+        print(f"    Sent:    {data.get('sentiment', '-')} {score_repr}")
         print(f"    Lang:    {data.get('language', '-')} Health: {data.get('is_health_related', '-')}")
         symp = data.get('symptoms', [])
         print(f"    Symp:    {symp[:6]}{'...' if len(symp) > 6 else ''}")

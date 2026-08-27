@@ -12,6 +12,13 @@ class AnalyzeRequest(BaseModel):
     historical_fast: bool = False
 
 
+class LocationItem(BaseModel):
+    name: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    country: Optional[str] = None
+
+
 class AnalyzeResponse(BaseModel):
     language: str
     normalized_text: str
@@ -40,3 +47,4 @@ class AnalyzeResponse(BaseModel):
     source_credibility: float = 0.5
     source_credibility_label: str = "unknown"
     is_health_related: bool = True
+    locations: list[LocationItem] = []
