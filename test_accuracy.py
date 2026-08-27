@@ -8,7 +8,8 @@ import urllib.request
 import sys
 from datetime import datetime
 
-API_URL = "http://localhost:8081/api/v1/analyze-url"
+API_URL = "http://localhost:3010/nlp/api/v1/analyze-url"
+ALT_API_URL = "http://localhost:8081/api/v1/analyze-url"
 
 GREEN = "\033[92m"
 RED = "\033[91m"
@@ -119,21 +120,36 @@ test_cases = [
         },
         "note": "NST Malaysia — English"
     },
+    {
+        "id": 11,
+        "name": "Dengue in the Philippines 2026 — Validasi Negara Filipina",
+        "url": "https://denguevisualatlas.com/en/dengue-in-the-philippines-2026/",
+        "expect": {
+            "country": "Philippines",
+            "disease_classification": "dengue fever DBD",
+            "is_health_related": True,
+        },
+        "note": "Memastikan artikel Filipina terdeteksi sebagai negara Philippines, bukan Indonesia"
+    },
 ]
 
 
 def call_api(url: str) -> dict:
-    req = urllib.request.Request(
-        API_URL,
-        data=json.dumps({"url": url}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    last_err = None
+    for target in (API_URL, ALT_API_URL):
+        req = urllib.request.Request(
+            target,
+            data=json.dumps({"url": url}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                return json.loads(resp.read())
+        except Exception as e:
+            last_err = e
+            continue
+    return {"success": False, "error": str(last_err)}
 
 
 def check_expect(field: str, actual, expect_val) -> tuple[bool, str]:

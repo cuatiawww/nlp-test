@@ -154,7 +154,10 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
     if config.LOCATION_PATTERNS:
         pattern = config.LOCATION_PATTERNS[0][1]
         for match in pattern.finditer(lower_text):
-            loc = folded_names.get(match.group(0).lower(), match.group(0))
+            m_lower = match.group(0).lower()
+            if country and m_lower not in folded_names:
+                continue
+            loc = folded_names.get(m_lower, match.group(0))
             raw_position = folded_positions[match.start()]
             # Latin one-word gazetteer entries are prone to collide with
             # ordinary prose (e.g. "sudah", "dalam", "same"). Require a
@@ -193,7 +196,8 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
         hits = primary_hits
 
     counts = Counter(loc for loc, _ in hits)
-    return max(hits, key=lambda item: (counts[item[0]], item[1], len(item[0])))[0]
+    # Prefer highest frequency, more specific location names, then earlier mentions
+    return max(hits, key=lambda item: (counts[item[0]], len(item[0]), -item[1]))[0]
 
 
 def is_policy_or_statistical_health_content(text: str) -> bool:
