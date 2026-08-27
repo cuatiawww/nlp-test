@@ -6,6 +6,21 @@ from typing import Optional
 from . import config
 
 
+def normalize_disease_display(disease: str, language: str = "unknown", text: str = "") -> str:
+    """Normalize raw/zero-shot disease labels to clean clinical/display terms."""
+    raw = (disease or "").strip()
+    lower = raw.lower()
+    text_lower = (text or "").lower()
+
+    # Campak / Measles
+    if "campak" in lower or "measles" in lower or lower == "measles campak":
+        if language in ("id", "ms") or "campak" in text_lower or not language or language == "unknown":
+            return "Campak"
+        return "Measles"
+
+    return raw
+
+
 def normalize_text(text: str) -> str:
     text = text.lower()
     text = re.sub(r"[^\w\s\-/:\.\+%#@]", " ", text)
@@ -164,6 +179,8 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
             # proper-case occurrence unless the entry is multi-word or uses a
             # non-Latin script.
             if " " not in loc and loc.isascii():
+                if loc.casefold() in config.LOCATION_STOPWORDS:
+                    continue
                 first = compact_text[raw_position:raw_position + 1]
                 if not (first.isupper() or first.isdigit()):
                     continue
@@ -227,6 +244,8 @@ def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict
             loc = folded_names.get(m_lower, match.group(0))
             raw_position = folded_positions[match.start()]
             if " " not in loc and loc.isascii():
+                if loc.casefold() in config.LOCATION_STOPWORDS:
+                    continue
                 first = compact_text[raw_position:raw_position + 1]
                 if not (first.isupper() or first.isdigit()):
                     continue

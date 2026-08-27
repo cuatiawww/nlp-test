@@ -132,6 +132,18 @@ test_cases = [
         },
         "note": "Memastikan artikel Filipina terdeteksi sebagai negara Philippines, bukan Indonesia"
     },
+    {
+        "id": 12,
+        "name": "RS Roemani Semarang — Kasus Campak KLB Indonesia",
+        "url": "https://rsroemani.com/artikel/kasus-campak-2026-di-indonesia-melonjak-puluhan-klb-terjadi-kenali-gejala-dan-pencegahannya",
+        "expect": {
+            "country": "Indonesia",
+            "disease_classification": "Campak",
+            "location_name": "Semarang",
+            "is_health_related": True,
+        },
+        "note": "Memastikan penyakit campak terdeteksi sebagai 'Campak' dan lokasi utama adalah Semarang"
+    },
 ]
 
 

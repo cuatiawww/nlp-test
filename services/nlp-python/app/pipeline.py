@@ -248,6 +248,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     outbreak_alert = explicit_outbreak and outbreak_signal >= config.OUTBREAK_RULES.get("UNKNOWN", 25)
     # B4: disease-outbreak matching — token-based (bukan partial substring)
     disease_tokens = set(disease.upper().split())
+    if "CAMPAK" in disease_tokens or "MEASLES" in disease_tokens:
+        disease_tokens.update({"CAMPAK", "MEASLES"})
     matched_disease_rule = False
     for db_name, min_count in config.OUTBREAK_RULES.items():
         if db_name != "UNKNOWN" and (db_name in disease_tokens or any(t in db_name for t in disease_tokens)):
@@ -291,6 +293,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if key in source_type.lower():
             cred_score = val
             break
+
+    disease = extractors.normalize_disease_display(disease, language=language, text=text)
+    extracted = [
+        extractors.normalize_disease_display(d, language=language, text=text)
+        for d in extracted
+    ]
+    extracted = list(dict.fromkeys(extracted))
 
     return AnalyzeResponse(
         language=language,

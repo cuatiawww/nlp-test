@@ -70,6 +70,10 @@ LOCATION_STOPWORDS = {
     "dalam", "for", "from", "here", "hoi", "in", "into", "it", "main",
     "nam", "new", "no", "not", "of", "on", "or", "pada", "same", "satu",
     "that", "the", "this", "to", "trong", "tai", "with", "yang", "yes",
+    "buka", "tutup", "poli", "jaga", "kenali", "luar", "sumber",
+    "senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu",
+    "kasus", "pasien", "rumah", "sakit", "anak", "umum", "sehat",
+    "pagi", "siang", "sore", "malam", "hari", "bulan", "tahun",
 }
 LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}
