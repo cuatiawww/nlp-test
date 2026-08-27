@@ -1,4 +1,4 @@
-import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, BookOpen, FileText } from 'lucide-react'
+import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText } from 'lucide-react'
 
 export type SidebarItem = {
   label: string
@@ -41,7 +41,6 @@ export const sidebarMenu: SidebarGroup[] = [
   {
     title: 'DOKUMENTASI',
     items: [
-      { label: 'Proses Bisnis', icon: BookOpen, href: '/business-process' },
       { label: 'Hardcode Audit 1', icon: FileText, href: '/audit/hardcode-1' },
       { label: 'Hardcode Audit 2', icon: FileText, href: '/audit/hardcode-2' },
     ],

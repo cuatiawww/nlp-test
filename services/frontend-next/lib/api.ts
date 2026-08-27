@@ -185,7 +185,6 @@ export const deleteCredibility = (id: string) =>
 // ── Events ────────────────────────────────────────
 
 export const fetchEvents = () => fetchFrom<any[]>("/api/v1/events");
-export const cleanupEvents = () => postTo("/api/v1/data/cleanup-events");
 
 // ── Language Markers ──────────────────────────
 

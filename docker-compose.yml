@@ -1,0 +1,163 @@
+# ─────────────────────────────────────────────────────────────
+# nlp-penyakit (Disease Surveillance AI) — docker-compose
+# Deploy produksi: service names unik (disease-*) agar tidak
+# bentrok dengan stack lain (nlp-bencana) di nginx yang sama.
+# Semua port internal TIDAK di-publish ke host; akses publik
+# hanya lewat nginx reverse proxy + domain.
+# ─────────────────────────────────────────────────────────────
+services:
+  disease-rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: disease-rabbitmq
+    restart: "no"
+    env_file: .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  disease-minio:
+    image: minio/minio:latest
+    container_name: disease-minio
+    restart: "no"
+    env_file: .env
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  disease-nlp-python:
+    build:
+      context: ./services/nlp-python
+    container_name: disease-nlp-python
+    restart: "no"
+    env_file: .env
+    environment:
+      - NLP_MODEL=fine-tuned
+      - BACKEND_LABELS_URL=http://disease-backend-rust:8081
+      - TRANSLATION_LOCAL_ENABLED=${TRANSLATION_LOCAL_ENABLED:-true}
+      - TRANSLATION_LOCAL_MODEL=${TRANSLATION_LOCAL_MODEL:-facebook/nllb-200-distilled-600M}
+      - TRANSLATION_MAX_CHARS=${TRANSLATION_MAX_CHARS:-7000}
+    volumes:
+      - ./services/nlp-python/models:/app/models
+    networks:
+      - default
+      - db_db
+
+  disease-backend-rust:
+    build:
+      context: ./services/backend-rust
+    container_name: disease-backend-rust
+    restart: "no"
+    env_file: .env
+    environment:
+      NLP_SERVICE_URL: http://disease-nlp-python:8000
+      COLLECTOR_URL: http://disease-collector-python:8002
+      RABBITMQ_URL: ${RABBITMQ_URL_DISEASE:-amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@disease-rabbitmq:5672/%2f}
+    volumes:
+      - ./database/init:/init:ro
+    depends_on:
+      disease-nlp-python:
+        condition: service_started
+      disease-rabbitmq:
+        condition: service_healthy
+    networks:
+      - default
+      - db_db
+
+  disease-worker-python:
+    build:
+      context: ./services/worker-python
+    container_name: disease-worker-python
+    restart: "no"
+    env_file: .env
+    environment:
+      NLP_SERVICE_URL: http://disease-nlp-python:8000
+      RABBITMQ_URL: ${RABBITMQ_URL_DISEASE:-amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@disease-rabbitmq:5672/%2f}
+    depends_on:
+      disease-nlp-python:
+        condition: service_started
+      disease-rabbitmq:
+        condition: service_healthy
+    networks:
+      - default
+      - db_db
+
+  disease-collector-python:
+    build:
+      context: ./services/collector-python
+    container_name: disease-collector-python
+    restart: "no"
+    env_file: .env
+    environment:
+      NLP_SERVICE_URL: http://disease-nlp-python:8000
+      MINIO_ENDPOINT: http://disease-minio:9000
+      RABBITMQ_URL: ${RABBITMQ_URL_DISEASE:-amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@disease-rabbitmq:5672/%2f}
+    depends_on:
+      disease-nlp-python:
+        condition: service_started
+      disease-rabbitmq:
+        condition: service_healthy
+    networks:
+      - default
+      - db_db
+
+  disease-frontend-next:
+    build:
+      context: ./services/frontend-next
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8081}
+        BACKEND_INTERNAL_URL: http://disease-backend-rust:8081
+    container_name: disease-frontend-next
+    restart: "no"
+    env_file: .env
+    environment:
+      BACKEND_INTERNAL_URL: http://disease-backend-rust:8081
+    ports:
+      - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-3010}:3000"
+    depends_on:
+      - disease-backend-rust
+
+  disease-init:
+    image: alpine:3.20
+    container_name: disease-init
+    restart: "no"
+    profiles: ["init"]
+    env_file: .env
+    depends_on:
+      disease-backend-rust:
+        condition: service_started
+    volumes:
+      - ./database/init:/init:ro
+    networks:
+      - default
+      - db_db
+    command: >-
+      /bin/sh -c "
+        apk add --no-cache postgresql-client curl >/dev/null 2>&1 &&
+        until curl -fsS http://disease-backend-rust:8081/health >/dev/null 2>&1; do sleep 2; done &&
+        echo '✅ Backend ready' &&
+        HASH=$$(echo -n \"$${WEBMASTER_PASSWORD:-K3mk3s#2202%ok}\" | sha256sum | cut -d' ' -f1) &&
+        PGPASSWORD=$$POSTGRES_PASSWORD psql -h db-postgres -U postgres -d disease_ai -c \"
+          INSERT INTO users (username, password_hash, display_name, role, email)
+          VALUES ('webmaster', '$$HASH', 'Webmaster', 'admin', 'admin@disease-ai.local')
+          ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;
+        \" 2>&1 &&
+        echo '✅ User seeded' &&
+        echo 'Init complete'
+      "
+
+volumes:
+  minio_data:
+  rabbitmq_data:
+
+networks:
+  default:
+  db_db:
+    external: true

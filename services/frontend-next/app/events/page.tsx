@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
 import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
-import CleanupButton from './CleanupButton'
 
 function sentimentBadge(s?: string) {
   if (!s || s === 'neutral') return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Netral</span>
@@ -43,7 +42,6 @@ export default function EventsPage() {
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Data Events</h1>
           <p className="mt-1 text-sm text-slate-500">Daftar hasil NLP yang sudah diproses</p>
         </div>
-        <CleanupButton />
       </div>
 
       <div className="mt-4 flex items-center gap-4">
