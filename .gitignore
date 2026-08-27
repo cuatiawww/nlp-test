@@ -4,6 +4,9 @@
 .env.*.local
 
 .docker-compose.yml
+docker-compose*.bak
+docker-compose.override.yml
+*.bak
 docker-compose.yml
 docker-compose-prod.override.yml
 # ─── Node.js / Next.js ────────────────────────────
@@ -48,7 +51,6 @@ services/nlp-python/app/models/fine-tuned/
 .DS_Store
 
 # ─── OS ────────────────────────────────────────────
-.DS_Store
 Thumbs.db
 *.log
 
@@ -57,3 +59,9 @@ Thumbs.db
 docker-data/
 logs/
 training/
+
+database/dump*.sql
+*.dump
+
+*:Zone.Identifier
+*Zone.Identifier*
