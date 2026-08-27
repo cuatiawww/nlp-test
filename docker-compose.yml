@@ -113,12 +113,12 @@ services:
       context: ./services/frontend-next
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8081}
-        BACKEND_INTERNAL_URL: http://disease-backend-rust:8081
+        BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://disease-backend-rust:8081}
     container_name: disease-frontend-next
     restart: "no"
     env_file: .env
     environment:
-      BACKEND_INTERNAL_URL: http://disease-backend-rust:8081
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://disease-backend-rust:8081}
     ports:
       - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-3010}:3000"
     depends_on:
