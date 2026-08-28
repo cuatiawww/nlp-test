@@ -868,7 +868,7 @@ async fn analyze_url(
              LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
              WHERE rr.url = $1
                AND de.created_at > NOW() - INTERVAL '7 days'
-             ORDER BY de.created_at DESC
+             ORDER BY de.created_at ASC
              LIMIT 1",
             &[&url],
         )
@@ -912,10 +912,12 @@ async fn analyze_url(
 
         let loc_rows = client
             .query(
-                "SELECT DISTINCT de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude, l.country
+                "SELECT de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude, l.country
                  FROM disease_events de
                  LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
-                 WHERE de.raw_report_id = $1 AND de.location_name IS NOT NULL",
+                 WHERE de.raw_report_id = $1 AND de.location_name IS NOT NULL
+                 GROUP BY de.location_name, de.geom, l.country
+                 ORDER BY MIN(de.created_at) ASC",
                 &[&raw_report_id],
             )
             .await
