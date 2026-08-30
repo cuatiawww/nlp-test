@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslation } from '@/lib/i18n/LanguageContext'
+
 import { useState } from 'react'
 import { createUser } from '@/lib/api'
 
@@ -9,6 +11,7 @@ interface Props {
 }
 
 export default function UserForm({ onSaved, onCancel }: Props) {
+  const { t } = useTranslation();
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -59,10 +62,10 @@ export default function UserForm({ onSaved, onCancel }: Props) {
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
         <button type="submit" disabled={saving || !username || !password}
           className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700 disabled:opacity-50">
-          {saving ? 'Menyimpan...' : 'Tambah'}
+          {saving ? t('common.saving') : t('common.add')}
         </button>
       </div>
     </form>

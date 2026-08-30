@@ -1,9 +1,13 @@
-"use client";
+'use client'
+
 import { Info, Layers, MapPin, Settings, Wind, X } from "lucide-react";
 import { useState } from "react";
 import AseanMap from "./AseanMap";
 import type { OutbreakLocation } from "@/types";
+import { useTranslation } from "@/lib/i18n/LanguageContext";
+
 type Base = "osm" | "terrain" | "satellite" | "light" | "dark";
+
 const Toggle = ({
   value,
   set,
@@ -28,6 +32,7 @@ export default function SpatialOutbreakMap({
   countries: { name: string; cases: number }[];
   locations: OutbreakLocation[];
 }) {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState(false),
     [legend, setLegend] = useState(true),
     [windLegend, setWindLegend] = useState(true),
@@ -45,6 +50,7 @@ export default function SpatialOutbreakMap({
       hillshade: false,
       population: false,
     });
+
   const reset = () => {
     setBase("osm");
     setMarkers(true);
@@ -63,6 +69,7 @@ export default function SpatialOutbreakMap({
     });
     setLegend(true);
   };
+
   return (
     <div className="relative h-full w-full overflow-hidden rounded-xl">
       <AseanMap
@@ -84,17 +91,18 @@ export default function SpatialOutbreakMap({
         >
           <Settings className="h-3.5 w-3.5 text-teal-600" />
           <span className="text-xs font-black tracking-wide">
-            Pengaturan Peta
+            {t("map.spatialControls")}
           </span>
         </button>
       </div>
+
       {(legend || (windLegend && wind)) && (
         <div className="absolute bottom-4 left-4 z-10 max-w-[320px] space-y-3 rounded-2xl border border-teal-200/90 bg-white/95 p-3.5 shadow-[0_8px_30px_rgba(15,118,110,.15)] backdrop-blur-md">
           <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
             <div className="flex items-center gap-1.5">
               <Info className="h-3.5 w-3.5 text-teal-700" />
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-800">
-                Legenda Peta Spasial
+                {t("map.legend")}
               </span>
             </div>
             <button
@@ -103,6 +111,7 @@ export default function SpatialOutbreakMap({
                 setWindLegend(false);
               }}
               className="rounded p-0.5 text-slate-400 hover:text-slate-600"
+              aria-label={t("common.close")}
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -110,20 +119,20 @@ export default function SpatialOutbreakMap({
           {legend && (
             <div>
               <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-widest text-[#0f766e]">
-                Status Outbreak
+                {t("dashboard.labelEwsStatus")}
               </p>
               <div className="space-y-1 text-[10px] font-medium text-slate-700">
                 {[
-                  ["bg-red-500", "Awas / kasus ≥ 2× ambang atau ada kematian"],
-                  ["bg-orange-500", "Siaga / kasus melewati ambang"],
-                  ["bg-yellow-400", "Waspada / kasus mencapai 75% ambang"],
-                  ["bg-slate-400", "Normal / belum melewati ambang"],
+                  ["bg-red-500", t("map.legendAwas")],
+                  ["bg-orange-500", t("map.legendSiaga")],
+                  ["bg-yellow-400", t("map.legendWaspada")],
+                  ["bg-slate-400", t("severity.NORMAL")],
                 ].map(([c, l]) => (
                   <div key={l} className="flex items-center gap-2">
                     <span
                       className={`h-3 w-3 shrink-0 rounded-full border border-white shadow ${c}`}
                     />
-                    {l}
+                    <span>{l}</span>
                   </div>
                 ))}
               </div>
@@ -132,104 +141,97 @@ export default function SpatialOutbreakMap({
           {legend && radius && (
             <div className="border-t border-slate-100 pt-2 text-[10px] font-semibold text-red-700">
               <span className="mr-2 inline-block h-3 w-3 rounded-full border-2 border-red-500 bg-red-100 align-middle" />
-              Denyut radius EWS {radius} km
+              {t("map.activeEwsRadius")} {radius} km
             </div>
           )}
           {windLegend && wind && (
             <div className="space-y-1.5 border-t border-slate-100 pt-2">
               <p className="flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-teal-800">
                 <Wind className="h-3 w-3" />
-                Aliran &amp; Kecepatan Angin (GFS)
+                {t("map.windFlow")} (GFS)
               </p>
               <div className="h-2 w-full rounded-full bg-gradient-to-r from-[rgb(15,60,140)] via-[rgb(85,160,115)] via-[rgb(215,195,60)] via-[rgb(210,125,35)] to-[rgb(185,35,10)] shadow-inner" />
               <div className="flex justify-between px-0.5 text-[8.5px] font-bold text-slate-500">
-                <span>0 km/j</span>
-                <span>20 km/j</span>
-                <span>40 km/j</span>
-                <span>&gt;60 km/j</span>
-              </div>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-1 pt-1 text-[9.5px] font-semibold text-slate-700">
-                <span>🟢 Normal / Tenang</span>
-                <span>🟡 Sedang</span>
-                <span>🔴 Kencang / Bahaya</span>
-                <span>🟣 Badai Ekstrem</span>
-              </div>
-              <div className="rounded-lg border border-teal-100 bg-teal-50/60 p-1.5 text-[9px] leading-tight text-teal-800">
-                🧭 <strong>Mata Angin:</strong> Partikel bergerak mengikuti arah
-                tiupan angin.
+                <span>0 km/h</span>
+                <span>20 km/h</span>
+                <span>40 km/h</span>
+                <span>&gt;60 km/h</span>
               </div>
             </div>
           )}
         </div>
       )}
+
       {settings && (
         <>
           <button
             onClick={() => setSettings(false)}
             className="absolute inset-0 z-20 bg-black/10"
-            aria-label="Tutup pengaturan"
+            aria-label={t("common.close")}
           />
           <aside className="absolute right-0 top-0 z-30 flex h-full w-72 flex-col border-l border-slate-200 bg-white/95 shadow-[-8px_0_40px_rgba(0,0,0,.08)] backdrop-blur-md">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div className="flex items-center gap-2">
                 <Settings className="h-4 w-4 text-teal-700" />
                 <span className="text-sm font-bold text-slate-800">
-                  Pengaturan Peta
+                  {t("map.spatialControls")}
                 </span>
               </div>
               <button
                 onClick={() => setSettings(false)}
                 className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+                aria-label={t("common.close")}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="flex-1 space-y-5 overflow-y-auto p-4">
-              <Group title="Tampilan">
+              <Group title={t("map.legend")}>
                 <Row
                   icon={<MapPin className="h-4 w-4" />}
-                  title="Tampilkan Pin Marker"
-                  sub="Titik lokasi outbreak"
+                  title={t("map.outbreakMarkers")}
+                  sub={t("map.outbreakMarkersSub")}
                   value={markers}
                   set={setMarkers}
                 />
                 <Row
                   icon={<Layers className="h-4 w-4" />}
-                  title="Batas Administrasi"
-                  sub="Wilayah ASEAN"
+                  title={t("map.adminBoundaries")}
+                  sub={t("map.adminBoundariesSub")}
                   value={admin}
                   set={setAdmin}
                 />
                 <Row
                   icon={<Layers className="h-4 w-4" />}
-                  title="Choropleth Kasus"
-                  sub="Warna jumlah kasus"
+                  title={t("map.casesChoropleth")}
+                  sub={t("map.casesChoroplethSub")}
                   value={choropleth}
                   set={setChoropleth}
                 />
                 <Row
                   icon={<Info className="h-4 w-4" />}
-                  title="Legenda Peta"
-                  sub="Keterangan simbol"
+                  title={t("map.legend")}
+                  sub={t("map.spatialControlsSub")}
                   value={legend}
                   set={setLegend}
                 />
                 <Row
                   icon={<Wind className="h-4 w-4" />}
-                  title="Aliran Angin"
-                  sub="Pola pergerakan angin GFS"
+                  title={t("map.windFlow")}
+                  sub={t("map.windFlowSub")}
                   value={wind}
                   set={setWind}
                 />
                 <Row
                   icon={<Wind className="h-4 w-4" />}
-                  title="Legenda Aliran Angin"
-                  sub="Gradasi warna & kecepatan"
+                  title={t("map.windFlow")}
+                  sub="Gradasi & kecepatan"
                   value={windLegend}
                   set={setWindLegend}
                 />
               </Group>
-              <Group title="Peta Dasar">
+
+              <Group title={t("map.baseMap")}>
                 <div className="grid grid-cols-2 gap-2">
                   {(
                     ["osm", "terrain", "satellite", "light", "dark"] as Base[]
@@ -244,54 +246,62 @@ export default function SpatialOutbreakMap({
                   ))}
                 </div>
               </Group>
-              <Group title="BNPB InaRISK">
+
+              <Group title={t("map.bnpbInarisk")}>
                 {(
                   [
-                    ["flood", "Bahaya Banjir"],
-                    ["earthquake", "Bahaya Gempa"],
-                    ["landslide", "Bahaya Longsor"],
-                    ["forestFire", "Bahaya Karhutla"],
-                    ["hillshade", "Hillshade"],
-                    ["population", "Kepadatan Penduduk"],
+                    ["flood", t("map.hazardFlood")],
+                    ["earthquake", t("map.hazardQuake")],
+                    ["landslide", t("map.hazardSlide")],
+                    ["forestFire", t("map.hazardFire")],
+                    ["hillshade", t("map.hillshade")],
+                    ["population", t("map.population")],
                   ] as const
                 ).map(([k, l]) => (
                   <Row
                     key={k}
                     icon={<Layers className="h-4 w-4" />}
                     title={l}
-                    sub="GIS BNPB"
+                    sub={t("map.gisBnpb")}
                     value={bnpb[k]}
                     set={(v) => setBnpb((p) => ({ ...p, [k]: v }))}
                   />
                 ))}
               </Group>
-              <Group title="EWS Radius">
+
+              <Group title={t("map.activeEwsRadius")}>
                 <Row
                   icon={<MapPin className="h-4 w-4" />}
-                  title="EWS Radius Aktif"
-                  sub="Denyut radius lokasi"
+                  title={t("map.activeEwsRadius")}
+                  sub={t("map.activeEwsRadiusSub")}
                   value={radius != null}
                   set={(v) => setRadius(v ? 25 : null)}
                 />
                 {radius && (
-                  <input
-                    type="range"
-                    min="5"
-                    max="250"
-                    step="5"
-                    value={radius}
-                    onChange={(e) => setRadius(+e.target.value)}
-                    className="w-full accent-teal-600"
-                  />
+                  <div className="mt-2">
+                    <div className="flex justify-between text-[10px] font-bold text-slate-600">
+                      <span>{t("map.impactRadius")}</span>
+                      <span>{radius} km</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="5"
+                      max="250"
+                      step="5"
+                      value={radius}
+                      onChange={(e) => setRadius(+e.target.value)}
+                      className="mt-1 w-full accent-teal-600"
+                    />
+                  </div>
                 )}
               </Group>
             </div>
             <div className="border-t border-slate-100 p-3">
               <button
                 onClick={reset}
-                className="w-full rounded-xl bg-teal-700 py-2 text-xs font-bold text-white"
+                className="w-full rounded-xl bg-teal-700 py-2 text-xs font-bold text-white transition hover:bg-teal-800"
               >
-                RESET PENGATURAN
+                {t("map.resetLayers")}
               </button>
             </div>
           </aside>
@@ -300,6 +310,7 @@ export default function SpatialOutbreakMap({
     </div>
   );
 }
+
 function Group({
   title,
   children,
@@ -316,6 +327,7 @@ function Group({
     </div>
   );
 }
+
 function Row({
   icon,
   title,
@@ -330,14 +342,13 @@ function Row({
   set: (v: boolean) => void;
 }) {
   return (
-    <div
-      onClick={() => set(!value)}
-      className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 transition hover:border-teal-100 hover:bg-teal-50/50"
-    >
-      <div className="flex items-center gap-2.5 text-teal-600">
-        {icon}
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2.5">
+        <div className="rounded-lg bg-slate-100 p-1.5 text-slate-600">
+          {icon}
+        </div>
         <div>
-          <p className="text-xs font-semibold text-slate-800">{title}</p>
+          <p className="text-xs font-bold text-slate-800">{title}</p>
           <p className="text-[10px] text-slate-400">{sub}</p>
         </div>
       </div>

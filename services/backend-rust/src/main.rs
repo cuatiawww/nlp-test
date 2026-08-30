@@ -119,6 +119,8 @@ struct NlpResponse {
     #[serde(default)]
     is_health_related: Option<bool>,
     #[serde(default)]
+    published_at: Option<String>,
+    #[serde(default)]
     locations: Vec<LocationItem>,
 }
 
@@ -909,6 +911,7 @@ async fn analyze_url(
         sources.insert("relevance_score".to_string(), json!(cached_msg));
         sources.insert("source_credibility".to_string(), json!(cached_msg));
         sources.insert("is_health_related".to_string(), json!(cached_msg));
+        sources.insert("published_at".to_string(), json!(cached_msg));
 
         let loc_rows = client
             .query(
@@ -1040,6 +1043,7 @@ async fn analyze_url(
             "source_type": "web",
             "source_name": "URL Analyzer",
             "source_country": source_country,
+            "published_at": published_at,
         }))
         .send()
         .await
@@ -1057,6 +1061,10 @@ async fn analyze_url(
                 Json(json!({ "success": false, "error": "Response NLP tidak valid" })),
             )
         })?;
+
+    let published_date = published_date.or_else(|| {
+        nlp.published_at.as_deref().and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+    });
 
     let client = state.db.get().await.map_err(internal_error)?;
 
@@ -1235,6 +1243,7 @@ async fn analyze_url(
     sources.insert("event_type".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa dengan label tipe kejadian dari database NLP Labels (kategori 'event_type')"));
     sources.insert("relevance_score".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa apakah teks terkait kesehatan (health) atau tidak"));
     sources.insert("source_credibility".to_string(), json!("Skor kredibilitas berdasarkan tipe sumber dari database Source Credibility. Tipe 'web' memiliki skor default 0.50"));
+    sources.insert("published_at".to_string(), json!("Diekstrak dari metadata artikel web (meta tag og:published_time, JSON-LD, URL path, atau dateline artikel)"));
 
     Ok(Json(ApiResponse {
         success: true,

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
@@ -15,6 +16,7 @@ const COUNTRIES = [
 ]
 
 export default function LocationsPage() {
+  const { t } = useTranslation()
   const [countryFilter, setCountryFilter] = useState('')
   const apiPath = countryFilter
     ? `/api/v1/locations?country=${encodeURIComponent(countryFilter)}`
@@ -43,8 +45,8 @@ export default function LocationsPage() {
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Location Master Data</h1>
-          <p className="mt-1 text-sm text-slate-500">Kelola data koordinat lokasi untuk NLP extraction</p>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.locations.title')}</h1>
+          <p className="mt-1 text-sm text-slate-500">{t('pages.locations.subtitle')}</p>
         </div>
         <button onClick={() => { setEditItem(null); setForm({ name: '', latitude: 0, longitude: 0, country: 'Indonesia' }); setShowModal(true) }}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
@@ -67,26 +69,26 @@ export default function LocationsPage() {
         </div>
         <div className="relative flex-1 max-w-xs ml-auto">
           <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <SearchInput value={search} onChange={setSearch} placeholder="Cari lokasi..." />
+          <SearchInput value={search} onChange={setSearch} placeholder={`${t('common.search')}...`} />
         </div>
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           {loading ? (
-            <div className="p-8 text-center text-sm text-slate-400">Memuat...</div>
+            <div className="p-8 text-center text-sm text-slate-400">{t('common.loading')}</div>
           ) : data.length === 0 ? (
-            <div className="p-8 text-center text-sm text-slate-400">Belum ada data</div>
+            <div className="p-8 text-center text-sm text-slate-400">{t('common.noData')}</div>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-slate-50 text-left">
-                  <th className="px-4 py-3 font-semibold text-slate-600">Nama</th>
-                  <th className="px-4 py-3 font-semibold text-slate-600">Latitude</th>
-                  <th className="px-4 py-3 font-semibold text-slate-600">Longitude</th>
-                  <th className="px-4 py-3 font-semibold text-slate-600">Country</th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-600">Active</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">Aksi</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.locations.colName')}</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.locations.colLat')}</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.locations.colLon')}</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.locations.colCountry')}</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('common.active')}</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -98,13 +100,13 @@ export default function LocationsPage() {
                     <td className="px-4 py-3"><span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-600">{l.country || 'Indonesia'}</span></td>
                     <td className="px-4 py-3 text-center">
                       {l.is_active
-                        ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Ya</span>
-                        : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Tidak</span>
+                        ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.yes')}</span>
+                        : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.no')}</span>
                       }
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button onClick={() => { setEditItem(l); setForm({ name: l.name, latitude: l.latitude, longitude: l.longitude, country: l.country || 'Indonesia' }); setShowModal(true) }}
-                        className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">Edit</button>
+                        className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">{t('common.edit')}</button>
                       <button onClick={() => handleDelete(l.id, l.name)}
                         className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                     </td>
@@ -117,7 +119,7 @@ export default function LocationsPage() {
         <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
 
-      <Modal open={showModal} title={editItem ? 'Edit Lokasi' : 'Tambah Lokasi'} onClose={() => setShowModal(false)}>
+      <Modal open={showModal} title={editItem ? `${t('common.edit')} ${t('pages.locations.title')}` : `${t('common.add')} ${t('pages.locations.title')}`} onClose={() => setShowModal(false)}>
         <div className="space-y-4">
           <div>
             <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Nama</label>
@@ -145,9 +147,9 @@ export default function LocationsPage() {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setShowModal(false)}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
             <button onClick={handleSave}
-              className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">Simpan</button>
+              className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">{t('common.save')}</button>
           </div>
         </div>
       </Modal>

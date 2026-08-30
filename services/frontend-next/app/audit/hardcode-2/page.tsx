@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { Download } from 'lucide-react'
 
 const rawContent = `# HARDCODE AUDIT 2 — Hardcoded Values yang Mempengaruhi Akurasi NLP
@@ -185,6 +186,7 @@ C9  Label cache TTL env                      2 min   TIDAK ✅
 |    | TOTAL                       | 18/21   | 7✅ 3⚠️ 0 bug NLP ditemukan |`
 
 export default function HardcodeAudit2Page() {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [lines] = useState(rawContent.split('\n'))
 
@@ -213,14 +215,14 @@ export default function HardcodeAudit2Page() {
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Hardcode Audit 2</h1>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.audit.hardcode2Title')}</h1>
           <p className="mt-1 text-sm text-slate-500">
             Hardcoded values yang mempengaruhi akurasi NLP — semua 17 item selesai diperbaiki
           </p>
         </div>
         <button onClick={() => { navigator.clipboard.writeText(rawContent); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
-          <Download className="h-4 w-4" /> {copied ? 'Copied' : 'Copy'}
+          <Download className="h-4 w-4" /> {copied ? t('common.copied') : t('common.copy')}
         </button>
       </div>
 

@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslation } from '@/lib/i18n/LanguageContext'
+
 export default function Pagination({ page, totalPages, total, onPrev, onNext, onGoTo }: {
   page: number
   totalPages: number
@@ -8,6 +10,7 @@ export default function Pagination({ page, totalPages, total, onPrev, onNext, on
   onNext: () => void
   onGoTo: (p: number) => void
 }) {
+  const { t } = useTranslation()
   if (total <= 0) return null
 
   const pages: (number | string)[] = []
@@ -25,12 +28,12 @@ export default function Pagination({ page, totalPages, total, onPrev, onNext, on
   return (
     <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-5 py-3">
       <span className="text-xs text-slate-500">
-        Total {total} data — Halaman {page} dari {pg}
+        {t('common.paginationInfo', { total, page, totalPages: pg })}
       </span>
       <div className="flex items-center gap-1">
         <button onClick={onPrev} disabled={page <= 1}
           className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-          «
+          ?
         </button>
         {pages.map((p, i) =>
           typeof p === 'string' ? (
@@ -38,9 +41,7 @@ export default function Pagination({ page, totalPages, total, onPrev, onNext, on
           ) : (
             <button key={p} onClick={() => onGoTo(p)}
               className={`min-w-[28px] rounded-lg px-2 py-1.5 text-xs font-semibold transition ${
-                p === page
-                  ? 'bg-teal-600 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                p === page ? 'bg-teal-600 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
               }`}>
               {p}
             </button>
@@ -48,7 +49,7 @@ export default function Pagination({ page, totalPages, total, onPrev, onNext, on
         )}
         <button onClick={onNext} disabled={page >= pg}
           className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-          »
+          ?
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { fetchCredibility, createCredibility, updateCredibility, deleteCredibility } from '@/lib/api'
@@ -12,6 +13,7 @@ interface CredItem {
 }
 
 export default function SourceCredibilityPage() {
+  const { t } = useTranslation()
   const [data, setData] = useState<CredItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -77,17 +79,17 @@ export default function SourceCredibilityPage() {
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
-          <div className="p-8 text-center text-sm text-slate-400">Memuat...</div>
+          <div className="p-8 text-center text-sm text-slate-400">{t('common.loading')}</div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-400">Belum ada data</div>
+          <div className="p-8 text-center text-sm text-slate-400">{t('common.noData')}</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-left">
-                <th className="px-4 py-3 font-semibold text-slate-600">Source Type</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Score</th>
-                <th className="px-4 py-3 text-center font-semibold text-slate-600">Active</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Aksi</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.credibility.colDomain')}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.credibility.colScore')}</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('common.active')}</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -97,13 +99,13 @@ export default function SourceCredibilityPage() {
                   <td className="px-4 py-3"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-mono">{l.score.toFixed(2)}</span></td>
                   <td className="px-4 py-3 text-center">
                     {l.is_active
-                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Ya</span>
-                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Tidak</span>
+                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.yes')}</span>
+                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.no')}</span>
                     }
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => { setEditItem(l); setForm({ source_type: l.source_type, score: l.score }); setShowModal(true) }}
-                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">Edit</button>
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">{t('common.edit')}</button>
                     <button onClick={() => handleDelete(l.id, l.source_type)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                   </td>
@@ -128,9 +130,9 @@ export default function SourceCredibilityPage() {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setShowModal(false)}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
             <button onClick={handleSave}
-              className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">Simpan</button>
+              className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">{t('common.save')}</button>
           </div>
         </div>
       </Modal>

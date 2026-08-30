@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { createSource, updateSource } from '@/lib/api'
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function SourceForm({ source, onSaved, onCancel }: Props) {
+  const { t } = useTranslation();
   const isEdit = !!source
   const [name, setName] = useState('')
   const [sourceType, setSourceType] = useState('rss')
@@ -90,10 +92,10 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
       )}
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
         <button type="submit" disabled={saving || !name}
           className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700 disabled:opacity-50">
-          {saving ? 'Menyimpan...' : isEdit ? 'Simpan' : 'Tambah'}
+          {saving ? t('common.saving') : isEdit ? t('common.save') : t('common.add')}
         </button>
       </div>
     </form>

@@ -1,4 +1,5 @@
-"use client";
+'use client'
+
 import {
   ChevronDown,
   LayoutDashboard,
@@ -12,6 +13,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getAuthUser, logout, AuthUser } from "@/lib/auth";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 export default function DashboardHeader({
   onToggleSidebar,
@@ -20,9 +23,11 @@ export default function DashboardHeader({
   onToggleSidebar: () => void;
   authenticated?: boolean;
 }) {
-  const [profile, setProfile] = useState(false),
-    [user, setUser] = useState<AuthUser | null>(null);
+  const { t } = useTranslation();
+  const [profile, setProfile] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
   useEffect(() => setUser(getAuthUser()), []);
+
   return (
     <header className="w-full border-b-2 border-teal-400/25 bg-white">
       <div className="relative flex min-h-[118px] items-stretch overflow-visible bg-[#eef9f8]">
@@ -35,7 +40,7 @@ export default function DashboardHeader({
           <div className="flex min-w-0 items-center gap-4">
             <button
               onClick={onToggleSidebar}
-              aria-label="Buka menu"
+              aria-label={t("header.openMenu")}
               className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-slate-600 shadow-sm transition hover:bg-white"
             >
               <Menu className="h-5 w-5" />
@@ -54,39 +59,40 @@ export default function DashboardHeader({
               />
               <div className="min-w-0 border-teal-200/80 md:border-l md:pl-5">
                 <h1 className="max-w-[720px] text-lg font-extrabold uppercase leading-tight text-slate-900 sm:text-2xl md:text-3xl">
-                  Disease Surveillance AI
+                  {t("header.title")}
                 </h1>
                 <p className="mt-2 hidden max-w-[760px] text-xs leading-relaxed text-slate-600 sm:block md:text-sm lg:text-base">
-                  Analisis spasial outbreak penyakit dan peringatan dini
-                  kesehatan di kawasan Asia Tenggara.
+                  {t("header.subtitle")}
                 </p>
               </div>
             </Link>
           </div>
           <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
+            <LanguageSwitcher />
+
             <div className="hidden items-center rounded-2xl border border-teal-800/10 bg-white/75 p-1.5 shadow-sm sm:flex">
               <Link
                 href="/"
-                className="flex items-center gap-2 rounded-xl bg-[#047D78] px-4 py-2.5 text-sm font-semibold text-white"
+                className="flex items-center gap-2 rounded-xl bg-[#047D78] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#036561]"
               >
                 <LayoutDashboard className="h-4 w-4" />
-                DASHBOARD
+                {t("header.dashboard")}
               </Link>
               <Link
                 href="/tv"
-                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white hover:text-[#047D78]"
+                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white hover:text-[#047D78]"
               >
                 <Tv className="h-4 w-4" />
-                MODE TV
+                {t("header.tvMode")}
               </Link>
             </div>
             {!authenticated ? (
               <Link
                 href="/login"
-                className="flex h-12 items-center gap-2 rounded-xl bg-[#047D78] px-4 text-sm font-bold text-white shadow-sm"
+                className="flex h-12 items-center gap-2 rounded-xl bg-[#047D78] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#036561]"
               >
                 <LogIn className="h-4 w-4" />
-                LOGIN
+                {t("header.login")}
               </Link>
             ) : (
               <div className="relative">
@@ -109,7 +115,7 @@ export default function DashboardHeader({
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
                     >
                       <LogOut className="h-4 w-4" />
-                      Keluar
+                      {t("header.logout")}
                     </button>
                   </div>
                 )}

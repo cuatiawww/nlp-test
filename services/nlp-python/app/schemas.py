@@ -22,6 +22,7 @@ class LocationItem(BaseModel):
 class AnalyzeResponse(BaseModel):
     language: str
     normalized_text: str
+    published_at: Optional[str] = None
     location_name: Optional[str]
     latitude: Optional[float]
     longitude: Optional[float]

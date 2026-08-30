@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslation } from '@/lib/i18n/LanguageContext'
+
 import { useState } from 'react'
 import { Plus, Trash2, Shield } from 'lucide-react'
 import { deleteUser } from '@/lib/api'
@@ -14,6 +16,7 @@ interface User {
 }
 
 export default function UsersPage() {
+  const { t } = useTranslation()
   const { data: users, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<User>('/api/v1/users')
   const [showModal, setShowModal] = useState(false)
 
@@ -29,8 +32,8 @@ export default function UsersPage() {
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">User Management</h1>
-          <p className="mt-1 text-sm text-slate-500">Kelola akun pengguna sistem</p>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.users.title')}</h1>
+          <p className="mt-1 text-sm text-slate-500">{t('pages.users.subtitle')}</p>
         </div>
         <button onClick={() => setShowModal(true)}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
@@ -41,23 +44,23 @@ export default function UsersPage() {
       <div className="mt-4 flex gap-2">
         <div className="relative max-w-xs">
           <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <SearchInput value={search} onChange={setSearch} placeholder="Cari user..." />
+          <SearchInput value={search} onChange={setSearch} placeholder={`${t('common.search')}...`} />
         </div>
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {loading ? <div className="p-8 text-center text-slate-400 text-sm">Memuat...</div> : users.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">Belum ada user</div>
+        {loading ? <div className="p-8 text-center text-slate-400 text-sm">{t('common.loading')}</div> : users.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-sm">{t('common.noData')}</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-left">
-                <th className="px-4 py-3 font-semibold text-slate-600">Username</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Display Name</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Role</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Email</th>
-                <th className="px-4 py-3 text-center font-semibold text-slate-600">Active</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Aksi</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.users.colUsername')}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.users.colDisplayName')}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.users.colRole')}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.users.colEmail')}</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('common.active')}</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>

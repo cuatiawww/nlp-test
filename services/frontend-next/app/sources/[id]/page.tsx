@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslation } from '@/lib/i18n/LanguageContext'
+
 import { useEffect, useState } from 'react'
 import { ArrowLeft, RefreshCw, Play, Trash2 } from 'lucide-react'
 import type { Source, Run } from '@/types'
@@ -8,6 +10,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 
 export default function SourceDetailPage() {
+  const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const [source, setSource] = useState<Source | null>(null)
@@ -62,13 +65,13 @@ export default function SourceDetailPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-center text-slate-400">Memuat...</div>
+  if (loading) return <div className="p-8 text-center text-slate-400">{t("common.loading")}</div>
   if (!source) return <div className="p-8 text-center text-slate-400">Sumber tidak ditemukan</div>
 
   return (
     <div className="px-4 md:px-6">
       <Link href="/sources" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700">
-        <ArrowLeft className="h-4 w-4" /> Kembali
+        <ArrowLeft className="h-4 w-4" /> {t('common.back')}
       </Link>
 
       <div className="mt-4 flex items-start justify-between">
@@ -91,7 +94,7 @@ export default function SourceDetailPage() {
           <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Konfigurasi</h2>
           <button onClick={() => setEditing(!editing)}
             className="text-sm font-semibold text-teal-600 hover:text-teal-700"
-          >{editing ? 'Batal' : 'Edit'}</button>
+          >{editing ? t('common.cancel') : t('common.edit')}</button>
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -119,7 +122,7 @@ export default function SourceDetailPage() {
           <div className="mt-4 flex justify-end">
             <button onClick={handleSave}
               className="rounded-xl bg-teal-600 px-6 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700"
-            >Simpan</button>
+            >{t("common.save")}</button>
           </div>
         )}
       </div>
@@ -129,16 +132,16 @@ export default function SourceDetailPage() {
           <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Riwayat Collection</h2>
         </div>
         {runs.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">Belum ada riwayat</div>
+          <div className="p-8 text-center text-slate-400">{t("common.noData")}</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-left">
-                <th className="px-4 py-3 font-semibold text-slate-600">Mulai</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Selesai</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Status</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Ditemukan</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Diproses</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t("common.date")}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.events.colProcessed")}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t("common.status")}</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-600">{t("common.total")}</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-600">{t("pages.events.colProcessed")}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Error</th>
               </tr>
             </thead>

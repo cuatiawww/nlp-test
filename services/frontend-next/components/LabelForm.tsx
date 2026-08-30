@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { createNlpLabel, updateNlpLabel } from '@/lib/api'
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function LabelForm({ category, label, onSaved, onCancel }: Props) {
+  const { t } = useTranslation();
   const [lab, setLab] = useState('')
   const [priority, setPriority] = useState(0)
   const [saving, setSaving] = useState(false)
@@ -52,10 +54,10 @@ export default function LabelForm({ category, label, onSaved, onCancel }: Props)
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
         <button type="submit" disabled={saving || !lab}
           className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700 disabled:opacity-50">
-          {saving ? 'Menyimpan...' : label ? 'Simpan' : 'Tambah'}
+          {saving ? t('common.saving') : label ? t('common.save') : t('common.add')}
         </button>
       </div>
     </form>

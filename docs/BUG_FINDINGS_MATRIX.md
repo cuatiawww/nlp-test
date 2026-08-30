@@ -4,6 +4,9 @@
 **Tanggal:** 27 Agustus 2026  
 **Status:** Siap Diimplementasikan (TDD)
 
+
+| **BUG-08** | **Collector, NLP, Backend & Frontend**<br>`web_scraper.py`, `pipeline.py`,<br>`main.rs`, `analyze/page.tsx` | Tanggal publikasi (*published date*) tidak tampil pada kartu hasil analisis di UI `/nlp/analyze`, payload NLP belum menerima `published_at`, dan belum ada fallback ekstraksi tanggal jika metadata HTML kosong. | **Missing Published Date UI & Pipeline Integration**: 1. Frontend `analyze/page.tsx` belum memiliki kartu visual untuk `published_at`.<br>2. `backend-rust` tidak meneruskan `published_at` ke endpoint `/nlp/analyze`.<br>3. `collector-python` & `nlp-python` belum memiliki regex fallback untuk URL path date atau dateline teks saat tag `<meta>` kosong.<br>4. Map `sources` belum memuat penjelasan sumber tanggal. | **High** (P1) | 1. Tambahkan fallback ekstraksi tanggal dari URL path & dateline teks di collector & NLP.<br>2. Teruskan `published_at` dari backend-rust ke NLP payload.<br>3. Tambahkan sumber tanggal ke map `sources`.<br>4. Tambahkan kartu visual "Tanggal Publikasi" di `services/frontend-next/app/analyze/page.tsx`. |
+
 ---
 
 ## 1. Matriks Temuan Bug

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { Plus, Trash2, Languages } from 'lucide-react'
 import { toast } from 'sonner'
 import { fetchLanguageMarkers, createLanguageMarker, updateLanguageMarker, deleteLanguageMarker } from '@/lib/api'
@@ -12,6 +13,7 @@ interface LangItem {
 }
 
 export default function LanguageMarkersPage() {
+  const { t } = useTranslation()
   const [data, setData] = useState<LangItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -51,8 +53,8 @@ export default function LanguageMarkersPage() {
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Language Markers</h1>
-          <p className="mt-1 text-sm text-slate-500">Kata kunci untuk deteksi bahasa (fallback jika langdetect gagal)</p>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.languageMarkers.title')}</h1>
+          <p className="mt-1 text-sm text-slate-500">{t('pages.languageMarkers.subtitle')}</p>
         </div>
         <button onClick={() => { setEditItem(null); setForm({ word: '', language: 'en' }); setShowModal(true) }}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
@@ -72,7 +74,7 @@ export default function LanguageMarkersPage() {
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
-          <div className="p-8 text-center text-sm text-slate-400">Memuat...</div>
+          <div className="p-8 text-center text-sm text-slate-400">{t('common.loading')}</div>
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">Belum ada data</div>
         ) : (
@@ -81,8 +83,8 @@ export default function LanguageMarkersPage() {
               <tr className="border-b bg-slate-50 text-left">
                 <th className="px-4 py-3 font-semibold text-slate-600">Word</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Bahasa</th>
-                <th className="px-4 py-3 text-center font-semibold text-slate-600">Active</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Aksi</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('common.active')}</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -92,13 +94,13 @@ export default function LanguageMarkersPage() {
                   <td className="px-4 py-3"><span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-600 uppercase">{l.language}</span></td>
                   <td className="px-4 py-3 text-center">
                     {l.is_active
-                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Ya</span>
-                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Tidak</span>
+                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.yes')}</span>
+                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.no')}</span>
                     }
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => { setEditItem(l); setForm({ word: l.word, language: l.language }); setShowModal(true) }}
-                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">Edit</button>
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">{t('common.edit')}</button>
                     <button onClick={() => handleDelete(l.id, l.word)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                   </td>
@@ -123,9 +125,9 @@ export default function LanguageMarkersPage() {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setShowModal(false)}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
             <button onClick={handleSave}
-              className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">Simpan</button>
+              className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">{t('common.save')}</button>
           </div>
         </div>
       </Modal>

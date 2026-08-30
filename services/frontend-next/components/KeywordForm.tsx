@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { createNlpKeyword, updateNlpKeyword } from '@/lib/api'
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function KeywordForm({ category, keyword, onSaved, onCancel }: Props) {
+  const { t } = useTranslation();
   const [key, setKey] = useState('')
   const [targetLabel, setTargetLabel] = useState('')
   const [priority, setPriority] = useState(0)
@@ -59,10 +61,10 @@ export default function KeywordForm({ category, keyword, onSaved, onCancel }: Pr
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
         <button type="submit" disabled={saving || !key}
           className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700 disabled:opacity-50">
-          {saving ? 'Menyimpan...' : keyword ? 'Simpan' : 'Tambah'}
+          {saving ? t('common.saving') : keyword ? t('common.save') : t('common.add')}
         </button>
       </div>
     </form>

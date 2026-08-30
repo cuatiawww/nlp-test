@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslation } from '@/lib/i18n/LanguageContext'
+
 import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { createOutbreakRule, deleteOutbreakRule } from '@/lib/api'
@@ -15,6 +17,7 @@ interface Rule {
 }
 
 export default function OutbreakRulesPage() {
+  const { t, translateDisease, translateSeverity } = useTranslation()
   const { data: rules, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Rule>('/api/v1/outbreak-rules')
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState<any | null>(null)
@@ -32,7 +35,7 @@ export default function OutbreakRulesPage() {
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Outbreak Alert Rules</h1>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.outbreakRules.title')}</h1>
           <p className="mt-1 text-sm text-slate-500">Atur ambang batas kasus untuk peringatan wabah per penyakit</p>
         </div>
         <button onClick={() => { setEditItem(null); setShowModal(true) }}
@@ -49,18 +52,18 @@ export default function OutbreakRulesPage() {
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {loading ? <div className="p-8 text-center text-slate-400 text-sm">Memuat...</div> : rules.length === 0 ? (
+        {loading ? <div className="p-8 text-center text-slate-400 text-sm">{t('common.loading')}</div> : rules.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">Belum ada rules</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-left">
-                <th className="px-4 py-3 font-semibold text-slate-600">Penyakit</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.outbreakRules.colDisease')}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">Label</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-600">Min Kasus</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-600">Aktif</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-600">Prioritas</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Aksi</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -71,14 +74,14 @@ export default function OutbreakRulesPage() {
                   <td className="px-4 py-3 text-right font-semibold text-slate-700">{r.min_case_count}</td>
                   <td className="px-4 py-3 text-center">
                     {r.is_active
-                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Ya</span>
-                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Tidak</span>
+                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.yes')}</span>
+                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.no')}</span>
                     }
                   </td>
                   <td className="px-4 py-3 text-center text-slate-700">{r.priority}</td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => { setEditItem(r); setShowModal(true) }}
-                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">Edit</button>
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">{t('common.edit')}</button>
                     <button onClick={() => handleDelete(r.id, r.disease_name)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                   </td>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { createOutbreakRule, updateOutbreakRule } from '@/lib/api'
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function RuleForm({ rule, onSaved, onCancel }: Props) {
+  const { t } = useTranslation();
   const [diseaseName, setDiseaseName] = useState('')
   const [displayLabel, setDisplayLabel] = useState('')
   const [minCaseCount, setMinCaseCount] = useState(25)
@@ -71,10 +73,10 @@ export default function RuleForm({ rule, onSaved, onCancel }: Props) {
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
         <button type="submit" disabled={saving || !diseaseName}
           className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700 disabled:opacity-50">
-          {saving ? 'Menyimpan...' : rule ? 'Simpan' : 'Tambah'}
+          {saving ? t('common.saving') : rule ? t('common.save') : t('common.add')}
         </button>
       </div>
     </form>

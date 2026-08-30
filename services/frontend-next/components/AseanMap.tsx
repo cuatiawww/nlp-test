@@ -1,4 +1,4 @@
-"use client";
+'use client'
 
 import { useEffect, useRef, useState } from "react";
 import "ol/ol.css";
@@ -22,6 +22,8 @@ import { unByKey } from "ol/Observable";
 import { defaults as defaultControls } from "ol/control";
 import { X, MapPin, RotateCcw } from "lucide-react";
 import type { AnalyzeResponse, OutbreakLocation } from "@/types";
+import { useTranslation } from "@/lib/i18n/LanguageContext";
+
 import { ASEAN_GEOJSON } from "@/data/asean-countries";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 
@@ -62,6 +64,7 @@ function countryFill(cases: number | undefined): string {
 }
 
 export default function AseanMap({
+
   result,
   countryData,
   locationsData,
@@ -77,6 +80,7 @@ export default function AseanMap({
   ewsRadiusKm,
   embedded,
 }: Props) {
+  const { t } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorRef = useRef<VectorLayer<VectorSource> | null>(null);
@@ -611,7 +615,7 @@ export default function AseanMap({
               type="button"
               onClick={resetView}
               className="rounded-lg p-1 text-white/70 transition hover:bg-white/20 hover:text-white"
-              aria-label="Tutup"
+              aria-label={t("common.close")}
             >
               <X className="h-4 w-4" />
             </button>
@@ -619,7 +623,7 @@ export default function AseanMap({
 
           <div className="border-b border-slate-100 px-4 py-3">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-              Total Kasus
+              {t("dashboard.totalCases")}
             </p>
             <p className="text-2xl font-extrabold leading-none text-slate-900">
               {selected.totalCases.toLocaleString()}
@@ -629,7 +633,7 @@ export default function AseanMap({
           {selected.locations.length > 0 && (
             <div className="px-4 py-3">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                Per Lokasi
+                {t("dashboard.perLocation")}
               </p>
               <div className="max-h-[160px] space-y-1 overflow-y-auto">
                 {selected.locations.map((loc) => (
@@ -650,7 +654,7 @@ export default function AseanMap({
           {selected.locations.length === 0 && (
             <div className="px-4 py-6 text-center">
               <p className="text-xs text-slate-400">
-                Belum ada data lokasi untuk negara ini
+                {t("dashboard.noLocationData")}
               </p>
             </div>
           )}

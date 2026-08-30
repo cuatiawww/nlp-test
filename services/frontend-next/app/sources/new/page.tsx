@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { ArrowLeft, Save } from 'lucide-react'
 import { createSource } from '@/lib/api'
 import Link from 'next/link'
@@ -15,6 +16,7 @@ const SOURCE_TYPES = [
 ]
 
 export default function NewSourcePage() {
+  const { t } = useTranslation()
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
   const [form, setForm] = useState({
@@ -66,20 +68,20 @@ export default function NewSourcePage() {
   return (
     <div className="px-4 md:px-6">
       <Link href="/sources" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700">
-        <ArrowLeft className="h-4 w-4" /> Kembali
+        <ArrowLeft className="h-4 w-4" /> {t('common.back')}
       </Link>
 
-      <h1 className="mt-4 text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Tambah Sumber Data</h1>
+      <h1 className="mt-4 text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.sources.add')} {t('pages.sources.title')}</h1>
 
       <form onSubmit={handleSubmit} className="mt-6 max-w-2xl space-y-4">
         <div>
-          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Nama</label>
+          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colName')}</label>
           <input type="text" required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Antara Health RSS" />
         </div>
 
         <div>
-          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Tipe</label>
+          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colType')}</label>
           <select value={form.source_type} onChange={e => setForm(f => ({ ...f, source_type: e.target.value }))}
             className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
           >
@@ -88,7 +90,7 @@ export default function NewSourcePage() {
         </div>
 
         <div>
-          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">URL</label>
+          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colUrl')}</label>
           <input type="url" value={form.config_url} onChange={e => setForm(f => ({ ...f, config_url: e.target.value }))}
             className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
             placeholder={form.source_type === 'rss' ? 'https://www.antaranews.com/rss/terkini.xml' : 'https://...'} />
@@ -120,7 +122,7 @@ export default function NewSourcePage() {
           <button type="submit" disabled={submitting}
             className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-6 py-2.5 text-sm font-bold uppercase text-white transition hover:bg-teal-700 disabled:opacity-50"
           >
-            <Save className="h-4 w-4" /> {submitting ? 'Menyimpan...' : 'Simpan'}
+            <Save className="h-4 w-4" /> {submitting ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </form>

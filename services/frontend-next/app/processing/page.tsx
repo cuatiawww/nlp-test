@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { fetchPaginated } from '@/lib/api'
 
 export default function ProcessingPage() {
+  const { t } = useTranslation()
   const [runs, setRuns] = useState<any[]>([])
   const [events, setEvents] = useState({ total: 0, health: 0, nonHealth: 0 })
   const [time, setTime] = useState(new Date())
@@ -36,34 +38,34 @@ export default function ProcessingPage() {
   return (
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Processing Monitor</h1>
-        <span className="text-xs text-slate-400">Auto-refresh 10 detik • {time.toLocaleTimeString()}</span>
+        <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.processing.title')}</h1>
+        <span className="text-xs text-slate-400">{t('pages.processing.autoRefresh')} • {time.toLocaleTimeString()}</span>
       </div>
-      <p className="mt-1 text-sm text-slate-500">Status pemrosesan data secara real-time</p>
+      <p className="mt-1 text-sm text-slate-500">{t('pages.processing.subtitle')}</p>
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-3xl font-bold text-teal-600">{events.total}</div>
-          <div className="mt-1 text-xs font-semibold uppercase text-slate-500">Total Events</div>
+          <div className="mt-1 text-xs font-semibold uppercase text-slate-500">{t('pages.processing.totalEvents')}</div>
         </div>
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
           <div className="text-3xl font-bold text-emerald-600">{events.health}</div>
-          <div className="mt-1 text-xs font-semibold uppercase text-emerald-600">Health</div>
+          <div className="mt-1 text-xs font-semibold uppercase text-emerald-600">{t('pages.processing.healthEvents')}</div>
         </div>
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
           <div className="text-3xl font-bold text-amber-600">{events.nonHealth}</div>
-          <div className="mt-1 text-xs font-semibold uppercase text-amber-600">Non Health</div>
+          <div className="mt-1 text-xs font-semibold uppercase text-amber-600">{t('pages.processing.nonHealthEvents')}</div>
         </div>
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-3">
-          <h2 className="text-xs font-bold uppercase tracking-[0.04em] text-slate-600">Recent Collector Runs</h2>
+          <h2 className="text-xs font-bold uppercase tracking-[0.04em] text-slate-600">{t('pages.processing.recentRuns')}</h2>
         </div>
         {loading ? (
-          <div className="p-8 text-center text-sm text-slate-400">Memuat...</div>
+          <div className="p-8 text-center text-sm text-slate-400">{t('common.loading')}</div>
         ) : runs.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-400">Belum ada data</div>
+          <div className="p-8 text-center text-sm text-slate-400">{t('common.noData')}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

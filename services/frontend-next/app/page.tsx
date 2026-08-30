@@ -1,4 +1,4 @@
-"use client";
+'use client'
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
@@ -34,11 +34,13 @@ import {
 } from "recharts";
 import { fetchPublicDashboard } from "@/lib/api";
 import type { OutbreakLocation, PublicDashboard } from "@/types";
+import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 const SpatialOutbreakMap = dynamic(
   () => import("@/components/SpatialOutbreakMap"),
   { ssr: false },
 );
+
 const colors = [
   "#0f8f96",
   "#06b6d4",
@@ -47,6 +49,7 @@ const colors = [
   "#db2777",
   "#f97316",
 ];
+
 const severityClass = {
   AWAS: "bg-red-600 text-white",
   SIAGA: "bg-orange-500 text-white",
@@ -54,8 +57,8 @@ const severityClass = {
   NORMAL: "bg-emerald-100 text-emerald-800",
 };
 
-function cleanArticleContent(value?: string | null): string {
-  if (!value) return "Konten sumber tidak tersedia.";
+function cleanArticleContent(value?: string | null, fallback = "Konten sumber tidak tersedia."): string {
+  if (!value) return fallback;
   return value
     .replace(
       /<(script|style|noscript|svg|nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi,
@@ -63,7 +66,7 @@ function cleanArticleContent(value?: string | null): string {
     )
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|section|article|h[1-6]|li|blockquote)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<li[^>]*>/gi, "? ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;|&#160;/gi, " ")
     .replace(/&amp;/gi, "&")
@@ -95,6 +98,8 @@ function Kpi({
   trend?: { current: number; previous: number };
   previousMonth?: string;
 }) {
+  const { t, locale } = useTranslation();
+  const numLocale = locale === "en" ? "en-US" : "id-ID";
   const difference = (trend?.current ?? 0) - (trend?.previous ?? 0);
   const percentage = trend
     ? trend.previous > 0
@@ -105,16 +110,17 @@ function Kpi({
     : 0;
   const isUp = difference >= 0;
   const monthLabel = previousMonth
-    ? new Intl.DateTimeFormat("id-ID", { month: "long" }).format(
+    ? new Intl.DateTimeFormat(numLocale, { month: "long" }).format(
         new Date(`${previousMonth}-01T00:00:00Z`),
       )
-    : "Bulan lalu";
+    : t("dashboard.lastMonth");
   const color =
     tone === "red"
       ? "text-red-600 bg-red-50/80"
       : tone === "orange"
         ? "text-amber-600 bg-amber-50/80"
         : "text-teal-700 bg-teal-50/80";
+
   return (
     <article
       className="flex min-h-[128px] items-center gap-3 border border-[#bedbda] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(20,120,116,.06)] transition hover:-translate-y-0.5 hover:border-teal-400"
@@ -132,11 +138,11 @@ function Kpi({
         <p
           className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-red-600" : tone === "orange" ? "text-amber-600" : "text-teal-700"}`}
         >
-          {value.toLocaleString("id-ID")}
+          {value.toLocaleString(numLocale)}
         </p>
         <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
           <p className="uppercase">
-            {monthLabel} ({(trend?.previous ?? 0).toLocaleString("id-ID")})
+            {monthLabel} ({(trend?.previous ?? 0).toLocaleString(numLocale)})
           </p>
           <p
             className={`mt-1 flex items-center gap-0.5 ${isUp ? "text-emerald-600" : "text-red-600"}`}
@@ -146,8 +152,8 @@ function Kpi({
             ) : (
               <ChevronDown className="h-3 w-3" />
             )}
-            {percentage.toLocaleString("id-ID", { maximumFractionDigits: 1 })}%
-            dari bulan sebelumnya
+            {percentage.toLocaleString(numLocale, { maximumFractionDigits: 1 })}%{" "}
+            {t("dashboard.fromPreviousMonth")}
           </p>
         </div>
       </div>
@@ -156,6 +162,8 @@ function Kpi({
 }
 
 export default function DashboardPage() {
+  const { t, locale, translateDisease, translateSeverity } = useTranslation();
+  const numLocale = locale === "en" ? "en-US" : "id-ID";
   const currentYear = new Date().getFullYear();
   const [country, setCountry] = useState("all");
   const [year, setYear] = useState(currentYear);
@@ -163,30 +171,35 @@ export default function DashboardPage() {
   const [selected, setSelected] = useState<OutbreakLocation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
   const load = useCallback(async () => {
     try {
       setError("");
       setData(await fetchPublicDashboard({ country, year }));
     } catch {
-      setError("Data dashboard belum dapat dijangkau.");
+      setError(t("common.error"));
     } finally {
       setLoading(false);
     }
-  }, [country, year]);
+  }, [country, year, t]);
+
   useEffect(() => {
     load();
     const id = window.setInterval(load, 60_000);
     return () => window.clearInterval(id);
   }, [load]);
+
   useEffect(() => {
     const available = data?.available_years;
     if (available?.length && !available.includes(year)) setYear(available[0]);
   }, [data?.available_years, year]);
+
   const countryData = data?.by_country ?? [];
+
   if (loading)
     return (
       <div className="grid min-h-[60vh] place-items-center text-sm font-semibold text-teal-700">
-        Memuat pemantauan outbreak ASEAN...
+        {t("common.loading")}
       </div>
     );
 
@@ -195,47 +208,47 @@ export default function DashboardPage() {
       <section className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-black uppercase tracking-wide text-slate-900">
-            Dashboard Outbreak Penyakit ASEAN
+            {t("dashboard.pageTitle")}
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Pemantauan multilingual berbasis berita dan sumber kesehatan kawasan
-            Asia Tenggara.
+            {t("dashboard.pageSubtitle")}
           </p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={load}
-            className="inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#047D78]"
+            className="inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#047D78] transition hover:bg-teal-100"
           >
             <RefreshCw className="h-4 w-4" />
-            Perbarui
+            {t("dashboard.refresh")}
           </button>
         </div>
       </section>
+
       <section className="rounded-2xl border border-[#bedbda] bg-white p-3 shadow-[0_6px_18px_rgba(20,120,116,.06)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="flex items-center gap-2 px-1 text-[#047D78]">
             <Filter className="h-4 w-4" />
             <div>
               <p className="text-[11px] font-black uppercase tracking-wider">
-                Filter Pemantauan
+                {t("dashboard.filterTitle")}
               </p>
               <p className="text-[10px] text-slate-500">
-                Seluruh komponen mengikuti filter aktif
+                {t("dashboard.filterSub")}
               </p>
             </div>
           </div>
           <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
             <Globe2 className="h-4 w-4 shrink-0 text-teal-600" />
             <span className="text-[10px] font-bold uppercase text-slate-500">
-              Negara
+              {t("dashboard.country")}
             </span>
             <select
               value={country}
               onChange={(event) => setCountry(event.target.value)}
               className="min-w-0 flex-1 bg-transparent text-xs font-bold text-slate-800 outline-none"
             >
-              <option value="all">Semua Negara ASEAN</option>
+              <option value="all">{t("dashboard.allAsean")}</option>
               {[
                 "Brunei",
                 "Cambodia",
@@ -258,7 +271,7 @@ export default function DashboardPage() {
           <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 lg:w-56">
             <CalendarDays className="h-4 w-4 shrink-0 text-teal-600" />
             <span className="text-[10px] font-bold uppercase text-slate-500">
-              Tahun
+              {t("dashboard.year")}
             </span>
             <select
               value={year}
@@ -271,7 +284,7 @@ export default function DashboardPage() {
               ).map((value) => (
                 <option key={value} value={value}>
                   {value}
-                  {value === currentYear ? " (Tahun Ini)" : ""}
+                  {value === currentYear ? t("dashboard.thisYear") : ""}
                 </option>
               ))}
             </select>
@@ -282,28 +295,30 @@ export default function DashboardPage() {
                 setCountry("all");
                 setYear(currentYear);
               }}
-              className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-[#047D78]"
+              className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-[#047D78] transition hover:bg-teal-100"
             >
-              Reset Filter
+              {t("dashboard.resetFilter")}
             </button>
           )}
         </div>
       </section>
+
       {error && (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
           {error}
         </div>
       )}
+
       <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Kpi
-          label="Kasus Terdeteksi"
+          label={t("dashboard.kpiDetectedCases")}
           value={data?.trends?.cases.current ?? data?.kpis.cases ?? 0}
           icon={<Bug className="h-5 w-5" />}
           trend={data?.trends?.cases}
           previousMonth={data?.trends?.previous_month}
         />
         <Kpi
-          label="Kematian"
+          label={t("dashboard.kpiDeaths")}
           value={data?.trends?.deaths.current ?? data?.kpis.deaths ?? 0}
           icon={<Skull className="h-5 w-5" />}
           tone="red"
@@ -311,21 +326,21 @@ export default function DashboardPage() {
           previousMonth={data?.trends?.previous_month}
         />
         <Kpi
-          label="Event Tervalidasi"
+          label={t("dashboard.kpiValidatedEvents")}
           value={data?.trends?.events.current ?? data?.kpis.events ?? 0}
           icon={<Activity className="h-5 w-5" />}
           trend={data?.trends?.events}
           previousMonth={data?.trends?.previous_month}
         />
         <Kpi
-          label="Lokasi"
+          label={t("dashboard.kpiLocations")}
           value={data?.trends?.locations.current ?? data?.kpis.locations ?? 0}
           icon={<MapPin className="h-5 w-5" />}
           trend={data?.trends?.locations}
           previousMonth={data?.trends?.previous_month}
         />
         <Kpi
-          label="Peringatan Aktif"
+          label={t("dashboard.kpiActiveAlerts")}
           value={data?.trends?.alerts.current ?? data?.kpis.active_alerts ?? 0}
           icon={<AlertTriangle className="h-5 w-5" />}
           tone="orange"
@@ -333,6 +348,7 @@ export default function DashboardPage() {
           previousMonth={data?.trends?.previous_month}
         />
       </div>
+
       <section className="w-full bg-[#fbffff] pb-5">
         <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[381px_minmax(0,1fr)] xl:items-stretch">
           <section
@@ -344,10 +360,10 @@ export default function DashboardPage() {
                 <AlertTriangle className="h-5 w-5 text-orange-500" />
                 <div>
                   <h2 className="text-sm font-black uppercase tracking-wide">
-                    Early Warning System
+                    {t("dashboard.ewsTitle")}
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Berbasis penyakit dan lokasi
+                    {t("dashboard.ewsSubtitle")}
                   </p>
                 </div>
               </div>
@@ -363,7 +379,7 @@ export default function DashboardPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="font-bold text-slate-900">
-                            {a.disease}
+                            {translateDisease(a.disease)}
                           </p>
                           <p className="text-xs text-slate-500">
                             {a.location_name}, {a.country}
@@ -372,27 +388,27 @@ export default function DashboardPage() {
                         <span
                           className={`rounded-full px-2 py-1 text-[10px] font-black ${severityClass[a.severity]}`}
                         >
-                          {a.severity}
+                          {translateSeverity(a.severity)}
                         </span>
                       </div>
                       <p className="mt-2 text-xs text-slate-600">
-                        <b>{a.cases.toLocaleString("id-ID")}</b> kasus ·{" "}
-                        <b>{a.deaths}</b> kematian · ambang {a.threshold}
+                        <b>{a.cases.toLocaleString(numLocale)}</b> {t("dashboard.casesUnit")} ?{" "}
+                        <b>{a.deaths}</b> {t("dashboard.deathsUnit")} ? {t("dashboard.thresholdUnit")} {a.threshold}
                       </p>
                     </button>
                   ))
                 ) : (
                   <p className="p-8 text-center text-sm text-slate-400">
-                    Tidak ada peringatan aktif.
+                    {t("dashboard.noAlerts")}
                   </p>
                 )}
               </div>
               <div className="border-t border-teal-200/70 bg-white/55 px-4 py-3 text-[10px] font-bold text-slate-500">
-                EWS menggunakan ambang penyakit, lokasi, confidence, dan radius
-                pengguna aktif.
+                {t("dashboard.ewsFootnote")}
               </div>
             </div>
           </section>
+
           <article
             className="flex flex-col border border-[#cdcdcd] bg-white p-4 xl:h-[550px]"
             style={{ borderRadius: "17px 17px 22px 17px" }}
@@ -400,17 +416,15 @@ export default function DashboardPage() {
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div className="flex-1">
                 <h3 className="text-xl font-black uppercase leading-tight text-slate-900 sm:text-2xl">
-                  Sebaran Spasial Outbreak Penyakit
+                  {t("dashboard.spatialTitle")}
                 </h3>
                 <p className="mt-1.5 text-sm font-normal leading-relaxed text-slate-600 sm:text-base">
-                  Pemetaan ini menyajikan distribusi geografis kasus, kematian,
-                  dan status peringatan penyakit di kawasan Asia Tenggara.
+                  {t("dashboard.spatialDesc")}
                 </p>
                 <div className="mt-2 inline-flex max-w-full items-center gap-1.5 truncate rounded-lg border border-teal-200/80 bg-teal-50 px-2.5 py-1 text-xs font-bold text-[#047D78]">
                   <MapPin className="h-3.5 w-3.5 shrink-0 text-teal-600" />
                   <span className="truncate">
-                    Wilayah: ASEAN · {data?.kpis.locations ?? 0} lokasi
-                    terdeteksi
+                    {t("dashboard.regionAseanLocations", { count: data?.kpis.locations ?? 0 })}
                   </span>
                 </div>
               </div>
@@ -424,31 +438,36 @@ export default function DashboardPage() {
           </article>
         </div>
       </section>
+
       <section className="mt-4 rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 shadow-sm">
         <div className="flex gap-3">
           <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" />
           <div>
             <p className="text-xs font-black uppercase tracking-widest text-teal-800">
-              Ringkasan AI Lokal
+              {t("dashboard.aiSummaryTitle")}
             </p>
             <p className="mt-2 text-sm leading-6 text-slate-700">
               {data?.ai_summary.text}
             </p>
             <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">
-              Tanpa pemanggilan API berbayar · diperbarui bersama snapshot
+              {t("dashboard.aiSummarySub")}
             </p>
           </div>
         </div>
       </section>
+
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
-            Kasus per Penyakit
+            {t("dashboard.casesByDisease")}
           </h2>
           <div className="mt-4 h-72">
             <ResponsiveContainer>
               <BarChart
-                data={(data?.by_disease ?? []).slice(0, 8)}
+                data={(data?.by_disease ?? []).slice(0, 8).map(d => ({
+                  ...d,
+                  name: translateDisease(d.name)
+                }))}
                 layout="vertical"
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
@@ -467,7 +486,7 @@ export default function DashboardPage() {
         </section>
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
-            Distribusi Negara
+            {t("dashboard.countryDistribution")}
           </h2>
           <div className="mt-4 h-72">
             <ResponsiveContainer>
@@ -490,26 +509,27 @@ export default function DashboardPage() {
           </div>
         </section>
       </div>
+
       <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
-            Ringkasan Outbreak per Lokasi
+            {t("dashboard.summaryByLocation")}
           </h2>
           <span className="flex items-center gap-1 text-xs text-slate-400">
             <Clock3 className="h-3.5 w-3.5" />
-            {data ? new Date(data.updated_at).toLocaleString("id-ID") : "-"}
+            {data ? new Date(data.updated_at).toLocaleString(numLocale) : "-"}
           </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3">Lokasi</th>
-                <th className="px-4 py-3">Penyakit</th>
-                <th className="px-4 py-3 text-right">Kasus</th>
-                <th className="px-4 py-3 text-right">Kematian</th>
-                <th className="px-4 py-3 text-right">Confidence</th>
-                <th className="px-4 py-3 text-center">Status</th>
+                <th className="px-4 py-3">{t("dashboard.colLocation")}</th>
+                <th className="px-4 py-3">{t("dashboard.colDisease")}</th>
+                <th className="px-4 py-3 text-right">{t("dashboard.colCases")}</th>
+                <th className="px-4 py-3 text-right">{t("dashboard.colDeaths")}</th>
+                <th className="px-4 py-3 text-right">{t("dashboard.colConfidence")}</th>
+                <th className="px-4 py-3 text-center">{t("dashboard.colStatus")}</th>
               </tr>
             </thead>
             <tbody>
@@ -518,7 +538,7 @@ export default function DashboardPage() {
                   key={i}
                   onClick={() => setSelected(r)}
                   className="cursor-pointer border-t border-slate-100 transition hover:bg-teal-50/60"
-                  title="Klik untuk melihat detail analisis"
+                  title={t("dashboard.rowTooltip")}
                 >
                   <td className="px-4 py-3 font-semibold">
                     {r.location_name}
@@ -526,9 +546,9 @@ export default function DashboardPage() {
                       {r.country}
                     </span>
                   </td>
-                  <td className="px-4 py-3">{r.disease}</td>
+                  <td className="px-4 py-3">{translateDisease(r.disease)}</td>
                   <td className="px-4 py-3 text-right">
-                    {r.cases.toLocaleString("id-ID")}
+                    {r.cases.toLocaleString(numLocale)}
                   </td>
                   <td className="px-4 py-3 text-right">{r.deaths}</td>
                   <td className="px-4 py-3 text-right">
@@ -540,7 +560,7 @@ export default function DashboardPage() {
                     <span
                       className={`rounded-full px-2 py-1 text-[10px] font-black ${severityClass[r.severity]}`}
                     >
-                      {r.severity}
+                      {translateSeverity(r.severity)}
                     </span>
                   </td>
                 </tr>
@@ -549,6 +569,7 @@ export default function DashboardPage() {
           </table>
         </div>
       </section>
+
       {selected && (
         <div
           className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
@@ -563,23 +584,23 @@ export default function DashboardPage() {
                 <FileText className="mt-1 h-5 w-5 shrink-0 text-teal-600" />
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-teal-700">
-                    Detail Hasil Analisis
+                    {t("dashboard.modalTitle")}
                   </p>
                   <h2 className="mt-1 text-lg font-black text-slate-900">
-                    {selected.disease} — {selected.location_name}
+                    {translateDisease(selected.disease)} ? {selected.location_name}
                   </h2>
                   <p className="text-xs text-slate-500">
                     {selected.detail?.source_name ||
                       selected.detail?.source_type ||
-                      "Sumber terkoleksi"}{" "}
-                    · {selected.latest_date}
+                      t("dashboard.modalCollectedSource")}{" "}
+                    ? {selected.latest_date}
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setSelected(null)}
                 className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
-                aria-label="Tutup detail"
+                aria-label={t("dashboard.modalClose")}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -587,33 +608,33 @@ export default function DashboardPage() {
             <div className="space-y-5 p-5">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {[
-                  ["Penyakit", selected.disease],
-                  ["Lokasi", `${selected.location_name}, ${selected.country}`],
-                  ["Jumlah Kasus", selected.cases.toLocaleString("id-ID")],
-                  ["Kematian", selected.deaths.toLocaleString("id-ID")],
+                  [t("dashboard.labelDisease"), translateDisease(selected.disease)],
+                  [t("dashboard.labelLocation"), `${selected.location_name}, ${selected.country}`],
+                  [t("dashboard.labelTotalCases"), selected.cases.toLocaleString(numLocale)],
+                  [t("dashboard.labelDeaths"), selected.deaths.toLocaleString(numLocale)],
                   [
-                    "Confidence",
+                    t("dashboard.labelConfidence"),
                     selected.confidence == null
                       ? "-"
                       : `${Math.round(selected.confidence * 100)}%`,
                   ],
-                  ["Status EWS", selected.severity],
+                  [t("dashboard.labelEwsStatus"), translateSeverity(selected.severity)],
                   [
-                    "Tipe Kejadian",
+                    t("dashboard.labelEventType"),
                     selected.detail?.event_type?.replace(/_/g, " ") || "-",
                   ],
-                  ["Relevansi", selected.detail?.relevance_score || "-"],
-                  ["Sentimen", selected.detail?.sentiment || "-"],
+                  [t("dashboard.labelRelevance"), selected.detail?.relevance_score || "-"],
+                  [t("dashboard.labelSentiment"), selected.detail?.sentiment || "-"],
                   [
-                    "Health Related",
-                    selected.detail?.is_health_related ? "Ya" : "Tidak",
+                    t("dashboard.labelHealthRelated"),
+                    selected.detail?.is_health_related ? t("common.yes") : t("common.no"),
                   ],
                   [
-                    "Perlu Review",
-                    selected.detail?.needs_review ? "Ya" : "Tidak",
+                    t("dashboard.labelNeedsReview"),
+                    selected.detail?.needs_review ? t("common.yes") : t("common.no"),
                   ],
                   [
-                    "Kredibilitas",
+                    t("dashboard.labelCredibility"),
                     selected.detail?.source_credibility == null
                       ? "-"
                       : `${Math.round(Number(selected.detail.source_credibility) * 100)}%`,
@@ -637,7 +658,7 @@ export default function DashboardPage() {
                 <div className="grid gap-3 md:grid-cols-2">
                   <article className="rounded-xl border border-slate-200 bg-white p-4">
                     <p className="text-xs font-black uppercase text-slate-500">
-                      Gejala Terdeteksi
+                      {t("dashboard.eventModal.detectedSymptoms")}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {selected.detail?.symptoms?.map((item) => (
@@ -652,7 +673,7 @@ export default function DashboardPage() {
                   </article>
                   <article className="rounded-xl border border-slate-200 bg-white p-4">
                     <p className="text-xs font-black uppercase text-slate-500">
-                      Penyakit dari Konten
+                      {t("dashboard.eventModal.extractedDisease")}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {selected.detail?.disease_extracted?.map((item) => (
@@ -660,7 +681,7 @@ export default function DashboardPage() {
                           key={item}
                           className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-200"
                         >
-                          {item}
+                          {translateDisease(item)}
                         </span>
                       ))}
                     </div>
@@ -669,12 +690,12 @@ export default function DashboardPage() {
               ) : null}
               <article className="rounded-xl border border-teal-200 bg-teal-50/50 p-5">
                 <p className="text-xs font-black uppercase tracking-wider text-teal-800">
-                  Sumber Data
+                  {t("dashboard.eventModal.dataSource")}
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div>
                     <p className="text-[10px] font-bold uppercase text-slate-400">
-                      Nama Sumber
+                      {t("dashboard.eventModal.sourceName")}
                     </p>
                     <p className="mt-1 text-sm font-bold text-slate-800">
                       {selected.detail?.source_name || "-"}
@@ -682,7 +703,7 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <p className="text-[10px] font-bold uppercase text-slate-400">
-                      Tipe Sumber
+                      {t("dashboard.eventModal.sourceType")}
                     </p>
                     <p className="mt-1 text-sm font-bold text-slate-800">
                       {selected.detail?.source_type || "-"}
@@ -691,7 +712,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="mt-3 border-t border-teal-100 pt-3">
                   <p className="text-[10px] font-bold uppercase text-slate-400">
-                    URL Lengkap
+                    {t("dashboard.eventModal.fullUrl")}
                   </p>
                   {selected.detail?.url ? (
                     <a
@@ -705,7 +726,7 @@ export default function DashboardPage() {
                     </a>
                   ) : (
                     <p className="mt-1 text-xs text-slate-400">
-                      URL sumber tidak tersedia.
+                      {t("dashboard.eventModal.urlUnavailable")}
                     </p>
                   )}
                 </div>
@@ -713,7 +734,7 @@ export default function DashboardPage() {
               <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-black uppercase tracking-wider text-slate-500">
-                    Main Content Asli
+                    {t("dashboard.eventModal.originalContent")}
                   </p>
                   {selected.detail?.url && (
                     <a
@@ -722,12 +743,12 @@ export default function DashboardPage() {
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs font-bold text-teal-600 hover:underline"
                     >
-                      <ExternalLink className="h-3.5 w-3.5" /> Buka sumber
+                      <ExternalLink className="h-3.5 w-3.5" /> {t("dashboard.eventModal.openSource")}
                     </a>
                   )}
                 </div>
                 <p className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-slate-600">
-                  {cleanArticleContent(selected.detail?.content)}
+                  {cleanArticleContent(selected.detail?.content, t("dashboard.noSourceContent"))}
                 </p>
               </article>
             </div>

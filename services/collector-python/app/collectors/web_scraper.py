@@ -126,6 +126,19 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
     return title, content
 
 
+MONTH_MAP = {
+    # Indonesian / Malay
+    "januari": 1, "februari": 2, "maret": 3, "mac": 3, "april": 4, "mei": 5,
+    "juni": 6, "julai": 7, "juli": 7, "agustus": 8, "ogos": 8, "september": 9,
+    "oktober": 10, "november": 11, "nopember": 11, "desember": 12, "disember": 12,
+    # English
+    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+    # Short
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
 def _normalize_published_date(value: Any) -> str:
     """Normalize common publisher date formats to the DB DATE format."""
     if not value:
@@ -133,7 +146,7 @@ def _normalize_published_date(value: Any) -> str:
     raw = str(value).strip()
     if not raw:
         return ""
-    # ISO/RFC dates are the common case.  Keep this deliberately strict so a
+    # ISO/RFC dates are the common case. Keep this deliberately strict so a
     # page's update time or an arbitrary number is not stored as publication.
     match = re.search(r"(20\d{2}-\d{2}-\d{2})", raw)
     if match:
@@ -145,8 +158,49 @@ def _normalize_published_date(value: Any) -> str:
         return ""
 
 
-def _extract_published_at(html: str) -> str:
-    """Read publication time from metadata, not from article prose."""
+def _extract_date_from_url(url: str) -> str:
+    if not url:
+        return ""
+    # /2026/08/27/ or /2026-08-27-
+    m = re.search(r'/(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])[/-]', url)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    # /27-08-2026/ or /07-05-2026-
+    m = re.search(r'/(0?[1-9]|[12]\d|3[01])[-/](0?[1-9]|1[0-2])[-/](20\d{2})[/-]', url)
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    # /20260827/
+    m = re.search(r'[-/](20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[-/]', url)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return ""
+
+
+def _extract_date_from_text(text: str) -> str:
+    if not text:
+        return ""
+    sample = text[:800]
+    # ISO date: 2026-08-27 or 2026/08/27
+    m = re.search(r'\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b', sample)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    # Day Month Year: e.g. "27 Agustus 2026", "04 Maret 2026"
+    m = re.search(r'\b(0?[1-9]|[12]\d|3[01])\s+([A-Za-z]{3,12})\s+(20\d{2})\b', sample)
+    if m:
+        month_str = m.group(2).lower()
+        if month_str in MONTH_MAP:
+            return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(1)):02d}"
+    # Month Day, Year: e.g. "August 27, 2026"
+    m = re.search(r'\b([A-Za-z]{3,12})\s+(0?[1-9]|[12]\d|3[01]),?\s+(20\d{2})\b', sample)
+    if m:
+        month_str = m.group(1).lower()
+        if month_str in MONTH_MAP:
+            return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(2)):02d}"
+    return ""
+
+
+def _extract_published_at(html: str, url: str = "", text: str = "") -> str:
+    """Read publication time from metadata, falling back to URL slug and dateline."""
     from bs4 import BeautifulSoup
     from trafilatura import extract_metadata
 
@@ -183,6 +237,17 @@ def _extract_published_at(html: str) -> str:
         normalized = _normalize_published_date(candidate)
         if normalized:
             return normalized
+
+    # Fallback 1: Extract date from URL path
+    url_date = _extract_date_from_url(url)
+    if url_date:
+        return url_date
+
+    # Fallback 2: Extract date from text dateline
+    text_date = _extract_date_from_text(text)
+    if text_date:
+        return text_date
+
     return ""
 
 
@@ -204,7 +269,7 @@ class WebScraperCollector(BaseCollector):
             "fetch_mode": outcome.mode,
             "http_status": outcome.status,
             "source_country": _country_hint_from_url(url),
-            "published_at": _extract_published_at(outcome.html),
+            "published_at": _extract_published_at(outcome.html, url=url, text=content),
         }
 
     async def collect(self) -> CollectResult:
@@ -233,7 +298,7 @@ class WebScraperCollector(BaseCollector):
                     title, body_text = _extract_main_content(
                         outcome.html, title_selector=title_selector
                     )
-                    published_at = _extract_published_at(outcome.html)
+                    published_at = _extract_published_at(outcome.html, url=url, text=body_text)
                     text = f"{title}\n\n{body_text}" if title else body_text
                     url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
                     obj_path = f"web/{self.source['id']}/{url_hash}.html"

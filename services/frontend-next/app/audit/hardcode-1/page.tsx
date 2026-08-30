@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { Download } from 'lucide-react'
 
 const rawContent = `# HARDCORE AUDIT — List Hal yang Perlu DB-Driven
@@ -68,6 +69,7 @@ Prioritas  Item                     Effort   Status
      ✅ ALL ITEMS COMPLETED — 23-Jun-2026`
 
 export default function HardcodeAudit1Page() {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [lines] = useState(rawContent.split('\n'))
 
@@ -93,12 +95,12 @@ export default function HardcodeAudit1Page() {
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Hardcode Audit 1</h1>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.audit.hardcode1Title')}</h1>
           <p className="mt-1 text-sm text-slate-500">Daftar item yang perlu DB-driven — generated 19-Jun-2026, all completed 23-Jun-2026</p>
         </div>
         <button onClick={() => { navigator.clipboard.writeText(rawContent); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
-          <Download className="h-4 w-4" /> {copied ? 'Copied' : 'Copy'}
+          <Download className="h-4 w-4" /> {copied ? t('common.copied') : t('common.copy')}
         </button>
       </div>
 

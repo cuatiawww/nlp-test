@@ -301,9 +301,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     ]
     extracted = list(dict.fromkeys(extracted))
 
+    published_at = payload.published_at or extractors.extract_date_from_text(text)
+
     return AnalyzeResponse(
         language=language,
         normalized_text=extractors.normalize_text(text),
+        published_at=published_at,
         location_name=location,
         latitude=lat,
         longitude=lon,

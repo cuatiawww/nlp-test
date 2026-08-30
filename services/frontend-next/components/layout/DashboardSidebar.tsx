@@ -1,4 +1,4 @@
-"use client";
+'use client'
 
 import { Home, X } from "lucide-react";
 import Image from "next/image";
@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import type { SidebarGroup } from "@/lib/menu";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
+import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 type Props = {
   open: boolean;
@@ -14,10 +15,9 @@ type Props = {
   onClose: () => void;
 };
 
-const iconMap: Record<string, any> = {};
-
 export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
   const pathname = usePathname();
+  const { t } = useTranslation();
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
@@ -56,7 +56,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
               DISEASE SURVEILLANCE AI
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              Kementerian Kesehatan RI
+              {t("header.kemenkes")}
             </p>
           </div>
         </div>
@@ -64,54 +64,58 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
           type="button"
           onClick={onClose}
           className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-          aria-label="Tutup"
+          aria-label={t("common.close")}
         >
           <X className="h-5 w-5" />
         </button>
       </div>
       <nav className="h-[calc(100vh-80px)] space-y-5 overflow-y-auto px-3 py-4">
-        {menuGroups.map((group) => (
-          <section key={group.title}>
-            <p className="px-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
-              {group.title}
-            </p>
-            <div className="mt-2 space-y-1">
-              {group.items.map((item) => {
-                const Icon = item.icon || Home;
-                const active = isActive(item);
-                if (item.url) {
+        {menuGroups.map((group) => {
+          const groupTitle = group.titleKey ? t(group.titleKey) : group.title;
+          return (
+            <section key={group.title}>
+              <p className="px-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                {groupTitle}
+              </p>
+              <div className="mt-2 space-y-1">
+                {group.items.map((item) => {
+                  const Icon = item.icon || Home;
+                  const active = isActive(item);
+                  const itemLabel = item.labelKey ? t(item.labelKey) : item.label;
+                  if (item.url) {
+                    return (
+                      <a
+                        key={item.label}
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] text-slate-600 transition hover:bg-slate-50 hover:text-[#047D78]"
+                      >
+                        <Icon className="h-4 w-4" />
+                        {itemLabel}
+                      </a>
+                    );
+                  }
                   return (
-                    <a
+                    <Link
                       key={item.label}
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] text-slate-600 transition hover:bg-slate-50 hover:text-[#047D78]"
+                      href={item.href || "/"}
+                      onClick={onClose}
+                      className={`flex w-full items-center gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] transition ${
+                        active
+                          ? "rounded-l-none rounded-r-xl border-l-4 border-[#047D78] bg-teal-50/70 font-bold text-[#047D78]"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-[#047D78]"
+                      }`}
                     >
                       <Icon className="h-4 w-4" />
-                      {item.label}
-                    </a>
+                      {itemLabel}
+                    </Link>
                   );
-                }
-                return (
-                  <Link
-                    key={item.label}
-                    href={item.href || "/"}
-                    onClick={onClose}
-                    className={`flex w-full items-center gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] transition ${
-                      active
-                        ? "rounded-l-none rounded-r-xl border-l-4 border-[#047D78] bg-teal-50/70 font-bold text-[#047D78]"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-[#047D78]"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        ))}
+                })}
+              </div>
+            </section>
+          );
+        })}
       </nav>
     </aside>
   );

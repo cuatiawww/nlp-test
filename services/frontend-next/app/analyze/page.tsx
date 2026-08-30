@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { analyzeUrl } from '@/lib/api'
 import AnalyzeResultCard from '@/components/AnalyzeResultCard'
 import AseanMap from '@/components/AseanMap'
@@ -9,7 +10,7 @@ import { toast } from 'sonner'
 import {
   Search, Globe, MapPin, Bug, Activity, Heart, MessageSquare,
   AlertTriangle, Shield, Languages, Users, Skull, TrendingUp,
-  FileText, ExternalLink, CheckCircle, Loader2
+  FileText, ExternalLink, CheckCircle, Loader2, Calendar
 } from 'lucide-react'
 
 function sentimentBadge(s?: string | null) {
@@ -38,6 +39,7 @@ function healthBadge(h?: boolean | null) {
 }
 
 export default function AnalyzePage() {
+  const { t, translateDisease, translateSeverity } = useTranslation()
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
@@ -45,7 +47,7 @@ export default function AnalyzePage() {
 
   async function handleSubmit() {
     if (!url.trim()) {
-      toast.error('Masukkan URL terlebih dahulu')
+      toast.error(t('pages.analyze.urlRequired'))
       return
     }
     setLoading(true)
@@ -54,9 +56,9 @@ export default function AnalyzePage() {
     try {
       const data = await analyzeUrl(url.trim())
       setResult(data)
-      toast.success('Analisis selesai!')
+      toast.success(t('pages.analyze.done'))
     } catch (e: any) {
-      const msg = e?.message || 'Gagal menganalisis URL'
+      const msg = e?.message || t('pages.analyze.failed')
       setError(msg)
       toast.error(msg)
     } finally {
@@ -68,8 +70,8 @@ export default function AnalyzePage() {
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Analisis URL</h1>
-          <p className="mt-1 text-sm text-slate-500">Masukkan URL artikel berita untuk dianalisis NLP secara detail</p>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.analyze.title')}</h1>
+          <p className="mt-1 text-sm text-slate-500">{t('pages.analyze.subtitle')}</p>
         </div>
       </div>
 
@@ -91,7 +93,7 @@ export default function AnalyzePage() {
           className="flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          {loading ? 'Menganalisis...' : 'Analisis'}
+          {loading ? t('pages.analyze.analyzing') : t('pages.analyze.submit')}
         </button>
       </div>
 
@@ -104,13 +106,13 @@ export default function AnalyzePage() {
       {loading && (
         <div className="mt-8 flex flex-col items-center justify-center py-16 text-slate-400">
           <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
-          <p className="mt-3 text-sm">Mengambil halaman web dan menganalisis dengan NLP...</p>
+          <p className="mt-3 text-sm">{t('pages.analyze.analyzing')}</p>
         </div>
       )}
 
       {result && (
         <div className="mt-8 space-y-6">
-          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-700">Hasil Analisis</h2>
+          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-700">{t('dashboard.eventModal.title')}</h2>
 
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start gap-3">
@@ -121,7 +123,7 @@ export default function AnalyzePage() {
                 {result.url && (
                   <a href={result.url} target="_blank" rel="noopener noreferrer"
                     className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal-600 hover:text-teal-700 hover:underline">
-                    <ExternalLink className="h-3 w-3" /> Buka halaman asli
+                    <ExternalLink className="h-3 w-3" /> {t('dashboard.eventModal.openSource')}
                   </a>
                 )}
               </div>
@@ -135,6 +137,17 @@ export default function AnalyzePage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <AnalyzeResultCard
+              icon={<Calendar className="h-4 w-4" />}
+              label="Tanggal Publikasi"
+              value={
+                <span className="font-bold text-slate-900">
+                  {result.published_at || '- (Tidak tersedia)'}
+                </span>
+              }
+              source={result.sources?.published_at || ''}
+            />
+
             <AnalyzeResultCard
               icon={<Bug className="h-4 w-4" />}
               label="Penyakit (Klasifikasi)"
@@ -181,7 +194,7 @@ export default function AnalyzePage() {
 
             <AnalyzeResultCard
               icon={<Users className="h-4 w-4" />}
-              label="Jumlah Kasus"
+              label={t("dashboard.labelTotalCases")}
               value={
                 <div className="flex items-center gap-3">
                   <span className="text-2xl font-extrabold text-slate-900">{result.case_count}</span>
@@ -195,14 +208,14 @@ export default function AnalyzePage() {
 
             <AnalyzeResultCard
               icon={<MessageSquare className="h-4 w-4" />}
-              label="Sentimen"
+              label={t("dashboard.labelSentiment")}
               value={sentimentBadge(result.sentiment)}
               source={result.sources?.sentiment || ''}
             />
 
             <AnalyzeResultCard
               icon={<Activity className="h-4 w-4" />}
-              label="Tipe Kejadian"
+              label={t("dashboard.labelEventType")}
               value={
                 <span className="capitalize">{result.event_type?.replace(/_/g, ' ') || '-'}</span>
               }
@@ -225,7 +238,7 @@ export default function AnalyzePage() {
 
             <AnalyzeResultCard
               icon={<Shield className="h-4 w-4" />}
-              label="Kredibilitas Sumber"
+              label={t("dashboard.labelCredibility")}
               value={
                 <span>
                   {result.source_credibility != null ? `${(result.source_credibility * 100).toFixed(0)}%` : '-'}

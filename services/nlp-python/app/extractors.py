@@ -422,3 +422,39 @@ def extract_alias_diseases(text: str) -> list[str]:
     return sorted(set(
         value for key, value in DISEASE_ALIASES.items() if key in lower_text
     ))
+
+
+MONTH_MAP = {
+    # Indonesian / Malay
+    "januari": 1, "februari": 2, "maret": 3, "mac": 3, "april": 4, "mei": 5,
+    "juni": 6, "julai": 7, "juli": 7, "agustus": 8, "ogos": 8, "september": 9,
+    "oktober": 10, "november": 11, "nopember": 11, "desember": 12, "disember": 12,
+    # English
+    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+    # Short
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
+def extract_date_from_text(text: str) -> Optional[str]:
+    if not text:
+        return None
+    sample = text[:1000]
+    # ISO date: 2026-08-27 or 2026/08/27
+    m = re.search(r'\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b', sample)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    # Day Month Year: e.g. "27 Agustus 2026", "04 Maret 2026"
+    m = re.search(r'\b(0?[1-9]|[12]\d|3[01])\s+([A-Za-z]{3,12})\s+(20\d{2})\b', sample)
+    if m:
+        month_str = m.group(2).lower()
+        if month_str in MONTH_MAP:
+            return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(1)):02d}"
+    # Month Day, Year: e.g. "August 27, 2026"
+    m = re.search(r'\b([A-Za-z]{3,12})\s+(0?[1-9]|[12]\d|3[01]),?\s+(20\d{2})\b', sample)
+    if m:
+        month_str = m.group(1).lower()
+        if month_str in MONTH_MAP:
+            return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(2)):02d}"
+    return None
