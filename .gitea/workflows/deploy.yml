@@ -1,0 +1,50 @@
+# Gitea Actions — build & deploy otomatis NLP-Penyakit (KEMKES)
+# Trigger: push ke main → build image Docker → deploy stack di server (runner host mode)
+# Runner: act_runner di server nlp-abvc-dev (label: disease-deploy, host mode)
+# .env & model (services/nlp-python/models) TIDAK di repo — file lokal server, tidak disentuh.
+name: build-and-deploy
+run-name: "Deploy ${{ gitea.ref_name }} (${{ gitea.sha }})"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, disease-deploy]
+    concurrency:
+      group: nlp-penyakit-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync source ke folder deploy (tanpa .env & models)
+        run: |
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude 'services/nlp-python/models' \
+            "$GITHUB_WORKSPACE/" /home/nlpdev/docker/nlp-penyakit-git/
+
+      - name: Build image
+        run: docker compose -f docker-compose-prod.yml build
+        working-directory: /home/nlpdev/docker/nlp-penyakit-git
+
+      - name: Deploy stack
+        run: docker compose -f docker-compose-prod.yml up -d --remove-orphans
+        working-directory: /home/nlpdev/docker/nlp-penyakit-git
+
+      - name: Healthcheck backend
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8081/health >/dev/null 2>&1; then
+              echo "✅ Backend sehat"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Backend tidak sehat setelah 60 detik"
+          exit 1
+        working-directory: /home/nlpdev/docker/nlp-penyakit-git
