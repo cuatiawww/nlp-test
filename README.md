@@ -296,6 +296,13 @@ WORKER_SERVICE=worker-python \
 sh scripts/reanalyze_health.sh --dry-run --limit 20
 ```
 
+Untuk STG/production yang menggunakan `docker-compose.yml` dengan service
+`worker-python`, jalankan re-analysis seluruh data tanpa batas jumlah event:
+
+```bash
+COMPOSE_FILE=docker-compose.yml   WORKER_SERVICE=worker-python sh scripts/reanalyze_health.sh --batch-size 50
+```
+
 Setiap event diperbarui dalam transaksi terpisah. Jika satu event gagal,
 event lainnya tetap diproses; gunakan `--stop-on-error` jika diperlukan.
 
