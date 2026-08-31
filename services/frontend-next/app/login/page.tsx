@@ -1,11 +1,14 @@
 'use client'
 
 import { useState, Suspense } from 'react'
+import Image from 'next/image'
 import { Eye, EyeOff } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { loginUser } from '@/lib/api'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+
+const PUBLIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
 function LoginForm() {
   const router = useRouter()
@@ -34,17 +37,42 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-teal-50 to-slate-100 px-4">
-      <div className="relative w-full max-w-md rounded-2xl border border-teal-200 bg-white p-8 shadow-lg">
-        <div className="absolute right-6 top-6">
-          <LanguageSwitcher compact />
-        </div>
+    <div className="relative flex min-h-screen items-center justify-center px-4 overflow-hidden">
+      {/* Background cover image */}
+      <div className="absolute inset-0 z-0">
+        <Image
+          src={`${PUBLIC_BASE_PATH}/cover-login.webp`}
+          alt="Background"
+          fill
+          className="object-cover"
+          priority
+        />
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+      </div>
 
-        <div className="mb-6 text-center">
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">
-            {t('pages.login.title')}
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">{t('pages.login.subtitle')}</p>
+      {/* Language switcher */}
+      <div className="absolute right-6 top-6 z-20">
+        <LanguageSwitcher compact />
+      </div>
+
+      {/* Login card */}
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/20 bg-white/90 p-8 shadow-2xl backdrop-blur-xl">
+        {/* Logo */}
+        <div className="mb-6 flex flex-col items-center gap-3">
+          <Image
+            src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`}
+            alt="ABVC Logo"
+            width={180}
+            height={60}
+            className="h-16 w-auto object-contain"
+            priority
+          />
+          <div className="text-center">
+            <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">
+              {t('pages.login.title')}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">{t('pages.login.subtitle')}</p>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -56,7 +84,7 @@ function LoginForm() {
               type="text"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-100"
               required
             />
           </div>
@@ -69,7 +97,7 @@ function LoginForm() {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 pr-10 text-sm"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 pr-10 text-sm focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-100"
                 required
               />
               <button

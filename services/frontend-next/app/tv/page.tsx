@@ -90,7 +90,7 @@ export default function TvPage() {
           <Link href="/" className="grid h-9 w-9 place-items-center rounded-xl border border-teal-200 bg-teal-50 text-[#047D78] transition hover:bg-teal-100">
             <ArrowLeft className="h-4 w-4"/>
           </Link>
-          <Image src={`${PUBLIC_BASE_PATH}/Logo-Kemenkes.png`} alt="Kementerian Kesehatan RI" width={120} height={38} className="h-8 w-auto object-contain" priority/>
+          <Image src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`} alt="Kementerian Kesehatan RI" width={120} height={38} className="h-8 w-auto object-contain" priority/>
           <div className="h-7 w-px bg-slate-200"/>
           <div>
             <span className="block text-sm font-extrabold tracking-wider text-[#047D78]">

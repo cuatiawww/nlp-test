@@ -435,7 +435,27 @@
       "dataSaved": "Data Tersimpan",
       "savedDescription": "Hasil analisis telah disimpan ke database dan dapat dilihat di halaman Events.",
       "publishedDate": "Tanggal Publikasi",
-      "articleDescription": "Deskripsi / Ringkasan Berita"
+      "articleDescription": "Deskripsi / Ringkasan Berita",
+      "sources": {
+        "cached": "Data diambil dari database (hasil analisis sebelumnya)",
+        "title": "Diekstrak oleh Scrapling/Trafilatura dari judul artikel",
+        "content": "Main content bersih via collector",
+        "language": "Dideteksi oleh library Language Detection (langdetect)",
+        "location_name": "Dicocokkan dari database lokasi (tabel locations) berdasarkan penyebutan nama tempat dalam teks",
+        "symptoms": "Ditemukan melalui pencocokan kata kunci gejala dari database NLP Keywords (kategori 'symptom')",
+        "disease_extracted": "Ditemukan melalui pencocokan kata kunci penyakit dari database NLP Keywords (kategori 'disease')",
+        "disease_classification": "Diklasifikasikan oleh model AI XLM-RoBERTa menggunakan zero-shot classification dengan label penyakit dari database NLP Labels",
+        "case_count": "Diekstrak menggunakan pola regex: angka yang diikuti kata 'warga', 'pasien', 'kasus', atau 'residents'",
+        "death_count": "Diekstrak menggunakan pola regex: angka yang diikuti kata 'meninggal', 'death', atau 'deaths'",
+        "confidence": "Nilai confidence (keyakinan) dari model AI dalam mengklasifikasikan penyakit — semakin tinggi semakin yakin",
+        "outbreak_alert": "Ditentukan dengan membandingkan jumlah kasus terhadap threshold minimum di database Outbreak Rules untuk penyakit terkait",
+        "sentiment": "Diklasifikasikan oleh model AI XLM-RoBERTa dengan label sentimen: positive, negative, atau neutral",
+        "event_type": "Diklasifikasikan oleh model AI XLM-RoBERTa dengan label tipe kejadian dari database NLP Labels (kategori 'event_type')",
+        "relevance_score": "Diklasifikasikan oleh model AI XLM-RoBERTa apakah teks terkait kesehatan (health) atau tidak",
+        "source_credibility": "Skor kredibilitas berdasarkan tipe sumber dari database Source Credibility. Tipe 'web' memiliki skor default 0.50",
+        "published_at": "Diekstrak dari metadata artikel web (meta tag og:published_time, JSON-LD, URL path, atau dateline artikel)",
+        "is_health_related": "Diklasifikasikan oleh model AI XLM-RoBERTa apakah artikel terkait pemantauan penyakit/kesehatan"
+      }
     },
     "processing": {
       "title": "Processing Monitor",

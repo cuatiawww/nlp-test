@@ -50,7 +50,7 @@ export default function DashboardHeader({
               className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:gap-5"
             >
               <Image
-                src={`${PUBLIC_BASE_PATH}/Logo-Kemenkes.png`}
+                src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`}
                 alt="Logo Kemenkes"
                 width={170}
                 height={62}

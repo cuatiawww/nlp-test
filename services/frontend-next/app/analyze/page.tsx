@@ -20,6 +20,21 @@ export default function AnalyzePage() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
   const [error, setError] = useState('')
 
+  const getSource = (key: string, rawSource?: string): string => {
+    if (!rawSource) return ''
+    if (
+      rawSource.includes('Data diambil dari database') ||
+      rawSource.includes('Data retrieved from database')
+    ) {
+      return t('pages.analyze.sources.cached')
+    }
+    const translated = t(`pages.analyze.sources.${key}`)
+    if (translated && translated !== `pages.analyze.sources.${key}`) {
+      return translated
+    }
+    return rawSource
+  }
+
   function sentimentBadge(s?: string | null) {
     if (!s || s.toLowerCase() === 'neutral') return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">{t('sentiment.neutral')}</span>
     if (s.toLowerCase() === 'positive') return <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">{t('sentiment.positive')}</span>
@@ -145,7 +160,7 @@ export default function AnalyzePage() {
                       <FileText className="h-3.5 w-3.5 text-teal-600" />
                       <span>{t('pages.analyze.articleDescription')}</span>
                     </div>
-                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line line-clamp-4 hover:line-clamp-none transition-all cursor-pointer" title="Klik untuk melihat seluruh cuplikan teks berita">
+                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line line-clamp-4 hover:line-clamp-none transition-all cursor-pointer" title="Click to view full news article excerpt">
                       {result.content}
                     </p>
                   </div>
@@ -159,7 +174,7 @@ export default function AnalyzePage() {
               icon={<Bug className="h-4 w-4" />}
               label={t('pages.analyze.diseaseClassification')}
               value={translateDisease(result.disease_classification) || '-'}
-              source={result.sources?.disease_classification || result.sources?.disease || ''}
+              source={getSource('disease_classification', result.sources?.disease_classification || result.sources?.disease)}
             />
 
             <AnalyzeResultCard
@@ -167,10 +182,10 @@ export default function AnalyzePage() {
               label={t('pages.analyze.publishedDate')}
               value={
                 <span className="font-semibold text-slate-900">
-                  {result.published_at || '- (' + t('common.noData') + ')'}
+                  {result.published_at || '-'}
                 </span>
               }
-              source={result.sources?.published_at || ''}
+              source={getSource('published_at', result.sources?.published_at)}
             />
 
             <AnalyzeResultCard
@@ -178,11 +193,11 @@ export default function AnalyzePage() {
               label={t("dashboard.labelLocation")}
               value={
                 <div className="space-y-1">
-                  <div className="font-semibold text-slate-900">
-                    {result.location_name || '-'}
-                    {result.country && <span className="ml-1 text-xs text-slate-500 font-normal">({result.country})</span>}
+                  <div>
+                    <span className="font-bold text-slate-900">{result.location_name || '-'}</span>
+                    {result.country && <span className="ml-1 text-xs font-normal text-slate-400">({result.country})</span>}
                   </div>
-                  {result.locations && result.locations.length > 1 && (
+                  {result.locations && result.locations.length > 0 && (
                     <div className="flex flex-wrap gap-1 pt-1">
                       {result.locations
                         .filter((l) => l.name !== result.location_name)
@@ -190,7 +205,7 @@ export default function AnalyzePage() {
                         .map((loc, idx) => (
                           <span
                             key={idx}
-                            className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200"
+                            className="inline-flex items-center gap-1 rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-medium text-teal-700 ring-1 ring-inset ring-teal-600/20"
                             title={`Lat: ${loc.latitude?.toFixed(4)}, Lon: ${loc.longitude?.toFixed(4)}`}
                           >
                             <MapPin className="h-2.5 w-2.5 text-teal-600" />
@@ -206,7 +221,7 @@ export default function AnalyzePage() {
                   )}
                 </div>
               }
-              source={result.sources?.location_name || ''}
+              source={getSource('location_name', result.sources?.location_name)}
             />
 
             <AnalyzeResultCard
@@ -220,14 +235,14 @@ export default function AnalyzePage() {
                   </span>
                 </div>
               }
-              source={result.sources?.case_count || ''}
+              source={getSource('case_count', result.sources?.case_count)}
             />
 
             <AnalyzeResultCard
               icon={<MessageSquare className="h-4 w-4" />}
               label={t("dashboard.labelSentiment")}
               value={sentimentBadge(result.sentiment)}
-              source={result.sources?.sentiment || ''}
+              source={getSource('sentiment', result.sources?.sentiment)}
             />
 
             <AnalyzeResultCard
@@ -236,21 +251,21 @@ export default function AnalyzePage() {
               value={
                 <span className="capitalize">{result.event_type?.replace(/_/g, ' ') || '-'}</span>
               }
-              source={result.sources?.event_type || ''}
+              source={getSource('event_type', result.sources?.event_type)}
             />
 
             <AnalyzeResultCard
               icon={<TrendingUp className="h-4 w-4" />}
               label={t('pages.analyze.healthRelevance')}
               value={relevanceBadge(result.relevance_score)}
-              source={result.sources?.relevance_score || ''}
+              source={getSource('relevance_score', result.sources?.relevance_score)}
             />
 
             <AnalyzeResultCard
               icon={<AlertTriangle className="h-4 w-4" />}
               label={t('pages.analyze.outbreakAlert')}
               value={alertBadge(result.outbreak_alert)}
-              source={result.sources?.outbreak_alert || ''}
+              source={getSource('outbreak_alert', result.sources?.outbreak_alert)}
             />
 
             <AnalyzeResultCard
@@ -261,14 +276,14 @@ export default function AnalyzePage() {
                   {result.source_credibility != null ? `${(result.source_credibility * 100).toFixed(0)}%` : '-'}
                 </span>
               }
-              source={result.sources?.source_credibility || ''}
+              source={getSource('source_credibility', result.sources?.source_credibility)}
             />
 
             <AnalyzeResultCard
               icon={<Heart className="h-4 w-4" />}
               label={t('pages.analyze.healthRelated')}
               value={healthBadge(result.is_health_related)}
-              source={result.sources?.is_health_related || ''}
+              source={getSource('is_health_related', result.sources?.is_health_related)}
             />
           </div>
 
@@ -312,7 +327,7 @@ export default function AnalyzePage() {
                 <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-xs leading-relaxed text-slate-500">{result.sources?.symptoms || ''}</p>
+                <p className="text-xs leading-relaxed text-slate-500">{getSource('symptoms', result.sources?.symptoms)}</p>
               </div>
             </div>
           )}
@@ -326,13 +341,13 @@ export default function AnalyzePage() {
               <div>
                 <span className="text-xs text-slate-500">{t('pages.analyze.language')}</span>
                 <p className="text-sm font-semibold text-slate-900">{result.language || '-'}</p>
-                <p className="mt-0.5 text-xs text-slate-400">{result.sources?.language || ''}</p>
+                <p className="mt-0.5 text-xs text-slate-400">{getSource('language', result.sources?.language)}</p>
               </div>
               {result.disease_extracted && result.disease_extracted.length > 0 && (
                 <div>
                   <span className="text-xs text-slate-500">{t('pages.analyze.diseaseKeyword')}</span>
                   <p className="text-sm font-semibold text-slate-900">{result.disease_extracted.join(', ')}</p>
-                  <p className="mt-0.5 text-xs text-slate-400">{result.sources?.disease_extracted || ''}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">{getSource('disease_extracted', result.sources?.disease_extracted)}</p>
                 </div>
               )}
             </div>

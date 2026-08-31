@@ -44,7 +44,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
             <Image
-              src={`${PUBLIC_BASE_PATH}/Logo-Kemenkes.png`}
+              src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`}
               alt="Logo Kementerian Kesehatan"
               width={38}
               height={38}

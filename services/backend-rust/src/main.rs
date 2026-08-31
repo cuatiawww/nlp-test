@@ -1,4 +1,4 @@
-use axum::{
+﻿use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post, put},
@@ -894,7 +894,7 @@ async fn analyze_url(
         let raw_report_id: Uuid = row.get("raw_report_id");
 
         let mut sources = serde_json::Map::new();
-        let cached_msg = "Data diambil dari database (hasil analisis sebelumnya)";
+        let cached_msg = "Data retrieved from database (previous analysis result)";
         sources.insert("title".to_string(), json!(cached_msg));
         sources.insert("content".to_string(), json!(cached_msg));
         sources.insert("language".to_string(), json!(cached_msg));
@@ -1224,26 +1224,26 @@ async fn analyze_url(
     }
 
     let mut sources = serde_json::Map::new();
-    sources.insert("title".to_string(), json!("Diekstrak oleh Scrapling/Trafilatura dari judul artikel"));
+    sources.insert("title".to_string(), json!("Extracted by Scrapling/Trafilatura from article title"));
     sources.insert("content".to_string(), json!(format!(
-        "Main content bersih via collector (mode: {}, HTTP: {})",
+        "Clean main content extracted via collector (mode: {}, HTTP: {})",
         fetch_mode.as_deref().unwrap_or("unknown"),
         http_status.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string())
     )));
-    sources.insert("language".to_string(), json!("Dideteksi oleh library Language Detection (langdetect)"));
-    sources.insert("location_name".to_string(), json!("Dicocokkan dari database lokasi (tabel locations) berdasarkan penyebutan nama tempat dalam teks"));
-    sources.insert("symptoms".to_string(), json!("Ditemukan melalui pencocokan kata kunci gejala dari database NLP Keywords (kategori 'symptom')"));
-    sources.insert("disease_extracted".to_string(), json!("Ditemukan melalui pencocokan kata kunci penyakit dari database NLP Keywords (kategori 'disease')"));
-    sources.insert("disease_classification".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa menggunakan zero-shot classification dengan label penyakit dari database NLP Labels"));
-    sources.insert("case_count".to_string(), json!("Diekstrak menggunakan pola regex: angka yang diikuti kata 'warga', 'pasien', 'kasus', atau 'residents'"));
-    sources.insert("death_count".to_string(), json!("Diekstrak menggunakan pola regex: angka yang diikuti kata 'meninggal', 'death', atau 'deaths'"));
-    sources.insert("confidence".to_string(), json!("Nilai confidence (keyakinan) dari model AI dalam mengklasifikasikan penyakit — semakin tinggi semakin yakin"));
-    sources.insert("outbreak_alert".to_string(), json!("Ditentukan dengan membandingkan jumlah kasus terhadap threshold minimum di database Outbreak Rules untuk penyakit terkait"));
-    sources.insert("sentiment".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa dengan label sentimen: positive, negative, atau neutral"));
-    sources.insert("event_type".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa dengan label tipe kejadian dari database NLP Labels (kategori 'event_type')"));
-    sources.insert("relevance_score".to_string(), json!("Diklasifikasikan oleh model AI XLM-RoBERTa apakah teks terkait kesehatan (health) atau tidak"));
-    sources.insert("source_credibility".to_string(), json!("Skor kredibilitas berdasarkan tipe sumber dari database Source Credibility. Tipe 'web' memiliki skor default 0.50"));
-    sources.insert("published_at".to_string(), json!("Diekstrak dari metadata artikel web (meta tag og:published_time, JSON-LD, URL path, atau dateline artikel)"));
+    sources.insert("language".to_string(), json!("Detected by Language Detection library (langdetect)"));
+    sources.insert("location_name".to_string(), json!("Matched from geographic database (locations table) based on place name mentions in text"));
+    sources.insert("symptoms".to_string(), json!("Identified via symptom keyword matching from NLP Keywords database ('symptom' category)"));
+    sources.insert("disease_extracted".to_string(), json!("Identified via disease keyword matching from NLP Keywords database ('disease' category)"));
+    sources.insert("disease_classification".to_string(), json!("Classified by XLM-RoBERTa AI model using zero-shot classification with disease labels from NLP Labels database"));
+    sources.insert("case_count".to_string(), json!("Extracted using regex patterns: numeric count followed by terms like 'cases', 'patients', or 'residents'"));
+    sources.insert("death_count".to_string(), json!("Extracted using regex patterns: numeric count followed by terms like 'deaths' or 'fatalities'"));
+    sources.insert("confidence".to_string(), json!("Confidence score from the AI classification model — higher indicates higher certainty"));
+    sources.insert("outbreak_alert".to_string(), json!("Determined by comparing case count against the minimum threshold in Outbreak Rules database for the respective disease"));
+    sources.insert("sentiment".to_string(), json!("Classified by XLM-RoBERTa AI model with sentiment labels: positive, negative, or neutral"));
+    sources.insert("event_type".to_string(), json!("Classified by XLM-RoBERTa AI model with event type labels from NLP Labels database ('event_type' category)"));
+    sources.insert("relevance_score".to_string(), json!("Classified by XLM-RoBERTa AI model whether text is health-related or not"));
+    sources.insert("source_credibility".to_string(), json!("Credibility score based on source type from Source Credibility database. Type 'web' defaults to 0.50"));
+    sources.insert("published_at".to_string(), json!("Extracted from article web metadata (og:published_time meta tag, JSON-LD, URL path, or article dateline)"));
 
     Ok(Json(ApiResponse {
         success: true,

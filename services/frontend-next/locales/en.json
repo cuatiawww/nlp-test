@@ -435,7 +435,27 @@
       "dataSaved": "Data Saved",
       "savedDescription": "Analysis result has been saved to the database and can be viewed on the Events page.",
       "publishedDate": "Published Date",
-      "articleDescription": "Article Summary / Description"
+      "articleDescription": "Article Summary / Description",
+      "sources": {
+        "cached": "Data retrieved from database (previous analysis result)",
+        "title": "Extracted by Scrapling/Trafilatura from article title",
+        "content": "Clean main content extracted via collector",
+        "language": "Detected by Language Detection library (langdetect)",
+        "location_name": "Matched from geographic database (locations table) based on place name mentions in text",
+        "symptoms": "Identified via symptom keyword matching from NLP Keywords database ('symptom' category)",
+        "disease_extracted": "Identified via disease keyword matching from NLP Keywords database ('disease' category)",
+        "disease_classification": "Classified by XLM-RoBERTa AI model using zero-shot classification with disease labels from NLP Labels database",
+        "case_count": "Extracted using regex patterns: numeric count followed by terms like 'cases', 'patients', or 'residents'",
+        "death_count": "Extracted using regex patterns: numeric count followed by terms like 'deaths' or 'fatalities'",
+        "confidence": "Confidence score from the AI classification model — higher indicates higher certainty",
+        "outbreak_alert": "Determined by comparing case count against the minimum threshold in Outbreak Rules database for the respective disease",
+        "sentiment": "Classified by XLM-RoBERTa AI model with sentiment labels: positive, negative, or neutral",
+        "event_type": "Classified by XLM-RoBERTa AI model with event type labels from NLP Labels database ('event_type' category)",
+        "relevance_score": "Classified by XLM-RoBERTa AI model whether text is health-related or not",
+        "source_credibility": "Credibility score based on source type from Source Credibility database. Type 'web' defaults to 0.50",
+        "published_at": "Extracted from article web metadata (og:published_time meta tag, JSON-LD, URL path, or article dateline)",
+        "is_health_related": "Classified by XLM-RoBERTa AI model whether article is related to human disease/health surveillance"
+      }
     },
     "processing": {
       "title": "Processing Monitor",
