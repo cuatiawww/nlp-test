@@ -5,6 +5,7 @@
 
 .docker-compose.yml
 docker-compose.yml
+docker-compose-prod.override.yml
 # ─── Node.js / Next.js ────────────────────────────
 node_modules/
 .next/
