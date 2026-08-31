@@ -1,6 +1,7 @@
 # Gitea Actions — build & deploy otomatis NLP-Penyakit (KEMKES)
 # Trigger: push ke main → build image Docker → deploy stack di server (runner host mode)
-# Runner: act_runner di server nlp-abvc-dev (label: disease-deploy, host mode)
+# Runner: act_runner (gitea-runner) di server nlp-abvc-dev, label: disease-deploy (host)
+# Catatan: host mode → tidak pakai actions JS (checkout manual via git + gitea.token)
 # .env & model (services/nlp-python/models) TIDAK di repo — file lokal server, tidak disentuh.
 name: build-and-deploy
 run-name: "Deploy ${{ gitea.ref_name }} (${{ gitea.sha }})"
@@ -18,7 +19,12 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          rm -rf ./* 2>/dev/null || true
+          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" \
+            clone --depth 1 --branch "${{ gitea.ref_name }}" \
+            https://gitea.mediaciptainformasi.co.id/KEMKES/NLP-PENYAKIT.git .
 
       - name: Sync source ke folder deploy (tanpa .env & models)
         run: |
