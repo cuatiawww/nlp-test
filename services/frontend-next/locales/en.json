@@ -433,7 +433,9 @@
       "language": "Language",
       "diseaseKeyword": "Disease (Keyword)",
       "dataSaved": "Data Saved",
-      "savedDescription": "Analysis result has been saved to the database and can be viewed on the Events page."
+      "savedDescription": "Analysis result has been saved to the database and can be viewed on the Events page.",
+      "publishedDate": "Published Date",
+      "articleDescription": "Article Summary / Description"
     },
     "processing": {
       "title": "Processing Monitor",

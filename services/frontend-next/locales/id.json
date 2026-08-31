@@ -433,7 +433,9 @@
       "language": "Bahasa",
       "diseaseKeyword": "Penyakit (Keyword)",
       "dataSaved": "Data Tersimpan",
-      "savedDescription": "Hasil analisis telah disimpan ke database dan dapat dilihat di halaman Events."
+      "savedDescription": "Hasil analisis telah disimpan ke database dan dapat dilihat di halaman Events.",
+      "publishedDate": "Tanggal Publikasi",
+      "articleDescription": "Deskripsi / Ringkasan Berita"
     },
     "processing": {
       "title": "Processing Monitor",

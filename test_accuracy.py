@@ -158,6 +158,20 @@ test_cases = [
         },
         "note": "Memastikan artikel portal RS berhasil di-crawl tanpa timeout, judul lengkap, tanggal akurat 2025-05-26, dan tanpa kebocoran lokasi 'Sarang'"
     },
+    {
+        "id": 14,
+        "name": "BUG-10: RS Roemani — Verifikasi Tanggal Publikasi & Deskripsi Konten di Analyze Page",
+        "url": "https://rsroemani.com/artikel/kasus-campak-2026-di-indonesia-melonjak-puluhan-klb-terjadi-kenali-gejala-dan-pencegahannya",
+        "expect": {
+            "published_at": "2026-03-04",
+            "country": "Indonesia",
+            "disease_classification": "Campak",
+            "is_health_related": True,
+            "content": lambda v: v is not None and len(v) > 100,
+        },
+        "note": "BUG-10: Memastikan tanggal publikasi (2026-03-04) dan konten artikel (len>100) diekstrak dengan benar untuk ditampilkan di halaman analisis"
+    },
+
 ]
 
 

@@ -116,38 +116,61 @@ export default function AnalyzePage() {
 
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start gap-3">
-              <FileText className="mt-0.5 h-5 w-5 text-teal-600" />
+              <FileText className="mt-0.5 h-5 w-5 text-teal-600 shrink-0" />
               <div className="min-w-0 flex-1">
                 <h3 className="text-lg font-bold text-slate-900 leading-snug">{result.title || url}</h3>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                   <span className="flex items-center gap-1">
-                    <Globe className="h-3.5 w-3.5" />
+                    <Globe className="h-3.5 w-3.5 text-slate-400" />
                     {(result as any).source_name || new URL(url).hostname}
                   </span>
-                  <span className="flex items-center gap-1 font-medium text-slate-600">
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-teal-800 bg-teal-50 px-2.5 py-0.5 rounded-md border border-teal-200">
                     <Calendar className="h-3.5 w-3.5 text-teal-600" />
-                    {result.published_at || '- (' + t('common.noData') + ')'}
+                    <span>{t('pages.analyze.publishedDate')}: {result.published_at || '- (' + t('common.noData') + ')'}</span>
                   </span>
                   <a
                     href={url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-teal-600 hover:text-teal-700 hover:underline"
+                    className="flex items-center gap-1 text-teal-600 hover:text-teal-700 hover:underline font-medium"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     {t('dashboard.labelOpenOriginal')}
                   </a>
                 </div>
+
+                {result.content && (
+                  <div className="mt-4 rounded-lg bg-slate-50 p-4 border border-slate-200/80">
+                    <div className="flex items-center gap-1.5 mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+                      <FileText className="h-3.5 w-3.5 text-teal-600" />
+                      <span>{t('pages.analyze.articleDescription')}</span>
+                    </div>
+                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line line-clamp-4 hover:line-clamp-none transition-all cursor-pointer" title="Klik untuk melihat seluruh cuplikan teks berita">
+                      {result.content}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <AnalyzeResultCard
               icon={<Bug className="h-4 w-4" />}
               label={t('pages.analyze.diseaseClassification')}
               value={translateDisease(result.disease_classification) || '-'}
               source={result.sources?.disease_classification || result.sources?.disease || ''}
+            />
+
+            <AnalyzeResultCard
+              icon={<Calendar className="h-4 w-4" />}
+              label={t('pages.analyze.publishedDate')}
+              value={
+                <span className="font-semibold text-slate-900">
+                  {result.published_at || '- (' + t('common.noData') + ')'}
+                </span>
+              }
+              source={result.sources?.published_at || ''}
             />
 
             <AnalyzeResultCard
