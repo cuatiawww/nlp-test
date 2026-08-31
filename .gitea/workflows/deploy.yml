@@ -32,16 +32,16 @@ jobs:
           rsync -a --delete \
             --exclude '.git' \
             --exclude '.env' \
-            --exclude 'docker-compose.override.yml' \
+            --exclude 'docker-compose-prod.override.yml' \
             --exclude 'services/nlp-python/models' \
             "$GITHUB_WORKSPACE/" /home/nlpdev/docker/nlp-penyakit-git/
 
       - name: Build image
-        run: docker compose -f docker-compose-prod.yml build
+        run: docker compose -f docker-compose-prod.yml -f docker-compose-prod.override.yml build
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
 
       - name: Deploy stack
-        run: docker compose -f docker-compose-prod.yml up -d --remove-orphans
+        run: docker compose -f docker-compose-prod.yml -f docker-compose-prod.override.yml up -d --remove-orphans
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
 
       - name: Healthcheck backend
