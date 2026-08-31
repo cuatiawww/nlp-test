@@ -303,6 +303,18 @@ Untuk STG/production yang menggunakan `docker-compose.yml` dengan service
 COMPOSE_FILE=docker-compose.yml   WORKER_SERVICE=worker-python sh scripts/reanalyze_health.sh --batch-size 50
 ```
 
+Jika container `disease-worker-python` sudah berjalan, gunakan command berikut
+agar tidak membuat container worker sementara. Sinkronisasi DeepSeek/WHO
+dilewati dan seluruh event health diproses:
+
+```bash
+docker exec disease-worker-python \
+  python -m app.reanalyze_health \
+  --skip-who-sync \
+  --batch-size 50 \
+  --stop-on-error
+```
+
 Setiap event diperbarui dalam transaksi terpisah. Jika satu event gagal,
 event lainnya tetap diproses; gunakan `--stop-on-error` jika diperlukan.
 
