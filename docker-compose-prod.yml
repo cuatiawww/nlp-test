@@ -13,7 +13,10 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      # check_port_connectivity: pastikan listener AMQP 5672 benar-benar
+      # siap (ping via Erlang bisa sukses sebelum port AMQP bind → race
+      # backend crash "Connection refused"). Pola terbukti di nlp-bencana.
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_port_connectivity"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -100,6 +103,8 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_healthy
+      minio:
+        condition: service_started
     networks:
       - default
       - db_db
