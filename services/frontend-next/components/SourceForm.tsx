@@ -56,12 +56,12 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Nama</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colName')}</label>
         <input value={name} onChange={e => setName(e.target.value)} required
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Tipe</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colType')}</label>
         <select value={sourceType} onChange={e => setSourceType(e.target.value)}
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
           <option value="rss">RSS</option>
@@ -77,17 +77,17 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
         </label>
         <input value={url} onChange={e => setUrl(e.target.value)}
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono text-xs"
-          placeholder={sourceType === 'web' ? 'URL atau {"url":"...","title_selector":"h1","body_selector":"article"}' : 'https://...'} />
+          placeholder={sourceType === 'web' ? 'URL or {"url":"...","title_selector":"h1","body_selector":"article"}' : 'https://...'} />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Schedule</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colFrequency')}</label>
         <input value={schedule} onChange={e => setSchedule(e.target.value)} placeholder="interval:60"
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
       {isEdit && (
         <div className="flex items-center gap-2">
           <input type="checkbox" id="enabled" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="h-4 w-4" />
-          <label htmlFor="enabled" className="text-xs font-semibold uppercase text-slate-500">Aktif</label>
+          <label htmlFor="enabled" className="text-xs font-semibold uppercase text-slate-500">{t('common.active')}</label>
         </div>
       )}
       <div className="flex justify-end gap-2 pt-2">

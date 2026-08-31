@@ -1,6 +1,7 @@
 'use client'
 
 import { useTranslation } from '@/lib/i18n/LanguageContext'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function Pagination({ page, totalPages, total, onPrev, onNext, onGoTo }: {
   page: number
@@ -31,25 +32,25 @@ export default function Pagination({ page, totalPages, total, onPrev, onNext, on
         {t('common.paginationInfo', { total, page, totalPages: pg })}
       </span>
       <div className="flex items-center gap-1">
-        <button onClick={onPrev} disabled={page <= 1}
-          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-          ?
+        <button onClick={onPrev} disabled={page <= 1} aria-label={t('common.prev')}
+          className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+          <ChevronLeft className="h-4 w-4" />
         </button>
         {pages.map((p, i) =>
           typeof p === 'string' ? (
             <span key={`e${i}`} className="px-1 text-xs text-slate-400">...</span>
           ) : (
             <button key={p} onClick={() => onGoTo(p)}
-              className={`min-w-[28px] rounded-lg px-2 py-1.5 text-xs font-semibold transition ${
+              className={`min-w-[28px] h-7 rounded-lg px-2 text-xs font-semibold transition ${
                 p === page ? 'bg-teal-600 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
               }`}>
               {p}
             </button>
           )
         )}
-        <button onClick={onNext} disabled={page >= pg}
-          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-          ?
+        <button onClick={onNext} disabled={page >= pg} aria-label={t('common.next')}
+          className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+          <ChevronRight className="h-4 w-4" />
         </button>
       </div>
     </div>

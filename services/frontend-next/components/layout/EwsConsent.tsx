@@ -68,7 +68,7 @@ export default function EwsConsent(){
       try{
         const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.lat}&lon=${coords.lng}&zoom=10`);
         if(r.ok){
-          const j=await r.json(),a=j.address||{},n=a.city||a.town||a.county||a.state||'Lokasi Anda';
+          const j=await r.json(),a=j.address||{},n=a.city||a.town||a.county||a.state||t('ews.yourLocation');
           localStorage.setItem(LOCATION,n);
           setName(n)
         }
@@ -106,7 +106,7 @@ export default function EwsConsent(){
             <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"/>
             <span className="relative h-2 w-2 rounded-full bg-emerald-500"/>
           </span>
-          {t('ews.activeBadge')} {name?`? ${name}`:''}
+          {t('ews.activeBadge')} {name?`• ${name}`:''}
         </div>
       );
     }

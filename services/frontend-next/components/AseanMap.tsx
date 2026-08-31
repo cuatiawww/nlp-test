@@ -540,14 +540,14 @@ export default function AseanMap({
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
           <div>
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Pemetaan Media Monitoring Kawasan Asia Tenggara
+              {t("map.monitoringTitle")}
             </span>
             {result && (
               <span className="ml-2 text-xs text-slate-400">
                 {result.locations && result.locations.length > 1
-                  ? `📍 ${result.locations.length} Lokasi Terpetakan`
+                  ? `📍 ${result.locations.length} ${t("map.mappedLocations")}`
                   : result.latitude != null
-                  ? `📍 ${result.location_name || "Lokasi"}`
+                  ? `📍 ${result.location_name || t("dashboard.labelLocation")}`
                   : result.country
                     ? `🌏 ${result.country}`
                     : ""}
@@ -573,10 +573,10 @@ export default function AseanMap({
       {countryData && !hideLegend && (
         <div className="pointer-events-none absolute bottom-3 left-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg">
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-            Legenda
+            {t("map.legend")}
           </p>
           <p className="mt-0.5 text-[9px] text-slate-400">
-            Jumlah kasus per negara
+            {t("map.casesPerCountry")}
           </p>
           <ul className="mt-2 space-y-1.5">
             <li className="flex items-center gap-2 text-[10px] text-slate-600">
@@ -604,7 +604,7 @@ export default function AseanMap({
               <MapPin className="h-4 w-4 shrink-0 text-white/80" />
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-white/80">
-                  Negara Dipilih
+                  {t("map.selectedCountry")}
                 </p>
                 <h4 className="text-sm font-extrabold leading-tight text-white">
                   {selected.name}
@@ -683,7 +683,7 @@ export default function AseanMap({
           onClick={resetView}
           className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50"
           aria-label="Reset"
-          title="Reset tampilan"
+          title={t("map.resetView")}
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>

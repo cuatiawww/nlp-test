@@ -17,18 +17,18 @@ export type SidebarGroup = {
 
 export const sidebarMenu: SidebarGroup[] = [
   {
-    title: 'PEMANTAUAN',
+    title: 'MONITORING',
     titleKey: 'sidebar.sections.monitoring',
     items: [
-      { label: 'Beranda', labelKey: 'sidebar.items.home', icon: Home, href: '/' },
-      { label: 'Sumber Data', labelKey: 'sidebar.items.sources', icon: Radio, href: '/sources' },
+      { label: 'Home', labelKey: 'sidebar.items.home', icon: Home, href: '/' },
+      { label: 'Data Sources', labelKey: 'sidebar.items.sources', icon: Radio, href: '/sources' },
       { label: 'Events', labelKey: 'sidebar.items.events', icon: Database, href: '/events' },
-      { label: 'Analisis URL', labelKey: 'sidebar.items.analyze', icon: Search, href: '/analyze' },
+      { label: 'URL Analysis', labelKey: 'sidebar.items.analyze', icon: Search, href: '/analyze' },
       { label: 'Processing', labelKey: 'sidebar.items.processing', icon: Activity, href: '/processing' },
     ],
   },
   {
-    title: 'KONFIGURASI',
+    title: 'CONFIGURATION',
     titleKey: 'sidebar.sections.configuration',
     items: [
       { label: 'Locations', labelKey: 'sidebar.items.locations', icon: MapPin, href: '/locations' },
@@ -43,7 +43,7 @@ export const sidebarMenu: SidebarGroup[] = [
     ],
   },
   {
-    title: 'DOKUMENTASI',
+    title: 'DOCUMENTATION',
     titleKey: 'sidebar.sections.documentation',
     items: [
       { label: 'Hardcode Audit 1', labelKey: 'sidebar.items.hardcode1', icon: FileText, href: '/audit/hardcode-1' },

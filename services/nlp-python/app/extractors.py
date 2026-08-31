@@ -445,14 +445,14 @@ def extract_date_from_text(text: str) -> Optional[str]:
     m = re.search(r'\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b', sample)
     if m:
         return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
-    # Day Month Year: e.g. "27 Agustus 2026", "04 Maret 2026"
-    m = re.search(r'\b(0?[1-9]|[12]\d|3[01])\s+([A-Za-z]{3,12})\s+(20\d{2})\b', sample)
+    # Day Month Year (supports hyphens, slashes, spaces): e.g. "26-May-2025", "27 Agustus 2026"
+    m = re.search(r'\b(0?[1-9]|[12]\d|3[01])[-/\s]+([A-Za-z]{3,12})[-/\s]+(20\d{2})\b', sample)
     if m:
         month_str = m.group(2).lower()
         if month_str in MONTH_MAP:
             return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(1)):02d}"
-    # Month Day, Year: e.g. "August 27, 2026"
-    m = re.search(r'\b([A-Za-z]{3,12})\s+(0?[1-9]|[12]\d|3[01]),?\s+(20\d{2})\b', sample)
+    # Month Day, Year: e.g. "May 26, 2025", "August 27, 2026"
+    m = re.search(r'\b([A-Za-z]{3,12})[-/\s]+(0?[1-9]|[12]\d|3[01]),?[-/\s]+(20\d{2})\b', sample)
     if m:
         month_str = m.group(1).lower()
         if month_str in MONTH_MAP:

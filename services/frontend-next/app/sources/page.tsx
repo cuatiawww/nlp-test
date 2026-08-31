@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
-import { Play, Plus, Trash2 } from 'lucide-react'
+import { Plus, Play, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Source } from '@/types'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
@@ -20,35 +20,35 @@ export default function SourcesPage() {
 
   const handleTrigger = async (id: string, name: string) => {
     toast.promise(triggerCollect(id), {
-      loading: `Memproses ${name}...`,
-      success: () => { setTimeout(reload, 500); return `${name} selesai` },
-      error: `Gagal memproses ${name}`,
+      loading: t('pages.sources.processing', { name }),
+      success: () => { setTimeout(reload, 500); return `${name} ${t('common.done') || 'done'}` },
+      error: t('common.error'),
     })
   }
 
   const handleTriggerAll = () => {
     toast.promise(triggerCollectAll(), {
-      loading: 'Memproses semua sumber...',
-      success: () => { setTimeout(reload, 1000); return 'Semua sumber selesai' },
-      error: 'Gagal memproses',
+      loading: t('pages.sources.processingAll'),
+      success: () => { setTimeout(reload, 1000); return t('pages.sources.allDone') },
+      error: t('common.error'),
     })
   }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Hapus sumber data "${name}"?`)) return
+    if (!confirm(t('common.confirmDelete', { name }))) return
     try {
       await deleteSource(id)
-      toast.success(`${name} dihapus`)
+      toast.success(t('common.deletedSuccess'))
       reload()
-    } catch { toast.error('Gagal menghapus') }
+    } catch { toast.error(t('common.deleteFailed')) }
   }
 
   const statusBadge = (s: Source) => {
     const last = s.last_run
-    if (!last) return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Belum pernah</span>
-    if (last.status === 'SUCCESS') return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Berhasil</span>
-    if (last.status === 'FAILED') return <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">Gagal</span>
-    return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-600">Berjalan</span>
+    if (!last) return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.never')}</span>
+    if (last.status === 'SUCCESS') return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.success')}</span>
+    if (last.status === 'FAILED') return <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">{t('common.failed')}</span>
+    return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-600">{t('common.running')}</span>
   }
 
   const credibilityBadge = (score?: number) => {
@@ -68,7 +68,7 @@ export default function SourcesPage() {
         <div className="flex items-center gap-2">
           <button onClick={reload} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold uppercase text-slate-600 transition hover:bg-slate-50">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            Refresh
+            {t("common.refresh")}
           </button>
           <button onClick={handleTriggerAll}
             className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-amber-700">
@@ -76,7 +76,7 @@ export default function SourcesPage() {
           </button>
           <button onClick={() => { setEditSource(null); setShowModal(true) }}
             className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700">
-            <Plus className="h-4 w-4" /> Tambah
+            <Plus className="h-4 w-4" /> {t("common.add")}
           </button>
         </div>
       </div>

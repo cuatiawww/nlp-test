@@ -7,11 +7,13 @@ import DashboardHeader from "./DashboardHeader";
 import { isLoggedIn } from "@/lib/auth";
 import Footer from "./Footer";
 import EwsConsent from "./EwsConsent";
+import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 const guestMenu = [
   {
     title: "PEMANTAUAN",
-    items: [{ label: "Dashboard", icon: undefined, href: "/" }],
+    titleKey: "sidebar.sections.monitoring",
+    items: [{ label: "Home", labelKey: "sidebar.items.home", icon: undefined, href: "/" }],
   },
 ];
 
@@ -24,6 +26,7 @@ export default function AppShell({
   publicMode?: boolean;
   tvMode?: boolean;
 }) {
+  const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authenticated, setAuthenticated] = useState(!publicMode);
   useEffect(() => {
@@ -40,7 +43,7 @@ export default function AppShell({
       {sidebarOpen && (
         <button
           type="button"
-          aria-label="Tutup sidebar"
+          aria-label={t("common.closeSidebar")}
           onClick={() => setSidebarOpen(false)}
           className="fixed inset-0 z-30 bg-slate-900/35 backdrop-blur-[1px]"
         />

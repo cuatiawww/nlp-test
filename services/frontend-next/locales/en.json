@@ -25,7 +25,7 @@
     "retry": "Retry",
     "paginationInfo": "Total {total} entries ? Page {page} of {totalPages}",
     "noData": "No data available",
-    "confirmDelete": "Are you sure you want to delete {item}?",
+    "confirmDelete": "Are you sure you want to delete \"{name}\"?",
     "deletedSuccess": "{item} deleted successfully",
     "deleteFailed": "Failed to delete item",
     "savedSuccess": "Data saved successfully",
@@ -35,7 +35,19 @@
     "triggerAll": "Trigger All",
     "refresh": "Refresh",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "redirecting": "Redirecting to login...",
+    "closeSidebar": "Close sidebar",
+    "item": "Item",
+    "value": "Value",
+    "notes": "Notes",
+    "name": "Name",
+    "type": "Type",
+    "score": "Score",
+    "priority": "Priority",
+    "never": "Never",
+    "running": "Running",
+    "confirmDeleteGeneric": "Are you sure you want to delete this item?"
   },
   "header": {
     "title": "Disease Surveillance AI",
@@ -212,7 +224,8 @@
     "notifTitle": "?? EWS: OUTBREAK NEAR YOUR LOCATION!",
     "notifBody": "{disease} in {location}, approximately {distance} km from your location.",
     "notifActiveTitle": "MOH RI Disease EWS Active",
-    "notifActiveBody": "Disease outbreak alerts around your location will be delivered in real time."
+    "notifActiveBody": "Disease outbreak alerts around your location will be delivered in real time.",
+    "yourLocation": "Your Location"
   },
   "map": {
     "legend": "Legend",
@@ -246,7 +259,13 @@
     "popupCases": "Cases",
     "popupDeaths": "Deaths",
     "popupSeverity": "Severity Level",
-    "popupThreshold": "Outbreak Threshold"
+    "popupThreshold": "Outbreak Threshold",
+    "monitoringTitle": "Southeast Asia Media Monitoring Mapping",
+    "mappedLocations": "Mapped Locations",
+    "casesPerCountry": "Number of cases per country",
+    "selectedCountry": "Selected Country",
+    "resetView": "Reset view",
+    "windSpeedSub": "Speed & gradient"
   },
   "tv": {
     "liveUpdate": "LIVE UPDATE",
@@ -269,7 +288,9 @@
     "earlyWarningTitle": "Disease Early Warning",
     "activeOutbreakNotif": "{count} active outbreak alerts",
     "searchPlaceholder": "Search disease, location, country...",
-    "sourceCollector": "Source: Collector NLP Disease Surveillance AI"
+    "sourceCollector": "Source: Collector NLP Disease Surveillance AI",
+    "inLocation": "in",
+    "tickerAlert": "{severity}: {disease} in {location} • {cases} {casesUnit}"
   },
   "severity": {
     "AWAS": "CRITICAL",
@@ -293,7 +314,46 @@
     "Polio": "Polio",
     "Antraks": "Anthrax",
     "Cacar Monyet": "Mpox (Monkeypox)",
-    "COVID-19": "COVID-19"
+    "COVID-19": "COVID-19",
+    "dengue fever DBD": "Dengue Fever",
+    "Dengue": "Dengue",
+    "dengue": "Dengue",
+    "malaria": "Malaria",
+    "Cholera": "Cholera",
+    "cholera": "Cholera",
+    "Measles": "Measles",
+    "measles": "Measles",
+    "rabies": "Rabies",
+    "Avian Influenza": "Avian Influenza (Bird Flu)",
+    "avian influenza": "Avian Influenza (Bird Flu)",
+    "Tuberculosis": "Tuberculosis (TB)",
+    "tuberculosis": "Tuberculosis (TB)",
+    "tuberculosis TB": "Tuberculosis (TB)",
+    "TB": "Tuberculosis (TB)",
+    "Typhoid": "Typhoid",
+    "typhoid": "Typhoid",
+    "typhoid fever": "Typhoid Fever",
+    "leptospirosis": "Leptospirosis",
+    "Diphtheria": "Diphtheria",
+    "diphtheria": "Diphtheria",
+    "polio": "Polio",
+    "Anthrax": "Anthrax",
+    "anthrax": "Anthrax",
+    "Mpox": "Mpox (Monkeypox)",
+    "mpox": "Mpox (Monkeypox)",
+    "COVID-19 coronavirus": "COVID-19",
+    "Pneumonia": "Pneumonia",
+    "pneumonia": "Pneumonia",
+    "Chikungunya": "Chikungunya",
+    "chikungunya": "Chikungunya",
+    "Diare Akut": "Acute Diarrhea",
+    "acute diarrhea": "Acute Diarrhea",
+    "Hantavirus": "Hantavirus",
+    "hantavirus": "Hantavirus",
+    "Influenza": "Influenza",
+    "influenza": "Influenza",
+    "influenza flu": "Influenza",
+    "UNKNOWN": "Unknown Disease"
   },
   "footer": {
     "copyright": "? 2026 Ministry of Health Republic of Indonesia. All rights reserved."
@@ -342,7 +402,12 @@
       "neverRun": "Never",
       "success": "Success",
       "failed": "Failed",
-      "running": "Running"
+      "running": "Running",
+      "addTitle": "Add Data Source",
+      "editTitle": "Edit Data Source",
+      "processing": "Processing {name}...",
+      "processingAll": "Processing all sources...",
+      "allDone": "All sources completed"
     },
     "analyze": {
       "title": "URL Analysis",
@@ -352,7 +417,23 @@
       "analyzing": "Analyzing...",
       "urlRequired": "Please enter a URL first",
       "done": "Analysis completed!",
-      "failed": "Failed to analyze URL"
+      "failed": "Failed to analyze URL",
+      "diseaseClassification": "Disease (Classification)",
+      "healthRelevance": "Health Relevance",
+      "outbreakAlert": "Outbreak Alert",
+      "healthRelated": "Health Related",
+      "analysisContent": "Analysis Content",
+      "originalLanguage": "Original language",
+      "translated": "Translated",
+      "originalLocation": "Original location",
+      "viewOriginalContent": "View original main content",
+      "viewTranslatedContent": "View local translation output",
+      "detectedSymptoms": "Detected Symptoms",
+      "additionalInfo": "Additional Information",
+      "language": "Language",
+      "diseaseKeyword": "Disease (Keyword)",
+      "dataSaved": "Data Saved",
+      "savedDescription": "Analysis result has been saved to the database and can be viewed on the Events page."
     },
     "processing": {
       "title": "Processing Monitor",
@@ -365,95 +446,92 @@
     },
     "locations": {
       "title": "Locations",
-      "subtitle": "Manage spatial regions and geographic coordinates",
-      "add": "Add Location",
-      "searchPlaceholder": "Search location or country...",
+      "subtitle": "Geographical master coordinates for disease surveillance mapping",
       "colName": "Location Name",
-      "colCountry": "Country",
       "colLat": "Latitude",
       "colLon": "Longitude",
-      "colAction": "Actions"
+      "colCountry": "Country",
+      "addTitle": "Add Location",
+      "editTitle": "Edit Location"
     },
     "credibility": {
       "title": "Source Credibility",
-      "subtitle": "Credibility rules and weights based on source domains",
-      "add": "Add Domain",
-      "searchPlaceholder": "Search domain...",
-      "colDomain": "Domain",
-      "colScore": "Credibility Score",
-      "colNotes": "Notes",
-      "colAction": "Actions"
+      "subtitle": "Credibility score per source type (used by NLP pipeline)",
+      "searchPlaceholder": "Search source type...",
+      "colDomain": "Source Type",
+      "colScore": "Score",
+      "addTitle": "Add Credibility",
+      "editTitle": "Edit Credibility"
     },
     "outbreakRules": {
       "title": "Outbreak Rules",
-      "subtitle": "Thresholds and outbreak detection configuration",
-      "add": "Add Rule",
-      "searchPlaceholder": "Search rule or disease...",
+      "subtitle": "Configure case thresholds for outbreak early warning alerts per disease",
+      "searchPlaceholder": "Search disease...",
       "colDisease": "Disease",
-      "colThreshold": "Case Threshold",
-      "colWindow": "Time Window (Days)",
-      "colSeverity": "Severity Level",
-      "colAction": "Actions"
+      "colMinCases": "Min Cases",
+      "colPriority": "Priority",
+      "addTitle": "Add Outbreak Rule",
+      "editTitle": "Edit Outbreak Rule"
     },
     "nlpLabels": {
       "title": "NLP Labels",
-      "subtitle": "Master labels for NLP text classification",
-      "add": "Add Label",
-      "searchPlaceholder": "Search labels...",
-      "colLabel": "Label Name",
+      "subtitle": "Manage labels for NLP classification models",
       "colCategory": "Category",
+      "colLabel": "Label",
       "colPriority": "Priority",
-      "colAction": "Actions"
+      "addTitle": "Add Label",
+      "editTitle": "Edit Label"
     },
     "nlpKeywords": {
       "title": "NLP Keywords",
-      "subtitle": "Search keywords and symptom matching",
-      "add": "Add Keyword",
-      "searchPlaceholder": "Search keywords...",
-      "colKeyword": "Keyword",
+      "subtitle": "Keyword dictionary for disease & symptom extraction",
       "colCategory": "Category",
+      "colKeyword": "Keyword",
       "colTarget": "Target Label",
       "colPriority": "Priority",
-      "colAction": "Actions"
+      "addTitle": "Add Keyword",
+      "editTitle": "Edit Keyword"
     },
     "languageMarkers": {
       "title": "Language Markers",
-      "subtitle": "Linguistic markers for multilingual text preprocessing",
-      "add": "Add Marker",
-      "searchPlaceholder": "Search marker...",
-      "colMarker": "Marker",
-      "colLang": "Language",
-      "colAction": "Actions"
+      "subtitle": "Keyword markers for language detection",
+      "searchPlaceholder": "Search word / language...",
+      "colWord": "Word",
+      "colLanguage": "Language",
+      "languagesCount": "languages",
+      "addTitle": "Add Language Marker",
+      "editTitle": "Edit Language Marker"
     },
     "extractionRules": {
       "title": "Extraction Rules",
-      "subtitle": "Regex patterns and heuristic entity extraction rules",
-      "add": "Add Rule",
-      "searchPlaceholder": "Search extraction rules...",
-      "colPattern": "Extraction Pattern",
-      "colTarget": "Target",
-      "colAction": "Actions"
+      "subtitle": "Regex rules for numeric extraction (cases & deaths)",
+      "helperNote": "Regex patterns are matched based on field_name (case_count or death_count). Use capture group (\\d+) to extract numbers. Lower priority = executed first.",
+      "modalHelper": "Use \\b(\\d+)\\s+(?:...) format. Group 1 = captured number.",
+      "colField": "Field Name",
+      "colRegex": "Regex Pattern",
+      "colPriority": "Priority",
+      "addTitle": "Add Extraction Rule",
+      "editTitle": "Edit Extraction Rule"
     },
     "languageModels": {
       "title": "Language Models",
-      "subtitle": "List of NLP and LLM models registered in system",
-      "add": "Add Model",
-      "searchPlaceholder": "Search model...",
-      "colName": "Model Name",
-      "colProvider": "Provider",
-      "colAction": "Actions"
+      "subtitle": "Language to NLP Transformer model routing map",
+      "searchPlaceholder": "Search language / model...",
+      "colLanguage": "Language",
+      "colName": "Model Key",
+      "addTitle": "Add Language Model",
+      "editTitle": "Edit Language Model"
     },
     "users": {
       "title": "User Management",
-      "subtitle": "Manage system user accounts",
-      "add": "Add User",
-      "searchPlaceholder": "Search user...",
+      "subtitle": "Manage dashboard user accounts & roles",
       "colUsername": "Username",
       "colDisplayName": "Display Name",
       "colRole": "Role",
       "colEmail": "Email",
-      "colActive": "Active",
-      "colAction": "Actions"
+      "btnAdd": "Add User",
+      "addTitle": "Add User",
+      "editTitle": "Edit User"
     },
     "audit": {
       "hardcode1Title": "Hardcode Audit 1",
@@ -463,5 +541,16 @@
       "copy": "Copy",
       "copied": "Copied!"
     }
+  },
+  "sentiment": {
+    "positive": "Positive",
+    "negative": "Negative",
+    "neutral": "Neutral"
+  },
+  "relevance": {
+    "high": "High",
+    "medium": "Moderate",
+    "moderate": "Moderate",
+    "low": "Low"
   }
 }

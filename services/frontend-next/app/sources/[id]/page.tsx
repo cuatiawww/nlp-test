@@ -1,13 +1,13 @@
 'use client'
 
 import { useTranslation } from '@/lib/i18n/LanguageContext'
-
 import { useEffect, useState } from 'react'
-import { ArrowLeft, RefreshCw, Play, Trash2 } from 'lucide-react'
+import { ArrowLeft, Play, Trash2 } from 'lucide-react'
 import type { Source, Run } from '@/types'
 import { fetchSources, fetchRuns, triggerCollect, updateSource, deleteSource } from '@/lib/api'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 
 export default function SourceDetailPage() {
   const { t } = useTranslation()
@@ -38,10 +38,10 @@ export default function SourceDetailPage() {
   const handleTrigger = async () => {
     try {
       await triggerCollect(id)
-      alert('Collection triggered')
+      toast.success(t('pages.sources.processing', { name: source?.name || '' }))
       await load()
     } catch (e: any) {
-      alert(`Gagal: ${e.message}`)
+      toast.error(e?.message || t('common.saveFailed'))
     }
   }
 
@@ -49,24 +49,26 @@ export default function SourceDetailPage() {
     try {
       await updateSource(id, form)
       setEditing(false)
+      toast.success(t('common.savedSuccess'))
       await load()
     } catch (e: any) {
-      alert(`Gagal: ${e.message}`)
+      toast.error(e?.message || t('common.saveFailed'))
     }
   }
 
   const handleDelete = async () => {
-    if (!confirm('Hapus sumber data ini?')) return
+    if (!confirm(t('common.confirmDelete', { name: source?.name || '' }))) return
     try {
       await deleteSource(id)
+      toast.success(t('common.deletedSuccess'))
       router.push('/sources')
     } catch (e: any) {
-      alert(`Gagal: ${e.message}`)
+      toast.error(e?.message || t('common.deleteFailed'))
     }
   }
 
   if (loading) return <div className="p-8 text-center text-slate-400">{t("common.loading")}</div>
-  if (!source) return <div className="p-8 text-center text-slate-400">Sumber tidak ditemukan</div>
+  if (!source) return <div className="p-8 text-center text-slate-400">{t("common.noData")}</div>
 
   return (
     <div className="px-4 md:px-6">
@@ -77,21 +79,21 @@ export default function SourceDetailPage() {
       <div className="mt-4 flex items-start justify-between">
         <div>
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{source.name}</h1>
-          <p className="mt-1 text-sm text-slate-500">Tipe: {source.source_type} | Jadwal: {source.schedule || 'manual'}</p>
+          <p className="mt-1 text-sm text-slate-500">{t('common.type')}: {source.source_type} | {t('pages.sources.colFrequency')}: {source.schedule || 'manual'}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handleTrigger} className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-bold uppercase text-teal-700 transition hover:bg-teal-100">
             <Play className="h-4 w-4" /> Trigger
           </button>
           <button onClick={handleDelete} className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold uppercase text-red-600 transition hover:bg-red-100">
-            <Trash2 className="h-4 w-4" /> Hapus
+            <Trash2 className="h-4 w-4" /> {t('common.delete')}
           </button>
         </div>
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Konfigurasi</h2>
+          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Configuration</h2>
           <button onClick={() => setEditing(!editing)}
             className="text-sm font-semibold text-teal-600 hover:text-teal-700"
           >{editing ? t('common.cancel') : t('common.edit')}</button>
@@ -99,15 +101,15 @@ export default function SourceDetailPage() {
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Nama</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colName')}</label>
             <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               disabled={!editing}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-500" />
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Jadwal (interval:menit)</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colFrequency')} (interval:minutes)</label>
             <input type="text" value={form.schedule} onChange={e => setForm(f => ({ ...f, schedule: e.target.value }))}
-              disabled={!editing} placeholder="contoh: interval:60"
+              disabled={!editing} placeholder="e.g. interval:60"
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-500" />
           </div>
           <div className="md:col-span-2">
@@ -129,7 +131,7 @@ export default function SourceDetailPage() {
 
       <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50 px-5 py-3">
-          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Riwayat Collection</h2>
+          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Collection History</h2>
         </div>
         {runs.length === 0 ? (
           <div className="p-8 text-center text-slate-400">{t("common.noData")}</div>

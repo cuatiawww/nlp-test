@@ -39,14 +39,14 @@ export default function LanguageMarkersPage() {
     try {
       if (editItem) await updateLanguageMarker(editItem.id, form)
       else await createLanguageMarker(form)
-      setShowModal(false); load(); toast.success(editItem ? 'Updated' : 'Added')
-    } catch { toast.error('Failed') }
+      setShowModal(false); load(); toast.success(editItem ? t('common.savedSuccess') : t('common.savedSuccess'))
+    } catch { toast.error(t('common.saveFailed')) }
   }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Hapus "${name}"?`)) return
-    try { await deleteLanguageMarker(id); load(); toast.success('Deleted') }
-    catch { toast.error('Failed') }
+    if (!confirm(t('common.confirmDelete', { name }))) return
+    try { await deleteLanguageMarker(id); load(); toast.success(t('common.deletedSuccess')) }
+    catch { toast.error(t('common.deleteFailed')) }
   }
 
   return (
@@ -58,17 +58,17 @@ export default function LanguageMarkersPage() {
         </div>
         <button onClick={() => { setEditItem(null); setForm({ word: '', language: 'en' }); setShowModal(true) }}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
-          <Plus className="h-4 w-4" /> Tambah
+          <Plus className="h-4 w-4" /> {t('common.add')}
         </button>
       </div>
 
       <div className="mt-4 flex gap-2">
         <div className="relative max-w-xs">
           <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <SearchInput value={search} onChange={setSearch} placeholder="Cari kata / bahasa..." />
+          <SearchInput value={search} onChange={setSearch} placeholder={t('pages.languageMarkers.searchPlaceholder')} />
         </div>
         <div className="flex items-center gap-1 text-xs text-slate-400">
-          <Languages className="h-3.5 w-3.5" /> {new Set(data.filter(l=>l.is_active).map(l=>l.language)).size} bahasa
+          <Languages className="h-3.5 w-3.5" /> {new Set(data.filter(l=>l.is_active).map(l=>l.language)).size} {t('pages.languageMarkers.languagesCount')}
         </div>
       </div>
 
@@ -76,13 +76,13 @@ export default function LanguageMarkersPage() {
         {loading ? (
           <div className="p-8 text-center text-sm text-slate-400">{t('common.loading')}</div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-400">Belum ada data</div>
+          <div className="p-8 text-center text-sm text-slate-400">{t('common.noData')}</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-left">
-                <th className="px-4 py-3 font-semibold text-slate-600">Word</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Bahasa</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.languageMarkers.colWord')}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.languageMarkers.colLanguage')}</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('common.active')}</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
               </tr>
@@ -111,15 +111,15 @@ export default function LanguageMarkersPage() {
         )}
       </div>
 
-      <Modal open={showModal} title={editItem ? 'Edit Language Marker' : 'Tambah Language Marker'} onClose={() => setShowModal(false)}>
+      <Modal open={showModal} title={editItem ? t('pages.languageMarkers.editTitle') : t('pages.languageMarkers.addTitle')} onClose={() => setShowModal(false)}>
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Word</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.languageMarkers.colWord')}</label>
             <input value={form.word} onChange={e => setForm(f => ({ ...f, word: e.target.value }))} required
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Bahasa (kode, e.g. en / id / th)</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.languageMarkers.colLanguage')} (code, e.g. en / id / th)</label>
             <input value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))} required
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
           </div>

@@ -13,37 +13,37 @@ import {
   FileText, ExternalLink, CheckCircle, Loader2, Calendar
 } from 'lucide-react'
 
-function sentimentBadge(s?: string | null) {
-  if (!s || s === 'neutral') return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">Netral</span>
-  if (s === 'positive') return <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">Positif</span>
-  if (s === 'negative') return <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-600">Negatif</span>
-  return <span className="text-xs text-slate-400">{s}</span>
-}
-
-function relevanceBadge(s?: string | null) {
-  if (!s || s === 'low') return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">Rendah</span>
-  if (s === 'high') return <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">Tinggi</span>
-  return <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-600">Sedang</span>
-}
-
-function alertBadge(alert: boolean) {
-  return alert
-    ? <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-600">🔴 YA</span>
-    : <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">Tidak</span>
-}
-
-function healthBadge(h?: boolean | null) {
-  if (h === true) return <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">✅ Ya</span>
-  if (h === false) return <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-600">Tidak</span>
-  return <span className="text-xs text-slate-400">-</span>
-}
-
 export default function AnalyzePage() {
-  const { t, translateDisease, translateSeverity } = useTranslation()
+  const { t, translateDisease } = useTranslation()
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
   const [error, setError] = useState('')
+
+  function sentimentBadge(s?: string | null) {
+    if (!s || s.toLowerCase() === 'neutral') return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">{t('sentiment.neutral')}</span>
+    if (s.toLowerCase() === 'positive') return <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">{t('sentiment.positive')}</span>
+    if (s.toLowerCase() === 'negative') return <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-600">{t('sentiment.negative')}</span>
+    return <span className="text-xs text-slate-400">{s}</span>
+  }
+
+  function relevanceBadge(s?: string | null) {
+    if (!s || s.toLowerCase() === 'low') return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">{t('relevance.low')}</span>
+    if (s.toLowerCase() === 'high') return <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">{t('relevance.high')}</span>
+    return <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-600">{t('relevance.medium')}</span>
+  }
+
+  function alertBadge(alert: boolean) {
+    return alert
+      ? <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-600">🔴 {t('common.yes')}</span>
+      : <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">{t('common.no')}</span>
+  }
+
+  function healthBadge(h?: boolean | null) {
+    if (h === true) return <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">✅ {t('common.yes')}</span>
+    if (h === false) return <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-600">{t('common.no')}</span>
+    return <span className="text-xs text-slate-400">-</span>
+  }
 
   async function handleSubmit() {
     if (!url.trim()) {
@@ -83,7 +83,7 @@ export default function AnalyzePage() {
             value={url}
             onChange={e => setUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-            placeholder="https://example.com/berita/kasus-penyakit"
+            placeholder={t('pages.analyze.placeholder')}
             className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
           />
         </div>
@@ -118,71 +118,65 @@ export default function AnalyzePage() {
             <div className="flex items-start gap-3">
               <FileText className="mt-0.5 h-5 w-5 text-teal-600" />
               <div className="min-w-0 flex-1">
-                <h3 className="text-base font-bold text-slate-900">{result.title || '(tanpa judul)'}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-600 line-clamp-4">{result.content}</p>
-                {result.url && (
-                  <a href={result.url} target="_blank" rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal-600 hover:text-teal-700 hover:underline">
-                    <ExternalLink className="h-3 w-3" /> {t('dashboard.eventModal.openSource')}
+                <h3 className="text-lg font-bold text-slate-900 leading-snug">{result.title || url}</h3>
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <Globe className="h-3.5 w-3.5" />
+                    {(result as any).source_name || new URL(url).hostname}
+                  </span>
+                  <span className="flex items-center gap-1 font-medium text-slate-600">
+                    <Calendar className="h-3.5 w-3.5 text-teal-600" />
+                    {result.published_at || '- (' + t('common.noData') + ')'}
+                  </span>
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-teal-600 hover:text-teal-700 hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {t('dashboard.labelOpenOriginal')}
                   </a>
-                )}
+                </div>
               </div>
-            </div>
-            <div className="mt-3 flex items-start gap-1.5 border-t border-slate-100 pt-3">
-              <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-xs text-slate-500">{result.sources?.title || '-'}</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <AnalyzeResultCard
-              icon={<Calendar className="h-4 w-4" />}
-              label="Tanggal Publikasi"
-              value={
-                <span className="font-bold text-slate-900">
-                  {result.published_at || '- (Tidak tersedia)'}
-                </span>
-              }
-              source={result.sources?.published_at || ''}
-            />
-
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <AnalyzeResultCard
               icon={<Bug className="h-4 w-4" />}
-              label="Penyakit (Klasifikasi)"
-              value={
-                <div className="flex items-center gap-2">
-                  {result.disease_classification || '-'}
-                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-600">
-                    {(result.confidence * 100).toFixed(0)}%
-                  </span>
-                </div>
-              }
-              source={result.sources?.disease_classification || ''}
+              label={t('pages.analyze.diseaseClassification')}
+              value={translateDisease(result.disease_classification) || '-'}
+              source={result.sources?.disease_classification || result.sources?.disease || ''}
             />
 
             <AnalyzeResultCard
               icon={<MapPin className="h-4 w-4" />}
-              label={result.locations && result.locations.length > 1 ? `Lokasi (${result.locations.length} Wilayah)` : "Lokasi"}
+              label={t("dashboard.labelLocation")}
               value={
                 <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                    <span>📍 {result.location_name || '-'}</span>
-                    {result.locations && result.locations.length > 1 && (
-                      <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-semibold text-blue-700">Utama</span>
-                    )}
+                  <div className="font-semibold text-slate-900">
+                    {result.location_name || '-'}
+                    {result.country && <span className="ml-1 text-xs text-slate-500 font-normal">({result.country})</span>}
                   </div>
                   {result.locations && result.locations.length > 1 && (
                     <div className="flex flex-wrap gap-1 pt-1">
-                      {result.locations.filter((l) => l.name !== result.location_name).slice(0, 6).map((loc, idx) => (
-                        <span key={idx} className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">
-                          {loc.name}
-                        </span>
-                      ))}
+                      {result.locations
+                        .filter((l) => l.name !== result.location_name)
+                        .slice(0, 6)
+                        .map((loc, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200"
+                            title={`Lat: ${loc.latitude?.toFixed(4)}, Lon: ${loc.longitude?.toFixed(4)}`}
+                          >
+                            <MapPin className="h-2.5 w-2.5 text-teal-600" />
+                            {loc.name}
+                          </span>
+                        ))}
                       {result.locations.filter((l) => l.name !== result.location_name).length > 6 && (
-                        <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
-                          +{result.locations.filter((l) => l.name !== result.location_name).length - 6} lainnya
+                        <span className="rounded bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-400">
+                          +{result.locations.filter((l) => l.name !== result.location_name).length - 6}
                         </span>
                       )}
                     </div>
@@ -224,14 +218,14 @@ export default function AnalyzePage() {
 
             <AnalyzeResultCard
               icon={<TrendingUp className="h-4 w-4" />}
-              label="Relevansi Kesehatan"
+              label={t('pages.analyze.healthRelevance')}
               value={relevanceBadge(result.relevance_score)}
               source={result.sources?.relevance_score || ''}
             />
 
             <AnalyzeResultCard
               icon={<AlertTriangle className="h-4 w-4" />}
-              label="Outbreak Alert"
+              label={t('pages.analyze.outbreakAlert')}
               value={alertBadge(result.outbreak_alert)}
               source={result.sources?.outbreak_alert || ''}
             />
@@ -249,7 +243,7 @@ export default function AnalyzePage() {
 
             <AnalyzeResultCard
               icon={<Heart className="h-4 w-4" />}
-              label="Health Related"
+              label={t('pages.analyze.healthRelated')}
               value={healthBadge(result.is_health_related)}
               source={result.sources?.is_health_related || ''}
             />
@@ -260,20 +254,20 @@ export default function AnalyzePage() {
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <Languages className="h-4 w-4 text-slate-500" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Konten Analisis</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pages.analyze.analysisContent')}</span>
             </div>
             <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
-              <div><span className="text-slate-500">Bahasa asli</span><p className="font-semibold">{result.language || '-'}</p></div>
-              <div><span className="text-slate-500">Diterjemahkan</span><p className="font-semibold">{result.translated ? 'Ya' : 'Tidak'}</p></div>
+              <div><span className="text-slate-500">{t('pages.analyze.originalLanguage')}</span><p className="font-semibold">{result.language || '-'}</p></div>
+              <div><span className="text-slate-500">{t('pages.analyze.translated')}</span><p className="font-semibold">{result.translated ? t('common.yes') : t('common.no')}</p></div>
               <div><span className="text-slate-500">Provider</span><p className="font-semibold">{result.translation_provider || 'none'}</p></div>
             </div>
-            {result.original_location_name && <p className="mt-3 text-xs text-slate-500">Lokasi asli: <span className="font-semibold">{result.original_location_name}</span> → {result.location_name}</p>}
+            {result.original_location_name && <p className="mt-3 text-xs text-slate-500">{t('pages.analyze.originalLocation')}: <span className="font-semibold">{result.original_location_name}</span> → {result.location_name}</p>}
             <details className="mt-4 rounded-lg border border-slate-200 p-3">
-              <summary className="cursor-pointer text-sm font-semibold text-slate-700">Lihat main content asli</summary>
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">{t('pages.analyze.viewOriginalContent')}</summary>
               <p className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-600">{result.content}</p>
             </details>
             {result.translated_text && <details className="mt-2 rounded-lg border border-slate-200 p-3">
-              <summary className="cursor-pointer text-sm font-semibold text-slate-700">Lihat hasil terjemahan lokal</summary>
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">{t('pages.analyze.viewTranslatedContent')}</summary>
               <p className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-600">{result.translated_text}</p>
             </details>}
           </div>
@@ -282,7 +276,7 @@ export default function AnalyzePage() {
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="text-slate-500"><Users className="h-4 w-4" /></span>
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Gejala Terdeteksi</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pages.analyze.detectedSymptoms')}</span>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {result.symptoms.map((s, i) => (
@@ -303,17 +297,17 @@ export default function AnalyzePage() {
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <Languages className="h-4 w-4 text-slate-500" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Info Tambahan</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pages.analyze.additionalInfo')}</span>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <span className="text-xs text-slate-500">Bahasa</span>
+                <span className="text-xs text-slate-500">{t('pages.analyze.language')}</span>
                 <p className="text-sm font-semibold text-slate-900">{result.language || '-'}</p>
                 <p className="mt-0.5 text-xs text-slate-400">{result.sources?.language || ''}</p>
               </div>
               {result.disease_extracted && result.disease_extracted.length > 0 && (
                 <div>
-                  <span className="text-xs text-slate-500">Penyakit (Keyword)</span>
+                  <span className="text-xs text-slate-500">{t('pages.analyze.diseaseKeyword')}</span>
                   <p className="text-sm font-semibold text-slate-900">{result.disease_extracted.join(', ')}</p>
                   <p className="mt-0.5 text-xs text-slate-400">{result.sources?.disease_extracted || ''}</p>
                 </div>
@@ -324,11 +318,10 @@ export default function AnalyzePage() {
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
             <div className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-emerald-600" />
-              <span className="text-sm font-semibold text-emerald-800">Data Tersimpan</span>
+              <span className="text-sm font-semibold text-emerald-800">{t('pages.analyze.dataSaved')}</span>
             </div>
             <p className="mt-2 text-xs text-emerald-700 leading-relaxed">
-              Hasil analisis telah disimpan ke database dan dapat dilihat di halaman{' '}
-              <a href="/nlp/events" className="font-semibold underline hover:text-emerald-800">Events</a>.
+              {t('pages.analyze.savedDescription')}
             </p>
             <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-emerald-600">
               <span>Event ID: <code className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono">{result.event_id}</code></span>

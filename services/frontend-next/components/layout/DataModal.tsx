@@ -1,6 +1,7 @@
 'use client'
 
 import { X } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/LanguageContext'
 
 type DataRow = { label: string; value: string | number; extra?: string }
 
@@ -12,6 +13,7 @@ type Props = {
 }
 
 export default function DataModal({ open, onClose, title, rows }: Props) {
+  const { t } = useTranslation()
   if (!open) return null
 
   return (
@@ -27,7 +29,7 @@ export default function DataModal({ open, onClose, title, rows }: Props) {
       >
         <div className="flex items-center justify-between border-b border-[#cfe9e8] bg-gradient-to-br from-[#effafa] to-[#dff2f1] px-5 py-4 shrink-0">
           <h3 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">{title}</h3>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/20 hover:text-slate-600 transition" aria-label="Tutup">
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/20 hover:text-slate-600 transition" aria-label={t('common.close')}>
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -35,9 +37,9 @@ export default function DataModal({ open, onClose, title, rows }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50">
-                <th className="px-3 py-2 text-left font-semibold text-slate-600">Item</th>
-                <th className="px-3 py-2 text-right font-semibold text-slate-600">Nilai</th>
-                {rows.some(r => r.extra) && <th className="px-3 py-2 text-right font-semibold text-slate-600">Keterangan</th>}
+                <th className="px-3 py-2 text-left font-semibold text-slate-600">{t('common.item')}</th>
+                <th className="px-3 py-2 text-right font-semibold text-slate-600">{t('common.value')}</th>
+                {rows.some(r => r.extra) && <th className="px-3 py-2 text-right font-semibold text-slate-600">{t('common.notes')}</th>}
               </tr>
             </thead>
             <tbody>

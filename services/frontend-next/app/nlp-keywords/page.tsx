@@ -27,11 +27,11 @@ export default function NlpKeywordsPage() {
   const [editItem, setEditItem] = useState<any | null>(null)
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Hapus keyword ini?')) return
+    if (!confirm(t('common.confirmDeleteGeneric'))) return
     try {
       await deleteNlpKeyword(id)
-      toast.success('Deleted'); reload()
-    } catch { toast.error('Failed') }
+      toast.success(t('common.deletedSuccess')); reload()
+    } catch { toast.error(t('common.deleteFailed')) }
   }
 
   return (
@@ -39,9 +39,9 @@ export default function NlpKeywordsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.nlpKeywords.title')}</h1>
         <button onClick={() => { setEditItem(null); setShowModal(true) }}
-          className="rounded-xl bg-teal-600 px-3 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">Tambah</button>
+          className="rounded-xl bg-teal-600 px-3 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">{t('common.add')}</button>
       </div>
-      <p className="mt-1 text-sm text-slate-500">Keyword dictionary untuk ekstraksi penyakit & gejala</p>
+      <p className="mt-1 text-sm text-slate-500">{t('pages.nlpKeywords.subtitle')}</p>
 
       <div className="mt-4 flex items-center gap-4">
         <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
@@ -92,7 +92,7 @@ export default function NlpKeywordsPage() {
         <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
 
-      <Modal open={showModal} title={editItem ? 'Edit Keyword' : 'Tambah Keyword'} onClose={() => setShowModal(false)}>
+      <Modal open={showModal} title={editItem ? t('pages.nlpKeywords.editTitle') : t('pages.nlpKeywords.addTitle')} onClose={() => setShowModal(false)}>
         <KeywordForm category={activeCat} keyword={editItem} onSaved={() => { setShowModal(false); reload() }} onCancel={() => setShowModal(false)} />
       </Modal>
     </div>

@@ -30,11 +30,11 @@ export default function NlpLabelsPage() {
   const [editItem, setEditItem] = useState<any | null>(null)
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Hapus label ini?')) return
+    if (!confirm(t('common.confirmDeleteGeneric'))) return
     try {
       await deleteNlpLabel(id)
-      toast.success('Label deleted'); reload()
-    } catch { toast.error('Failed to delete') }
+      toast.success(t('common.deletedSuccess')); reload()
+    } catch { toast.error(t('common.deleteFailed')) }
   }
 
   return (
@@ -42,9 +42,9 @@ export default function NlpLabelsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.nlpLabels.title')}</h1>
         <button onClick={() => { setEditItem(null); setShowModal(true) }}
-          className="rounded-xl bg-teal-600 px-3 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">Tambah</button>
+          className="rounded-xl bg-teal-600 px-3 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">{t('common.add')}</button>
       </div>
-      <p className="mt-1 text-sm text-slate-500">Kelola label untuk klasifikasi NLP</p>
+      <p className="mt-1 text-sm text-slate-500">{t('pages.nlpLabels.subtitle')}</p>
 
       <div className="mt-4 flex items-center gap-4">
         <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
@@ -98,7 +98,7 @@ export default function NlpLabelsPage() {
         <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
 
-      <Modal open={showModal} title={editItem ? 'Edit Label' : 'Tambah Label'} onClose={() => setShowModal(false)}>
+      <Modal open={showModal} title={editItem ? t('pages.nlpLabels.editTitle') : t('pages.nlpLabels.addTitle')} onClose={() => setShowModal(false)}>
         <LabelForm category={activeCat} label={editItem} onSaved={() => { setShowModal(false); reload() }} onCancel={() => setShowModal(false)} />
       </Modal>
     </div>

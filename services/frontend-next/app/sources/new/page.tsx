@@ -6,6 +6,7 @@ import { ArrowLeft, Save } from 'lucide-react'
 import { createSource } from '@/lib/api'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 
 const SOURCE_TYPES = [
   { value: 'rss', label: 'RSS Feed' },
@@ -58,9 +59,10 @@ export default function NewSourcePage() {
         schedule: form.schedule || null,
       }
       await createSource(payload)
+      toast.success(t('common.savedSuccess'))
       router.push('/sources')
     } catch (err: any) {
-      alert(`Gagal: ${err.message}`)
+      toast.error(err?.message || t('common.saveFailed'))
     }
     setSubmitting(false)
   }
@@ -71,7 +73,7 @@ export default function NewSourcePage() {
         <ArrowLeft className="h-4 w-4" /> {t('common.back')}
       </Link>
 
-      <h1 className="mt-4 text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.sources.add')} {t('pages.sources.title')}</h1>
+      <h1 className="mt-4 text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.sources.addTitle')}</h1>
 
       <form onSubmit={handleSubmit} className="mt-6 max-w-2xl space-y-4">
         <div>
@@ -85,7 +87,7 @@ export default function NewSourcePage() {
           <select value={form.source_type} onChange={e => setForm(f => ({ ...f, source_type: e.target.value }))}
             className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
           >
-            {SOURCE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            {SOURCE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
 
@@ -99,12 +101,12 @@ export default function NewSourcePage() {
         {form.source_type === 'web' && (
           <>
             <div>
-              <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">CSS Selector Judul</label>
+              <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Title CSS Selector</label>
               <input type="text" value={form.config_title_selector} onChange={e => setForm(f => ({ ...f, config_title_selector: e.target.value }))}
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">CSS Selector Body</label>
+              <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Body CSS Selector</label>
               <input type="text" value={form.config_body_selector} onChange={e => setForm(f => ({ ...f, config_body_selector: e.target.value }))}
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
             </div>
@@ -112,10 +114,10 @@ export default function NewSourcePage() {
         )}
 
         <div>
-          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Jadwal (interval:menit)</label>
+          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colFrequency')} (interval:minutes)</label>
           <input type="text" value={form.schedule} onChange={e => setForm(f => ({ ...f, schedule: e.target.value }))}
             className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            placeholder="Kosongkan untuk manual" />
+            placeholder="e.g. interval:60" />
         </div>
 
         <div className="flex justify-end pt-2">

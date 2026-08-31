@@ -19,11 +19,13 @@ export interface LanguageContextType {
   t: (path: string, params?: Record<string, string | number>) => string;
   translateDisease: (name?: string | null) => string;
   translateSeverity: (severity?: string | null) => string;
+  translateSentiment: (sentiment?: string | null) => string;
+  translateRelevance: (relevance?: string | null) => string;
 }
 
 const dictionaries: Record<Locale, any> = {
-  id: idDict,
   en: enDict,
+  id: idDict,
 };
 
 const STORAGE_KEY = "disease-app-locale";
@@ -45,7 +47,7 @@ function getNestedValue(obj: any, path: string): any {
 }
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>("id");
+  const [locale, setLocaleState] = useState<Locale>("en");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -54,6 +56,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       if (saved === "id" || saved === "en") {
         setLocaleState(saved);
         document.documentElement.lang = saved;
+      } else {
+        setLocaleState("en");
+        document.documentElement.lang = "en";
       }
     } catch {
       // ignore localStorage errors in private modes
@@ -77,10 +82,15 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   const t = useCallback(
     (path: string, params?: Record<string, string | number>): string => {
-      const activeDict = dictionaries[locale] || idDict;
+      const activeDict = dictionaries[locale] || enDict;
       let val = getNestedValue(activeDict, path);
 
-      // Fallback to Indonesian if missing in current dictionary
+      // Fallback to English if missing in current dictionary
+      if (val === undefined || val === null) {
+        val = getNestedValue(enDict, path);
+      }
+
+      // Fallback to Indonesian if still missing
       if (val === undefined || val === null) {
         val = getNestedValue(idDict, path);
       }
@@ -112,8 +122,11 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const trimmed = name.trim();
       const translated = getNestedValue(dictionaries[locale], `diseases.${trimmed}`);
       if (translated && typeof translated === "string") return translated;
-      const fallback = getNestedValue(idDict, `diseases.${trimmed}`);
-      return (typeof fallback === "string" ? fallback : trimmed);
+      const fallbackEn = getNestedValue(enDict, `diseases.${trimmed}`);
+      if (fallbackEn && typeof fallbackEn === "string") return fallbackEn;
+      const fallbackId = getNestedValue(idDict, `diseases.${trimmed}`);
+      if (fallbackId && typeof fallbackId === "string") return fallbackId;
+      return trimmed;
     },
     [locale],
   );
@@ -124,7 +137,35 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const s = severity.toUpperCase().trim();
       const translated = getNestedValue(dictionaries[locale], `severity.${s}`);
       if (translated && typeof translated === "string") return translated;
+      const fallbackEn = getNestedValue(enDict, `severity.${s}`);
+      if (fallbackEn && typeof fallbackEn === "string") return fallbackEn;
       return s;
+    },
+    [locale],
+  );
+
+  const translateSentiment = useCallback(
+    (sentiment?: string | null): string => {
+      if (!sentiment) return "";
+      const s = sentiment.toLowerCase().trim();
+      const translated = getNestedValue(dictionaries[locale], `sentiment.${s}`);
+      if (translated && typeof translated === "string") return translated;
+      const fallbackEn = getNestedValue(enDict, `sentiment.${s}`);
+      if (fallbackEn && typeof fallbackEn === "string") return fallbackEn;
+      return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    },
+    [locale],
+  );
+
+  const translateRelevance = useCallback(
+    (relevance?: string | null): string => {
+      if (!relevance) return "";
+      const r = relevance.toLowerCase().trim();
+      const translated = getNestedValue(dictionaries[locale], `relevance.${r}`);
+      if (translated && typeof translated === "string") return translated;
+      const fallbackEn = getNestedValue(enDict, `relevance.${r}`);
+      if (fallbackEn && typeof fallbackEn === "string") return fallbackEn;
+      return r.length > 0 ? r.charAt(0).toUpperCase() + r.slice(1) : r;
     },
     [locale],
   );
@@ -138,6 +179,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         t,
         translateDisease,
         translateSeverity,
+        translateSentiment,
+        translateRelevance,
       }}
     >
       {children}
@@ -150,11 +193,12 @@ export function useTranslation(): LanguageContextType {
   if (!ctx) {
     // Graceful fallback if used outside Provider
     return {
-      locale: "id",
+      locale: "en",
       setLocale: () => {},
       toggleLocale: () => {},
       t: (path: string, params?: Record<string, string | number>) => {
-        let val = getNestedValue(idDict, path);
+        let val = getNestedValue(enDict, path);
+        if (val === undefined || val === null) val = getNestedValue(idDict, path);
         if (typeof val !== "string") return path;
         if (params) {
           return Object.entries(params).reduce((acc, [k, v]) => {
@@ -165,6 +209,8 @@ export function useTranslation(): LanguageContextType {
       },
       translateDisease: (n?: string | null) => n || "",
       translateSeverity: (s?: string | null) => s || "",
+      translateSentiment: (s?: string | null) => s || "",
+      translateRelevance: (r?: string | null) => r || "",
     };
   }
   return ctx;

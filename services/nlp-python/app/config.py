@@ -74,6 +74,8 @@ LOCATION_STOPWORDS = {
     "senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu",
     "kasus", "pasien", "rumah", "sakit", "anak", "umum", "sehat",
     "pagi", "siang", "sore", "malam", "hari", "bulan", "tahun",
+    "sarang", "jentik", "nyamuk", "fogging", "psn", "plus", "3m",
+    "cegah", "gejala", "waspada", "pemberantasan", "vaksin", "penularan",
 }
 LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}

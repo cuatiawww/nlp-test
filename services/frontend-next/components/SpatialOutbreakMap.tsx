@@ -225,7 +225,7 @@ export default function SpatialOutbreakMap({
                 <Row
                   icon={<Wind className="h-4 w-4" />}
                   title={t("map.windFlow")}
-                  sub="Gradasi & kecepatan"
+                  sub={t("map.windSpeedSub")}
                   value={windLegend}
                   set={setWindLegend}
                 />

@@ -1,7 +1,6 @@
 'use client'
 
 import { useTranslation } from '@/lib/i18n/LanguageContext'
-
 import { useState } from 'react'
 import { createUser } from '@/lib/api'
 
@@ -32,7 +31,7 @@ export default function UserForm({ onSaved, onCancel }: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Username</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.users.colUsername')}</label>
         <input value={username} onChange={e => setUsername(e.target.value)} required
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
@@ -42,12 +41,12 @@ export default function UserForm({ onSaved, onCancel }: Props) {
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Display Name</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.users.colDisplayName')}</label>
         <input value={displayName} onChange={e => setDisplayName(e.target.value)}
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Role</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.users.colRole')}</label>
         <select value={role} onChange={e => setRole(e.target.value)}
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
           <option value="operator">Operator</option>
@@ -56,7 +55,7 @@ export default function UserForm({ onSaved, onCancel }: Props) {
         </select>
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Email</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.users.colEmail')}</label>
         <input value={email} onChange={e => setEmail(e.target.value)}
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>

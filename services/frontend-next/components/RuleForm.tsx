@@ -48,7 +48,7 @@ export default function RuleForm({ rule, onSaved, onCancel }: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Penyakit</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.outbreakRules.colDisease')}</label>
         <input value={diseaseName} onChange={e => setDiseaseName(e.target.value)} required
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
@@ -58,18 +58,18 @@ export default function RuleForm({ rule, onSaved, onCancel }: Props) {
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Min Case Count</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.outbreakRules.colMinCases')}</label>
         <input type="number" value={minCaseCount} onChange={e => setMinCaseCount(parseInt(e.target.value) || 25)}
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Priority</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.outbreakRules.colPriority')}</label>
         <input type="number" value={priority} onChange={e => setPriority(parseInt(e.target.value) || 0)}
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
       <div className="flex items-center gap-2">
         <input type="checkbox" id="ruleActive" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-4 w-4" />
-        <label htmlFor="ruleActive" className="text-xs font-semibold uppercase text-slate-500">Aktif</label>
+        <label htmlFor="ruleActive" className="text-xs font-semibold uppercase text-slate-500">{t('common.active')}</label>
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel}

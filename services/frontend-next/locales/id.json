@@ -19,13 +19,13 @@
     "date": "Tanggal",
     "total": "Total",
     "active": "Aktif",
-    "inactive": "Tidak Aktif",
+    "inactive": "Nonaktif",
     "error": "Terjadi kesalahan",
     "success": "Berhasil",
     "retry": "Coba Lagi",
     "paginationInfo": "Total {total} data ? Halaman {page} dari {totalPages}",
     "noData": "Belum ada data",
-    "confirmDelete": "Apakah Anda yakin ingin menghapus {item}?",
+    "confirmDelete": "Hapus \"{name}\"?",
     "deletedSuccess": "{item} berhasil dihapus",
     "deleteFailed": "Gagal menghapus data",
     "savedSuccess": "Data berhasil disimpan",
@@ -35,7 +35,19 @@
     "triggerAll": "Trigger All",
     "refresh": "Refresh",
     "copy": "Salin",
-    "copied": "Tersalin"
+    "copied": "Tersalin",
+    "redirecting": "Mengalihkan ke login...",
+    "closeSidebar": "Tutup sidebar",
+    "item": "Item",
+    "value": "Nilai",
+    "notes": "Keterangan",
+    "name": "Nama",
+    "type": "Tipe",
+    "score": "Skor",
+    "priority": "Prioritas",
+    "never": "Belum pernah",
+    "running": "Berjalan",
+    "confirmDeleteGeneric": "Hapus item ini?"
   },
   "header": {
     "title": "Disease Surveillance AI",
@@ -212,7 +224,8 @@
     "notifTitle": "?? EWS: OUTBREAK DEKAT LOKASI ANDA!",
     "notifBody": "{disease} di {location}, sekitar {distance} km dari lokasi Anda.",
     "notifActiveTitle": "EWS Penyakit Kemenkes RI Aktif",
-    "notifActiveBody": "Peringatan outbreak penyakit di sekitar lokasi Anda akan dikirim secara realtime."
+    "notifActiveBody": "Peringatan outbreak penyakit di sekitar lokasi Anda akan dikirim secara realtime.",
+    "yourLocation": "Lokasi Anda"
   },
   "map": {
     "legend": "Legenda",
@@ -246,7 +259,13 @@
     "popupCases": "Kasus",
     "popupDeaths": "Kematian",
     "popupSeverity": "Tingkat Keparahan",
-    "popupThreshold": "Ambang KLB"
+    "popupThreshold": "Ambang KLB",
+    "monitoringTitle": "Pemetaan Media Monitoring Kawasan Asia Tenggara",
+    "mappedLocations": "Lokasi Terpetakan",
+    "casesPerCountry": "Jumlah kasus per negara",
+    "selectedCountry": "Negara Dipilih",
+    "resetView": "Reset tampilan",
+    "windSpeedSub": "Gradasi & kecepatan"
   },
   "tv": {
     "liveUpdate": "LIVE UPDATE",
@@ -269,7 +288,9 @@
     "earlyWarningTitle": "Peringatan Dini Penyakit",
     "activeOutbreakNotif": "{count} notifikasi outbreak aktif",
     "searchPlaceholder": "Cari penyakit, lokasi, negara...",
-    "sourceCollector": "Sumber: Collector NLP Disease Surveillance AI"
+    "sourceCollector": "Sumber: Collector NLP Disease Surveillance AI",
+    "inLocation": "di",
+    "tickerAlert": "{severity}: {disease} di {location} • {cases} {casesUnit}"
   },
   "severity": {
     "AWAS": "AWAS",
@@ -293,7 +314,46 @@
     "Polio": "Polio",
     "Antraks": "Antraks",
     "Cacar Monyet": "Cacar Monyet (Mpox)",
-    "COVID-19": "COVID-19"
+    "COVID-19": "COVID-19",
+    "dengue fever DBD": "Demam Berdarah (DBD)",
+    "Dengue": "Demam Berdarah",
+    "dengue": "Demam Berdarah",
+    "malaria": "Malaria",
+    "Cholera": "Kolera",
+    "cholera": "Kolera",
+    "Measles": "Campak",
+    "measles": "Campak",
+    "rabies": "Rabies",
+    "Avian Influenza": "Flu Burung",
+    "avian influenza": "Flu Burung",
+    "Tuberculosis": "Tuberkulosis (TBC)",
+    "tuberculosis": "Tuberkulosis (TBC)",
+    "tuberculosis TB": "Tuberkulosis (TBC)",
+    "TB": "Tuberkulosis (TBC)",
+    "Typhoid": "Tifus",
+    "typhoid": "Tifus",
+    "typhoid fever": "Demam Tifoid",
+    "leptospirosis": "Leptospirosis",
+    "Diphtheria": "Difteri",
+    "diphtheria": "Difteri",
+    "polio": "Polio",
+    "Anthrax": "Antraks",
+    "anthrax": "Antraks",
+    "Mpox": "Cacar Monyet (Mpox)",
+    "mpox": "Cacar Monyet (Mpox)",
+    "COVID-19 coronavirus": "COVID-19",
+    "Pneumonia": "Pneumonia",
+    "pneumonia": "Pneumonia",
+    "Chikungunya": "Chikungunya",
+    "chikungunya": "Chikungunya",
+    "Diare Akut": "Diare Akut",
+    "acute diarrhea": "Diare Akut",
+    "Hantavirus": "Hantavirus",
+    "hantavirus": "Hantavirus",
+    "Influenza": "Influenza",
+    "influenza": "Influenza",
+    "influenza flu": "Influenza",
+    "UNKNOWN": "Penyakit Tidak Dikenal"
   },
   "footer": {
     "copyright": "? 2026 Kementerian Kesehatan Republik Indonesia. All rights reserved."
@@ -342,7 +402,12 @@
       "neverRun": "Belum pernah",
       "success": "Berhasil",
       "failed": "Gagal",
-      "running": "Berjalan"
+      "running": "Berjalan",
+      "addTitle": "Tambah Sumber Data",
+      "editTitle": "Edit Sumber Data",
+      "processing": "Memproses {name}...",
+      "processingAll": "Memproses semua sumber...",
+      "allDone": "Semua sumber selesai"
     },
     "analyze": {
       "title": "Analisis URL",
@@ -352,7 +417,23 @@
       "analyzing": "Menganalisis...",
       "urlRequired": "Masukkan URL terlebih dahulu",
       "done": "Analisis selesai!",
-      "failed": "Gagal menganalisis URL"
+      "failed": "Gagal menganalisis URL",
+      "diseaseClassification": "Penyakit (Klasifikasi)",
+      "healthRelevance": "Relevansi Kesehatan",
+      "outbreakAlert": "Peringatan Wabah",
+      "healthRelated": "Terkait Kesehatan",
+      "analysisContent": "Konten Analisis",
+      "originalLanguage": "Bahasa asli",
+      "translated": "Diterjemahkan",
+      "originalLocation": "Lokasi asli",
+      "viewOriginalContent": "Lihat konten utama asli",
+      "viewTranslatedContent": "Lihat hasil terjemahan lokal",
+      "detectedSymptoms": "Gejala Terdeteksi",
+      "additionalInfo": "Info Tambahan",
+      "language": "Bahasa",
+      "diseaseKeyword": "Penyakit (Keyword)",
+      "dataSaved": "Data Tersimpan",
+      "savedDescription": "Hasil analisis telah disimpan ke database dan dapat dilihat di halaman Events."
     },
     "processing": {
       "title": "Processing Monitor",
@@ -365,95 +446,92 @@
     },
     "locations": {
       "title": "Lokasi",
-      "subtitle": "Kelola master data wilayah dan koordinat geografis",
-      "add": "Tambah Lokasi",
-      "searchPlaceholder": "Cari lokasi atau negara...",
+      "subtitle": "Data koordinat geografis master pemantauan wilayah",
       "colName": "Nama Lokasi",
+      "colLat": "Lintang (Lat)",
+      "colLon": "Bujur (Lon)",
       "colCountry": "Negara",
-      "colLat": "Latitude",
-      "colLon": "Longitude",
-      "colAction": "Aksi"
+      "addTitle": "Tambah Lokasi",
+      "editTitle": "Edit Lokasi"
     },
     "credibility": {
       "title": "Kredibilitas Sumber",
-      "subtitle": "Aturan dan bobot kredibilitas berdasarkan domain sumber",
-      "add": "Tambah Domain",
-      "searchPlaceholder": "Cari domain...",
-      "colDomain": "Domain",
-      "colScore": "Skor Kredibilitas",
-      "colNotes": "Catatan",
-      "colAction": "Aksi"
+      "subtitle": "Skor kredibilitas per tipe sumber data (digunakan NLP pipeline)",
+      "searchPlaceholder": "Cari tipe sumber...",
+      "colDomain": "Tipe Sumber",
+      "colScore": "Skor",
+      "addTitle": "Tambah Kredibilitas",
+      "editTitle": "Edit Kredibilitas"
     },
     "outbreakRules": {
-      "title": "Aturan Outbreak",
-      "subtitle": "Ambang batas dan konfigurasi deteksi KLB",
-      "add": "Tambah Aturan",
-      "searchPlaceholder": "Cari aturan atau penyakit...",
+      "title": "Aturan Wabah",
+      "subtitle": "Atur ambang batas kasus untuk peringatan wabah per penyakit",
+      "searchPlaceholder": "Cari penyakit...",
       "colDisease": "Penyakit",
-      "colThreshold": "Ambang Kasus",
-      "colWindow": "Rentang Waktu (Hari)",
-      "colSeverity": "Tingkat Keparahan",
-      "colAction": "Aksi"
+      "colMinCases": "Min Kasus",
+      "colPriority": "Prioritas",
+      "addTitle": "Tambah Aturan Wabah",
+      "editTitle": "Edit Aturan Wabah"
     },
     "nlpLabels": {
       "title": "Label NLP",
-      "subtitle": "Master label untuk klasifikasi teks NLP",
-      "add": "Tambah Label",
-      "searchPlaceholder": "Cari label...",
-      "colLabel": "Nama Label",
+      "subtitle": "Kelola label untuk klasifikasi model NLP",
       "colCategory": "Kategori",
+      "colLabel": "Label",
       "colPriority": "Prioritas",
-      "colAction": "Aksi"
+      "addTitle": "Tambah Label",
+      "editTitle": "Edit Label"
     },
     "nlpKeywords": {
       "title": "Kata Kunci NLP",
-      "subtitle": "Kata kunci pencarian dan ekstraksi gejala penyakit",
-      "add": "Tambah Kata Kunci",
-      "searchPlaceholder": "Cari kata kunci...",
-      "colKeyword": "Kata Kunci",
+      "subtitle": "Kamus kata kunci untuk ekstraksi penyakit & gejala",
       "colCategory": "Kategori",
-      "colTarget": "Target Label",
+      "colKeyword": "Kata Kunci",
+      "colTarget": "Label Target",
       "colPriority": "Prioritas",
-      "colAction": "Aksi"
+      "addTitle": "Tambah Kata Kunci",
+      "editTitle": "Edit Kata Kunci"
     },
     "languageMarkers": {
       "title": "Penanda Bahasa",
-      "subtitle": "Penanda bahasa dan dialek lokal untuk preprocessing teks",
-      "add": "Tambah Marker",
-      "searchPlaceholder": "Cari marker...",
-      "colMarker": "Marker",
-      "colLang": "Bahasa",
-      "colAction": "Aksi"
+      "subtitle": "Kata kunci penanda untuk deteksi bahasa artikel",
+      "searchPlaceholder": "Cari kata / bahasa...",
+      "colWord": "Kata",
+      "colLanguage": "Bahasa",
+      "languagesCount": "bahasa",
+      "addTitle": "Tambah Penanda Bahasa",
+      "editTitle": "Edit Penanda Bahasa"
     },
     "extractionRules": {
       "title": "Aturan Ekstraksi",
-      "subtitle": "Aturan pola regex dan heuristik ekstraksi entitas",
-      "add": "Tambah Aturan",
-      "searchPlaceholder": "Cari aturan ekstraksi...",
-      "colPattern": "Pola Ekstraksi",
-      "colTarget": "Target",
-      "colAction": "Aksi"
+      "subtitle": "Aturan regex untuk ekstraksi angka kasus & kematian",
+      "helperNote": "Pola regex dijalankan berdasarkan field_name (case_count atau death_count). Gunakan capture group (\\d+) untuk menangkap angka. Prioritas lebih kecil = dijalankan lebih dulu.",
+      "modalHelper": "Gunakan \\b(\\d+)\\s+(?:...) format. Group 1 = angka yang ditangkap.",
+      "colField": "Nama Field",
+      "colRegex": "Pola Regex",
+      "colPriority": "Prioritas",
+      "addTitle": "Tambah Aturan Ekstraksi",
+      "editTitle": "Edit Aturan Ekstraksi"
     },
     "languageModels": {
       "title": "Model Bahasa",
-      "subtitle": "Daftar model NLP dan LLM yang terdaftar di sistem",
-      "add": "Tambah Model",
-      "searchPlaceholder": "Cari model...",
-      "colName": "Nama Model",
-      "colProvider": "Provider",
-      "colAction": "Aksi"
+      "subtitle": "Pemetaan bahasa ke model transformer NLP",
+      "searchPlaceholder": "Cari bahasa / model...",
+      "colLanguage": "Bahasa",
+      "colName": "Kunci Model",
+      "addTitle": "Tambah Model Bahasa",
+      "editTitle": "Edit Model Bahasa"
     },
     "users": {
-      "title": "Manajemen Pengguna",
-      "subtitle": "Kelola akun pengguna sistem",
-      "add": "Tambah User",
-      "searchPlaceholder": "Cari user...",
-      "colUsername": "Username",
-      "colDisplayName": "Display Name",
-      "colRole": "Role",
+      "title": "Kelola Pengguna",
+      "subtitle": "Kelola akun pengguna dashboard & peran",
+      "colUsername": "Nama Pengguna",
+      "colDisplayName": "Nama Tampilan",
+      "colRole": "Peran",
       "colEmail": "Email",
-      "colActive": "Active",
-      "colAction": "Aksi"
+      "btnAdd": "Tambah Pengguna",
+      "addTitle": "Tambah Pengguna",
+      "editTitle": "Edit Pengguna"
     },
     "audit": {
       "hardcode1Title": "Hardcode Audit 1",
@@ -463,5 +541,16 @@
       "copy": "Salin",
       "copied": "Tersalin!"
     }
+  },
+  "sentiment": {
+    "positive": "Positif",
+    "negative": "Negatif",
+    "neutral": "Netral"
+  },
+  "relevance": {
+    "high": "Tinggi",
+    "medium": "Sedang",
+    "moderate": "Sedang",
+    "low": "Rendah"
   }
 }

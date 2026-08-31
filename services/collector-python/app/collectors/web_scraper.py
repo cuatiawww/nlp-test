@@ -67,7 +67,15 @@ def _response_html(page: Any) -> str:
 def _is_challenge(status: int, html: str) -> bool:
     if status in BLOCKED_STATUSES:
         return True
-    sample = html[:100_000].lower()
+    if not html:
+        return False
+    sample = html[:50_000].lower()
+    if status == 200:
+        if "<title>just a moment" in sample or "<title>checking your browser" in sample or "<title>attention required" in sample:
+            return True
+        if 'id="cf-challenge' in sample or 'id="challenge-running' in sample or 'id="challenge-form' in sample:
+            return True
+        return False
     return any(marker in sample for marker in CHALLENGE_MARKERS)
 
 
@@ -97,27 +105,46 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
         deduplicate=True,
     )
     metadata = extract_metadata(html)
-    title = (metadata.title or "").strip() if metadata else ""
+    og_title = (metadata.title or "").strip() if metadata else ""
 
     soup = BeautifulSoup(html, "lxml")
+    h1_node = soup.select_one("h1.post-title, h1.entry-title, h1.article-title, h1")
+    h1_title = h1_node.get_text(" ", strip=True) if h1_node else ""
+
+    tag_title = ""
+    title_node = soup.select_one("title")
+    if title_node:
+        raw_tag = title_node.get_text(" ", strip=True)
+        if " | " in raw_tag:
+            tag_title = raw_tag.split(" | ")[0].strip()
+        elif " - " in raw_tag:
+            tag_title = raw_tag.split(" - ")[0].strip()
+        else:
+            tag_title = raw_tag
+
+    # Prioritize most complete title (avoid truncated og:title)
+    title = h1_title or og_title or tag_title
+    if h1_title and len(h1_title) > len(og_title):
+        title = h1_title
+    elif tag_title and len(tag_title) > len(title) and not title.endswith("..."):
+        title = tag_title
+
     for node in soup.select(
         "script, style, noscript, svg, template, nav, footer, header, aside, "
         ".advertisement, .ads, .social-share, .related, .recommended"
     ):
         node.decompose()
     if title_selector:
-        title_node = soup.select_one(title_selector)
-        if title_node:
-            title = title_node.get_text(" ", strip=True)
-    if not title:
-        title_node = soup.select_one("h1") or soup.select_one("title")
-        title = title_node.get_text(" ", strip=True) if title_node else ""
+        sel_node = soup.select_one(title_selector)
+        if sel_node:
+            title = sel_node.get_text(" ", strip=True)
 
     if not content:
         main_node = (
             soup.select_one("article")
             or soup.select_one("main")
             or soup.select_one('[role="main"]')
+            or soup.select_one('.post-content, .entry-content, .article-content')
         )
         content = main_node.get_text(" ", strip=True) if main_node else ""
     content = " ".join((content or "").split())
@@ -179,19 +206,19 @@ def _extract_date_from_url(url: str) -> str:
 def _extract_date_from_text(text: str) -> str:
     if not text:
         return ""
-    sample = text[:800]
+    sample = text[:1000]
     # ISO date: 2026-08-27 or 2026/08/27
     m = re.search(r'\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b', sample)
     if m:
         return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
-    # Day Month Year: e.g. "27 Agustus 2026", "04 Maret 2026"
-    m = re.search(r'\b(0?[1-9]|[12]\d|3[01])\s+([A-Za-z]{3,12})\s+(20\d{2})\b', sample)
+    # Day Month Year (supports hyphens, slashes, spaces): e.g. "26-May-2025", "27 Agustus 2026"
+    m = re.search(r'\b(0?[1-9]|[12]\d|3[01])[-/\s]+([A-Za-z]{3,12})[-/\s]+(20\d{2})\b', sample)
     if m:
         month_str = m.group(2).lower()
         if month_str in MONTH_MAP:
             return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(1)):02d}"
-    # Month Day, Year: e.g. "August 27, 2026"
-    m = re.search(r'\b([A-Za-z]{3,12})\s+(0?[1-9]|[12]\d|3[01]),?\s+(20\d{2})\b', sample)
+    # Month Day, Year: e.g. "May 26, 2025", "August 27, 2026"
+    m = re.search(r'\b([A-Za-z]{3,12})[-/\s]+(0?[1-9]|[12]\d|3[01]),?[-/\s]+(20\d{2})\b', sample)
     if m:
         month_str = m.group(1).lower()
         if month_str in MONTH_MAP:
@@ -217,6 +244,19 @@ def _extract_published_at(html: str, url: str = "", text: str = "") -> str:
         node = soup.select_one(selector)
         if node:
             candidates.append(node.get("content") or node.get("datetime"))
+
+    # Also inspect post-meta / publish date containers in HTML
+    for selector in (
+        '.post-meta', '.entry-meta', '.article-meta', '.article-date',
+        '.post-date', '[class*="post-meta"]', '[class*="publish-date"]',
+        'time',
+    ):
+        for node in soup.select(selector):
+            node_text = node.get_text(" ", strip=True)
+            d = _extract_date_from_text(node_text)
+            if d:
+                candidates.append(d)
+                break
 
     # JSON-LD is often the only reliable source on news sites.
     for node in soup.select('script[type="application/ld+json"]'):
@@ -258,10 +298,27 @@ class WebScraperCollector(BaseCollector):
         if fetch_mode not in {"auto", "http", "stealth"}:
             raise ValueError(f"Invalid fetch_mode: {fetch_mode}")
 
+        outcome = None
         async with AsyncExitStack() as stack:
-            outcome, _ = await self._fetch(url, fetch_mode, "body", None, stack)
+            try:
+                outcome, _ = await self._fetch(url, fetch_mode, "body", None, stack)
+            except Exception as exc:
+                logger.warning("Primary fetch failed for %s (%s), trying direct http fallback", url, exc)
+                try:
+                    outcome = await self._fetch_http(url)
+                except Exception as fallback_exc:
+                    logger.error("HTTP fallback also failed for %s: %s", url, fallback_exc)
+                    if outcome is None:
+                        raise
 
         title, content = _extract_main_content(outcome.html)
+        if not content and outcome.html:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(outcome.html, "lxml")
+            for node in soup.select("script, style, noscript, svg, nav, footer, header"):
+                node.decompose()
+            content = soup.get_text(" ", strip=True)[:10000]
+
         return {
             "url": url,
             "title": title,
@@ -335,8 +392,11 @@ class WebScraperCollector(BaseCollector):
                      stealth_session: Optional[Any], stack: AsyncExitStack):
         if fetch_mode != "stealth":
             outcome = await self._fetch_http(url)
-            selector_missing = not _selected_text(outcome.page, body_selector)
             blocked = _is_challenge(outcome.status, outcome.html)
+            selector_missing = not _selected_text(outcome.page, body_selector)
+            # If status 200 and valid HTML received without a block challenge, use it directly
+            if outcome.status == 200 and len(outcome.html) > 500 and not blocked:
+                return outcome, stealth_session
             if fetch_mode == "http" or (not blocked and not selector_missing):
                 if blocked:
                     raise RuntimeError(f"blocked response status={outcome.status} and fetch_mode=http")

@@ -10,6 +10,7 @@ import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import UserForm from '@/components/UserForm'
+import { toast } from 'sonner'
 
 interface User {
   id: string; username: string; display_name?: string; role: string; email?: string; is_active: boolean; created_at?: string
@@ -21,11 +22,14 @@ export default function UsersPage() {
   const [showModal, setShowModal] = useState(false)
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Hapus user ini?')) return
+    if (!confirm(t('common.confirmDeleteGeneric'))) return
     try {
       await deleteUser(id)
+      toast.success(t('common.deletedSuccess'))
       reload()
-    } catch {}
+    } catch {
+      toast.error(t('common.deleteFailed'))
+    }
   }
 
   return (
@@ -37,7 +41,7 @@ export default function UsersPage() {
         </div>
         <button onClick={() => setShowModal(true)}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
-          <Plus className="h-4 w-4" /> Tambah User
+          <Plus className="h-4 w-4" /> {t('pages.users.btnAdd')}
         </button>
       </div>
 
@@ -76,8 +80,8 @@ export default function UsersPage() {
                   <td className="px-4 py-3 text-slate-700">{u.email || '-'}</td>
                   <td className="px-4 py-3 text-center">
                     {u.is_active
-                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">Aktif</span>
-                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">Nonaktif</span>
+                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.active')}</span>
+                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.inactive')}</span>
                     }
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -93,7 +97,7 @@ export default function UsersPage() {
         <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
 
-      <Modal open={showModal} title="Tambah User" onClose={() => setShowModal(false)}>
+      <Modal open={showModal} title={t('pages.users.addTitle')} onClose={() => setShowModal(false)}>
         <UserForm onSaved={() => { setShowModal(false); reload() }} onCancel={() => setShowModal(false)} />
       </Modal>
     </div>

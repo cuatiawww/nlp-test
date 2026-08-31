@@ -38,42 +38,41 @@ export default function SourceCredibilityPage() {
 
   const handleSave = async () => {
     if (!form.source_type) return
-    const body = JSON.stringify(form)
     try {
       if (editItem) {
         await updateCredibility(editItem.id, form)
       } else {
         await createCredibility(form)
       }
-      setShowModal(false); load(); toast.success(editItem ? 'Updated' : 'Added')
-    } catch { toast.error('Failed') }
+      setShowModal(false); load(); toast.success(editItem ? t('common.savedSuccess') : t('common.savedSuccess'))
+    } catch { toast.error(t('common.saveFailed')) }
   }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Hapus "${name}"?`)) return
+    if (!confirm(t('common.confirmDelete', { name }))) return
     try {
       await deleteCredibility(id)
-      load(); toast.success('Deleted')
-    } catch { toast.error('Failed') }
+      load(); toast.success(t('common.deletedSuccess'))
+    } catch { toast.error(t('common.deleteFailed')) }
   }
 
   return (
     <div className="px-4 md:px-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Source Credibility</h1>
-          <p className="mt-1 text-sm text-slate-500">Skor kredibilitas per tipe sumber data (digunakan NLP pipeline)</p>
+          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.credibility.title')}</h1>
+          <p className="mt-1 text-sm text-slate-500">{t('pages.credibility.subtitle')}</p>
         </div>
         <button onClick={() => { setEditItem(null); setForm({ source_type: '', score: 0.5 }); setShowModal(true) }}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
-          <Plus className="h-4 w-4" /> Tambah
+          <Plus className="h-4 w-4" /> {t('common.add')}
         </button>
       </div>
 
       <div className="mt-4 flex gap-2">
         <div className="relative max-w-xs">
           <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <SearchInput value={search} onChange={setSearch} placeholder="Cari source type..." />
+          <SearchInput value={search} onChange={setSearch} placeholder={t('pages.credibility.searchPlaceholder')} />
         </div>
       </div>
 
@@ -116,15 +115,15 @@ export default function SourceCredibilityPage() {
         )}
       </div>
 
-      <Modal open={showModal} title={editItem ? 'Edit Credibility' : 'Tambah Credibility'} onClose={() => setShowModal(false)}>
+      <Modal open={showModal} title={editItem ? t('pages.credibility.editTitle') : t('pages.credibility.addTitle')} onClose={() => setShowModal(false)}>
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Source Type</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.credibility.colDomain')}</label>
             <input value={form.source_type} onChange={e => setForm(f => ({ ...f, source_type: e.target.value }))} required
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Score (0.00 - 1.00)</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.credibility.colScore')} (0.00 - 1.00)</label>
             <input type="number" step="0.01" min="0" max="1" value={form.score} onChange={e => setForm(f => ({ ...f, score: parseFloat(e.target.value) || 0 }))}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
           </div>

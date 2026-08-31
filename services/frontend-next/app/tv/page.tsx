@@ -333,7 +333,7 @@ export default function TvPage() {
             {[...alerts,...alerts].map((a,i)=>(
               <div key={i} className="mx-6 flex items-center gap-2 text-xs font-bold text-slate-700">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500"/>
-                {translateSeverity(a.severity)}: {translateDisease(a.disease)} di {a.location_name} ? {a.cases.toLocaleString(numLocale)} {t('dashboard.casesUnit')} <b className="ml-4 text-slate-300">?</b>
+                {translateSeverity(a.severity)}: {translateDisease(a.disease)} {t('tv.inLocation')} {a.location_name} • {a.cases.toLocaleString(numLocale)} {t('dashboard.casesUnit')} <b className="ml-4 text-slate-300">•</b>
               </div>
             ))}
           </div>

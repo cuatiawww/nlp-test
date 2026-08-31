@@ -33,14 +33,14 @@ export default function ExtractionRulesPage() {
     try {
       if (editItem) await updateExtractionRule(editItem.id, form)
       else await createExtractionRule(form)
-      setShowModal(false); load(); toast.success(editItem ? 'Updated' : 'Added')
-    } catch { toast.error('Failed') }
+      setShowModal(false); load(); toast.success(editItem ? t('common.savedSuccess') : t('common.savedSuccess'))
+    } catch { toast.error(t('common.saveFailed')) }
   }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Hapus rule "${name}"?`)) return
-    try { await deleteExtractionRule(id); load(); toast.success('Deleted') }
-    catch { toast.error('Failed') }
+    if (!confirm(t('common.confirmDelete', { name }))) return
+    try { await deleteExtractionRule(id); load(); toast.success(t('common.deletedSuccess')) }
+    catch { toast.error(t('common.deleteFailed')) }
   }
 
   return (
@@ -52,27 +52,26 @@ export default function ExtractionRulesPage() {
         </div>
         <button onClick={() => { setEditItem(null); setForm({ field_name: 'case_count', regex_pattern: '', priority: 0 }); setShowModal(true) }}
           className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
-          <Plus className="h-4 w-4" /> Tambah
+          <Plus className="h-4 w-4" /> {t('common.add')}
         </button>
       </div>
 
-      <div className="mt-4 max-w-[600px] rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-        Pola regex dijalankan berdasarkan <code className="rounded bg-amber-100 px-1 font-mono">field_name</code> (case_count atau death_count).
-        Gunakan capture group <code className="rounded bg-amber-100 px-1 font-mono">(\d+)</code> untuk menangkap angka. Prioritas lebih kecil = dijalankan lebih dulu.
+      <div className="mt-4 max-w-[600px] rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 leading-relaxed">
+        {t('pages.extractionRules.helperNote')}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
           <div className="p-8 text-center text-sm text-slate-400">{t('common.loading')}</div>
         ) : data.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-400">Belum ada data</div>
+          <div className="p-8 text-center text-sm text-slate-400">{t('common.noData')}</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-left">
-                <th className="px-4 py-3 font-semibold text-slate-600">Field</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Regex Pattern</th>
-                <th className="px-4 py-3 text-center font-semibold text-slate-600">Priority</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.extractionRules.colField')}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.extractionRules.colRegex')}</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('pages.extractionRules.colPriority')}</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('common.active')}</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
               </tr>
@@ -106,10 +105,10 @@ export default function ExtractionRulesPage() {
         )}
       </div>
 
-      <Modal open={showModal} title={editItem ? 'Edit Extraction Rule' : 'Tambah Extraction Rule'} onClose={() => setShowModal(false)}>
+      <Modal open={showModal} title={editItem ? t('pages.extractionRules.editTitle') : t('pages.extractionRules.addTitle')} onClose={() => setShowModal(false)}>
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Field Name</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.extractionRules.colField')}</label>
             <select value={form.field_name} onChange={e => setForm(f => ({ ...f, field_name: e.target.value }))}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
               <option value="case_count">case_count</option>
@@ -117,13 +116,13 @@ export default function ExtractionRulesPage() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Regex Pattern</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.extractionRules.colRegex')}</label>
             <textarea value={form.regex_pattern} onChange={e => setForm(f => ({ ...f, regex_pattern: e.target.value }))} required rows={2}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono" />
-            <p className="mt-1 text-xs text-slate-400">Gunakan <code className="font-mono">\b(\d+)\s+(?:...)</code> format. Group 1 = angka yang ditangkap.</p>
+            <p className="mt-1 text-xs text-slate-400">{t('pages.extractionRules.modalHelper')}</p>
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Priority (lower = first)</label>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.extractionRules.colPriority')} (lower = first)</label>
             <input type="number" min="0" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: parseInt(e.target.value) || 0 }))}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
           </div>

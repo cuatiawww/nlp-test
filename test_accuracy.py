@@ -144,6 +144,20 @@ test_cases = [
         },
         "note": "Memastikan penyakit campak terdeteksi sebagai 'Campak' dan lokasi utama adalah Semarang"
     },
+    {
+        "id": 13,
+        "name": "RSPP Jakarta — Lonjakan Kasus DBD di Beberapa Provinsi",
+        "url": "https://rspp.co.id/artikel-detail-792-Lonjakan-Kasus-DBD-(Demam-Berdarah-Dengue)-di-Beberapa-Provinsi.html",
+        "expect": {
+            "country": "Indonesia",
+            "disease_classification": "DBD",
+            "published_at": "2025-05-26",
+            "title": "Lonjakan Kasus DBD (Demam Berdarah Dengue) di Beberapa Provinsi",
+            "is_health_related": True,
+            "locations": lambda v: isinstance(v, list) and not any(loc.get("name") == "Sarang" for loc in v),
+        },
+        "note": "Memastikan artikel portal RS berhasil di-crawl tanpa timeout, judul lengkap, tanggal akurat 2025-05-26, dan tanpa kebocoran lokasi 'Sarang'"
+    },
 ]
 
 

@@ -1,8 +1,7 @@
 import logging
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from . import db, minio_client, scheduler
 from . import config
@@ -52,7 +51,8 @@ def health():
 
 @app.post("/extract-url")
 async def extract_url(payload: ExtractUrlRequest):
-    parsed = urlparse(payload.url.strip())
+    url = payload.url.strip()
+    parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise HTTPException(status_code=400, detail="URL harus menggunakan http atau https")
     if payload.fetch_mode not in {"auto", "http", "stealth"}:
@@ -71,10 +71,39 @@ async def extract_url(payload: ExtractUrlRequest):
     })
     try:
         async with _get_extract_semaphore():
-            data = await collector.extract_url(payload.url.strip())
+            data = await collector.extract_url(url)
         return {"success": True, "data": data}
     except Exception as exc:
-        logger.exception("Interactive extraction failed for %s", payload.url)
+        logger.exception("Interactive extraction failed for %s, trying direct HTTP fallback", url)
+        try:
+            import httpx
+            import trafilatura
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+            }
+            async with httpx.AsyncClient(follow_redirects=True, timeout=25.0, headers=headers) as client:
+                res = await client.get(url)
+                if res.status_code == 200:
+                    text_content = trafilatura.extract(res.text) or ""
+                    metadata = trafilatura.extract_metadata(res.text)
+                    title = (metadata.title or "").strip() if metadata else ""
+                    if text_content:
+                        return {
+                            "success": True,
+                            "data": {
+                                "url": url,
+                                "title": title,
+                                "content": text_content,
+                                "fetch_mode": "http-fallback",
+                                "http_status": 200,
+                                "source_country": "Indonesia",
+                                "published_at": metadata.date if metadata and metadata.date else "",
+                            }
+                        }
+        except Exception as fb_err:
+            logger.warning("HTTP direct fallback failed for %s: %s", url, fb_err)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
