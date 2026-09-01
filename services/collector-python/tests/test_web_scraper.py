@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 import sys
 from pathlib import Path
 
@@ -9,6 +9,8 @@ from app.collectors.web_scraper import (
     _extract_published_at,
     _country_hint_from_url,
     _is_challenge,
+    _is_spa_shell,
+    _normalize_url,
     _response_html,
     _selected_text,
 )
@@ -69,6 +71,37 @@ class WebScraperHelpersTest(unittest.TestCase):
         page = FakePage(selectors={"article": "  outbreak update  "})
         self.assertEqual(_selected_text(page, "article"), "outbreak update")
         self.assertEqual(_selected_text(page, ".missing"), "")
+
+    def test_normalize_url_removes_trailing_slash_before_query(self):
+        self.assertEqual(
+            _normalize_url("https://beaconbio.org/en/event/?eventId=123&locations=456"),
+            "https://beaconbio.org/en/event?eventId=123&locations=456",
+        )
+        self.assertEqual(
+            _normalize_url("https://example.com/news/123/"),
+            "https://example.com/news/123/",
+        )
+
+    def test_spa_shell_detection(self):
+        spa_html = """
+        <html><head><title>App</title><script src="chunk1.js"></script><script src="chunk2.js"></script></head>
+        <body>
+          <nav>Home About Contact</nav>
+          <div id="root"></div>
+        </body></html>
+        """ + ("<!-- padding -->" * 400)
+        self.assertTrue(_is_spa_shell(spa_html))
+
+        normal_html = """
+        <html><head><title>Article</title></head><body>
+          <article>
+            <h1>Dengue Fever Outbreak</h1>
+            <p>Health officials confirmed over 50 cases of dengue fever in the province this week.</p>
+            <p>Vector control measures are underway across all districts.</p>
+          </article>
+        </body></html>
+        """
+        self.assertFalse(_is_spa_shell(normal_html))
 
     def test_main_content_excludes_navigation_and_footer(self):
         html = """

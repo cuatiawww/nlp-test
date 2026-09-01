@@ -44,7 +44,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         location = extractors.extract_location(translated_text, country=location_country)
         if not all_locations:
             all_locations = extractors.extract_all_locations(translated_text, country=location_country)
-    if not location:
+    is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text)))
+    if not location and not is_noisy_early:
         try:
             from .deepseek import detect_location
             resolved_location = detect_location(
@@ -164,10 +165,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Optional accuracy fallback: DeepSeek may translate an unseen disease name,
     # but it can only select a concept already resolved to WHO ICD-11 in the DB.
     # Any API failure leaves the deterministic/model result unchanged.
+    is_noisy = extractors.is_content_too_short_or_noisy(text, has_health_indicators=has_keywords)
+    if is_noisy and not extracted:
+        is_health_related = False
+        disease = "UNKNOWN"
+
     should_use_deepseek = (
-        disease == "UNKNOWN"
-        or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
-        or (language not in {"en", "id"} and not extracted)
+        not is_noisy
+        and (
+            disease == "UNKNOWN"
+            or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
+            or (language not in {"en", "id"} and not extracted)
+        )
     )
     if should_use_deepseek:
         try:
@@ -190,8 +199,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         confidence = max(confidence, 0.85)
     if who_mentions:
         # An explicit WHO-backed term wins over a generic classifier guess
-        # (for example, "kolera" must not be classified as dengue).
-        disease = who_mentions[0]
+        opening_text = text[:1500] + " " + analysis_text[:1500]
+        opening_who = [w for w in who_mentions if w.lower().split()[0] in opening_text.lower()]
+        disease = opening_who[0] if opening_who else who_mentions[0]
         confidence = max(confidence, 0.85)
     if extracted:
         is_health_related = True

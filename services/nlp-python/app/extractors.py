@@ -1,6 +1,15 @@
 import os
 import re
 import unicodedata
+
+
+def strip_diacritics(s: str) -> str:
+    """Normalize and remove diacritics/tone marks for robust multilingual matching."""
+    if not s:
+        return ""
+    normalized = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in normalized if not unicodedata.combining(c))
+
 from collections import Counter
 from typing import Optional
 from . import config
@@ -103,11 +112,32 @@ COUNTRY_ALIASES = {
 
 
 def extract_country_hint(text: str) -> Optional[str]:
-    folded = _fold_location_text(text or "")
-    for alias in sorted(COUNTRY_ALIASES, key=len, reverse=True):
-        if re.search(rf"(?<![A-Za-z]){re.escape(_fold_location_text(alias))}(?![A-Za-z])", folded, re.IGNORECASE):
-            return COUNTRY_ALIASES[alias]
-    return None
+    lower_text = (text or "").lower()
+    if not lower_text.strip():
+        return None
+    contextual = re.compile(
+        r"(?:including|includes|compared with|compared to|higher than|lower than|"
+        r"both|between|across|regional partners|countries in|in contrast to|with\s+[a-z,\s]+and|than that of)",
+        re.IGNORECASE,
+    )
+    country_scores: dict[str, float] = {}
+    for alias, standard_country in COUNTRY_ALIASES.items():
+        pattern = re.compile(rf"\b{re.escape(alias)}\b", re.IGNORECASE)
+        matches = list(pattern.finditer(lower_text))
+        if not matches:
+            continue
+        score = float(len(matches) * 3)
+        if any(m.start() < 200 for m in matches):
+            score += 4.0
+        for m in matches:
+            pos = m.start()
+            if contextual.search(lower_text[max(0, pos - 80):pos]):
+                score -= 3.0
+        country_scores[standard_country] = score
+
+    if not country_scores:
+        return None
+    return max(country_scores.keys(), key=lambda k: country_scores[k])
 
 
 def country_scope(country: Optional[str]) -> Optional[str]:
@@ -121,30 +151,54 @@ def country_scope(country: Optional[str]) -> Optional[str]:
 
 
 def extract_who_disease_mentions(text: str, concepts: list[dict]) -> list[str]:
-    """Match explicit WHO concept names without asking the model to infer."""
-    value = re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+    """Match explicit WHO concept names and their individual English/local variants."""
+    raw_val = (text or "").lower()
+    val_diacritic = strip_diacritics(raw_val)
+    value = re.sub(r"[^a-z0-9]+", " ", raw_val + " " + val_diacritic).strip()
     mentions: list[str] = []
     for concept in concepts:
         canonical = str(concept.get("canonical_name") or "").strip()
         english = str(concept.get("english_name") or "").strip()
+        terms = set()
         for name in (canonical, english):
-            folded = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
-            if folded and re.search(rf"(?<![a-z0-9]){re.escape(folded)}(?![a-z0-9])", value):
+            full_folded = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+            if full_folded:
+                terms.add(full_folded)
+            for sub in re.split(r"[/,()]", name):
+                t = re.sub(r"[^a-z0-9]+", " ", sub.lower()).strip()
+                if len(t) >= 3 and t not in {"and", "the", "for", "with", "from", "virus", "disease"}:
+                    terms.add(t)
+            for token in re.findall(r"\b[a-z]*\d+[a-z0-9]*\b|\b[a-z]{4,}\b", name.lower()):
+                if token not in {"virus", "disease", "fever", "infection", "acute", "human", "with", "from"}:
+                    terms.add(token)
+
+        for term in sorted(terms, key=len, reverse=True):
+            if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", value):
                 mentions.append(canonical)
                 break
     return sorted(set(mentions))
 
 
 def canonicalize_who_disease_labels(labels: list[str], concepts: list[dict]) -> list[str]:
-    """Map local keyword labels (e.g. KOLERA/MEASLES) to WHO canonicals."""
-    by_name = {
-        str(concept.get("canonical_name") or "").strip().upper(): str(
-            concept.get("canonical_name") or ""
-        ).strip()
-        for concept in concepts
-        if concept.get("canonical_name")
-    }
-    return sorted(set(by_name[label.strip().upper()] for label in labels if label.strip().upper() in by_name))
+    """Map local keyword labels (e.g. KOLERA/MEASLES/AVIAN_INFLUENZA) to WHO canonicals."""
+    matched = []
+    for label in labels:
+        lbl_clean = re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
+        if not lbl_clean:
+            continue
+        for concept in concepts:
+            canonical = str(concept.get("canonical_name") or "").strip()
+            english = str(concept.get("english_name") or "").strip()
+            can_clean = re.sub(r"[^a-z0-9]+", " ", canonical.lower()).strip()
+            eng_clean = re.sub(r"[^a-z0-9]+", " ", english.lower()).strip()
+
+            if lbl_clean == can_clean or lbl_clean == eng_clean:
+                matched.append(canonical)
+                break
+            if len(lbl_clean) >= 4 and (lbl_clean in can_clean or lbl_clean in eng_clean or can_clean in lbl_clean):
+                matched.append(canonical)
+                break
+    return sorted(set(matched))
 
 
 def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
@@ -189,32 +243,40 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
     if not hits:
         return None
 
-    # A news article often starts with a dateline (e.g. "Jakarta (ANTARA)")
-    # while the incident is elsewhere. Prefer locations in the article body
-    # when a real body location is available.
-    body_hits = [(loc, pos) for loc, pos in hits if pos >= 120]
-    if body_hits:
-        hits = body_hits
-
-    # International comparison sections often mention other countries or
-    # cities ("including Singapore", "higher than Thailand", etc.). These
-    # are not the incident location. Keep genuine mentions when available.
+    # Smart weighted scoring for candidate locations:
+    # 1. Base score = frequency in text * 3
+    # 2. Bonus if in headline / opening paragraph (pos < 200) = +4
+    # 3. Specificity bonus for multi-word or distinct city names = +1
+    # 4. Penalty if inside comparative phrasing ("in contrast to Singapore", "including Thailand") = -5
     contextual = re.compile(
         r"(?:including|includes|compared with|compared to|higher than|lower than|"
-        r"both|between|across|regional partners|countries in)",
+        r"both|between|across|regional partners|countries in|in contrast to)",
         re.IGNORECASE,
     )
-    primary_hits = [
-        (loc, pos)
-        for loc, pos in hits
-        if not contextual.search(lower_text[max(0, pos - 100):pos])
-    ]
-    if primary_hits:
-        hits = primary_hits
-
     counts = Counter(loc for loc, _ in hits)
-    # Prefer highest frequency, more specific location names, then earlier mentions
-    return max(hits, key=lambda item: (counts[item[0]], len(item[0]), -item[1]))[0]
+    scored: dict[str, float] = {}
+
+    for loc, pos in hits:
+        if loc not in scored:
+            score = float(counts[loc] * 3)
+            if any(p < 200 for l, p in hits if l == loc):
+                score += 4.0
+            if " " in loc or len(loc) > 6:
+                score += 1.0
+            if contextual.search(lower_text[max(0, pos - 80):pos]):
+                score -= 5.0
+            scored[loc] = score
+
+    if not scored:
+        return hits[0][0]
+
+    return max(
+        scored.keys(),
+        key=lambda loc_name: (
+            scored[loc_name],
+            -min((p for l, p in hits if l == loc_name), default=999999)
+        )
+    )
 
 
 def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict]:
@@ -333,30 +395,27 @@ def _extract_count(text: str, field: str, default: int) -> int:
     )
     localized_patterns = {
         "case_count": [
-            # Do not treat "2.300 orang telah meninggal" as case_count.
-            r"\b([0-9][0-9,.]*)\s+(?:warga|pasien|kasus|orang|residents|patients|cases)\b"
+            r"\b([0-9][0-9,.]*)(?:\s+[a-z-]+){0,3}\s+(?:cases?|infections?|patients?|warga|kasus|residents?)\b"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has)?\s*"
-            r"(?:meninggal|kematian|tewas|died|death|deaths)\b)",
-            # Myanmar daily bulletin: distinguish positive cases from the
-            # number of laboratory samples and earlier cumulative totals.
+            r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities)\b)",
+            r"(?:with|logged|recorded|reported|total of|mencatat|sebanyak)\s+([0-9][0-9,.]*)\s+(?:[a-z-]+\s+)?(?:infections?|cases?|kasus|warga|pasien)",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
-            r"([0-9][0-9,.]*)(?:\s+[a-z-]+){0,3}\s+cases?\b",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីឆ្លងថ្មី|ករណីឆ្លង|អ្នកឆ្លង)\s*([0-9][0-9,.]*)\s*នាក់",
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
         ],
         "death_count": [
-            r"\b([0-9][0-9,.]*)\s+(?:orang\s+)?(?:telah\s+|sudah\s+)?(?:meninggal(?:\s+dunia)?|kematian|tewas|died|death|deaths)\b",
-            r"\b([0-9][0-9,.]*)\s+(?:meninggal|kematian|korban jiwa|death|deaths|killed|died|tewas)\b",
+            r"(?:deaths?|kematian|korban jiwa|fatalities)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+([0-9][0-9,.]*)",
+            r"\b([0-9][0-9,.]*)(?:\s+[a-z-]+){0,3}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed)\b",
+            r"(?:logged|recorded|reported|mencatat|sebanyak)\s+([0-9][0-9,.]*)\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities)",
             r"ယမန်နေ့တွင်\s*သေဆုံးသူ\s*([0-9][0-9,.]*)\s*ဦး",
-            r"([0-9][0-9,.]*)\s+deaths?\b",
             r"(?:ผู้เสียชีวิต|เสียชีวิต)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីស្លាប់|អ្នកស្លាប់)\s*([0-9][0-9,.]*)\s*នាក់",
             r"(?:သေဆုံးသူ|သေဆုံး)\s*([0-9][0-9,.]*)",
         ],
     }
     for pattern in localized_patterns.get(field, []):
-        match = re.search(pattern, search_text)
+        match = re.search(pattern, search_text, re.IGNORECASE)
         if match and not (
             match.start(1) > 0
             and search_text[match.start(1) - 1] in ".,0123456789"
@@ -398,7 +457,9 @@ def extract_death_count(text: str) -> int:
 
 def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
     lower_text = text.lower()
-    return sorted(set(value for key, value in dictionary.items() if key in lower_text))
+    stripped_text = strip_diacritics(lower_text)
+    combined = lower_text + " " + stripped_text
+    return sorted(set(value for key, value in dictionary.items() if key in combined or strip_diacritics(key) in stripped_text))
 
 
 DISEASE_ALIASES = {
@@ -467,3 +528,48 @@ def extract_date_from_text(text: str) -> Optional[str]:
         if month_str in MONTH_MAP:
             return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(2)):02d}"
     return None
+
+
+NAV_BOILERPLATE_PATTERNS = [
+    r"\b(disease reports|about|resources|blog|errata|contact us|subscribe)\b",
+    r"\b(privacy policy|terms of service|all rights reserved|copyright|cookie policy)\b",
+    r"\b(sign in|sign up|log in|register|my account|navigation|menu)\b",
+]
+
+
+def is_content_too_short_or_noisy(text: str, has_health_indicators: bool = False) -> bool:
+    """Detect uninformative, navigation-only, or broken feed snippets.
+
+    If text has explicit health indicators (e.g. recognized disease or symptoms),
+    it is allowed to be shorter (e.g. short official alerts).
+    """
+    if not text:
+        return True
+
+    clean = re.sub(r"<[^>]+>", " ", text).strip()
+    words = clean.split()
+
+    if not words:
+        return True
+
+    word_count = len(words)
+
+    if word_count < 4:
+        return True
+
+    raw_tag_count = len(re.findall(r"</?[a-z0-9]+(?:\s+[^>]*)?>", text, re.IGNORECASE))
+    if raw_tag_count > 2 and word_count < 25 and not has_health_indicators:
+        return True
+
+    if word_count < 15 and not has_health_indicators:
+        return True
+
+    lower_clean = clean.lower()
+    nav_matches = 0
+    for pattern in NAV_BOILERPLATE_PATTERNS:
+        nav_matches += len(re.findall(pattern, lower_clean))
+
+    if word_count > 0 and (nav_matches * 2 / word_count) > 0.35 and not has_health_indicators:
+        return True
+
+    return False

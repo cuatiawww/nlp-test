@@ -165,6 +165,28 @@ def load_outbreak_rules_from_db():
         )
 
 
+def build_location_patterns():
+    global LOCATION_PATTERNS
+    alternatives = sorted(
+        (
+            "".join(
+                char for char in unicodedata.normalize("NFKD", name.lower())
+                if not unicodedata.combining(char)
+            )
+            for name in LOCATION_COORDS
+        ),
+        key=len,
+        reverse=True,
+    )
+    if alternatives:
+        combined = re.compile(
+            r"\b(?:" + "|".join(re.escape(a) for a in alternatives) + r")\b",
+            re.IGNORECASE,
+        )
+        LOCATION_PATTERNS = [(combined.pattern, combined)]
+    else:
+        LOCATION_PATTERNS = []
+
 def load_locations_from_db():
     global LOCATION_COORDS, LOCATION_COUNTRIES, LOCATION_PATTERNS
     try:

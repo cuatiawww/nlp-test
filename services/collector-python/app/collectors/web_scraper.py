@@ -64,6 +64,36 @@ def _response_html(page: Any) -> str:
     return str(body or "")
 
 
+def _normalize_url(url: str) -> str:
+    """Normalize trailing slashes before query parameters e.g. /event/?eventid -> /event?eventid"""
+    if not url:
+        return ""
+    from urllib.parse import urlparse, urlunparse
+    p = urlparse(url.strip())
+    path = p.path
+    if path.endswith('/') and len(path) > 1 and p.query:
+        path = path.rstrip('/')
+    return urlunparse((p.scheme, p.netloc, path, p.params, p.query, p.fragment))
+
+
+def _is_spa_shell(html: str) -> bool:
+    """Detect if an HTML document is an unrendered Single Page Application shell."""
+    if not html or len(html) < 200:
+        return False
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "lxml")
+    for tag in soup.select("script, style, noscript, svg, nav, footer, header, aside"):
+        tag.decompose()
+    visible = soup.get_text(" ", strip=True)
+    visible_words = visible.split()
+    if len(html) > 3000 and len(visible_words) < 50:
+        return True
+    root_el = soup.select_one('#root, #app, #__next, [data-reactroot]')
+    if root_el and len(root_el.get_text(strip=True).split()) < 30:
+        return True
+    return False
+
+
 def _is_challenge(status: int, html: str) -> bool:
     if status in BLOCKED_STATUSES:
         return True
@@ -144,20 +174,30 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
             soup.select_one("article")
             or soup.select_one("main")
             or soup.select_one('[role="main"]')
-            or soup.select_one('.post-content, .entry-content, .article-content, .content, .body, #content, #main-content')
+            or soup.select_one('.MuiCardContent-root, .MuiPaper-root, .post-content, .entry-content, .article-content, .content, .body, #content, #main-content')
         )
         content = main_node.get_text(" ", strip=True) if main_node else ""
 
     if not content or len(content) < 80:
-        p_texts = [p.get_text(" ", strip=True) for p in soup.select("p, .teaser, .headline, .summary, .description, li") if len(p.get_text(" ", strip=True)) > 20]
+        p_texts = [
+            p.get_text(" ", strip=True)
+            for p in soup.select("h1, h2, h3, h4, p, .teaser, .headline, .summary, .description, li")
+            if len(p.get_text(" ", strip=True)) > 15
+        ]
         if p_texts:
             content = " ".join(p_texts)
 
-    if not content or len(content) < 80:
+    if not content or len(content) < 50:
+        for node in soup.select("nav, footer, header, aside, script, style, noscript, svg"):
+            node.decompose()
         content = soup.get_text(" ", strip=True)
 
     content = " ".join((content or "").split())
-    if len(content) < 30:
+    lower_title = (title or "").lower()
+    lower_content = (content or "").lower()
+    if "error page" in lower_title or "page not found" in lower_title or lower_content.startswith("error page page not found"):
+        raise ValueError("Halaman tidak ditemukan (404 Page Not Found) di website sumber")
+    if not content or len(content) < 15:
         raise ValueError("No sufficiently long main content found on page")
     return title, content
 
@@ -320,7 +360,11 @@ class WebScraperCollector(BaseCollector):
                     if outcome is None:
                         raise
 
-        title, content = _extract_main_content(outcome.html)
+        try:
+            title, content = _extract_main_content(outcome.html)
+        except Exception as exc:
+            logger.warning("Main content extraction failed for %s: %s, falling back to clean text", url, exc)
+            title, content = "", ""
         if not content and outcome.html:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(outcome.html, "lxml")
@@ -399,24 +443,26 @@ class WebScraperCollector(BaseCollector):
 
     async def _fetch(self, url: str, fetch_mode: str, body_selector: str,
                      stealth_session: Optional[Any], stack: AsyncExitStack):
+        normalized_url = _normalize_url(url)
         if fetch_mode != "stealth":
-            outcome = await self._fetch_http(url)
+            outcome = await self._fetch_http(normalized_url)
             blocked = _is_challenge(outcome.status, outcome.html)
+            is_spa = _is_spa_shell(outcome.html)
             selector_missing = not _selected_text(outcome.page, body_selector)
-            # If status 200 and valid HTML received without a block challenge, use it directly
-            if outcome.status == 200 and len(outcome.html) > 500 and not blocked:
+            # If status 200, valid HTML with real content, and not blocked or unrendered SPA
+            if outcome.status == 200 and len(outcome.html) > 500 and not blocked and not is_spa:
                 return outcome, stealth_session
-            if fetch_mode == "http" or (not blocked and not selector_missing):
+            if fetch_mode == "http" or (not blocked and not selector_missing and not is_spa):
                 if blocked:
                     raise RuntimeError(f"blocked response status={outcome.status} and fetch_mode=http")
                 return outcome, stealth_session
-            logger.warning(
-                "Falling back to stealth for %s status=%d challenge=%s selector_missing=%s",
-                url, outcome.status, blocked, selector_missing,
+            logger.info(
+                "Falling back to stealth for %s status=%d challenge=%s is_spa=%s",
+                normalized_url, outcome.status, blocked, is_spa,
             )
         if stealth_session is None:
             stealth_session = await stack.enter_async_context(self._new_stealth_session())
-        return await self._fetch_stealth(url, stealth_session), stealth_session
+        return await self._fetch_stealth(normalized_url, stealth_session), stealth_session
 
     async def _fetch_http(self, url: str) -> FetchOutcome:
         from scrapling.fetchers import AsyncFetcher
@@ -436,10 +482,10 @@ class WebScraperCollector(BaseCollector):
         from scrapling.fetchers import AsyncStealthySession
         kwargs = {
             "headless": True,
-            "solve_cloudflare": bool(self.config.get("solve_cloudflare", True)),
+            "solve_cloudflare": bool(self.config.get("solve_cloudflare", False)),
             "block_webrtc": True,
-            "disable_resources": bool(self.config.get("disable_resources", True)),
-            "timeout": int(self.config.get("timeout_ms", 60_000)),
+            "disable_resources": False,
+            "timeout": int(self.config.get("timeout_ms", 15_000)),
             "max_pages": max(1, int(self.config.get("max_pages", 2))),
         }
         if self.config.get("proxy"):
@@ -448,11 +494,13 @@ class WebScraperCollector(BaseCollector):
 
     async def _fetch_stealth(self, url: str, session: Any) -> FetchOutcome:
         kwargs = {
-            "network_idle": bool(self.config.get("network_idle", False)),
             "retries": int(self.config.get("max_retries", 2)),
+            "wait": int(self.config.get("wait_ms", 5000)),
         }
         if self.config.get("wait_selector"):
             kwargs["wait_selector"] = self.config["wait_selector"]
+        if self.config.get("network_idle"):
+            kwargs["network_idle"] = True
         page = await session.fetch(url, **kwargs)
         html = _response_html(page)
         status = int(getattr(page, "status", 0) or 0)

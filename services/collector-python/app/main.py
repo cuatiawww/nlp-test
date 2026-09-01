@@ -64,51 +64,28 @@ async def extract_url(payload: ExtractUrlRequest):
         "config": {
             "fetch_mode": payload.fetch_mode,
             "timeout_ms": min(max(payload.timeout_ms, 1_000), 120_000),
-            "max_retries": min(max(payload.max_retries, 0), 5),
-            "solve_cloudflare": True,
+            "max_retries": 0,
+            "solve_cloudflare": False,
             "max_pages": 1,
         },
     })
     try:
         async with _get_extract_semaphore():
             data = await collector.extract_url(url)
-        return {"success": True, "data": data}
-    except Exception as exc:
-        logger.exception("Interactive extraction failed for %s, trying direct HTTP fallback", url)
-        try:
-            import urllib.request
-            import trafilatura
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-                }
+        if not data.get("content") and not data.get("title"):
+            raise HTTPException(
+                status_code=404,
+                detail="Halaman tidak memiliki teks artikel atau tidak ditemukan (404 Not Found)."
             )
-            with urllib.request.urlopen(req, timeout=25) as resp:
-                if resp.status == 200:
-                    html_bytes = resp.read()
-                    html_text = html_bytes.decode("utf-8", errors="replace")
-                    text_content = trafilatura.extract(html_text) or ""
-                    metadata = trafilatura.extract_metadata(html_text)
-                    title = (metadata.title or "").strip() if metadata else ""
-                    if text_content:
-                        return {
-                            "success": True,
-                            "data": {
-                                "url": url,
-                                "title": title,
-                                "content": text_content,
-                                "fetch_mode": "http-fallback",
-                                "http_status": 200,
-                                "source_country": "Indonesia",
-                                "published_at": metadata.date if metadata and metadata.date else "",
-                            }
-                        }
-        except Exception as fb_err:
-            logger.warning("HTTP direct fallback failed for %s: %s", url, fb_err)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"success": True, "data": data}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Interactive extraction failed for %s", url)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Tidak dapat mengekstrak teks artikel dari URL ({exc})"
+        ) from exc
 
 
 @app.post("/collect/all")

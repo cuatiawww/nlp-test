@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import unittest
 from pathlib import Path
 
@@ -44,6 +44,23 @@ class ClassificationRulesTest(unittest.TestCase):
         concepts = [{"canonical_name": "CHOLERA", "english_name": "Cholera"}]
         self.assertEqual(canonicalize_who_disease_labels(["CHOLERA"], concepts), ["CHOLERA"])
         self.assertEqual(extract_who_disease_mentions("Cholera outbreak", concepts), ["CHOLERA"])
+
+    def test_pertussis_and_whooping_cough_mapped_to_who_canonical(self):
+        concepts = [{"canonical_name": "pertussis", "english_name": "Pertussis / Whooping Cough"}]
+        self.assertEqual(extract_who_disease_mentions("Severe whooping cough outbreak", concepts), ["pertussis"])
+        self.assertEqual(extract_who_disease_mentions("Kasus pertussis meningkat", concepts), ["pertussis"])
+        self.assertEqual(canonicalize_who_disease_labels(["PERTUSSIS"], concepts), ["pertussis"])
+
+    def test_avian_influenza_and_h5n1_mapped_to_who_canonical(self):
+        concepts = [{"canonical_name": "avian influenza H5N1", "english_name": "Avian Influenza / Bird Flu"}]
+        self.assertEqual(extract_who_disease_mentions("Cambodia reports human H5N1 case", concepts), ["avian influenza H5N1"])
+        self.assertEqual(extract_who_disease_mentions("Outbreak of bird flu in poultry", concepts), ["avian influenza H5N1"])
+        self.assertEqual(canonicalize_who_disease_labels(["AVIAN_INFLUENZA"], concepts), ["avian influenza H5N1"])
+
+    def test_filariasis_and_kaki_gajah_mapped_to_who_canonical(self):
+        concepts = [{"canonical_name": "filariasis", "english_name": "Lymphatic Filariasis"}]
+        self.assertEqual(extract_who_disease_mentions("Indonesia eliminasi filariasis", concepts), ["filariasis"])
+        self.assertEqual(canonicalize_who_disease_labels(["FILARIASIS"], concepts), ["filariasis"])
 
     def test_deaths_are_not_counted_as_cases(self):
         text = "Lebih dari 2.300 orang telah meninggal dalam wabah Ebola di Kongo."

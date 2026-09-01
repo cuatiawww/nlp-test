@@ -36,10 +36,13 @@ export async function postTo<T>(path: string, body?: unknown): Promise<T> {
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const errorMsg = json?.error || json?.detail || `API ${res.status}: ${res.statusText}`;
+    throw new Error(errorMsg);
+  }
 
-  const json = await res.json();
-  return json.data as T;
+  return (json?.data ?? json) as T;
 }
 
 export async function putTo<T>(path: string, body: unknown): Promise<T> {
