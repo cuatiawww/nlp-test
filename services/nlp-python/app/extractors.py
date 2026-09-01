@@ -108,6 +108,50 @@ COUNTRY_ALIASES = {
     "rd kongo": "Democratic Republic of the Congo",
     "congo": "Democratic Republic of the Congo",
     "kongo": "Democratic Republic of the Congo",
+    "united states of america": "United States",
+    "united states": "United States",
+    "u.s.a.": "United States",
+    "u.s.": "United States",
+    "usa": "United States",
+    "us": "United States",
+    "amerika serikat": "United States",
+    "cdc": "United States",
+    "mexico": "Mexico",
+    "meksiko": "Mexico",
+    "canada": "Canada",
+    "kanada": "Canada",
+    "brazil": "Brazil",
+    "brasil": "Brazil",
+    "united kingdom": "United Kingdom",
+    "uk": "United Kingdom",
+    "britain": "United Kingdom",
+    "great britain": "United Kingdom",
+    "inggris": "United Kingdom",
+    "germany": "Germany",
+    "jerman": "Germany",
+    "france": "France",
+    "prancis": "France",
+    "spain": "Spain",
+    "spanyol": "Spain",
+    "italy": "Italy",
+    "italia": "Italy",
+    "russia": "Russia",
+    "rusia": "Russia",
+    "china": "China",
+    "tiongkok": "China",
+    "india": "India",
+    "japan": "Japan",
+    "jepang": "Japan",
+    "south korea": "South Korea",
+    "korea selatan": "South Korea",
+    "australia": "Australia",
+    "new zealand": "New Zealand",
+    "pakistan": "Pakistan",
+    "bangladesh": "Bangladesh",
+    "nigeria": "Nigeria",
+    "south africa": "South Africa",
+    "egypt": "Egypt",
+    "saudi arabia": "Saudi Arabia",
 }
 
 
@@ -243,6 +287,8 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
                 first = compact_text[raw_position:raw_position + 1]
                 if not (first.isupper() or first.isdigit()):
                     continue
+                if loc.lower() == "mexico" and raw_position >= 4 and compact_text[raw_position - 4:raw_position].lower() == "new ":
+                    continue
             hits.append((loc, match.start()))
 
     if not hits:
@@ -315,6 +361,8 @@ def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict
                     continue
                 first = compact_text[raw_position:raw_position + 1]
                 if not (first.isupper() or first.isdigit()):
+                    continue
+                if loc.lower() == "mexico" and raw_position >= 4 and compact_text[raw_position - 4:raw_position].lower() == "new ":
                     continue
             hits.append((loc, match.start()))
 
