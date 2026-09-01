@@ -60,3 +60,17 @@ Dokumen ini mencatat seluruh temuan bug, akar masalah teknis (*root cause*), dan
    - Mount volume `services/collector-python/app` di `docker-compose.yml`.
    - Bersihkan cache database PostgreSQL.
    - Jalankan ulang `python3 test_accuracy.py` dan pastikan seluruh test case portal berita ASEAN berhasil lolos (**Passed: 11 / 14**).
+
+### BUG-16: Reanalyze Worker Connection Refused to NLP Container on Large Batches
+- **Severity**: High
+- **Components**: `disease-worker-python` (`app/reanalyze_health.py`), `docker-compose.yml`
+- **Symptom**: `requests.exceptions.ConnectionError: [Errno 111] Connection refused` when running `python -m app.reanalyze_health` on production/server atas.
+- **Root Cause**:
+  1. `call_nlp()` lacked HTTP session pooling and retry logic for transient connection drops.
+  2. Typo in `pipeline.py` (`extractors.is_outbreak_content` instead of `is_explicit_outbreak_report`) causing runtime exception and repeated database queries.
+  3. HuggingFace online timeout during container warmup.
+- **Fix**:
+  1. Implemented `HTTPAdapter` with `urllib3.util.retry.Retry` (5 retries, exponential backoff) and auto-recovery `wait_for_nlp(120s)` in `reanalyze_health.py`.
+  2. Fixed typo in `pipeline.py` and added `is_outbreak_content` alias in `extractors.py`.
+  3. Added `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` in `docker-compose.yml` to prevent startup timeout.
+- **Verification**: Batch re-analysis completed 10/10 with 0 failures and live per-item logging.

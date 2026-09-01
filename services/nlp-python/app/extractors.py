@@ -220,6 +220,9 @@ def extract_who_disease_mentions(text: str, concepts: list[dict]) -> list[str]:
                 t = re.sub(r"[^a-z0-9]+", " ", sub.lower()).strip()
                 if len(t) >= 4 and t not in WHO_STOPWORDS:
                     terms.add(t)
+            for token in full_folded.split():
+                if len(token) >= 4 and token not in WHO_STOPWORDS and any(c.isdigit() for c in token):
+                    terms.add(token)
 
         for term in sorted(terms, key=len, reverse=True):
             if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", value):
@@ -660,3 +663,7 @@ def is_content_too_short_or_noisy(text: str, has_health_indicators: bool = False
         return True
 
     return False
+
+
+def is_outbreak_content(text: str) -> bool:
+    return is_explicit_outbreak_report(text)

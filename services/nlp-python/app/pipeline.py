@@ -148,14 +148,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             elif disease in extracted:
                 confidence = max(confidence, 0.85)
 
-            if extractors.is_outbreak_content(text) or extractors.is_explicit_outbreak_report(analysis_text):
+            if extractors.is_explicit_outbreak_report(text) or extractors.is_explicit_outbreak_report(analysis_text):
                 event_type = "disease outbreak wabah"
                 event_confidence = max(event_confidence, 0.90)
                 relevance = "high"
                 relevance_confidence = max(relevance_confidence, 0.90)
                 is_health_related = True
                 if sentiment == "positive":
-                    sentiment = "negative" if extractors.is_outbreak_content(text) else "neutral" 
+                    sentiment = "negative" if extractors.is_explicit_outbreak_report(text) else "neutral" 
 
             # A1 (cont): model ML dihargai kalau confidence cukup
             if not extracted and confidence < config.LOW_CONFIDENCE_THRESHOLD:

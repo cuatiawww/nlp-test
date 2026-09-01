@@ -203,3 +203,4 @@ docker exec -i disease-collector-python python -c "import unittest; loader = uni
 | `HTTP 504 Gateway Timeout` | Crawler tersangkut di website lambat (> 25s) | Scraper sudah otomatis memakai timeout 12s dan failover ke mode HTTP |
 | `Location salah / tertukar` | Muncul nama negara pembanding di footer | Location scoring otomatis memberi bobot +4 untuk judul & paragraf pembuka, dan penalti -3 untuk komparasi |
 | `Hasil analisis lama tidak berubah` | Cache database mengunci hasil `UNKNOWN` | Sistem `backend-rust` kini otomatis mem-bypass cache jika record lama berstatus `UNKNOWN` / low confidence |
+| `requests.exceptions.ConnectionError: [Errno 111] Connection refused` | Container NLP belum selesai warmup atau crash saat batch besar | 1. Cek `docker ps` dan `docker logs --tail 30 disease-nlp-python`<br>2. Jalankan `docker compose up -d disease-nlp-python`<br>3. Gunakan batch size lebih kecil: `--batch-size 25` |

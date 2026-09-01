@@ -19,6 +19,8 @@ import time
 import psycopg
 import requests
 from psycopg.rows import dict_row
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -73,37 +75,73 @@ def iso_date(value: dt.date | None) -> str:
     return value.isoformat() if value else ""
 
 
-def call_nlp(row: dict) -> dict:
-    response = requests.post(
-        f"{NLP_SERVICE_URL}/nlp/analyze",
-        json={
-            "text": row["original_text"] or "",
-            "source_type": row["source_type"] or "web",
-            "source_name": row["source_name"] or "",
-            "published_at": iso_date(row["published_at"]),
-            "source_language": row["language"] or "",
-            # Full re-analysis is intentional, including historical rows.
-            "historical_fast": False,
-        },
-        timeout=180,
+def get_nlp_session() -> requests.Session:
+    session = requests.Session()
+    retries = Retry(
+        total=5,
+        backoff_factor=1.5,
+        status_forcelist=[500, 502, 503, 504],
+        raise_on_status=False,
     )
-    response.raise_for_status()
-    return response.json()
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=20)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+NLP_SESSION = get_nlp_session()
 
 
 def wait_for_nlp(max_seconds: int = 180) -> None:
     """Do not race the NLP container during a cold model startup."""
     deadline = time.monotonic() + max_seconds
     last_error: Exception | None = None
+    logger.info("Memeriksa kesiapan NLP service di %s...", NLP_SERVICE_URL)
     while time.monotonic() < deadline:
         try:
             response = requests.get(f"{NLP_SERVICE_URL}/health", timeout=5)
             if response.ok:
+                logger.info("NLP service siap dan aktif.")
                 return
         except requests.RequestException as exc:
             last_error = exc
-        time.sleep(2)
-    raise RuntimeError(f"NLP service belum siap setelah {max_seconds} detik: {last_error}")
+        time.sleep(3)
+    raise RuntimeError(
+        f"NLP service belum siap setelah {max_seconds} detik di '{NLP_SERVICE_URL}'. "
+        f"Periksa status container: docker ps / docker logs --tail 50 disease-nlp-python. "
+        f"Error: {last_error}"
+    )
+
+
+def call_nlp(row: dict, max_recovery_attempts: int = 2) -> dict:
+    for attempt in range(max_recovery_attempts + 1):
+        try:
+            response = NLP_SESSION.post(
+                f"{NLP_SERVICE_URL}/nlp/analyze",
+                json={
+                    "text": row["original_text"] or "",
+                    "source_type": row["source_type"] or "web",
+                    "source_name": row["source_name"] or "",
+                    "published_at": iso_date(row["published_at"]),
+                    "source_language": row["language"] or "",
+                    # Full re-analysis is intentional, including historical rows.
+                    "historical_fast": False,
+                },
+                timeout=180,
+            )
+            response.raise_for_status()
+            return response.json()
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            if attempt < max_recovery_attempts:
+                logger.warning(
+                    "Koneksi ke NLP terputus (%s). Menunggu service NLP bangkit kembali (attempt %d/%d)...",
+                    exc, attempt + 1, max_recovery_attempts
+                )
+                wait_for_nlp(max_seconds=120)
+                continue
+            raise RuntimeError(
+                f"Gagal menghubungi service NLP di '{NLP_SERVICE_URL}'. "
+                f"Pastikan container 'disease-nlp-python' aktif (docker ps / docker logs disease-nlp-python). Error: {exc}"
+            ) from exc
 
 
 def update_event(conn: psycopg.Connection, row: dict, result: dict) -> None:
@@ -239,8 +277,13 @@ def main() -> int:
                         with conn.transaction():
                             update_event(conn, row, result)
                     processed += 1
-                    if processed % 25 == 0:
-                        logger.info("Progress: %d/%d", processed, eligible)
+                    logger.info(
+                        "Progress [%d/%d] id=%s -> %s (cases=%s, alert=%s)",
+                        processed, eligible, row["id"],
+                        result.get("disease_classification"),
+                        result.get("case_count"),
+                        result.get("outbreak_alert"),
+                    )
                 except Exception as exc:
                     failed += 1
                     logger.exception("Failed event id=%s: %s", row["id"], exc)
