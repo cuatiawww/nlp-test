@@ -161,8 +161,11 @@ def classify_event_type(text: str, model_key: Optional[str] = None) -> tuple[str
 
 def classify_relevance(text: str, model_key: Optional[str] = None) -> tuple[str, float]:
     label, score = classify(text, get_labels("relevance"), model_key=model_key)
-    if "health" in label:
+    label_lower = label.lower()
+    if "high" in label_lower or "tinggi" in label_lower or "health" in label_lower:
         return "high", score
+    if "medium" in label_lower or "sedang" in label_lower or "moderate" in label_lower:
+        return "medium", score
     return "low", score
 
 

@@ -144,10 +144,21 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 elif "disease" in event_type.lower():
                     event_confidence = max(event_confidence, 0.85)
 
-            # A1: keyword hanya override kalau model confidence RENDAH
-            if disease == "UNKNOWN" and extracted and confidence < config.LOW_CONFIDENCE_THRESHOLD:
+            # Prioritize ground truth extracted disease entities if model predicted unrelated disease
+            if extracted and (disease == "UNKNOWN" or disease not in extracted):
                 disease = extracted[0]
-                confidence = max(confidence, 0.60)
+                confidence = max(confidence, 0.80)
+            elif disease in extracted:
+                confidence = max(confidence, 0.85)
+
+            if extractors.is_outbreak_content(text) or extractors.is_explicit_outbreak_report(analysis_text):
+                event_type = "disease outbreak wabah"
+                event_confidence = max(event_confidence, 0.90)
+                relevance = "high"
+                relevance_confidence = max(relevance_confidence, 0.90)
+                is_health_related = True
+                if sentiment == "positive":
+                    sentiment = "negative" if extractors.is_outbreak_content(text) else "neutral" 
 
             # A1 (cont): model ML dihargai kalau confidence cukup
             if not extracted and confidence < config.LOW_CONFIDENCE_THRESHOLD:

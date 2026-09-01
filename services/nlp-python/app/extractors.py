@@ -379,9 +379,9 @@ def is_explicit_outbreak_report(text: str) -> bool:
     # reporting an outbreak. Require an incident qualifier in that case.
     policy_only = is_policy_or_statistical_health_content(value)
     incident_qualifier = re.search(
-        r"\b(?:outbreak|epidemic|wabah|klb|kejadian luar biasa|cluster|klaster)\b"
-        r".{0,60}\b(?:detected|declared|reported|occurred|confirmed|terjadi|dilaporkan|ditetapkan|"
-        r"reported cases|kasus baru|new cases|transmission|penularan)\b",
+        r"\b(?:outbreaks?|epidemics?|wabah|klb|kejadian luar biasa|clusters?|klasters?|spikes?|surges?|lonjakan|peningkatan tajam)\b"
+        r".{0,80}\b(?:detected|declared|reported|occurred|confirmed|terjadi|dilaporkan|ditetapkan|"
+        r"reported cases|kasus baru|new cases|transmission|penularan|cases?|kasus|infections?)\b",
         value,
         re.IGNORECASE,
     )
@@ -398,7 +398,9 @@ def _extract_count(text: str, field: str, default: int) -> int:
             r"\b([0-9][0-9,.]*)(?:\s+[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+){0,3}\s+(?:cases?|infections?|patients?|warga|kasus|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
+            r"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*([0-9][0-9,.]*)\s*\)",
             r"(?:with|logged|recorded|reported|total of|mencatat|sebanyak|ghi\s+nhận|có)\s+([0-9][0-9,.]*)\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca)",
+            r"\b([0-9][0-9,.]*)\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីឆ្លងថ្មី|ករណីឆ្លង|អ្នកឆ្លង)\s*([0-9][0-9,.]*)\s*នាក់",
@@ -463,6 +465,20 @@ def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
 
 
 DISEASE_ALIASES = {
+    "hfmd": "HFMD",
+    "hand, foot and mouth disease": "HFMD",
+    "hand foot and mouth disease": "HFMD",
+    "hand foot mouth disease": "HFMD",
+    "hand foot mouth": "HFMD",
+    "hand, foot, and mouth": "HFMD",
+    "flu singapura": "HFMD",
+    "penyakit tangan, kaki dan mulut": "HFMD",
+    "penyakit tangan kaki dan mulut": "HFMD",
+    "penyakit tangan kaki mulut": "HFMD",
+    "bệnh tay chân miệng": "HFMD",
+    "tay chân miệng": "HFMD",
+    "โรคมือเท้าปาก": "HFMD",
+    "มือเท้าปาก": "HFMD",
     "โรคเอ็มพ็อกซ์": "MPOX",
     "เอ็มพ็อกซ์": "MPOX",
     "mpox": "MPOX",

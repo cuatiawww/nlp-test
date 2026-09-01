@@ -131,7 +131,7 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
         node.decompose()
     
     primary_article_node = soup_probe.select_one(
-        ".article__body, .cms-body, .article-body, .detail__content, .detail-content, .entry-content, .post-content, .article-content, #article-content"
+        "article.news-content, .news-content, .article__body, .cms-body, .article-body, .detail__content, .detail-content, .entry-content, .post-content, .article-content, #article-content, article"
     )
     if primary_article_node and len(primary_article_node.get_text(" ", strip=True)) >= 120:
         content = primary_article_node.get_text(" ", strip=True)
