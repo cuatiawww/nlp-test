@@ -435,6 +435,11 @@ def is_explicit_outbreak_report(text: str) -> bool:
     return not policy_only or bool(incident_qualifier)
 
 
+def is_outbreak_content(text: str) -> bool:
+    """Backward-compatible name for explicit outbreak detection."""
+    return is_explicit_outbreak_report(text)
+
+
 def _extract_count(text: str, field: str, default: int) -> int:
     search_text = "".join(
         str(unicodedata.digit(char)) if unicodedata.category(char) == "Nd" else char
