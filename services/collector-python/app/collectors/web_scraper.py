@@ -126,14 +126,24 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
     from bs4 import BeautifulSoup
     from trafilatura import extract, extract_metadata
 
-    content = extract(
-        html,
-        output_format="txt",
-        include_comments=False,
-        include_tables=False,
-        favor_precision=True,
-        deduplicate=True,
+    soup_probe = BeautifulSoup(html, "lxml")
+    for node in soup_probe.select("script, style, noscript, svg, template, nav, footer, header, aside, .advertisement, .ads, .social-share, .related, .recommended, .social, .share, .tags, .author"):
+        node.decompose()
+    
+    primary_article_node = soup_probe.select_one(
+        ".article__body, .cms-body, .article-body, .detail__content, .detail-content, .entry-content, .post-content, .article-content, #article-content"
     )
+    if primary_article_node and len(primary_article_node.get_text(" ", strip=True)) >= 120:
+        content = primary_article_node.get_text(" ", strip=True)
+    else:
+        content = extract(
+            html,
+            output_format="txt",
+            include_comments=False,
+            include_tables=False,
+            favor_precision=True,
+            deduplicate=True,
+        )
     metadata = extract_metadata(html)
     og_title = (metadata.title or "").strip() if metadata else ""
 

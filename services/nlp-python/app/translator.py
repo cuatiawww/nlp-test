@@ -81,7 +81,7 @@ def _local(text: str, lang: str):
     if os.getenv("TRANSLATION_LOCAL_ENABLED", "true").lower() != "true":
         return None
     codes = {
-        "th": "tha_Thai", "my": "mya_Mymr", "km": "khm_Khmr", "lo": "lao_Laoo",
+        "vi": "vie_Latn", "th": "tha_Thai", "my": "mya_Mymr", "km": "khm_Khmr", "lo": "lao_Laoo",
         "zh-cn": "zho_Hans", "zh-tw": "zho_Hant", "zh": "zho_Hans",
         "ja": "jpn_Jpan", "ko": "kor_Hang", "ar": "arb_Arab",
         "hi": "hin_Deva", "bn": "ben_Beng",
@@ -96,13 +96,14 @@ def _local(text: str, lang: str):
     with _translation_lock:
         tokenizer, model = _local_model()
         tokenizer.src_lang = codes[lang]
-        # Character chunks are intentionally conservative: Thai/Khmer/Burmese
-        # tokenization can expand far beyond whitespace-based estimates.
-        chunks = [text[i:i + 700] for i in range(0, min(len(text), 7000), 700)]
+        # Translate opening informative content (max 1800 chars / ~2 chunks) for fast low-latency inference
+        max_chars = int(os.getenv("TRANSLATION_MAX_CHARS", "1800"))
+        lead_text = text[:max_chars]
+        chunks = [lead_text[i:i + 900] for i in range(0, len(lead_text), 900)]
         translated = []
         for chunk in chunks:
-            inputs = tokenizer(chunk, return_tensors="pt", truncation=True, max_length=512)
-            output = model.generate(**inputs, forced_bos_token_id=tokenizer.convert_tokens_to_ids("eng_Latn"), max_new_tokens=512)
+            inputs = tokenizer(chunk, return_tensors="pt", truncation=True, max_length=256)
+            output = model.generate(**inputs, forced_bos_token_id=tokenizer.convert_tokens_to_ids("eng_Latn"), max_new_tokens=256)
             translated.append(tokenizer.batch_decode(output, skip_special_tokens=True)[0])
     return {"translated_text": " ".join(translated)}
 

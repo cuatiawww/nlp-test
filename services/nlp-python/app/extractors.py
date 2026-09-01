@@ -395,10 +395,10 @@ def _extract_count(text: str, field: str, default: int) -> int:
     )
     localized_patterns = {
         "case_count": [
-            r"\b([0-9][0-9,.]*)(?:\s+[a-z-]+){0,3}\s+(?:cases?|infections?|patients?|warga|kasus|residents?)\b"
+            r"\b([0-9][0-9,.]*)(?:\s+[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+){0,3}\s+(?:cases?|infections?|patients?|warga|kasus|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has)?\s*"
-            r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities)\b)",
-            r"(?:with|logged|recorded|reported|total of|mencatat|sebanyak)\s+([0-9][0-9,.]*)\s+(?:[a-z-]+\s+)?(?:infections?|cases?|kasus|warga|pasien)",
+            r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
+            r"(?:with|logged|recorded|reported|total of|mencatat|sebanyak|ghi\s+nhận|có)\s+([0-9][0-9,.]*)\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca)",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីឆ្លងថ្មី|ករណីឆ្លង|អ្នកឆ្លង)\s*([0-9][0-9,.]*)\s*នាក់",
@@ -467,6 +467,16 @@ DISEASE_ALIASES = {
     "เอ็มพ็อกซ์": "MPOX",
     "mpox": "MPOX",
     "monkeypox": "MPOX",
+    "dengue fever": "DBD",
+    "dengue hemorrhagic fever": "DBD",
+    "dengue haemorrhagic fever": "DBD",
+    "haemorrhagic fever": "DBD",
+    "hemorrhagic fever": "DBD",
+    "breakbone fever": "DBD",
+    "avian influenza": "flu burung",
+    "bird flu": "flu burung",
+    "swine flu": "flu babi",
+    "whooping cough": "pertussis",
 }
 
 

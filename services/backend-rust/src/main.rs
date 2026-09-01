@@ -870,7 +870,11 @@ async fn analyze_url(
              LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
              WHERE rr.url = $1
                AND de.created_at > NOW() - INTERVAL '7 days'
-             ORDER BY de.created_at ASC
+               AND de.disease_classification IS NOT NULL
+               AND de.disease_classification != 'UNKNOWN'
+               AND de.disease_classification != 'Unknown Disease'
+               AND de.confidence >= 0.50
+             ORDER BY de.created_at DESC
              LIMIT 1",
             &[&url],
         )
@@ -1067,6 +1071,15 @@ async fn analyze_url(
     });
 
     let client = state.db.get().await.map_err(internal_error)?;
+
+    // Clean any prior incomplete/stale record for this URL before writing the fresh analysis
+    let _ = client
+        .execute(
+            "DELETE FROM disease_events WHERE raw_report_id IN (SELECT id FROM raw_reports WHERE url = $1);
+             DELETE FROM raw_reports WHERE url = $1;",
+            &[&url],
+        )
+        .await;
 
     let raw_id: Uuid = client
         .query_one(
