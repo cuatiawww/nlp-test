@@ -75,7 +75,7 @@ export default function SourcesPage() {
             <Play className="h-4 w-4" /> Trigger All
           </button>
           <button onClick={() => { setEditSource(null); setShowModal(true) }}
-            className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700">
+            className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-[#004b85]">
             <Plus className="h-4 w-4" /> {t("common.add")}
           </button>
         </div>
@@ -107,9 +107,9 @@ export default function SourcesPage() {
             </thead>
             <tbody>
               {data.map((s) => (
-                <tr key={s.id} className="border-b border-slate-50 hover:bg-teal-50/40">
+                <tr key={s.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   <td className="px-4 py-3">
-                    <span className="font-semibold text-teal-700">{s.name}</span>
+                    <span className="font-semibold text-[#0060A9]">{s.name}</span>
                     <div className="mt-0.5 text-xs text-slate-400">{s.schedule || 'manual'}</div>
                   </td>
                   <td className="px-4 py-3">
@@ -120,11 +120,11 @@ export default function SourcesPage() {
                   <td className="px-4 py-3">{statusBadge(s)}</td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => handleTrigger(s.id, s.name)}
-                      className="rounded-lg p-1.5 text-slate-400 transition hover:bg-teal-50 hover:text-teal-600" title={t("common.trigger")}>
+                      className="rounded-lg p-1.5 text-slate-400 transition hover:bg-blue-50 hover:text-[#0060A9]" title={t("common.trigger")}>
                       <Play className="h-4 w-4" />
                     </button>
                     <button onClick={() => { setEditSource(s); setShowModal(true) }}
-                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">{t("common.edit")}</button>
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-[#0060A9] hover:bg-blue-50">{t("common.edit")}</button>
                     <button onClick={() => handleDelete(s.id, s.name)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title={t("common.delete")}>
                       <Trash2 className="h-4 w-4" />

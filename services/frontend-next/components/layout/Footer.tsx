@@ -8,8 +8,8 @@ const links=[['Instagram','https://www.instagram.com/kemenkes_ri'],['YouTube','h
 export default function Footer(){
   const { t } = useTranslation();
   return (
-    <footer className="border-t border-teal-100 bg-white">
-      <div className="h-1 bg-gradient-to-r from-[#0f8f96] via-[#25c2b8] to-transparent"/>
+    <footer className="border-t border-blue-100 bg-white">
+      <div className="h-1 bg-gradient-to-r from-[#0060A9] via-[#1a78c2] to-transparent"/>
       <div className="flex min-h-16 w-full flex-col items-center justify-between gap-3 px-4 py-3 sm:px-6 md:flex-row">
         <p className="text-center text-xs text-slate-500 md:text-left">
           {t("footer.copyright")}
@@ -18,7 +18,7 @@ export default function Footer(){
           <ul className="flex items-center gap-1.5">
             {links.map(([label,href],i)=>(
               <li key={label}>
-                <a href={href} target={href.startsWith('http')?'_blank':undefined} rel="noopener noreferrer" aria-label={label} title={label} className="flex h-8 w-8 items-center justify-center rounded-lg border border-teal-100 bg-teal-50/70 text-[#0f8f96] transition hover:-translate-y-0.5 hover:border-teal-300 hover:bg-[#0f8f96] hover:text-white">
+                <a href={href} target={href.startsWith('http')?'_blank':undefined} rel="noopener noreferrer" aria-label={label} title={label} className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 bg-blue-50/70 text-[#0060A9] transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-[#0060A9] hover:text-white">
                   {i===2?<MessageCircle className="h-4 w-4"/>:i===3?<Mail className="h-4 w-4"/>:<Globe2 className="h-4 w-4"/>}
                 </a>
               </li>

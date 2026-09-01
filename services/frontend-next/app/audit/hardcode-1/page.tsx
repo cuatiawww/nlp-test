@@ -76,8 +76,8 @@ export default function HardcodeAudit1Page() {
   function getLineClass(line: string) {
     if (line.startsWith('# ')) return 'text-slate-400 italic'
     if (line.includes('HARDCORE AUDIT') || line.includes('RINGKASAN') || line.includes('ALL ITEMS') || line.includes('SUDAH DB-DRIVEN') || line.includes('MASIH HARDCODE'))
-      return 'text-teal-700 font-bold mt-4'
-    if (line.match(/^---/)) return 'text-teal-600 font-semibold mt-3'
+      return 'text-[#0060A9] font-bold mt-4'
+    if (line.match(/^---/)) return 'text-[#0060A9] font-semibold mt-3'
     if (line.includes('✅')) return 'text-emerald-700'
     if (line.includes('❌')) return 'text-red-600 font-semibold'
     if (line.startsWith('|')) return 'text-slate-700 font-mono text-xs'
@@ -99,7 +99,7 @@ export default function HardcodeAudit1Page() {
           <p className="mt-1 text-sm text-slate-500">Daftar item yang perlu DB-driven — generated 19-Jun-2026, all completed 23-Jun-2026</p>
         </div>
         <button onClick={() => { navigator.clipboard.writeText(rawContent); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white hover:bg-[#004b85]">
           <Download className="h-4 w-4" /> {copied ? t('common.copied') : t('common.copy')}
         </button>
       </div>

@@ -99,13 +99,13 @@ export default function AnalyzePage() {
             onChange={e => setUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSubmit()}
             placeholder={t('pages.analyze.placeholder')}
-            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
           />
         </div>
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-xl bg-[#0060A9] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#004b85] disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           {loading ? t('pages.analyze.analyzing') : t('pages.analyze.submit')}
@@ -120,7 +120,7 @@ export default function AnalyzePage() {
 
       {loading && (
         <div className="mt-8 flex flex-col items-center justify-center py-16 text-slate-400">
-          <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#0060A9]" />
           <p className="mt-3 text-sm">{t('pages.analyze.analyzing')}</p>
         </div>
       )}
@@ -131,7 +131,7 @@ export default function AnalyzePage() {
 
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start gap-3">
-              <FileText className="mt-0.5 h-5 w-5 text-teal-600 shrink-0" />
+              <FileText className="mt-0.5 h-5 w-5 text-[#0060A9] shrink-0" />
               <div className="min-w-0 flex-1">
                 <h3 className="text-lg font-bold text-slate-900 leading-snug">{result.title || url}</h3>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
@@ -139,15 +139,15 @@ export default function AnalyzePage() {
                     <Globe className="h-3.5 w-3.5 text-slate-400" />
                     {(result as any).source_name || new URL(url).hostname}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 font-semibold text-teal-800 bg-teal-50 px-2.5 py-0.5 rounded-md border border-teal-200">
-                    <Calendar className="h-3.5 w-3.5 text-teal-600" />
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-[#0060A9] bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
+                    <Calendar className="h-3.5 w-3.5 text-[#0060A9]" />
                     <span>{t('pages.analyze.publishedDate')}: {result.published_at || '- (' + t('common.noData') + ')'}</span>
                   </span>
                   <a
                     href={url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-teal-600 hover:text-teal-700 hover:underline font-medium"
+                    className="flex items-center gap-1 text-[#0060A9] hover:text-[#0060A9] hover:underline font-medium"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     {t('dashboard.labelOpenOriginal')}
@@ -157,7 +157,7 @@ export default function AnalyzePage() {
                 {result.content && (
                   <div className="mt-4 rounded-lg bg-slate-50 p-4 border border-slate-200/80">
                     <div className="flex items-center gap-1.5 mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-                      <FileText className="h-3.5 w-3.5 text-teal-600" />
+                      <FileText className="h-3.5 w-3.5 text-[#0060A9]" />
                       <span>{t('pages.analyze.articleDescription')}</span>
                     </div>
                     <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line line-clamp-4 hover:line-clamp-none transition-all cursor-pointer" title="Click to view full news article excerpt">
@@ -205,10 +205,10 @@ export default function AnalyzePage() {
                         .map((loc, idx) => (
                           <span
                             key={idx}
-                            className="inline-flex items-center gap-1 rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-medium text-teal-700 ring-1 ring-inset ring-teal-600/20"
+                            className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-[#0060A9] ring-1 ring-inset ring-[#0060A9]/20"
                             title={`Lat: ${loc.latitude?.toFixed(4)}, Lon: ${loc.longitude?.toFixed(4)}`}
                           >
-                            <MapPin className="h-2.5 w-2.5 text-teal-600" />
+                            <MapPin className="h-2.5 w-2.5 text-[#0060A9]" />
                             {loc.name}
                           </span>
                         ))}
@@ -324,7 +324,7 @@ export default function AnalyzePage() {
                 ))}
               </div>
               <div className="mt-3 flex items-start gap-1.5">
-                <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#0060A9]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <p className="text-xs leading-relaxed text-slate-500">{getSource('symptoms', result.sources?.symptoms)}</p>

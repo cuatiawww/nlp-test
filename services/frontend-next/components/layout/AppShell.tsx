@@ -39,7 +39,7 @@ export default function AppShell({
     );
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#fbffff] text-slate-900">
+    <main className="flex min-h-screen flex-col bg-[#f8fafc] text-slate-900">
       {sidebarOpen && (
         <button
           type="button"

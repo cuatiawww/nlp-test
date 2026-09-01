@@ -76,18 +76,22 @@ async def extract_url(payload: ExtractUrlRequest):
     except Exception as exc:
         logger.exception("Interactive extraction failed for %s, trying direct HTTP fallback", url)
         try:
-            import httpx
+            import urllib.request
             import trafilatura
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-            }
-            async with httpx.AsyncClient(follow_redirects=True, timeout=25.0, headers=headers) as client:
-                res = await client.get(url)
-                if res.status_code == 200:
-                    text_content = trafilatura.extract(res.text) or ""
-                    metadata = trafilatura.extract_metadata(res.text)
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+                }
+            )
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                if resp.status == 200:
+                    html_bytes = resp.read()
+                    html_text = html_bytes.decode("utf-8", errors="replace")
+                    text_content = trafilatura.extract(html_text) or ""
+                    metadata = trafilatura.extract_metadata(html_text)
                     title = (metadata.title or "").strip() if metadata else ""
                     if text_content:
                         return {

@@ -57,7 +57,7 @@ export default function LanguageMarkersPage() {
           <p className="mt-1 text-sm text-slate-500">{t('pages.languageMarkers.subtitle')}</p>
         </div>
         <button onClick={() => { setEditItem(null); setForm({ word: '', language: 'en' }); setShowModal(true) }}
-          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white hover:bg-[#004b85]">
           <Plus className="h-4 w-4" /> {t('common.add')}
         </button>
       </div>
@@ -89,7 +89,7 @@ export default function LanguageMarkersPage() {
             </thead>
             <tbody>
               {filtered.map(l => (
-                <tr key={l.id} className="border-b border-slate-50 hover:bg-teal-50/40">
+                <tr key={l.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   <td className="px-4 py-3 font-mono text-sm text-slate-800">{l.word}</td>
                   <td className="px-4 py-3"><span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-600 uppercase">{l.language}</span></td>
                   <td className="px-4 py-3 text-center">
@@ -100,7 +100,7 @@ export default function LanguageMarkersPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => { setEditItem(l); setForm({ word: l.word, language: l.language }); setShowModal(true) }}
-                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">{t('common.edit')}</button>
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-[#0060A9] hover:bg-blue-50">{t('common.edit')}</button>
                     <button onClick={() => handleDelete(l.id, l.word)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                   </td>
@@ -127,7 +127,7 @@ export default function LanguageMarkersPage() {
             <button onClick={() => setShowModal(false)}
               className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
             <button onClick={handleSave}
-              className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">{t('common.save')}</button>
+              className="rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold uppercase text-white hover:bg-[#004b85]">{t('common.save')}</button>
           </div>
         </div>
       </Modal>

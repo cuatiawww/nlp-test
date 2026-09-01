@@ -52,7 +52,7 @@
   "header": {
     "title": "Disease Surveillance AI",
     "subtitle": "Spatial outbreak analysis and early health warning system in Southeast Asia.",
-    "kemenkes": "Ministry of Health Republic of Indonesia",
+    "kemenkes": "ASEAN Surveillance Centre",
     "dashboard": "DASHBOARD",
     "tvMode": "TV MODE",
     "login": "LOGIN",
@@ -356,7 +356,7 @@
     "UNKNOWN": "Unknown Disease"
   },
   "footer": {
-    "copyright": "? 2026 Ministry of Health Republic of Indonesia. All rights reserved."
+    "copyright": "© 2026 ASEAN Biological Threats Surveillance Centre. All rights reserved."
   },
   "pages": {
     "login": {

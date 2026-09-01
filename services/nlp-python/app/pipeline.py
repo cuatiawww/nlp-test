@@ -91,14 +91,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Keep all explicit WHO-backed mentions even when a short alias appears
     # early in the article (a situation common in humanitarian situation
     # reports listing several concurrent outbreaks).
-    primary_extracted = sorted(set(primary_aliases + keyword_diseases + who_mentions))
-    extracted = primary_extracted or sorted(set(
-        extractors.extract_diseases(analysis_text) + who_mentions
-    ))
+    def _rank_diseases(candidates: list[str], sample: str) -> list[str]:
+        unique = list(dict.fromkeys([c for c in candidates if c]))
+        l_sample = sample.lower()
+        def _score(name: str):
+            token = name.lower().split()[0] if name else ""
+            cnt = l_sample.count(token) if token else 0
+            pos = l_sample.find(token) if token and token in l_sample else 999999
+            return (-cnt, pos)
+        return sorted(unique, key=_score)
+
+    primary_candidates = primary_aliases + keyword_diseases + who_mentions
+    primary_extracted = _rank_diseases(primary_candidates, text[:2500] + " " + analysis_text[:2500])
+    fallback_extracted = _rank_diseases(extractors.extract_diseases(analysis_text) + who_mentions, analysis_text)
+    extracted = primary_extracted or fallback_extracted
     for value in structured.get("diseases") or []:
         if isinstance(value, str) and value.strip():
             extracted.append(value.strip().upper().replace("-", ""))
-    extracted = sorted(set(extracted))
+    extracted = _rank_diseases(extracted, text + " " + analysis_text)
     has_keywords = bool(extracted or symptoms)
     is_health_related = has_keywords
 
@@ -261,7 +271,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             break
     if explicit_outbreak and who_mentions and not matched_disease_rule:
         outbreak_alert = outbreak_signal >= config.EXPLICIT_KNOWN_DISEASE_MIN_CASES
-    if is_reference_content or (
+    if (explicit_outbreak or case_count > 0 or death_count > 0) and disease != "UNKNOWN":
+        event_type = "disease outbreak wabah"
+        event_confidence = max(event_confidence, 0.85)
+    elif is_reference_content or (
         extractors.is_policy_or_statistical_health_content(analysis_text)
         and not explicit_outbreak
     ):
@@ -269,18 +282,28 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if is_health_related:
             event_type = "health update"
             event_confidence = max(event_confidence, 0.85)
-    elif explicit_outbreak and disease != "UNKNOWN":
-        event_type = "disease outbreak wabah"
-        event_confidence = max(event_confidence, 0.85)
 
-    # UNKNOWN is not a confirmed disease entity. Keep the record for audit,
-    # but exclude it from health analytics and outbreak monitoring in both the
-    # collector worker and the URL analyzer.
+    health_indicator_words = (
+        "health", "kesehatan", "kesihatan", "disease", "penyakit", "outbreak", "wabah", "klb",
+        "virus", "bakteri", "bacteria", "infection", "infeksi", "vaksin", "vaccin", "imunisasi",
+        "hospital", "rumah sakit", "puskesmas", "clinic", "klinik", "pasien", "patient",
+        "dokter", "doctor", "epidemi", "pandemi", "symptom", "gejala", "who", "kemenkes", "cdc", "suc khoe", "suc-khoe"
+    )
+    lower_full = (text[:4000] + " " + analysis_text[:4000]).lower()
+    has_health_indicators = any(hw in lower_full for hw in health_indicator_words)
+
+    # UNKNOWN handling: portal overviews from WHO/health agencies remain health-related
     if not disease or disease.strip().upper() == "UNKNOWN":
-        is_health_related = False
-        outbreak_alert = False
-        event_type = "unknown"
-        event_confidence = 0.0
+        if has_health_indicators or symptoms or (payload.source_name and "who" in payload.source_name.lower()):
+            is_health_related = True
+            event_type = "health update"
+            event_confidence = 0.70
+            outbreak_alert = False
+        else:
+            is_health_related = False
+            outbreak_alert = False
+            event_type = "unknown"
+            event_confidence = 0.0
         # Keep confirmed deaths for audit, but remove the synthetic default
         # case count when no actual case number was found.
         if case_count == 1:

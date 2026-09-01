@@ -42,19 +42,19 @@ const SpatialOutbreakMap = dynamic(
 );
 
 const colors = [
-  "#0f8f96",
-  "#06b6d4",
-  "#2563eb",
-  "#7c3aed",
-  "#db2777",
-  "#f97316",
+  "#0060A9",
+  "#ED2939",
+  "#B49B58",
+  "#0284c7",
+  "#6366f1",
+  "#8b5cf6",
 ];
 
 const severityClass = {
-  AWAS: "bg-red-600 text-white",
-  SIAGA: "bg-orange-500 text-white",
-  WASPADA: "bg-yellow-400 text-slate-900",
-  NORMAL: "bg-emerald-100 text-emerald-800",
+  AWAS: "bg-[#ED2939] text-white",
+  SIAGA: "bg-[#B49B58] text-white",
+  WASPADA: "bg-amber-400 text-slate-900",
+  NORMAL: "bg-blue-100 text-[#0060A9]",
 };
 
 function cleanArticleContent(value?: string | null, fallback = "Konten sumber tidak tersedia."): string {
@@ -66,7 +66,7 @@ function cleanArticleContent(value?: string | null, fallback = "Konten sumber ti
     )
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|section|article|h[1-6]|li|blockquote)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "? ")
+    .replace(/<li[^>]*>/gi, "• ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;|&#160;/gi, " ")
     .replace(/&amp;/gi, "&")
@@ -87,7 +87,7 @@ function Kpi({
   label,
   value,
   icon,
-  tone = "teal",
+  tone = "blue",
   trend,
   previousMonth,
 }: {
@@ -116,14 +116,14 @@ function Kpi({
     : t("dashboard.lastMonth");
   const color =
     tone === "red"
-      ? "text-red-600 bg-red-50/80"
-      : tone === "orange"
-        ? "text-amber-600 bg-amber-50/80"
-        : "text-teal-700 bg-teal-50/80";
+      ? "text-[#ED2939] bg-red-50/80"
+      : tone === "gold" || tone === "orange"
+        ? "text-[#B49B58] bg-[#fbf8ee]"
+        : "text-[#0060A9] bg-blue-50/80";
 
   return (
     <article
-      className="flex min-h-[128px] items-center gap-3 border border-[#bedbda] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(20,120,116,.06)] transition hover:-translate-y-0.5 hover:border-teal-400"
+      className="flex min-h-[128px] items-center gap-3 border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
       style={{ borderRadius: "17px 17px 22px 17px" }}
     >
       <div
@@ -136,7 +136,7 @@ function Kpi({
           {label}
         </p>
         <p
-          className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-red-600" : tone === "orange" ? "text-amber-600" : "text-teal-700"}`}
+          className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-[#ED2939]" : tone === "gold" || tone === "orange" ? "text-[#B49B58]" : "text-[#0060A9]"}`}
         >
           {value.toLocaleString(numLocale)}
         </p>
@@ -198,13 +198,13 @@ export default function DashboardPage() {
 
   if (loading)
     return (
-      <div className="grid min-h-[60vh] place-items-center text-sm font-semibold text-teal-700">
+      <div className="grid min-h-[60vh] place-items-center text-sm font-semibold text-[#0060A9]">
         {t("common.loading")}
       </div>
     );
 
   return (
-    <div className="w-full space-y-6 bg-[#fbffff] px-4 py-6 sm:px-6 lg:px-8">
+    <div className="w-full space-y-6 bg-[#f8fafc] px-4 py-6 sm:px-6 lg:px-8">
       <section className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-black uppercase tracking-wide text-slate-900">
@@ -217,7 +217,7 @@ export default function DashboardPage() {
         <div className="flex gap-2">
           <button
             onClick={load}
-            className="inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#047D78] transition hover:bg-teal-100"
+            className="inline-flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0060A9] transition hover:bg-blue-100"
           >
             <RefreshCw className="h-4 w-4" />
             {t("dashboard.refresh")}
@@ -225,9 +225,9 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-[#bedbda] bg-white p-3 shadow-[0_6px_18px_rgba(20,120,116,.06)]">
+      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-3 shadow-[0_6px_18px_rgba(0,96,169,.06)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="flex items-center gap-2 px-1 text-[#047D78]">
+          <div className="flex items-center gap-2 px-1 text-[#0060A9]">
             <Filter className="h-4 w-4" />
             <div>
               <p className="text-[11px] font-black uppercase tracking-wider">
@@ -239,7 +239,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <Globe2 className="h-4 w-4 shrink-0 text-teal-600" />
+            <Globe2 className="h-4 w-4 shrink-0 text-[#0060A9]" />
             <span className="text-[10px] font-bold uppercase text-slate-500">
               {t("dashboard.country")}
             </span>
@@ -269,7 +269,7 @@ export default function DashboardPage() {
             </select>
           </label>
           <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 lg:w-56">
-            <CalendarDays className="h-4 w-4 shrink-0 text-teal-600" />
+            <CalendarDays className="h-4 w-4 shrink-0 text-[#0060A9]" />
             <span className="text-[10px] font-bold uppercase text-slate-500">
               {t("dashboard.year")}
             </span>
@@ -281,39 +281,34 @@ export default function DashboardPage() {
               {(data?.available_years?.length
                 ? data.available_years
                 : [currentYear]
-              ).map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                  {value === currentYear ? t("dashboard.thisYear") : ""}
+              ).map((availableYear) => (
+                <option key={availableYear} value={availableYear}>
+                  {availableYear}
                 </option>
               ))}
             </select>
           </label>
-          {(country !== "all" || year !== currentYear) && (
-            <button
-              onClick={() => {
-                setCountry("all");
-                setYear(currentYear);
-              }}
-              className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-[#047D78] transition hover:bg-teal-100"
-            >
-              {t("dashboard.resetFilter")}
-            </button>
-          )}
+          <button
+            onClick={load}
+            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-[#0060A9] transition hover:bg-blue-100"
+          >
+            {t("dashboard.filterApply")}
+          </button>
         </div>
       </section>
 
-      {error && (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+      {error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">
           {error}
         </div>
-      )}
+      ) : null}
 
-      <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi
           label={t("dashboard.kpiDetectedCases")}
           value={data?.trends?.cases.current ?? data?.kpis.cases ?? 0}
           icon={<Bug className="h-5 w-5" />}
+          tone="blue"
           trend={data?.trends?.cases}
           previousMonth={data?.trends?.previous_month}
         />
@@ -329,6 +324,7 @@ export default function DashboardPage() {
           label={t("dashboard.kpiValidatedEvents")}
           value={data?.trends?.events.current ?? data?.kpis.events ?? 0}
           icon={<Activity className="h-5 w-5" />}
+          tone="blue"
           trend={data?.trends?.events}
           previousMonth={data?.trends?.previous_month}
         />
@@ -336,6 +332,7 @@ export default function DashboardPage() {
           label={t("dashboard.kpiLocations")}
           value={data?.trends?.locations.current ?? data?.kpis.locations ?? 0}
           icon={<MapPin className="h-5 w-5" />}
+          tone="blue"
           trend={data?.trends?.locations}
           previousMonth={data?.trends?.previous_month}
         />
@@ -343,23 +340,23 @@ export default function DashboardPage() {
           label={t("dashboard.kpiActiveAlerts")}
           value={data?.trends?.alerts.current ?? data?.kpis.active_alerts ?? 0}
           icon={<AlertTriangle className="h-5 w-5" />}
-          tone="orange"
+          tone="gold"
           trend={data?.trends?.alerts}
           previousMonth={data?.trends?.previous_month}
         />
       </div>
 
-      <section className="w-full bg-[#fbffff] pb-5">
+      <section className="w-full bg-[#f8fafc] pb-5">
         <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[381px_minmax(0,1fr)] xl:items-stretch">
           <section
-            className="flex overflow-hidden border border-[#b7d9d8] bg-gradient-to-b from-[#edfbfa] to-[#e7f7f6] xl:h-[550px] xl:w-[381px]"
+            className="flex overflow-hidden border border-[#cfe0f1] bg-gradient-to-b from-[#f0f6fc] to-[#e8f1fa] xl:h-[550px] xl:w-[381px]"
             style={{ borderRadius: "17px 17px 22px 17px" }}
           >
             <div className="flex w-full flex-col">
               <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
-                <AlertTriangle className="h-5 w-5 text-orange-500" />
+                <AlertTriangle className="h-5 w-5 text-[#B49B58]" />
                 <div>
-                  <h2 className="text-sm font-black uppercase tracking-wide">
+                  <h2 className="text-sm font-black uppercase tracking-wide text-slate-900">
                     {t("dashboard.ewsTitle")}
                   </h2>
                   <p className="text-xs text-slate-500">
@@ -374,7 +371,7 @@ export default function DashboardPage() {
                       key={`${a.location_name}-${a.disease}-${i}`}
                       type="button"
                       onClick={() => setSelected(a)}
-                      className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 text-left transition hover:border-teal-300 hover:bg-teal-50/60"
+                      className="w-full rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/60"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -392,8 +389,8 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <p className="mt-2 text-xs text-slate-600">
-                        <b>{a.cases.toLocaleString(numLocale)}</b> {t("dashboard.casesUnit")} ?{" "}
-                        <b>{a.deaths}</b> {t("dashboard.deathsUnit")} ? {t("dashboard.thresholdUnit")} {a.threshold}
+                        <b>{a.cases.toLocaleString(numLocale)}</b> {t("dashboard.casesUnit")} •{" "}
+                        <b>{a.deaths}</b> {t("dashboard.deathsUnit")} • {t("dashboard.thresholdUnit")} {a.threshold}
                       </p>
                     </button>
                   ))
@@ -403,14 +400,14 @@ export default function DashboardPage() {
                   </p>
                 )}
               </div>
-              <div className="border-t border-teal-200/70 bg-white/55 px-4 py-3 text-[10px] font-bold text-slate-500">
+              <div className="border-t border-blue-200/70 bg-white/70 px-4 py-3 text-[10px] font-bold text-slate-500">
                 {t("dashboard.ewsFootnote")}
               </div>
             </div>
           </section>
 
           <article
-            className="flex flex-col border border-[#cdcdcd] bg-white p-4 xl:h-[550px]"
+            className="flex flex-col border border-[#cfe0f1] bg-white p-4 xl:h-[550px]"
             style={{ borderRadius: "17px 17px 22px 17px" }}
           >
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -421,8 +418,8 @@ export default function DashboardPage() {
                 <p className="mt-1.5 text-sm font-normal leading-relaxed text-slate-600 sm:text-base">
                   {t("dashboard.spatialDesc")}
                 </p>
-                <div className="mt-2 inline-flex max-w-full items-center gap-1.5 truncate rounded-lg border border-teal-200/80 bg-teal-50 px-2.5 py-1 text-xs font-bold text-[#047D78]">
-                  <MapPin className="h-3.5 w-3.5 shrink-0 text-teal-600" />
+                <div className="mt-2 inline-flex max-w-full items-center gap-1.5 truncate rounded-lg border border-blue-200/80 bg-blue-50 px-2.5 py-1 text-xs font-bold text-[#0060A9]">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-[#0060A9]" />
                   <span className="truncate">
                     {t("dashboard.regionAseanLocations", { count: data?.kpis.locations ?? 0 })}
                   </span>
@@ -439,11 +436,11 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="mt-4 rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 shadow-sm">
+      <section className="mt-4 rounded-2xl border border-[#0060A9]/20 bg-gradient-to-r from-blue-50 via-sky-50 to-[#fdfbf5] p-5 shadow-sm">
         <div className="flex gap-3">
-          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" />
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#0060A9]" />
           <div>
-            <p className="text-xs font-black uppercase tracking-widest text-teal-800">
+            <p className="text-xs font-black uppercase tracking-widest text-[#0060A9]">
               {t("dashboard.aiSummaryTitle")}
             </p>
             <p className="mt-2 text-sm leading-6 text-slate-700">
@@ -479,7 +476,7 @@ export default function DashboardPage() {
                   tick={{ fontSize: 10 }}
                 />
                 <Tooltip />
-                <Bar dataKey="cases" fill="#0f8f96" radius={[0, 5, 5, 0]} />
+                <Bar dataKey="cases" fill="#0060A9" radius={[0, 5, 5, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -537,7 +534,7 @@ export default function DashboardPage() {
                 <tr
                   key={i}
                   onClick={() => setSelected(r)}
-                  className="cursor-pointer border-t border-slate-100 transition hover:bg-teal-50/60"
+                  className="cursor-pointer border-t border-slate-100 transition hover:bg-blue-50/50"
                   title={t("dashboard.rowTooltip")}
                 >
                   <td className="px-4 py-3 font-semibold">
@@ -558,7 +555,9 @@ export default function DashboardPage() {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`rounded-full px-2 py-1 text-[10px] font-black ${severityClass[r.severity]}`}
+                      className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-black ${
+                        r.severity ? severityClass[r.severity] : "bg-blue-100 text-[#0060A9]"
+                      }`}
                     >
                       {translateSeverity(r.severity)}
                     </span>
@@ -572,28 +571,28 @@ export default function DashboardPage() {
 
       {selected && (
         <div
-          className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
-          onMouseDown={() => setSelected(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]"
+          onClick={() => setSelected(null)}
         >
           <section
-            className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-[#fbffff] shadow-2xl"
-            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-[#f8fbff] shadow-2xl"
           >
-            <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
-              <div className="flex min-w-0 gap-3">
-                <FileText className="mt-1 h-5 w-5 shrink-0 text-teal-600" />
+            <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <FileText className="mt-1 h-5 w-5 shrink-0 text-[#0060A9]" />
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-teal-700">
-                    {t("dashboard.modalTitle")}
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[#0060A9]">
+                    {t("dashboard.eventModal.badgeDetails")}
                   </p>
-                  <h2 className="mt-1 text-lg font-black text-slate-900">
-                    {translateDisease(selected.disease)} ? {selected.location_name}
+                  <h2 className="text-lg font-black uppercase text-slate-900">
+                    {translateDisease(selected.disease)} - {selected.location_name}
                   </h2>
                   <p className="text-xs text-slate-500">
                     {selected.detail?.source_name ||
                       selected.detail?.source_type ||
                       t("dashboard.modalCollectedSource")}{" "}
-                    ? {selected.latest_date}
+                    • {selected.latest_date}
                   </p>
                 </div>
               </div>
@@ -688,8 +687,8 @@ export default function DashboardPage() {
                   </article>
                 </div>
               ) : null}
-              <article className="rounded-xl border border-teal-200 bg-teal-50/50 p-5">
-                <p className="text-xs font-black uppercase tracking-wider text-teal-800">
+              <article className="rounded-xl border border-blue-200 bg-blue-50/50 p-5">
+                <p className="text-xs font-black uppercase tracking-wider text-blue-900">
                   {t("dashboard.eventModal.dataSource")}
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -710,7 +709,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
                 </div>
-                <div className="mt-3 border-t border-teal-100 pt-3">
+                <div className="mt-3 border-t border-blue-100 pt-3">
                   <p className="text-[10px] font-bold uppercase text-slate-400">
                     {t("dashboard.eventModal.fullUrl")}
                   </p>
@@ -719,7 +718,7 @@ export default function DashboardPage() {
                       href={selected.detail.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-1 flex items-start gap-2 break-all text-xs font-semibold leading-5 text-teal-700 hover:text-teal-900 hover:underline"
+                      className="mt-1 flex items-start gap-2 break-all text-xs font-semibold leading-5 text-[#0060A9] hover:text-[#004b85] hover:underline"
                     >
                       <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       {selected.detail.url}
@@ -741,7 +740,7 @@ export default function DashboardPage() {
                       href={selected.detail.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-bold text-teal-600 hover:underline"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-[#0060A9] hover:underline"
                     >
                       <ExternalLink className="h-3.5 w-3.5" /> {t("dashboard.eventModal.openSource")}
                     </a>

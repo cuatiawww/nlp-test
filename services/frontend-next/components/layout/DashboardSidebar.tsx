@@ -39,13 +39,13 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
         open ? "translate-x-0" : "-translate-x-full"
       }`}
     >
-      <div className="h-[4px] bg-[#047D78]" />
+      <div className="h-[4px] bg-[#0060A9]" />
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/50 px-4 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
             <Image
               src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`}
-              alt="Logo Kementerian Kesehatan"
+              alt="Logo ABVC"
               width={38}
               height={38}
               className="h-auto w-full"
@@ -56,7 +56,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
               DISEASE SURVEILLANCE AI
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              {t("header.kemenkes")}
+              ASEAN Surveillance Centre
             </p>
           </div>
         </div>
@@ -89,7 +89,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                         href={item.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] text-slate-600 transition hover:bg-slate-50 hover:text-[#047D78]"
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] text-slate-600 transition hover:bg-slate-50 hover:text-[#0060A9]"
                       >
                         <Icon className="h-4 w-4" />
                         {itemLabel}
@@ -103,8 +103,8 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                       onClick={onClose}
                       className={`flex w-full items-center gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] transition ${
                         active
-                          ? "rounded-l-none rounded-r-xl border-l-4 border-[#047D78] bg-teal-50/70 font-bold text-[#047D78]"
-                          : "text-slate-600 hover:bg-slate-50 hover:text-[#047D78]"
+                          ? "rounded-l-none rounded-r-xl border-l-4 border-[#0060A9] bg-blue-50/80 font-bold text-[#0060A9]"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-[#0060A9]"
                       }`}
                     >
                       <Icon className="h-4 w-4" />

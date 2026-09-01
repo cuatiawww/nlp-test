@@ -54,7 +54,7 @@ export default function EventsPage() {
         <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
           {FILTERS.map(f => (
             <button key={f.key} onClick={() => setHealthFilter(f.key)}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase transition ${healthFilter === f.key ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase transition ${healthFilter === f.key ? 'bg-white text-[#0060A9] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
               {f.label}
             </button>
           ))}
@@ -90,7 +90,7 @@ export default function EventsPage() {
               </thead>
               <tbody>
                 {data.map((e: any, idx: number) => (
-                  <tr key={idx} className="border-b border-slate-50 hover:bg-teal-50/40">
+                  <tr key={idx} className="border-b border-slate-50 hover:bg-blue-50/40">
                     <td className="px-4 py-3 max-w-[220px]">
                       <div className="truncate text-sm font-medium text-slate-800" title={e.title || ''}>
                         {e.title ? extractTitle(e.title) : '-'}
@@ -99,7 +99,7 @@ export default function EventsPage() {
                     <td className="px-4 py-3 max-w-[140px] truncate">
                       {e.url
                         ? <a href={e.url} target="_blank" rel="noopener noreferrer"
-                            className="text-teal-600 hover:text-teal-700 hover:underline">{e.source_name || e.source_type || 'link'}</a>
+                            className="text-[#0060A9] hover:text-[#0060A9] hover:underline">{e.source_name || e.source_type || 'link'}</a>
                         : <span className="text-xs text-slate-600">{e.source_name || e.source_type || '-'}</span>
                       }
                     </td>

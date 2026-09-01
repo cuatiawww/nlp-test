@@ -51,8 +51,8 @@ type Props = {
   embedded?: boolean;
 };
 
-const HIGHLIGHT = "#0d9488";
-const MARKER = "#2563eb";
+const HIGHLIGHT = "#0060A9";
+const MARKER = "#0060A9";
 
 function countryFill(cases: number | undefined): string {
   const opacity = 0.22;
@@ -127,9 +127,9 @@ export default function AseanMap({
         const severity = f.get("severity");
         const color =
           severity === "AWAS"
-            ? "#ef4444"
+            ? "#ED2939"
             : severity === "SIAGA"
-              ? "#f97316"
+              ? "#B49B58"
               : severity === "WASPADA"
                 ? "#eab308"
                 : MARKER;
@@ -599,7 +599,7 @@ export default function AseanMap({
           className="absolute right-3 top-14 w-[min(296px,calc(100%-24px))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.18)]"
           style={{ animation: "fadeSlideIn 180ms ease" }}
         >
-          <div className="flex items-center justify-between gap-2 bg-teal-700 px-4 py-3">
+          <div className="flex items-center justify-between gap-2 bg-[#0060A9] px-4 py-3">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 shrink-0 text-white/80" />
               <div>

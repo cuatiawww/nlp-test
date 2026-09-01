@@ -72,7 +72,7 @@ export default function SourceDetailPage() {
 
   return (
     <div className="px-4 md:px-6">
-      <Link href="/sources" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700">
+      <Link href="/sources" className="inline-flex items-center gap-1 text-sm font-semibold text-[#0060A9] hover:text-[#0060A9]">
         <ArrowLeft className="h-4 w-4" /> {t('common.back')}
       </Link>
 
@@ -82,7 +82,7 @@ export default function SourceDetailPage() {
           <p className="mt-1 text-sm text-slate-500">{t('common.type')}: {source.source_type} | {t('pages.sources.colFrequency')}: {source.schedule || 'manual'}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleTrigger} className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-bold uppercase text-teal-700 transition hover:bg-teal-100">
+          <button onClick={handleTrigger} className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold uppercase text-[#0060A9] transition hover:bg-blue-100">
             <Play className="h-4 w-4" /> Trigger
           </button>
           <button onClick={handleDelete} className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold uppercase text-red-600 transition hover:bg-red-100">
@@ -95,7 +95,7 @@ export default function SourceDetailPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Configuration</h2>
           <button onClick={() => setEditing(!editing)}
-            className="text-sm font-semibold text-teal-600 hover:text-teal-700"
+            className="text-sm font-semibold text-[#0060A9] hover:text-[#0060A9]"
           >{editing ? t('common.cancel') : t('common.edit')}</button>
         </div>
 
@@ -123,7 +123,7 @@ export default function SourceDetailPage() {
         {editing && (
           <div className="mt-4 flex justify-end">
             <button onClick={handleSave}
-              className="rounded-xl bg-teal-600 px-6 py-2 text-sm font-bold uppercase text-white transition hover:bg-teal-700"
+              className="rounded-xl bg-[#0060A9] px-6 py-2 text-sm font-bold uppercase text-white transition hover:bg-[#004b85]"
             >{t("common.save")}</button>
           </div>
         )}
@@ -149,7 +149,7 @@ export default function SourceDetailPage() {
             </thead>
             <tbody>
               {runs.map((r) => (
-                <tr key={r.id} className="border-b border-slate-50 hover:bg-teal-50/40">
+                <tr key={r.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   <td className="px-4 py-3 text-slate-700">{r.started_at?.slice(0, 19)}</td>
                   <td className="px-4 py-3 text-slate-700">{r.finished_at?.slice(0, 19) || '—'}</td>
                   <td className="px-4 py-3">

@@ -52,7 +52,7 @@
   "header": {
     "title": "Disease Surveillance AI",
     "subtitle": "Analisis spasial outbreak penyakit dan peringatan dini kesehatan di kawasan Asia Tenggara.",
-    "kemenkes": "Kementerian Kesehatan RI",
+    "kemenkes": "ASEAN Surveillance Centre",
     "dashboard": "DASHBOARD",
     "tvMode": "MODE TV",
     "login": "MASUK",
@@ -223,7 +223,7 @@
     "errDefault": "Lokasi tidak dapat dibaca. Pastikan GPS dan izin lokasi aktif.",
     "notifTitle": "?? EWS: OUTBREAK DEKAT LOKASI ANDA!",
     "notifBody": "{disease} di {location}, sekitar {distance} km dari lokasi Anda.",
-    "notifActiveTitle": "EWS Penyakit Kemenkes RI Aktif",
+    "notifActiveTitle": "EWS Penyakit Aktif",
     "notifActiveBody": "Peringatan outbreak penyakit di sekitar lokasi Anda akan dikirim secara realtime.",
     "yourLocation": "Lokasi Anda"
   },
@@ -356,7 +356,7 @@
     "UNKNOWN": "Penyakit Tidak Dikenal"
   },
   "footer": {
-    "copyright": "? 2026 Kementerian Kesehatan Republik Indonesia. All rights reserved."
+    "copyright": "© 2026 ASEAN Biological Threats Surveillance Centre. Hak cipta dilindungi."
   },
   "pages": {
     "login": {

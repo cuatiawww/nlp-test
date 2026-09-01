@@ -17,7 +17,7 @@ const Toggle = ({
 }) => (
   <button
     onClick={() => set(!value)}
-    className={`relative h-5 w-9 rounded-full transition-colors ${value ? "bg-teal-600" : "bg-slate-300"}`}
+    className={`relative h-5 w-9 rounded-full transition-colors ${value ? "bg-[#0060A9]" : "bg-slate-300"}`}
   >
     <span
       className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${value ? "translate-x-4" : ""}`}
@@ -87,9 +87,9 @@ export default function SpatialOutbreakMap({
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         <button
           onClick={() => setSettings(true)}
-          className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white/95 px-3 py-2 text-slate-700 shadow-md transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+          className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white/95 px-3 py-2 text-slate-700 shadow-md transition hover:border-blue-300 hover:bg-blue-50 hover:text-[#0060A9]"
         >
-          <Settings className="h-3.5 w-3.5 text-teal-600" />
+          <Settings className="h-3.5 w-3.5 text-[#0060A9]" />
           <span className="text-xs font-black tracking-wide">
             {t("map.spatialControls")}
           </span>
@@ -97,10 +97,10 @@ export default function SpatialOutbreakMap({
       </div>
 
       {(legend || (windLegend && wind)) && (
-        <div className="absolute bottom-4 left-4 z-10 max-w-[320px] space-y-3 rounded-2xl border border-teal-200/90 bg-white/95 p-3.5 shadow-[0_8px_30px_rgba(15,118,110,.15)] backdrop-blur-md">
+        <div className="absolute bottom-4 left-4 z-10 max-w-[320px] space-y-3 rounded-2xl border border-blue-200/90 bg-white/95 p-3.5 shadow-[0_8px_30px_rgba(0,96,169,.12)] backdrop-blur-md">
           <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
             <div className="flex items-center gap-1.5">
-              <Info className="h-3.5 w-3.5 text-teal-700" />
+              <Info className="h-3.5 w-3.5 text-[#0060A9]" />
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-800">
                 {t("map.legend")}
               </span>
@@ -118,7 +118,7 @@ export default function SpatialOutbreakMap({
           </div>
           {legend && (
             <div>
-              <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-widest text-[#0f766e]">
+              <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-widest text-[#0060A9]">
                 {t("dashboard.labelEwsStatus")}
               </p>
               <div className="space-y-1 text-[10px] font-medium text-slate-700">
@@ -146,7 +146,7 @@ export default function SpatialOutbreakMap({
           )}
           {windLegend && wind && (
             <div className="space-y-1.5 border-t border-slate-100 pt-2">
-              <p className="flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-teal-800">
+              <p className="flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#0060A9]">
                 <Wind className="h-3 w-3" />
                 {t("map.windFlow")} (GFS)
               </p>
@@ -172,7 +172,7 @@ export default function SpatialOutbreakMap({
           <aside className="absolute right-0 top-0 z-30 flex h-full w-72 flex-col border-l border-slate-200 bg-white/95 shadow-[-8px_0_40px_rgba(0,0,0,.08)] backdrop-blur-md">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div className="flex items-center gap-2">
-                <Settings className="h-4 w-4 text-teal-700" />
+                <Settings className="h-4 w-4 text-[#0060A9]" />
                 <span className="text-sm font-bold text-slate-800">
                   {t("map.spatialControls")}
                 </span>
@@ -239,7 +239,7 @@ export default function SpatialOutbreakMap({
                     <button
                       key={x}
                       onClick={() => setBase(x)}
-                      className={`rounded-xl border px-3 py-2 text-left text-[11px] font-bold capitalize ${base === x ? "border-teal-400 bg-teal-50 text-teal-700" : "border-slate-100 bg-slate-50 text-slate-600"}`}
+                      className={`rounded-xl border px-3 py-2 text-left text-[11px] font-bold capitalize ${base === x ? "border-[#0060A9] bg-blue-50 text-[#0060A9]" : "border-slate-100 bg-slate-50 text-slate-600"}`}
                     >
                       {x}
                     </button>
@@ -290,7 +290,7 @@ export default function SpatialOutbreakMap({
                       step="5"
                       value={radius}
                       onChange={(e) => setRadius(+e.target.value)}
-                      className="mt-1 w-full accent-teal-600"
+                      className="mt-1 w-full accent-[#0060A9]"
                     />
                   </div>
                 )}
@@ -299,7 +299,7 @@ export default function SpatialOutbreakMap({
             <div className="border-t border-slate-100 p-3">
               <button
                 onClick={reset}
-                className="w-full rounded-xl bg-teal-700 py-2 text-xs font-bold text-white transition hover:bg-teal-800"
+                className="w-full rounded-xl bg-[#0060A9] py-2 text-xs font-bold text-white transition hover:bg-[#004b85]"
               >
                 {t("map.resetLayers")}
               </button>

@@ -1,4 +1,4 @@
-# Matriks Temuan Bug & Rencana Solusi (Disease Surveillance AI)
+﻿matrix_content = """# Matriks Temuan Bug & Rencana Solusi (Disease Surveillance AI)
 
 Dokumen ini mencatat seluruh temuan bug, akar masalah teknis (*root cause*), dan rencana perbaikan pada stack sistem NLP Surveillance Penyakit.
 
@@ -59,3 +59,9 @@ Dokumen ini mencatat seluruh temuan bug, akar masalah teknis (*root cause*), dan
    - Mount volume `services/collector-python/app` di `docker-compose.yml`.
    - Bersihkan cache database PostgreSQL.
    - Jalankan ulang `python3 test_accuracy.py` dan pastikan seluruh test case portal berita ASEAN berhasil lolos (**Passed: 11 / 14**).
+"""
+
+with open("/home/aspire_5/app/NLP-PENYAKIT/docs/BUG_FINDINGS_MATRIX.md", "w", encoding="utf-8") as f:
+    f.write(matrix_content)
+
+print("✅ Successfully updated docs/BUG_FINDINGS_MATRIX.md")

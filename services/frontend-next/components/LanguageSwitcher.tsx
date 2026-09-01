@@ -49,7 +49,7 @@ export default function LanguageSwitcher({
           onClick={() => setLocale("id")}
           className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-all ${
             locale === "id"
-              ? "bg-[#047D78] text-white shadow-sm"
+              ? "bg-[#0060A9] text-white shadow-sm"
               : "text-slate-400 hover:text-white"
           }`}
           title="Bahasa Indonesia"
@@ -62,7 +62,7 @@ export default function LanguageSwitcher({
           onClick={() => setLocale("en")}
           className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-all ${
             locale === "en"
-              ? "bg-[#047D78] text-white shadow-sm"
+              ? "bg-[#0060A9] text-white shadow-sm"
               : "text-slate-400 hover:text-white"
           }`}
           title="English"
@@ -76,11 +76,11 @@ export default function LanguageSwitcher({
 
   return (
     <div
-      className={`inline-flex items-center rounded-xl border border-teal-800/15 bg-white/95 p-1 text-xs font-bold shadow-xs backdrop-blur-md transition hover:border-teal-400/40 ${className}`}
+      className={`inline-flex items-center rounded-xl border border-[#0060A9]/15 bg-white/95 p-1 text-xs font-bold shadow-xs backdrop-blur-md transition hover:border-[#0060A9]/35 ${className}`}
     >
       {!compact && (
         <div className="flex items-center gap-1 pl-1.5 pr-1 text-slate-400">
-          <Globe className="h-3.5 w-3.5 text-[#047D78]" />
+          <Globe className="h-3.5 w-3.5 text-[#0060A9]" />
         </div>
       )}
       <button
@@ -88,8 +88,8 @@ export default function LanguageSwitcher({
         onClick={() => setLocale("id")}
         className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-all ${
           locale === "id"
-            ? "bg-[#047D78] text-white shadow-sm font-extrabold"
-            : "text-slate-600 hover:bg-slate-100 hover:text-[#047D78]"
+            ? "bg-[#0060A9] text-white shadow-sm font-extrabold"
+            : "text-slate-600 hover:bg-slate-100 hover:text-[#0060A9]"
         }`}
         title="Bahasa Indonesia"
         aria-label="Ganti ke Bahasa Indonesia"
@@ -102,8 +102,8 @@ export default function LanguageSwitcher({
         onClick={() => setLocale("en")}
         className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-all ${
           locale === "en"
-            ? "bg-[#047D78] text-white shadow-sm font-extrabold"
-            : "text-slate-600 hover:bg-slate-100 hover:text-[#047D78]"
+            ? "bg-[#0060A9] text-white shadow-sm font-extrabold"
+            : "text-slate-600 hover:bg-slate-100 hover:text-[#0060A9]"
         }`}
         title="English"
         aria-label="Switch to English"

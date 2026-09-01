@@ -42,7 +42,7 @@ export default function NlpLabelsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.nlpLabels.title')}</h1>
         <button onClick={() => { setEditItem(null); setShowModal(true) }}
-          className="rounded-xl bg-teal-600 px-3 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700">{t('common.add')}</button>
+          className="rounded-xl bg-[#0060A9] px-3 py-2 text-xs font-bold uppercase text-white hover:bg-[#004b85]">{t('common.add')}</button>
       </div>
       <p className="mt-1 text-sm text-slate-500">{t('pages.nlpLabels.subtitle')}</p>
 
@@ -50,7 +50,7 @@ export default function NlpLabelsPage() {
         <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
           {CATEGORIES.map(cat => (
             <button key={cat} onClick={() => setActiveCat(cat)}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase transition ${activeCat === cat ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold uppercase transition ${activeCat === cat ? 'bg-white text-[#0060A9] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
               {CAT_LABELS[cat]}
             </button>
           ))}
@@ -76,7 +76,7 @@ export default function NlpLabelsPage() {
             </thead>
             <tbody>
               {items.map(l => (
-                <tr key={l.id} className="border-b border-slate-50 hover:bg-teal-50/40">
+                <tr key={l.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   <td className="px-4 py-3 text-slate-800">{l.label}</td>
                   <td className="px-4 py-3 text-right text-slate-600">{l.priority}</td>
                   <td className="px-4 py-3 text-center">
@@ -87,7 +87,7 @@ export default function NlpLabelsPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => { setEditItem(l); setShowModal(true) }}
-                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">{t('common.edit')}</button>
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-[#0060A9] hover:bg-blue-50">{t('common.edit')}</button>
                     <button onClick={() => handleDelete(l.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                   </td>
                 </tr>

@@ -51,10 +51,10 @@ def detect_disease(text: str) -> dict[str, Any] | None:
         ],
         "temperature": 0,
         "response_format": {"type": "json_object"},
-        "max_tokens": config.DEEPSEEK_MAX_TOKENS,
+        "max_completion_tokens": config.DEEPSEEK_MAX_TOKENS,
     }
     request = urllib.request.Request(
-        f"{config.DEEPSEEK_BASE_URL}/chat/completions",
+        (config.DEEPSEEK_BASE_URL if config.DEEPSEEK_BASE_URL.endswith("/chat/completions") else f"{config.DEEPSEEK_BASE_URL}/chat/completions"),
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
@@ -124,10 +124,10 @@ def detect_location(text: str, source_language: str = "", source_country: str = 
         ],
         "temperature": 0,
         "response_format": {"type": "json_object"},
-        "max_tokens": 500,
+        "max_completion_tokens": 500,
     }
     request = urllib.request.Request(
-        f"{config.DEEPSEEK_BASE_URL}/chat/completions",
+        (config.DEEPSEEK_BASE_URL if config.DEEPSEEK_BASE_URL.endswith("/chat/completions") else f"{config.DEEPSEEK_BASE_URL}/chat/completions"),
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",

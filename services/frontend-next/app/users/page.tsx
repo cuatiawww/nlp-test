@@ -40,7 +40,7 @@ export default function UsersPage() {
           <p className="mt-1 text-sm text-slate-500">{t('pages.users.subtitle')}</p>
         </div>
         <button onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white hover:bg-[#004b85]">
           <Plus className="h-4 w-4" /> {t('pages.users.btnAdd')}
         </button>
       </div>
@@ -69,11 +69,11 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id} className="border-b border-slate-50 hover:bg-teal-50/40">
+                <tr key={u.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   <td className="px-4 py-3 font-semibold text-slate-800">{u.username}</td>
                   <td className="px-4 py-3 text-slate-700">{u.display_name || '-'}</td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-[#0060A9]">
                       <Shield className="h-3 w-3" /> {u.role}
                     </span>
                   </td>

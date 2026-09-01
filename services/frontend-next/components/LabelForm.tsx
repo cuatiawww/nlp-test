@@ -56,7 +56,7 @@ export default function LabelForm({ category, label, onSaved, onCancel }: Props)
         <button type="button" onClick={onCancel}
           className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
         <button type="submit" disabled={saving || !lab}
-          className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold uppercase text-white hover:bg-teal-700 disabled:opacity-50">
+          className="rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold uppercase text-white hover:bg-[#004b85] disabled:opacity-50">
           {saving ? t('common.saving') : label ? t('common.save') : t('common.add')}
         </button>
       </div>

@@ -10,9 +10,25 @@ const config: Config = {
     extend: {
       colors: {
         primary: {
-          DEFAULT: "#0d9488",
-          dark: "#0f766e",
-          light: "#14b8a6",
+          DEFAULT: "#0060A9",
+          dark: "#004b85",
+          light: "#1a78c2",
+        },
+        secondary: {
+          DEFAULT: "#B49B58",
+          dark: "#968045",
+          light: "#cfb97c",
+        },
+        accent: {
+          DEFAULT: "#ED2939",
+          dark: "#c61f2d",
+          light: "#f15462",
+        },
+        asean: {
+          blue: "#0060A9",
+          red: "#ED2939",
+          gold: "#B49B58",
+          sky: "#0284c7",
         },
       },
       fontFamily: {

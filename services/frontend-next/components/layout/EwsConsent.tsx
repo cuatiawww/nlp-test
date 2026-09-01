@@ -103,8 +103,8 @@ export default function EwsConsent(){
       return (
         <div className="fixed bottom-4 left-4 z-[9990] flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-800 shadow-md">
           <span className="relative flex h-2 w-2">
-            <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"/>
-            <span className="relative h-2 w-2 rounded-full bg-emerald-500"/>
+            <span className="absolute h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"/>
+            <span className="relative h-2 w-2 rounded-full bg-[#0060A9]"/>
           </span>
           {t('ews.activeBadge')} {name?`• ${name}`:''}
         </div>
@@ -126,7 +126,7 @@ export default function EwsConsent(){
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 border-y border-slate-100 py-3 text-[11px] text-slate-500">
           <div className="flex items-center gap-2">
-            <Bell className="h-4 w-4 shrink-0 text-teal-700"/>
+            <Bell className="h-4 w-4 shrink-0 text-[#0060A9]"/>
             <span>{t('ews.pushSirine')}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -135,12 +135,12 @@ export default function EwsConsent(){
           </div>
         </div>
         {error && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold leading-relaxed text-red-700">{error}</div>}
-        {activating && <div className="mt-4 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800">{t('ews.waiting')}</div>}
+        {activating && <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-900">{t('ews.waiting')}</div>}
         <div className="mt-5 flex items-center justify-end gap-3">
           <button disabled={activating} onClick={decline} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 disabled:opacity-50">
             {t('ews.continueWithout')}
           </button>
-          <button disabled={activating} onClick={accept} className="flex items-center gap-2 rounded-xl bg-[#047D78] px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white shadow-md hover:bg-[#03625d] disabled:cursor-wait disabled:opacity-70">
+          <button disabled={activating} onClick={accept} className="flex items-center gap-2 rounded-xl bg-[#0060A9] px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white shadow-md hover:bg-[#004b85] disabled:cursor-wait disabled:opacity-70">
             {activating ? <Loader2 className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4"/>}
             {activating ? t('ews.enabling') : t('ews.enableBtn')}
           </button>

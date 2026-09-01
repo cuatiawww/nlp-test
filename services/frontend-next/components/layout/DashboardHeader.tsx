@@ -29,8 +29,8 @@ export default function DashboardHeader({
   useEffect(() => setUser(getAuthUser()), []);
 
   return (
-    <header className="w-full border-b-2 border-teal-400/25 bg-white">
-      <div className="relative flex min-h-[118px] items-stretch overflow-visible bg-[#eef9f8]">
+    <header className="w-full border-b-2 border-[#0060A9]/20 bg-white">
+      <div className="relative flex min-h-[118px] items-stretch overflow-visible bg-[#f0f6fc]">
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-100"
           style={{ backgroundImage: `url('${PUBLIC_BASE_PATH}/bg%20header.png')` }}
@@ -51,13 +51,13 @@ export default function DashboardHeader({
             >
               <Image
                 src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`}
-                alt="Logo Kemenkes"
+                alt="Logo ABVC"
                 width={170}
                 height={62}
                 className="h-auto w-[132px] shrink-0 md:w-[168px]"
                 priority
               />
-              <div className="min-w-0 border-teal-200/80 md:border-l md:pl-5">
+              <div className="min-w-0 border-[#0060A9]/25 md:border-l md:pl-5">
                 <h1 className="max-w-[720px] text-lg font-extrabold uppercase leading-tight text-slate-900 sm:text-2xl md:text-3xl">
                   {t("header.title")}
                 </h1>
@@ -70,17 +70,17 @@ export default function DashboardHeader({
           <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
             <LanguageSwitcher />
 
-            <div className="hidden items-center rounded-2xl border border-teal-800/10 bg-white/75 p-1.5 shadow-sm sm:flex">
+            <div className="hidden items-center rounded-2xl border border-[#0060A9]/15 bg-white/75 p-1.5 shadow-sm sm:flex">
               <Link
                 href="/"
-                className="flex items-center gap-2 rounded-xl bg-[#047D78] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#036561]"
+                className="flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#004b85]"
               >
                 <LayoutDashboard className="h-4 w-4" />
                 {t("header.dashboard")}
               </Link>
               <Link
                 href="/tv"
-                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white hover:text-[#047D78]"
+                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white hover:text-[#0060A9]"
               >
                 <Tv className="h-4 w-4" />
                 {t("header.tvMode")}
@@ -89,7 +89,7 @@ export default function DashboardHeader({
             {!authenticated ? (
               <Link
                 href="/login"
-                className="flex h-12 items-center gap-2 rounded-xl bg-[#047D78] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#036561]"
+                className="flex h-12 items-center gap-2 rounded-xl bg-[#0060A9] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#004b85]"
               >
                 <LogIn className="h-4 w-4" />
                 {t("header.login")}
@@ -100,7 +100,7 @@ export default function DashboardHeader({
                   onClick={() => setProfile((v) => !v)}
                   className="flex h-12 items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 shadow-sm"
                 >
-                  <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-teal-500 to-cyan-500 font-bold text-white">
+                  <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-[#0060A9] to-blue-500 font-bold text-white">
                     {user?.username?.[0]?.toUpperCase() || "A"}
                   </div>
                   <span className="hidden text-sm font-bold sm:block">
@@ -124,7 +124,7 @@ export default function DashboardHeader({
           </div>
         </div>
       </div>
-      <div className="h-[3px] bg-gradient-to-r from-teal-400/80 via-teal-400/40 to-transparent" />
+      <div className="h-[3px] bg-gradient-to-r from-[#0060A9] via-[#0060A9]/40 to-transparent" />
     </header>
   );
 }

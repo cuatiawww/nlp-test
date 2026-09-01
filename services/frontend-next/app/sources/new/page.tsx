@@ -69,7 +69,7 @@ export default function NewSourcePage() {
 
   return (
     <div className="px-4 md:px-6">
-      <Link href="/sources" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700">
+      <Link href="/sources" className="inline-flex items-center gap-1 text-sm font-semibold text-[#0060A9] hover:text-[#0060A9]">
         <ArrowLeft className="h-4 w-4" /> {t('common.back')}
       </Link>
 
@@ -122,7 +122,7 @@ export default function NewSourcePage() {
 
         <div className="flex justify-end pt-2">
           <button type="submit" disabled={submitting}
-            className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-6 py-2.5 text-sm font-bold uppercase text-white transition hover:bg-teal-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-6 py-2.5 text-sm font-bold uppercase text-white transition hover:bg-[#004b85] disabled:opacity-50"
           >
             <Save className="h-4 w-4" /> {submitting ? t('common.saving') : t('common.save')}
           </button>

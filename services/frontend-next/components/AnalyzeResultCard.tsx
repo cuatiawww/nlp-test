@@ -19,7 +19,7 @@ export default function AnalyzeResultCard({ icon, label, value, source, bad }: P
       </div>
       <div className="mt-2 text-lg font-bold text-slate-900">{value}</div>
       <div className="mt-1.5 flex items-start gap-1.5">
-        <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#0060A9]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <p className="text-xs leading-relaxed text-slate-500">{source}</p>

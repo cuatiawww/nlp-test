@@ -176,21 +176,17 @@ test_cases = [
 
 
 def call_api(url: str) -> dict:
-    last_err = None
-    for target in (API_URL, ALT_API_URL):
-        req = urllib.request.Request(
-            target,
-            data=json.dumps({"url": url}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=45) as resp:
-                return json.loads(resp.read())
-        except Exception as e:
-            last_err = e
-            continue
-    return {"success": False, "error": str(last_err)}
+    req = urllib.request.Request(
+        API_URL,
+        data=json.dumps({"url": url}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            return json.loads(resp.read())
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 def check_expect(field: str, actual, expect_val) -> tuple[bool, str]:

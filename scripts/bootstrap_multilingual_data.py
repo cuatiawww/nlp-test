@@ -165,7 +165,7 @@ def parse_json_content(content: str) -> dict[str, Any]:
 
 def deepseek_json(messages: list[dict[str, str]], timeout: int = 30) -> dict[str, Any]:
     request = urllib.request.Request(
-        f"{DEEPSEEK_BASE_URL}/chat/completions",
+        (DEEPSEEK_BASE_URL if DEEPSEEK_BASE_URL.endswith("/chat/completions") else f"{DEEPSEEK_BASE_URL}/chat/completions"),
         data=json.dumps(
             {
                 "model": DEEPSEEK_MODEL,

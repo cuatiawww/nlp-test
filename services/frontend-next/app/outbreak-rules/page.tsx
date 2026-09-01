@@ -39,7 +39,7 @@ export default function OutbreakRulesPage() {
           <p className="mt-1 text-sm text-slate-500">{t('pages.outbreakRules.subtitle')}</p>
         </div>
         <button onClick={() => { setEditItem(null); setShowModal(true) }}
-          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white hover:bg-[#004b85]">
           <Plus className="h-4 w-4" /> {t('common.add')}
         </button>
       </div>
@@ -68,7 +68,7 @@ export default function OutbreakRulesPage() {
             </thead>
             <tbody>
               {rules.map(r => (
-                <tr key={r.id} className="border-b border-slate-50 hover:bg-teal-50/40">
+                <tr key={r.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   <td className="px-4 py-3 font-medium text-slate-800">{translateDisease(r.disease_name) || r.disease_name}</td>
                   <td className="px-4 py-3 text-slate-700">{r.display_label || '-'}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-700">{r.min_case_count}</td>
@@ -81,7 +81,7 @@ export default function OutbreakRulesPage() {
                   <td className="px-4 py-3 text-center text-slate-700">{r.priority}</td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => { setEditItem(r); setShowModal(true) }}
-                      className="rounded-lg px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50">{t('common.edit')}</button>
+                      className="rounded-lg px-2 py-1 text-xs font-semibold text-[#0060A9] hover:bg-blue-50">{t('common.edit')}</button>
                     <button onClick={() => handleDelete(r.id, r.disease_name)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                   </td>

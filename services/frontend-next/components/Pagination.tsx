@@ -42,7 +42,7 @@ export default function Pagination({ page, totalPages, total, onPrev, onNext, on
           ) : (
             <button key={p} onClick={() => onGoTo(p)}
               className={`min-w-[28px] h-7 rounded-lg px-2 text-xs font-semibold transition ${
-                p === page ? 'bg-teal-600 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                p === page ? 'bg-[#0060A9] text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
               }`}>
               {p}
             </button>

@@ -193,8 +193,8 @@ export default function HardcodeAudit2Page() {
   function getLineClass(line: string) {
     if (line.startsWith('# ')) return 'text-slate-400 italic'
     if (line.startsWith('HARDCODE AUDIT 2') || line.startsWith(' RINGKASAN') || line.startsWith(' TEST AKURASI') || line.startsWith(' ALL ITEMS') || line.startsWith(' GRUP') || line.startsWith(' DIPERBAIKI'))
-      return 'text-teal-700 font-bold mt-4'
-    if (line.match(/^--- [A-Z]/)) return 'text-teal-600 font-semibold mt-3'
+      return 'text-[#0060A9] font-bold mt-4'
+    if (line.match(/^--- [A-Z]/)) return 'text-[#0060A9] font-semibold mt-3'
     if (line.includes('✅')) return 'text-emerald-700'
     if (line.includes('❌')) return 'text-red-600 font-semibold'
     if (line.startsWith('|')) return 'text-slate-700 font-mono text-xs'
@@ -221,7 +221,7 @@ export default function HardcodeAudit2Page() {
           </p>
         </div>
         <button onClick={() => { navigator.clipboard.writeText(rawContent); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-          className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold uppercase text-white hover:bg-teal-700">
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white hover:bg-[#004b85]">
           <Download className="h-4 w-4" /> {copied ? t('common.copied') : t('common.copy')}
         </button>
       </div>

@@ -78,10 +78,10 @@ def deepseek_json(text: str) -> dict[str, Any]:
         ],
         "temperature": 0,
         "response_format": {"type": "json_object"},
-        "max_tokens": 500,
+        "max_completion_tokens": 500,
     }
     response = requests.post(
-        f"{DEEPSEEK_BASE_URL}/chat/completions",
+        (DEEPSEEK_BASE_URL if DEEPSEEK_BASE_URL.endswith("/chat/completions") else f"{DEEPSEEK_BASE_URL}/chat/completions"),
         headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
         json=body,
         timeout=DEEPSEEK_TIMEOUT,

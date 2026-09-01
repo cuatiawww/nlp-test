@@ -413,7 +413,16 @@ def extract_diseases(text: str) -> list[str]:
     diseases = set(extract_terms(text, config.DISEASE_DICT))
     lower_text = text.lower()
     diseases.update(value for key, value in DISEASE_ALIASES.items() if key in lower_text)
-    return sorted(diseases)
+    
+    def disease_score(d: str) -> tuple[int, int]:
+        d_lower = d.lower()
+        cnt = lower_text.count(d_lower)
+        pos = lower_text.find(d_lower)
+        if pos == -1:
+            pos = 999999
+        return (-cnt, pos)
+
+    return sorted(diseases, key=disease_score)
 
 
 def extract_alias_diseases(text: str) -> list[str]:

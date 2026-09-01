@@ -144,11 +144,20 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
             soup.select_one("article")
             or soup.select_one("main")
             or soup.select_one('[role="main"]')
-            or soup.select_one('.post-content, .entry-content, .article-content')
+            or soup.select_one('.post-content, .entry-content, .article-content, .content, .body, #content, #main-content')
         )
         content = main_node.get_text(" ", strip=True) if main_node else ""
+
+    if not content or len(content) < 80:
+        p_texts = [p.get_text(" ", strip=True) for p in soup.select("p, .teaser, .headline, .summary, .description, li") if len(p.get_text(" ", strip=True)) > 20]
+        if p_texts:
+            content = " ".join(p_texts)
+
+    if not content or len(content) < 80:
+        content = soup.get_text(" ", strip=True)
+
     content = " ".join((content or "").split())
-    if len(content) < 80:
+    if len(content) < 30:
         raise ValueError("No sufficiently long main content found on page")
     return title, content
 

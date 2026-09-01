@@ -45,7 +45,7 @@ export default function ProcessingPage() {
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-3xl font-bold text-teal-600">{events.total}</div>
+          <div className="text-3xl font-bold text-[#0060A9]">{events.total}</div>
           <div className="mt-1 text-xs font-semibold uppercase text-slate-500">{t('pages.processing.totalEvents')}</div>
         </div>
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
