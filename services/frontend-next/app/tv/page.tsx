@@ -1,26 +1,20 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Activity, AlertTriangle, ArrowLeft, BellRing, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Globe2, Layers, MapPin, Maximize, Minimize, RefreshCw, Search, Settings, ShieldAlert, Skull, Sparkles, Volume2, VolumeX, X } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe2, Layers, MapPin, Maximize, Minimize, RefreshCw, Settings, ShieldAlert, Skull, Sparkles, Volume2, VolumeX, X } from 'lucide-react'
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchPublicDashboard } from '@/lib/api'
-import type { OutbreakLocation, PublicDashboard } from '@/types'
+import type { PublicDashboard } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import CrawlingFeedPanel from '@/components/CrawlingFeedPanel'
 
 const AseanMap = dynamic(() => import('@/components/AseanMap'), { ssr: false })
 type BaseMap = 'osm'|'terrain'|'satellite'|'light'|'dark'
-const sev = {
-  AWAS: 'bg-red-50 text-[#ED2939] border-red-200',
-  SIAGA: 'bg-[#fbf8ee] text-[#B49B58] border-[#e9dfc4]',
-  WASPADA: 'bg-amber-50 text-amber-700 border-amber-200',
-  NORMAL: 'bg-blue-50 text-[#0060A9] border-blue-200'
-}
-
 function Toggle({checked,onChange}:{checked:boolean;onChange:(v:boolean)=>void}) {
   return (
     <button
@@ -38,7 +32,7 @@ export default function TvPage() {
 
   const [data,setData]=useState<PublicDashboard|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
   const [drawer,setDrawer]=useState(false), [sound,setSound]=useState(false), [fullscreen,setFullscreen]=useState(false), [kpiHidden,setKpiHidden]=useState(false), [leftHidden,setLeftHidden]=useState(false), [rightHidden,setRightHidden]=useState(false)
-  const [query,setQuery]=useState(''), [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [choropleth,setChoropleth]=useState(true)
+  const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [choropleth,setChoropleth]=useState(true)
   const [bnpb,setBnpb]=useState({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false}), [wind,setWind]=useState(false), [ewsRadius,setEwsRadius]=useState<number|null>(null)
   const [clock,setClock]=useState({wib:'',wita:'',wit:'',date:''})
   const load=useCallback(async()=>{try{setData(await fetchPublicDashboard());setCountdown(60)}finally{setLoading(false)}},[])
@@ -72,7 +66,7 @@ export default function TvPage() {
   },[])
 
   const toggleFs=()=>fullscreen?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()
-  const alerts=useMemo(()=>[...(data?.alerts??[])].filter(a=>`${a.disease} ${a.location_name} ${a.country}`.toLowerCase().includes(query.toLowerCase())),[data,query])
+  const alerts=data?.alerts??[]
   const playSound=()=>{setSound(v=>!v);if(!sound){const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);g.gain.value=.04;o.start();o.stop(c.currentTime+.25)}}
 
   const cards=[
@@ -180,43 +174,12 @@ export default function TvPage() {
       </div>
 
       <div className={`pointer-events-none fixed bottom-12 left-3 z-30 transition-all ${leftHidden?'w-11':'w-80 2xl:w-96'} ${kpiHidden?'top-[74px]':'top-[198px]'}`}>
-        <div className="pointer-events-auto flex h-full flex-col overflow-hidden rounded-2xl border border-[#cfe0f1] bg-white/95 shadow-[0_8px_24px_rgba(0,96,169,.1)] backdrop-blur-xl">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 p-2.5">
-            <div className={leftHidden?'hidden':'flex items-center gap-2'}>
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-1"><BellRing className="h-3.5 w-3.5 text-[#0060A9]"/></div>
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-[#0060A9]">{t('tv.earlyWarningTitle')}</h3>
-                <p className="text-[10px] font-bold text-slate-500">{t('tv.activeOutbreakNotif', { count: alerts.length })}</p>
-              </div>
-            </div>
-            <button onClick={()=>setLeftHidden(v=>!v)} className="grid h-7 w-7 place-items-center rounded-lg border border-slate-200 bg-white">
-              {leftHidden?<ChevronRight className="h-3.5 w-3.5 text-[#0060A9]"/>:<ChevronLeft className="h-3.5 w-3.5 text-[#0060A9]"/>}
-            </button>
-          </div>
-          {!leftHidden && (
-            <>
-              <div className="border-b border-slate-100 bg-white p-2">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"/>
-                  <input
-                    value={query}
-                    onChange={e=>setQuery(e.target.value)}
-                    placeholder={t('tv.searchPlaceholder')}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs font-semibold outline-none focus:border-[#0060A9]"
-                  />
-                </div>
-              </div>
-              <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50/40 p-2">
-                {alerts.map((a,i)=>(
-                  <AlertCard key={i} a={a} numLocale={numLocale} t={t} translateDisease={translateDisease} translateSeverity={translateSeverity} />
-                ))}
-              </div>
-              <div className="border-t border-slate-200 bg-slate-50/80 p-2 text-center text-[9px] font-bold text-slate-500">
-                {t('tv.sourceCollector')}
-              </div>
-            </>
-          )}
-        </div>
+        <CrawlingFeedPanel
+          collapsed={leftHidden}
+          onToggle={() => setLeftHidden((value) => !value)}
+          t={t}
+          translateDisease={translateDisease}
+        />
       </div>
 
       <div className={`pointer-events-none fixed bottom-12 right-3 z-30 transition-all ${rightHidden?'w-11':'w-80 2xl:w-96'} ${kpiHidden?'top-[74px]':'top-[198px]'}`}>
@@ -353,47 +316,6 @@ export default function TvPage() {
           </div>
         </div>
       </footer>
-    </div>
-  )
-}
-
-function AlertCard({
-  a,
-  numLocale,
-  t,
-  translateDisease,
-  translateSeverity,
-}:{
-  a:OutbreakLocation;
-  numLocale: string;
-  t: (k:string, p?:any)=>string;
-  translateDisease: (d?:string|null)=>string;
-  translateSeverity: (s?:string|null)=>string;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:border-blue-300 hover:bg-blue-50/40">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h4 className="truncate text-xs font-bold text-slate-900">{translateDisease(a.disease)}</h4>
-          <p className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-medium text-slate-500">
-            <MapPin className="h-2.5 w-2.5 text-[#0060A9]"/>{a.location_name}, {a.country}
-          </p>
-        </div>
-        <span className={`rounded border px-1.5 py-0.5 text-[8.5px] font-bold ${sev[a.severity]}`}>
-          {translateSeverity(a.severity)}
-        </span>
-      </div>
-      <p className="mt-1.5 line-clamp-2 text-[10px] font-medium leading-relaxed text-slate-600">
-        {t('tv.outbreakSummary', {
-          cases: a.cases.toLocaleString(numLocale),
-          deaths: a.deaths,
-          threshold: a.threshold
-        })}
-      </p>
-      <div className="mt-2 flex justify-between border-t border-slate-100 pt-1.5 text-[9.5px] font-bold text-slate-500">
-        <span className="flex gap-1"><Clock className="h-2.5 w-2.5"/>{a.latest_date}</span>
-        <span className="text-[#0060A9]">{t('tv.focusRegion')}</span>
-      </div>
     </div>
   )
 }

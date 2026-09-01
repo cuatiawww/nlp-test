@@ -28,6 +28,31 @@ export type Run = {
   finished_at?: string;
 };
 
+export type DiseaseEvent = {
+  id: string;
+  source_type?: string | null;
+  source_name?: string | null;
+  published_at?: string | null;
+  language?: string | null;
+  location_name?: string | null;
+  country?: string | null;
+  disease_classification?: string | null;
+  case_count?: number | null;
+  death_count?: number | null;
+  confidence?: number | null;
+  outbreak_alert?: boolean | null;
+  created_at?: string | null;
+  sentiment?: string | null;
+  event_type?: string | null;
+  relevance_score?: string | null;
+  source_credibility?: number | null;
+  source_credibility_label?: string | null;
+  needs_review?: boolean | null;
+  url?: string | null;
+  title?: string | null;
+  is_health_related?: boolean | null;
+};
+
 export type SummaryRow = {
   location_name?: string;
   disease_classification?: string;

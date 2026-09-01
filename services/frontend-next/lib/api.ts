@@ -4,6 +4,7 @@ import type {
   SummaryRow,
   DashboardStats,
   PublicDashboard,
+  DiseaseEvent,
 } from "@/types";
 
 // Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
@@ -187,7 +188,18 @@ export const deleteCredibility = (id: string) =>
 
 // ── Events ────────────────────────────────────────
 
-export const fetchEvents = () => fetchFrom<any[]>("/api/v1/events");
+export const fetchEvents = (params?: {
+  page?: number;
+  per_page?: number;
+  q?: string;
+}) => {
+  const query = new URLSearchParams();
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.per_page) query.set("per_page", String(params.per_page));
+  if (params?.q) query.set("q", params.q);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return fetchFrom<DiseaseEvent[]>(`/api/v1/events${suffix}`);
+};
 
 // ── Language Markers ──────────────────────────
 

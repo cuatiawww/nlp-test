@@ -290,7 +290,17 @@
     "searchPlaceholder": "Cari penyakit, lokasi, negara...",
     "sourceCollector": "Sumber: Collector NLP Disease Surveillance AI",
     "inLocation": "di",
-    "tickerAlert": "{severity}: {disease} di {location} • {cases} {casesUnit}"
+    "tickerAlert": "{severity}: {disease} di {location} • {cases} {casesUnit}",
+    "liveCrawlingFeedTitle": "Feed Crawling ASEAN Live",
+    "liveCrawlingStatus": "Crawling sumber penyakit ASEAN",
+    "collectorReconnecting": "Menghubungkan ulang collector",
+    "collectorActive": "Collector aktif",
+    "crawlingFeedCount": "{count} sinyal tersimpan",
+    "crawledSource": "Buka sumber hasil crawling",
+    "waitingCrawlingSignals": "Menunggu sinyal crawling live",
+    "monitoringDiseaseSources": "Memantau sumber informasi penyakit ASEAN...",
+    "collapseFeed": "Ciutkan feed crawling",
+    "expandFeed": "Buka feed crawling"
   },
   "severity": {
     "AWAS": "AWAS",

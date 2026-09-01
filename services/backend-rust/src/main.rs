@@ -1323,7 +1323,7 @@ async fn list_events(
     let client = state.db.get().await.map_err(internal_error)?;
     let (page, per_page, offset) = build_pagination(query.page, query.per_page);
 
-    let sql = "SELECT e.id, e.source_type, e.source_name, e.published_at::text, e.language, e.location_name,
+    let sql = "SELECT e.id, e.source_type, e.source_name, e.published_at::text, e.language, e.location_name, loc.country,
                     e.disease_classification, e.case_count, e.death_count, e.confidence::float8 AS confidence, e.outbreak_alert,
                     ST_Y(e.geom) AS latitude, ST_X(e.geom) AS longitude, e.created_at::text,
                     e.sentiment, e.event_type, e.relevance_score,
@@ -1332,6 +1332,14 @@ async fn list_events(
                     e.is_health_related
              FROM disease_events e
              LEFT JOIN raw_reports r ON r.id = e.raw_report_id
+             LEFT JOIN LATERAL (
+                 SELECT l.country
+                 FROM locations l
+                 WHERE l.is_active = TRUE
+                   AND LOWER(l.name) = LOWER(e.location_name)
+                 ORDER BY l.updated_at DESC NULLS LAST, l.created_at DESC
+                 LIMIT 1
+             ) loc ON TRUE
              WHERE ($1::text IS NULL OR e.disease_classification ILIKE '%'||$1||'%'
                  OR e.location_name ILIKE '%'||$1||'%'
                  OR e.source_name ILIKE '%'||$1||'%'
@@ -1358,23 +1366,24 @@ async fn list_events(
             "published_at": r.get::<_, Option<String>>(3),
             "language": r.get::<_, Option<String>>(4),
             "location_name": r.get::<_, Option<String>>(5),
-            "disease_classification": r.get::<_, Option<String>>(6),
-            "case_count": r.get::<_, Option<i32>>(7),
-            "death_count": r.get::<_, Option<i32>>(8),
-            "confidence": r.get::<_, Option<f64>>(9),
-            "outbreak_alert": r.get::<_, Option<bool>>(10),
-            "latitude": r.get::<_, Option<f64>>(11),
-            "longitude": r.get::<_, Option<f64>>(12),
-            "created_at": r.get::<_, Option<String>>(13),
-            "sentiment": r.get::<_, Option<String>>(14),
-            "event_type": r.get::<_, Option<String>>(15),
-            "relevance_score": r.get::<_, Option<String>>(16),
-            "source_credibility": r.get::<_, Option<f64>>(17),
-            "source_credibility_label": r.get::<_, Option<String>>(18),
-            "needs_review": r.get::<_, Option<bool>>(19),
-            "url": r.get::<_, Option<String>>(20),
-            "title": r.get::<_, Option<String>>(21),
-            "is_health_related": r.get::<_, Option<bool>>(22),
+            "country": r.get::<_, Option<String>>(6),
+            "disease_classification": r.get::<_, Option<String>>(7),
+            "case_count": r.get::<_, Option<i32>>(8),
+            "death_count": r.get::<_, Option<i32>>(9),
+            "confidence": r.get::<_, Option<f64>>(10),
+            "outbreak_alert": r.get::<_, Option<bool>>(11),
+            "latitude": r.get::<_, Option<f64>>(12),
+            "longitude": r.get::<_, Option<f64>>(13),
+            "created_at": r.get::<_, Option<String>>(14),
+            "sentiment": r.get::<_, Option<String>>(15),
+            "event_type": r.get::<_, Option<String>>(16),
+            "relevance_score": r.get::<_, Option<String>>(17),
+            "source_credibility": r.get::<_, Option<f64>>(18),
+            "source_credibility_label": r.get::<_, Option<String>>(19),
+            "needs_review": r.get::<_, Option<bool>>(20),
+            "url": r.get::<_, Option<String>>(21),
+            "title": r.get::<_, Option<String>>(22),
+            "is_health_related": r.get::<_, Option<bool>>(23),
         }))
         .collect();
 

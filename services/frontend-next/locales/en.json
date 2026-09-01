@@ -290,7 +290,17 @@
     "searchPlaceholder": "Search disease, location, country...",
     "sourceCollector": "Source: Collector NLP Disease Surveillance AI",
     "inLocation": "in",
-    "tickerAlert": "{severity}: {disease} in {location} • {cases} {casesUnit}"
+    "tickerAlert": "{severity}: {disease} in {location} • {cases} {casesUnit}",
+    "liveCrawlingFeedTitle": "Live ASEAN Crawling Feed",
+    "liveCrawlingStatus": "Crawling ASEAN disease sources",
+    "collectorReconnecting": "Collector reconnecting",
+    "collectorActive": "Collector active",
+    "crawlingFeedCount": "{count} signals buffered",
+    "crawledSource": "Open crawled source",
+    "waitingCrawlingSignals": "Waiting for live crawling signals",
+    "monitoringDiseaseSources": "Monitoring ASEAN disease information sources...",
+    "collapseFeed": "Collapse crawling feed",
+    "expandFeed": "Expand crawling feed"
   },
   "severity": {
     "AWAS": "CRITICAL",
