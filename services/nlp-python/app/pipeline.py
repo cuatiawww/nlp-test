@@ -117,24 +117,21 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     if config.NLP_MODEL != "none":
         try:
+            clf_sample = (analysis_text or text)[:600]
             zero_shot = config.NLP_MODEL == "fine-tuned"
-            if zero_shot:
-                disease, confidence = classify_disease(analysis_text)
-                if payload.historical_fast:
-                    # Historical disease training does not need the three
-                    # additional zero-shot passes. Keep their fields valid
-                    # while retaining the disease model's result.
-                    relevance = "high" if disease != "UNKNOWN" or has_keywords else "low"
-                    relevance_confidence = confidence if relevance == "high" else 0.99
-                else:
-                    sentiment, sentiment_score = classify_sentiment(analysis_text, model_key="xlm-roberta")
-                    event_type, event_confidence = classify_event_type(analysis_text, model_key="xlm-roberta")
-                    relevance, relevance_confidence = classify_relevance(analysis_text, model_key="xlm-roberta")
+            if extracted:
+                disease = extracted[0]
+                confidence = 0.85
             else:
-                disease, confidence = classify_disease(analysis_text)
-                sentiment, sentiment_score = classify_sentiment(analysis_text)
-                event_type, event_confidence = classify_event_type(analysis_text)
-                relevance, relevance_confidence = classify_relevance(analysis_text)
+                disease, confidence = classify_disease(clf_sample)
+            
+            if payload.historical_fast:
+                relevance = "high" if disease != "UNKNOWN" or has_keywords else "low"
+                relevance_confidence = confidence if relevance == "high" else 0.99
+            else:
+                sentiment, sentiment_score = classify_sentiment(clf_sample, model_key="xlm-roberta" if zero_shot else None)
+                event_type, event_confidence = classify_event_type(clf_sample, model_key="xlm-roberta" if zero_shot else None)
+                relevance, relevance_confidence = classify_relevance(clf_sample, model_key="xlm-roberta" if zero_shot else None)
 
             # A3: hanya override event type kalau keyword juga match (bukan ML saja)
             if disease != "UNKNOWN" and extracted:

@@ -150,8 +150,16 @@ def country_scope(country: Optional[str]) -> Optional[str]:
     return config.OUTSIDE_ASEAN_COUNTRY
 
 
+WHO_STOPWORDS = {
+    "infectious", "without", "specification", "agent", "unspecified", "organism",
+    "exposure", "harmful", "effects", "vaccines", "identified", "syndrome",
+    "disease", "virus", "fever", "human", "late", "acute", "with", "from", "other",
+    "diseases", "infections", "prevention", "control", "statement", "period", "under",
+    "case", "cases", "death", "deaths", "health", "medical"
+}
+
 def extract_who_disease_mentions(text: str, concepts: list[dict]) -> list[str]:
-    """Match explicit WHO concept names and their individual English/local variants."""
+    """Match explicit WHO concept names and their clean specific variants."""
     raw_val = (text or "").lower()
     val_diacritic = strip_diacritics(raw_val)
     value = re.sub(r"[^a-z0-9]+", " ", raw_val + " " + val_diacritic).strip()
@@ -162,15 +170,12 @@ def extract_who_disease_mentions(text: str, concepts: list[dict]) -> list[str]:
         terms = set()
         for name in (canonical, english):
             full_folded = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
-            if full_folded:
+            if full_folded and full_folded not in WHO_STOPWORDS and len(full_folded) >= 4:
                 terms.add(full_folded)
             for sub in re.split(r"[/,()]", name):
                 t = re.sub(r"[^a-z0-9]+", " ", sub.lower()).strip()
-                if len(t) >= 3 and t not in {"and", "the", "for", "with", "from", "virus", "disease"}:
+                if len(t) >= 4 and t not in WHO_STOPWORDS:
                     terms.add(t)
-            for token in re.findall(r"\b[a-z]*\d+[a-z0-9]*\b|\b[a-z]{4,}\b", name.lower()):
-                if token not in {"virus", "disease", "fever", "infection", "acute", "human", "with", "from"}:
-                    terms.add(token)
 
         for term in sorted(terms, key=len, reverse=True):
             if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", value):
@@ -358,25 +363,19 @@ def is_explicit_outbreak_report(text: str) -> bool:
     if re.search(r"\b(?:no outbreak|not an outbreak|bukan wabah|tidak ada wabah)\b", value):
         return False
     if re.search(
-        r"\b(?:no|not|without|bukan|tidak ada|tidak terdapat|belum ada)\b"
-        r".{0,80}\b(?:new|current|local|incident|kejadian|kasus|outbreak|wabah|"
-        r"cluster|klaster|transmission|penularan)\b",
+        r"\b(?:no\s+(?:new\s+)?(?:cases?|outbreaks?|infections?|clusters?|transmission)|tidak\s+ada\s+(?:kasus|wabah|klb|penularan))\b",
         value,
         re.IGNORECASE,
     ):
         return False
     explicit_incident = re.search(
-        r"(?:\b(?:outbreak|epidemic|wabah)\b\s*(?:detected|declared|reported|occurred|confirmed|terjadi|dilaporkan|ditetapkan)?|"
-        r"\b(?:klb|kejadian luar biasa|cluster|klaster|local transmission|community transmission|"
-        r"penularan lokal|transmisi lokal)\b|"
-        r"\b(?:surge|spike|melonjak|lonjakan|meningkat tajam)\b.{0,80}\b(?:case|cases|kasus)\b)",
+        r"(?:\b(?:outbreaks?|epidemics?|wabah|klb|kejadian luar biasa|clusters?|klasters?|local transmission|community transmission|penularan lokal|transmisi lokal)\b|"
+        r"\b(?:surge|spike|melonjak|lonjakan|meningkat tajam|increase in|peningkatan)\b.{0,80}\b(?:cases?|kasus|infections?)\b)",
         value,
         re.IGNORECASE,
     )
     if not explicit_incident:
         return False
-    # A policy article may mention "outbreak prevention/control" without
-    # reporting an outbreak. Require an incident qualifier in that case.
     policy_only = is_policy_or_statistical_health_content(value)
     incident_qualifier = re.search(
         r"\b(?:outbreaks?|epidemics?|wabah|klb|kejadian luar biasa|clusters?|klasters?|spikes?|surges?|lonjakan|peningkatan tajam)\b"
@@ -461,7 +460,16 @@ def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
     lower_text = text.lower()
     stripped_text = strip_diacritics(lower_text)
     combined = lower_text + " " + stripped_text
-    return sorted(set(value for key, value in dictionary.items() if key in combined or strip_diacritics(key) in stripped_text))
+    matches = set()
+    for key, value in dictionary.items():
+        k = key.lower()
+        if len(k) <= 4 and re.match(r"^[a-z0-9]+$", k):
+            if re.search(rf"\b{re.escape(k)}\b", combined):
+                matches.add(value)
+        else:
+            if k in combined or strip_diacritics(k) in stripped_text:
+                matches.add(value)
+    return sorted(matches)
 
 
 DISEASE_ALIASES = {
