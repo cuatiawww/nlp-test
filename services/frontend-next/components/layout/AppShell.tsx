@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from "react";
-import { sidebarMenu } from "@/lib/menu";
+import { sidebarMenu, consoleMenu } from "@/lib/menu";
 import DashboardSidebar from "./DashboardSidebar";
 import DashboardHeader from "./DashboardHeader";
 import { isLoggedIn } from "@/lib/auth";
@@ -21,10 +21,12 @@ export default function AppShell({
   children,
   publicMode = false,
   tvMode = false,
+  consoleMode = false,
 }: {
   children: React.ReactNode;
   publicMode?: boolean;
   tvMode?: boolean;
+  consoleMode?: boolean;
 }) {
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -38,6 +40,11 @@ export default function AppShell({
       <main className="min-h-screen bg-slate-950 text-white">{children}</main>
     );
 
+  // When consoleMode is true, use the dedicated consoleMenu!
+  const activeMenu = consoleMode
+    ? consoleMenu
+    : (authenticated ? sidebarMenu : guestMenu);
+
   return (
     <main className="flex min-h-screen flex-col bg-[#f8fafc] text-slate-900">
       {sidebarOpen && (
@@ -50,11 +57,12 @@ export default function AppShell({
       )}
       <DashboardSidebar
         open={sidebarOpen}
-        menuGroups={authenticated ? sidebarMenu : guestMenu}
+        menuGroups={activeMenu}
         onClose={() => setSidebarOpen(false)}
       />
       <DashboardHeader
         authenticated={authenticated}
+        consoleMode={consoleMode}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
       />
       <div className="w-full flex-1 py-3 md:py-5">{children}</div>

@@ -7,26 +7,43 @@ import {
   LogOut,
   Menu,
   Tv,
+  Settings as SettingsIcon,
+  Users as UsersIcon,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getAuthUser, logout, AuthUser } from "@/lib/auth";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
+import { useSettings } from "@/lib/settings-context";
 
 export default function DashboardHeader({
   onToggleSidebar,
   authenticated = true,
+  consoleMode = false,
 }: {
   onToggleSidebar: () => void;
   authenticated?: boolean;
+  consoleMode?: boolean;
 }) {
+  const pathname = usePathname();
   const { t } = useTranslation();
+  const { settings } = useSettings();
   const [profile, setProfile] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   useEffect(() => setUser(getAuthUser()), []);
+
+  const logoSrc = settings.sidebar_logo_url || `${PUBLIC_BASE_PATH}/abvc-logo.webp`;
+  
+  const appTitle = consoleMode
+    ? "SYSTEM MANAGEMENT CONSOLE"
+    : (settings.app_name || "DISEASE SURVEILLANCE AI");
+    
+  const appSubtitle = consoleMode
+    ? "Centralized System Management, Branding & Configuration Portal"
+    : (settings.app_tagline || "Spatial outbreak analysis and early health warning system in Southeast Asia.");
 
   return (
     <header className="w-full border-b-2 border-[#0060A9]/20 bg-white">
@@ -46,23 +63,31 @@ export default function DashboardHeader({
               <Menu className="h-5 w-5" />
             </button>
             <Link
-              href="/"
+              href={consoleMode ? "/console/settings" : "/"}
               className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:gap-5"
             >
-              <Image
-                src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`}
-                alt="Logo ABVC"
-                width={170}
-                height={62}
-                className="h-auto w-[132px] shrink-0 md:w-[168px]"
-                priority
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={logoSrc}
+                alt="Logo"
+                className="h-auto max-h-[62px] w-[132px] shrink-0 object-contain md:w-[168px]"
+                onError={(e) => {
+                  e.currentTarget.src = `${PUBLIC_BASE_PATH}/abvc-logo.webp`;
+                }}
               />
               <div className="min-w-0 border-[#0060A9]/25 md:border-l md:pl-5">
-                <h1 className="max-w-[720px] text-lg font-extrabold uppercase leading-tight text-slate-900 sm:text-2xl md:text-3xl">
-                  {t("header.title")}
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="max-w-[720px] text-lg font-extrabold uppercase leading-tight text-slate-900 sm:text-2xl md:text-3xl">
+                    {appTitle}
+                  </h1>
+                  {consoleMode && (
+                    <span className="hidden sm:inline-flex items-center rounded-md bg-[#0060A9]/10 px-2 py-0.5 text-xs font-bold text-[#0060A9] border border-[#0060A9]/20">
+                      ADMIN CONSOLE
+                    </span>
+                  )}
+                </div>
                 <p className="mt-2 hidden max-w-[760px] text-xs leading-relaxed text-slate-600 sm:block md:text-sm lg:text-base">
-                  {t("header.subtitle")}
+                  {appSubtitle}
                 </p>
               </div>
             </Link>
@@ -70,26 +95,63 @@ export default function DashboardHeader({
           <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
             <LanguageSwitcher />
 
-            <div className="hidden items-center rounded-2xl border border-[#0060A9]/15 bg-white/75 p-1.5 shadow-sm sm:flex">
-              <Link
-                href="/"
-                className="flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#004b85]"
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                {t("header.dashboard")}
-              </Link>
-              <Link
-                href="/tv"
-                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white hover:text-[#0060A9]"
-              >
-                <Tv className="h-4 w-4" />
-                {t("header.tvMode")}
-              </Link>
-            </div>
+            {/* In Console Mode: Show Console Tabs (Settings, Users) + Button to return to Surveillance Dashboard */}
+            {consoleMode ? (
+              <div className="hidden items-center rounded-2xl border border-[#0060A9]/15 bg-white/75 p-1.5 shadow-sm sm:flex">
+                <Link
+                  href="/console/settings"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname?.startsWith("/console/settings")
+                      ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
+                      : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
+                  }`}
+                >
+                  <SettingsIcon className="h-4 w-4" />
+                  Settings
+                </Link>
+                <Link
+                  href="/console/users"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname?.startsWith("/console/users")
+                      ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
+                      : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
+                  }`}
+                >
+                  <UsersIcon className="h-4 w-4" />
+                  Users
+                </Link>
+                <Link
+                  href="/"
+                  className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white hover:text-[#0060A9]"
+                >
+                  <LayoutDashboard className="h-4 w-4" />
+                  Dashboard ↗
+                </Link>
+              </div>
+            ) : (
+              /* In Regular Dashboard Mode: Show standard Dashboard & TV mode (NO CONSOLE BUTTON - completely hidden) */
+              <div className="hidden items-center rounded-2xl border border-[#0060A9]/15 bg-white/75 p-1.5 shadow-sm sm:flex">
+                <Link
+                  href="/"
+                  className="flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#004b85]"
+                >
+                  <LayoutDashboard className="h-4 w-4" />
+                  {t("header.dashboard")}
+                </Link>
+                <Link
+                  href="/tv"
+                  className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white hover:text-[#0060A9]"
+                >
+                  <Tv className="h-4 w-4" />
+                  {t("header.tvMode")}
+                </Link>
+              </div>
+            )}
+
             {!authenticated ? (
               <Link
                 href="/login"
-                className="flex h-12 items-center gap-2 rounded-xl bg-[#0060A9] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#004b85]"
+                className="inline-flex items-center gap-2 rounded-2xl bg-[#0060A9] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#004b85]"
               >
                 <LogIn className="h-4 w-4" />
                 {t("header.login")}
@@ -97,22 +159,34 @@ export default function DashboardHeader({
             ) : (
               <div className="relative">
                 <button
-                  onClick={() => setProfile((v) => !v)}
-                  className="flex h-12 items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 shadow-sm"
+                  onClick={() => setProfile((prev) => !prev)}
+                  className="inline-flex items-center gap-2.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                 >
-                  <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-[#0060A9] to-blue-500 font-bold text-white">
-                    {user?.username?.[0]?.toUpperCase() || "A"}
-                  </div>
-                  <span className="hidden text-sm font-bold sm:block">
-                    {user?.username || "Admin"}
+                  <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-[#0060A9] text-xs font-bold text-white">
+                    {user?.username ? user.username.charAt(0).toUpperCase() : "U"}
                   </span>
-                  <ChevronDown className="h-4 w-4" />
+                  <span>{user?.username || "Account"}</span>
+                  <ChevronDown className="h-4 w-4 text-slate-400" />
                 </button>
                 {profile && (
-                  <div className="absolute right-0 top-14 z-40 w-52 rounded-xl border bg-white p-2 shadow-xl">
+                  <div className="absolute right-0 top-full z-50 mt-2 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    <div className="border-b border-slate-100 px-3 py-2 text-xs text-slate-500">
+                      <p className="font-semibold text-slate-800">{user?.username}</p>
+                      <p className="capitalize text-slate-400">{user?.role || "user"}</p>
+                    </div>
+                    {consoleMode ? (
+                      <Link
+                        href="/"
+                        onClick={() => setProfile(false)}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                      >
+                        <LayoutDashboard className="h-4 w-4 text-slate-400" />
+                        Surveillance Dashboard
+                      </Link>
+                    ) : null}
                     <button
-                      onClick={logout}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                      onClick={() => logout()}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
                     >
                       <LogOut className="h-4 w-4" />
                       {t("header.logout")}
@@ -124,7 +198,6 @@ export default function DashboardHeader({
           </div>
         </div>
       </div>
-      <div className="h-[3px] bg-gradient-to-r from-[#0060A9] via-[#0060A9]/40 to-transparent" />
     </header>
   );
 }

@@ -390,6 +390,22 @@ struct SummaryQuery {
     disease: Option<String>,
 }
 
+
+#[derive(Debug, Deserialize)]
+struct UpdateSystemSettingsRequest {
+    config_data: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct AuditLogsQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    user_id: Option<Uuid>,
+    action: Option<String>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -487,6 +503,8 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/language-models/:id",
             put(update_language_model).delete(delete_language_model),
         )
+                .route("/api/v1/console/settings", get(get_system_settings).put(update_system_settings))
+        .route("/api/v1/console/audit-logs", get(list_audit_logs))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -3178,3 +3196,198 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
     tracing::info!("Init SQL complete");
     Ok(())
 }
+
+// ─── CONSOLE: REQUIRE ADMIN HELPER ────────────────────────────────────────────
+
+async fn require_admin(
+    state: &Arc<AppState>,
+    headers: &axum::http::HeaderMap,
+) -> Result<(Uuid, String), (StatusCode, axum::Json<serde_json::Value>)> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("")
+        .to_string();
+
+    if token.is_empty() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            axum::Json(json!({"success": false, "error": "Authentication required"})),
+        ));
+    }
+
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_opt(
+            "SELECT u.id, u.username, u.role FROM auth_tokens t
+             JOIN users u ON u.id = t.user_id
+             WHERE t.token = $1 AND t.expires_at > NOW() AND u.is_active = TRUE",
+            &[&token],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    match row {
+        Some(r) => {
+            let role: String = r.get(2);
+            if role != "admin" && role != "superadmin" && role != "webmaster" {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    axum::Json(json!({"success": false, "error": "Admin access required"})),
+                ));
+            }
+            Ok((r.get::<_, Uuid>(0), r.get::<_, String>(1)))
+        }
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            axum::Json(json!({"success": false, "error": "Invalid or expired session"})),
+        )),
+    }
+}
+
+// ─── CONSOLE: SYSTEM SETTINGS ─────────────────────────────────────────────────
+
+async fn get_system_settings(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_opt(
+            "SELECT config_data, updated_at::text, updated_by FROM system_settings WHERE id = 'branding'",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let data = match row {
+        Some(r) => json!({
+            "config_data": r.get::<_, Value>(0),
+            "updated_at": r.get::<_, Option<String>>(1),
+            "updated_by": r.get::<_, Option<String>>(2),
+        }),
+        None => json!({
+            "config_data": {
+                "app_name": "ASEAN Disease Outbreak Surveillance AI",
+                "app_tagline": "Real-time Multilingual Disease Monitoring",
+                "sidebar_logo_url": "",
+                "login_logo_url": "",
+                "favicon_url": "",
+                "footer_text": "Disease Surveillance AI",
+                "ticker_text": ""
+            },
+            "updated_at": null,
+            "updated_by": null
+        }),
+    };
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn update_system_settings(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<UpdateSystemSettingsRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let (user_id, username) = require_admin(&state, &headers).await?;
+
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    // Get previous value for audit log
+    let prev = client
+        .query_opt("SELECT config_data FROM system_settings WHERE id = 'branding'", &[])
+        .await
+        .map_err(internal_error)?
+        .map(|r| r.get::<_, Value>(0))
+        .unwrap_or(json!({}));
+
+    // Upsert settings
+    client
+        .execute(
+            "INSERT INTO system_settings (id, config_data, updated_at, updated_by)
+             VALUES ('branding', $1, NOW(), $2)
+             ON CONFLICT (id) DO UPDATE SET config_data = $1, updated_at = NOW(), updated_by = $2",
+            &[&payload.config_data, &username],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    // Write audit log
+    let _ = client
+        .execute(
+            "INSERT INTO audit_logs (user_id, username, action, resource, detail)
+             VALUES ($1, $2, 'UPDATE_SETTINGS', 'system_settings', $3)",
+            &[
+                &user_id,
+                &username,
+                &json!({"before": prev, "after": payload.config_data}),
+            ],
+        )
+        .await;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({"message": "Settings updated successfully"}),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+// ─── CONSOLE: AUDIT LOGS ──────────────────────────────────────────────────────
+
+async fn list_audit_logs(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<AuditLogsQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    require_admin(&state, &headers).await?;
+
+    let client = state.db.get().await.map_err(internal_error)?;
+    let page = params.page.unwrap_or(1).max(1);
+    let per_page = params.per_page.unwrap_or(50).clamp(1, 200);
+    let offset = (page - 1) * per_page;
+
+    let rows = client
+        .query(
+            "SELECT id, user_id, username, action, resource, detail, ip_address, created_at::text
+             FROM audit_logs
+             ORDER BY created_at DESC
+             LIMIT $1 OFFSET $2",
+            &[&per_page, &offset],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let total: i64 = client
+        .query_one("SELECT COUNT(*) FROM audit_logs", &[])
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "user_id": r.get::<_, Option<Uuid>>(1),
+        "username": r.get::<_, Option<String>>(2),
+        "action": r.get::<_, String>(3),
+        "resource": r.get::<_, Option<String>>(4),
+        "detail": r.get::<_, Option<Value>>(5),
+        "ip_address": r.get::<_, Option<String>>(6),
+        "created_at": r.get::<_, Option<String>>(7),
+    })).collect();
+
+    let total_pages = (total as f64 / per_page as f64).ceil() as i64;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: Some(total),
+        page: Some(page),
+        per_page: Some(per_page),
+        total_pages: Some(total_pages),
+    }))
+}
+
+

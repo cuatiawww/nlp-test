@@ -9,9 +9,21 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
   const pathname = usePathname()
   const isLoginPage = pathname === '/login'
   const isPublicPage = pathname === '/' || pathname === '/tv'
+  const isConsolePage = pathname.startsWith('/console')
 
   if (isLoginPage) {
     return <>{children}</>
+  }
+
+  if (isConsolePage) {
+    return (
+      <AuthGuard>
+        <AppShell consoleMode>
+          {children}
+        </AppShell>
+        <Toaster position="top-right" richColors />
+      </AuthGuard>
+    )
   }
 
   if (isPublicPage) {

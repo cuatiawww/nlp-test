@@ -114,3 +114,57 @@ async def collect_one(source_id: str):
     except Exception as e:
         logger.exception("Collect failed for %s", source_id)
         return {"success": False, "error": str(e)}
+
+
+class UploadAssetRequest(BaseModel):
+    filename: str
+    content_base64: str
+    content_type: str = "image/png"
+
+
+@app.post("/upload-asset")
+async def upload_asset(req: UploadAssetRequest):
+    import base64
+    import uuid
+    import re
+    try:
+        # Strip data:image/...;base64, prefix if present
+        b64_str = re.sub(r"^data:[^;]+;base64,", "", req.content_base64)
+        raw_bytes = base64.b64decode(b64_str)
+        
+        # Clean filename
+        clean_fn = re.sub(r"[^a-zA-Z0-9._-]", "_", req.filename)
+        safe_name = f"branding/{uuid.uuid4().hex[:8]}_{clean_fn}"
+        
+        minio_client.upload_file(safe_name, raw_bytes, req.content_type)
+        logger.info(f"Uploaded asset {safe_name} to MinIO bucket {config.MINIO_BUCKET}")
+        return {
+            "success": True,
+            "url": f"/nlp/api/v1/assets/{safe_name}",
+            "object_name": safe_name,
+            "size": len(raw_bytes)
+        }
+    except Exception as e:
+        logger.exception("Failed to upload asset to MinIO")
+        raise HTTPException(status_code=500, detail=f"MinIO upload error: {str(e)}")
+
+
+@app.get("/assets/{object_path:path}")
+async def get_asset(object_path: str):
+    from fastapi.responses import Response
+    client = minio_client._get_client()
+    try:
+        data = client.get_object(config.MINIO_BUCKET, object_path)
+        content_type = data.headers.get("Content-Type") or data.headers.get("content-type") or "image/png"
+        body = data.read()
+        return Response(
+            content=body,
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "Content-Type": content_type
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Asset not found in MinIO: {object_path} ({e})")
+        raise HTTPException(status_code=404, detail="Asset not found")

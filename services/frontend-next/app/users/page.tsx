@@ -1,105 +1,16 @@
 'use client'
 
-import { useTranslation } from '@/lib/i18n/LanguageContext'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
-import { useState } from 'react'
-import { Plus, Trash2, Shield } from 'lucide-react'
-import { deleteUser } from '@/lib/api'
-import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
-import SearchInput from '@/components/SearchInput'
-import Pagination from '@/components/Pagination'
-import Modal from '@/components/Modal'
-import UserForm from '@/components/UserForm'
-import { toast } from 'sonner'
-
-interface User {
-  id: string; username: string; display_name?: string; role: string; email?: string; is_active: boolean; created_at?: string
-}
-
-export default function UsersPage() {
-  const { t } = useTranslation()
-  const { data: users, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<User>('/api/v1/users')
-  const [showModal, setShowModal] = useState(false)
-
-  const handleDelete = async (id: string) => {
-    if (!confirm(t('common.confirmDeleteGeneric'))) return
-    try {
-      await deleteUser(id)
-      toast.success(t('common.deletedSuccess'))
-      reload()
-    } catch {
-      toast.error(t('common.deleteFailed'))
-    }
-  }
-
+export default function UsersRedirectPage() {
+  const router = useRouter()
+  useEffect(() => {
+    router.replace('/console/users')
+  }, [router])
   return (
-    <div className="px-4 md:px-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.users.title')}</h1>
-          <p className="mt-1 text-sm text-slate-500">{t('pages.users.subtitle')}</p>
-        </div>
-        <button onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white hover:bg-[#004b85]">
-          <Plus className="h-4 w-4" /> {t('pages.users.btnAdd')}
-        </button>
-      </div>
-
-      <div className="mt-4 flex gap-2">
-        <div className="relative max-w-xs">
-          <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <SearchInput value={search} onChange={setSearch} placeholder={`${t('common.search')}...`} />
-        </div>
-      </div>
-
-      <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {loading ? <div className="p-8 text-center text-slate-400 text-sm">{t('common.loading')}</div> : users.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">{t('common.noData')}</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-slate-50 text-left">
-                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.users.colUsername')}</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.users.colDisplayName')}</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.users.colRole')}</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.users.colEmail')}</th>
-                <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('common.active')}</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id} className="border-b border-slate-50 hover:bg-blue-50/40">
-                  <td className="px-4 py-3 font-semibold text-slate-800">{u.username}</td>
-                  <td className="px-4 py-3 text-slate-700">{u.display_name || '-'}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-[#0060A9]">
-                      <Shield className="h-3 w-3" /> {u.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">{u.email || '-'}</td>
-                  <td className="px-4 py-3 text-center">
-                    {u.is_active
-                      ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.active')}</span>
-                      : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.inactive')}</span>
-                    }
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button onClick={() => handleDelete(u.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
-      </div>
-
-      <Modal open={showModal} title={t('pages.users.addTitle')} onClose={() => setShowModal(false)}>
-        <UserForm onSaved={() => { setShowModal(false); reload() }} onCancel={() => setShowModal(false)} />
-      </Modal>
+    <div className="p-8 text-center text-slate-400 text-sm">
+      Mengalihkan ke Manajemen Pengguna di Console...
     </div>
   )
 }

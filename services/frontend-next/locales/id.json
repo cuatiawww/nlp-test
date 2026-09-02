@@ -82,7 +82,8 @@
       "languageModels": "Language Models",
       "users": "Users",
       "hardcode1": "Hardcode Audit 1",
-      "hardcode2": "Hardcode Audit 2"
+      "hardcode2": "Hardcode Audit 2",
+      "systemSettings": "Pengaturan Sistem"
     }
   },
   "dashboard": {

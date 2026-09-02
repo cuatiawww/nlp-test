@@ -1,3 +1,4 @@
+import { SettingsProvider } from "@/lib/settings-context"
 import type { Metadata } from "next"
 import localFont from "next/font/local"
 import "./globals.css"
@@ -31,9 +32,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${roboto.variable} font-roboto antialiased`} suppressHydrationWarning>
-        <LanguageProvider>
+        <SettingsProvider><LanguageProvider>
           <LayoutContent>{children}</LayoutContent>
-        </LanguageProvider>
+        </LanguageProvider></SettingsProvider>
       </body>
     </html>
   )

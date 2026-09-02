@@ -1,6 +1,6 @@
 'use client'
 
-import { Home, X } from "lucide-react";
+import { X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import type { SidebarGroup } from "@/lib/menu";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
+import { useSettings } from "@/lib/settings-context";
 
 type Props = {
   open: boolean;
@@ -18,6 +19,7 @@ type Props = {
 export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
   const pathname = usePathname();
   const { t } = useTranslation();
+  const { settings } = useSettings();
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
@@ -33,6 +35,10 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
     return false;
   };
 
+  const logoSrc = settings.sidebar_logo_url || `${PUBLIC_BASE_PATH}/abvc-logo.webp`;
+  const appTitle = settings.app_name || "DISEASE SURVEILLANCE AI";
+  const appSubtitle = settings.app_tagline || "ASEAN Surveillance Centre";
+
   return (
     <aside
       className={`fixed left-0 top-0 z-40 h-screen w-[280px] border-r border-slate-100 bg-white text-slate-800 shadow-[2px_0_12px_rgba(0,0,0,0.03)] transition-transform duration-300 ${
@@ -42,81 +48,77 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
       <div className="h-[4px] bg-[#0060A9]" />
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/50 px-4 py-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
-            <Image
-              src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`}
-              alt="Logo ABVC"
-              width={38}
-              height={38}
-              className="h-auto w-full"
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={logoSrc}
+              alt="Logo"
+              className="h-auto w-full max-h-8 object-contain"
+              onError={(e) => {
+                e.currentTarget.src = `${PUBLIC_BASE_PATH}/abvc-logo.webp`;
+              }}
             />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold tracking-wide text-slate-800">
-              DISEASE SURVEILLANCE AI
+            <p className="text-sm font-bold tracking-wide text-slate-800 truncate uppercase">
+              {appTitle}
             </p>
-            <p className="mt-0.5 text-[11px] text-slate-500">
-              ASEAN Surveillance Centre
+            <p className="mt-0.5 text-[11px] text-slate-500 truncate">
+              {appSubtitle}
             </p>
           </div>
         </div>
         <button
           type="button"
+          aria-label={t("common.closeSidebar")}
           onClick={onClose}
-          className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-          aria-label={t("common.close")}
+          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
         >
-          <X className="h-5 w-5" />
+          <X className="h-4 w-4" />
         </button>
       </div>
-      <nav className="h-[calc(100vh-80px)] space-y-5 overflow-y-auto px-3 py-4">
-        {menuGroups.map((group) => {
-          const groupTitle = group.titleKey ? t(group.titleKey) : group.title;
-          return (
-            <section key={group.title}>
-              <p className="px-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                {groupTitle}
-              </p>
-              <div className="mt-2 space-y-1">
-                {group.items.map((item) => {
-                  const Icon = item.icon || Home;
-                  const active = isActive(item);
-                  const itemLabel = item.labelKey ? t(item.labelKey) : item.label;
-                  if (item.url) {
-                    return (
-                      <a
-                        key={item.label}
-                        href={item.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] text-slate-600 transition hover:bg-slate-50 hover:text-[#0060A9]"
-                      >
-                        <Icon className="h-4 w-4" />
-                        {itemLabel}
-                      </a>
-                    );
-                  }
-                  return (
+
+      <div className="h-[calc(100vh-80px)] overflow-y-auto px-3 py-4">
+        {menuGroups.map((group, groupIdx) => (
+          <div key={group.titleKey || group.title || groupIdx} className="mb-6">
+            <div className="px-3 pb-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase">
+              {group.titleKey ? t(group.titleKey) : group.title}
+            </div>
+            <ul className="space-y-1">
+              {group.items.map((item, itemIdx) => {
+                const Icon = item.icon;
+                const active = isActive(item);
+                return (
+                  <li key={item.labelKey || item.label || itemIdx}>
                     <Link
-                      key={item.label}
-                      href={item.href || "/"}
-                      onClick={onClose}
-                      className={`flex w-full items-center gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-[0.03em] transition ${
+                      href={item.href || "#"}
+                      onClick={() => {
+                        if (window.innerWidth < 1024) onClose();
+                      }}
+                      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all ${
                         active
-                          ? "rounded-l-none rounded-r-xl border-l-4 border-[#0060A9] bg-blue-50/80 font-bold text-[#0060A9]"
-                          : "text-slate-600 hover:bg-slate-50 hover:text-[#0060A9]"
+                          ? "bg-[#0060A9]/10 text-[#0060A9]"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                       }`}
                     >
-                      <Icon className="h-4 w-4" />
-                      {itemLabel}
+                      {Icon && (
+                        <Icon
+                          className={`h-4 w-4 shrink-0 ${
+                            active ? "text-[#0060A9]" : "text-slate-400"
+                          }`}
+                        />
+                      )}
+                      <span className="truncate">
+                        {item.labelKey ? t(item.labelKey) : item.label}
+                      </span>
                     </Link>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
-      </nav>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
     </aside>
   );
 }
