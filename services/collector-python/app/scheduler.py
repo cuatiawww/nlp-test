@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from . import db
@@ -70,21 +71,28 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
         if not schedule:
             continue
         source_id = str(source["id"])
-        # Stagger initial run so sources start collecting immediately on startup
+        # Stagger initial run so sources start collecting immediately on startup (every 2 seconds)
         start_time = datetime.now(timezone.utc) + timedelta(seconds=idx * 2)
+        interval_minutes = _parse_interval(schedule)
         scheduler.add_job(
             run_source_async,
             "interval",
-            minutes=_parse_interval(schedule),
+            minutes=interval_minutes,
             next_run_time=start_time,
             id=f"source_{source_id}",
             args=[source_id],
             replace_existing=True,
         )
-        logger.info("Scheduled %s: every %s (first run in %ds)", source["name"], schedule, idx * 2)
+        logger.info("Scheduled %s: every %d min (first run in %ds)", source["name"], interval_minutes, idx * 2)
 
 
 def _parse_interval(schedule: str) -> int:
+    max_interval = int(os.getenv("CRAWLER_MAX_INTERVAL_MINUTES", "10"))
+    min_interval = int(os.getenv("CRAWLER_MIN_INTERVAL_MINUTES", "3"))
     if schedule.startswith("interval:"):
-        return int(schedule.replace("interval:", ""))
-    return 60
+        try:
+            val = int(schedule.replace("interval:", ""))
+            return max(min_interval, min(val, max_interval))
+        except ValueError:
+            pass
+    return max_interval

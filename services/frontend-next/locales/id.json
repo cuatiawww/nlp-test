@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "loading": "Memuat data...",
     "save": "Simpan",
@@ -291,14 +291,14 @@
     "sourceCollector": "Sumber: Collector NLP Disease Surveillance AI",
     "inLocation": "di",
     "tickerAlert": "{severity}: {disease} di {location} • {cases} {casesUnit}",
-    "liveCrawlingFeedTitle": "Feed Crawling ASEAN Live",
-    "liveCrawlingStatus": "Crawling sumber penyakit ASEAN",
-    "collectorReconnecting": "Menghubungkan ulang collector",
-    "collectorActive": "Collector aktif",
+    "liveCrawlingFeedTitle": "LIVE ASEAN CRAWLING WEB & SOCIAL MEDIA",
+    "liveCrawlingStatus": "Real-time ASEAN Surveillance Active",
+    "collectorReconnecting": "Connecting...",
+    "collectorActive": "Collector Active",
     "crawlingFeedCount": "{count} sinyal tersimpan",
-    "crawledSource": "Buka sumber hasil crawling",
-    "waitingCrawlingSignals": "Menunggu sinyal crawling live",
-    "monitoringDiseaseSources": "Memantau sumber informasi penyakit ASEAN...",
+    "crawledSource": "Open original source",
+    "waitingCrawlingSignals": "Waiting for incoming crawling signals...",
+    "monitoringDiseaseSources": "Monitoring ASEAN regional disease outbreak sources",
     "collapseFeed": "Ciutkan feed crawling",
     "expandFeed": "Buka feed crawling"
   },

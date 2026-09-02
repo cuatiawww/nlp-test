@@ -1,4 +1,4 @@
-/** @type {import('next').NextConfig} */
+﻿/** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   basePath: '/nlp',
@@ -11,7 +11,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.BACKEND_INTERNAL_URL || 'http://backend-rust:8081'}/api/:path*`,
+        destination: `${process.env.BACKEND_INTERNAL_URL || 'http://disease-backend-rust:8081'}/api/:path*`,
       },
     ];
   },

@@ -119,8 +119,8 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
       <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border border-[#cfe0f1] bg-white/95 p-1.5 shadow-[0_8px_24px_rgba(0,96,169,.12)] backdrop-blur-xl">
         <button
           onClick={onToggle}
-          title={t("tv.expandFeed") || "Buka Live Feed"}
-          aria-label={t("tv.expandFeed") || "Buka Live Feed"}
+          title={t("tv.expandFeed") || "Expand Live Feed"}
+          aria-label={t("tv.expandFeed") || "Expand Live Feed"}
           className="grid h-8 w-8 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-[#0060A9] transition hover:border-blue-300 hover:bg-blue-50"
         >
           <ChevronRight className="h-4 w-4" />
@@ -131,7 +131,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
         {/* Quick Web Crawling button */}
         <button
           onClick={() => handleOpenChannel("web")}
-          title={`Buka Crawling Web & Berita (${counts.web})`}
+          title={`Open Web & News Crawling (${counts.web})`}
           className={`group relative grid h-8 w-8 place-items-center rounded-xl border transition ${
             viewMode === "web"
               ? "border-[#0060A9] bg-[#0060A9] text-white shadow-sm"
@@ -149,7 +149,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
         {/* Quick Social Media Crawling button */}
         <button
           onClick={() => handleOpenChannel("social")}
-          title={`Buka Crawling Media Sosial (${counts.social})`}
+          title={`Open Social Media Crawling (${counts.social})`}
           className={`group relative grid h-8 w-8 place-items-center rounded-xl border transition ${
             viewMode === "social"
               ? "border-purple-600 bg-purple-600 text-white shadow-sm"
@@ -164,10 +164,10 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
           )}
         </button>
 
-        {/* Quick All Feed (2 Section) button */}
+        {/* Quick All Feed (2 Sections) button */}
         <button
           onClick={() => handleOpenChannel("all")}
-          title={`Buka 2 Section: Web + Sosmed (${counts.all})`}
+          title={`Open Dual Sections: Web + Social Media (${counts.all})`}
           className={`group relative grid h-8 w-8 place-items-center rounded-xl border transition ${
             viewMode === "all"
               ? "border-slate-800 bg-slate-800 text-white shadow-sm"
@@ -199,13 +199,13 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
             </h3>
             <p className="mt-0.5 flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
               <span className={connected ? "live-dot" : "h-1.5 w-1.5 rounded-full bg-slate-300"} />
-              <span>{connected ? t("tv.liveCrawlingStatus") || "Crawling ASEAN disease sources" : t("tv.collectorReconnecting") || "Reconnecting..."}</span>
+              <span>{connected ? t("tv.liveCrawlingStatus") || "Real-time ASEAN Surveillance Active" : t("tv.collectorReconnecting") || "Connecting..."}</span>
             </p>
           </div>
         </div>
         <button
           onClick={onToggle}
-          aria-label={t("tv.collapseFeed") || "Tutup Feed"}
+          aria-label={t("tv.collapseFeed") || "Collapse Feed"}
           className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white transition hover:bg-slate-100"
         >
           <ChevronLeft className="h-3.5 w-3.5 text-[#0060A9]" />
@@ -216,7 +216,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
       <div className="grid grid-cols-3 gap-1 border-b border-slate-200 bg-slate-100/80 p-1 text-[10px] font-extrabold">
         <button
           onClick={() => setViewMode("all")}
-          title="Tampilkan 2 Section (Atas Web, Bawah Sosmed)"
+          title="Show Dual Sections (Top: Web, Bottom: Social Media)"
           className={`flex items-center justify-center gap-1 rounded-lg py-1.5 transition ${
             viewMode === "all"
               ? "bg-white text-[#0060A9] shadow-sm ring-1 ring-slate-200"
@@ -224,7 +224,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
           }`}
         >
           <Layers className="h-3.5 w-3.5" />
-          <span>Semua (2 Section)</span>
+          <span>All (2 Sections)</span>
           <span className="rounded-md bg-slate-100 px-1 text-[8.5px] font-black text-slate-500">
             {counts.all}
           </span>
@@ -232,7 +232,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
 
         <button
           onClick={() => setViewMode("web")}
-          title="Tampilkan Khusus Web & Berita Online"
+          title="Show Web & Online News Only"
           className={`flex items-center justify-center gap-1 rounded-lg py-1.5 transition ${
             viewMode === "web"
               ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200"
@@ -248,7 +248,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
 
         <button
           onClick={() => setViewMode("social")}
-          title="Tampilkan Khusus Media Sosial"
+          title="Show Social Media Only"
           className={`flex items-center justify-center gap-1 rounded-lg py-1.5 transition ${
             viewMode === "social"
               ? "bg-white text-purple-700 shadow-sm ring-1 ring-purple-200"
@@ -256,7 +256,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
           }`}
         >
           <Share2 className="h-3.5 w-3.5 text-purple-600" />
-          <span>Sosmed Only</span>
+          <span>Social Media Only</span>
           <span className="rounded-md bg-purple-50 px-1 text-[8.5px] font-black text-purple-600">
             {counts.social}
           </span>
@@ -272,12 +272,12 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
             onChange={(event) => setQuery(event.target.value)}
             placeholder={
               viewMode === "web"
-                ? "Cari di berita web & portal..."
+                ? "Search web & online news sources..."
                 : viewMode === "social"
-                  ? "Cari di media sosial (X, IG, Reddit)..."
-                  : "Cari penyakit, lokasi, sumber..."
+                  ? "Search social media (X, IG, Reddit)..."
+                  : "Search diseases, locations, sources..."
             }
-            aria-label="Cari feed"
+            aria-label="Search feed"
             className="w-full rounded-xl border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs font-semibold outline-none transition focus:border-[#0060A9] focus:bg-white"
           />
         </div>
@@ -286,17 +286,17 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
       {/* Content Area */}
       <div ref={feedRef} className="flex flex-1 flex-col overflow-hidden bg-slate-100/50 p-2">
         {viewMode === "all" ? (
-          /* 2-SECTION DUAL BLOCK CARD (ATAS: WEB, BAWAH: SOSMED) */
+          /* 2-SECTION DUAL BLOCK CARD (TOP: WEB, BOTTOM: SOCIAL MEDIA) */
           <div className="flex h-full flex-col gap-2 overflow-hidden">
-            {/* Block Card 1: Web & Berita Online */}
+            {/* Block Card 1: Web & Online News */}
             <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-blue-200/80 bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50/70 px-3 py-1.5">
                 <span className="flex items-center gap-1.5 text-[10.5px] font-black tracking-wide text-blue-900">
                   <Globe className="h-3.5 w-3.5 text-blue-600" />
-                  WEB CRAWLING & BERITA
+                  WEB CRAWLING & ONLINE NEWS
                 </span>
                 <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[9px] font-black text-blue-700">
-                  {webItems.length} Data
+                  {webItems.length} Reports
                 </span>
               </div>
               <div className="flex-1 space-y-2 overflow-y-auto p-2">
@@ -310,15 +310,15 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
               </div>
             </div>
 
-            {/* Block Card 2: Media Sosial */}
+            {/* Block Card 2: Social Media */}
             <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-purple-200/80 bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-purple-100 bg-purple-50/70 px-3 py-1.5">
                 <span className="flex items-center gap-1.5 text-[10.5px] font-black tracking-wide text-purple-900">
                   <Share2 className="h-3.5 w-3.5 text-purple-600" />
-                  MEDIA SOSIAL (X, IG, REDDIT)
+                  SOCIAL MEDIA (X, IG, REDDIT)
                 </span>
                 <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[9px] font-black text-purple-700">
-                  {socialItems.length} Data
+                  {socialItems.length} Posts
                 </span>
               </div>
               <div className="flex-1 space-y-2 overflow-y-auto p-2">
@@ -338,10 +338,10 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
             <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50/70 px-3 py-2">
               <span className="flex items-center gap-1.5 text-xs font-black text-blue-900">
                 <Globe className="h-4 w-4 text-blue-600" />
-                WEB CRAWLING & PORTAL BERITA
+                WEB CRAWLING & ONLINE NEWS
               </span>
               <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[9.5px] font-black text-blue-700">
-                {webItems.length} Berita
+                {webItems.length} Reports
               </span>
             </div>
             <div className="flex-1 space-y-2 overflow-y-auto p-2">
@@ -360,10 +360,10 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
             <div className="flex items-center justify-between border-b border-purple-100 bg-purple-50/70 px-3 py-2">
               <span className="flex items-center gap-1.5 text-xs font-black text-purple-900">
                 <Share2 className="h-4 w-4 text-purple-600" />
-                MEDIA SOSIAL (X, INSTAGRAM, REDDIT, MASTODON)
+                SOCIAL MEDIA (X, INSTAGRAM, REDDIT, MASTODON)
               </span>
               <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[9.5px] font-black text-purple-700">
-                {socialItems.length} Postingan
+                {socialItems.length} Posts
               </span>
             </div>
             <div className="flex-1 space-y-2 overflow-y-auto p-2">
@@ -382,7 +382,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
       {/* Footer */}
       <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/80 p-2 text-[9px] font-bold text-slate-500">
         <span className="flex items-center gap-2">
-          <span>{allItems.length} sinyal termonitor</span>
+          <span>{allItems.length} signals monitored</span>
         </span>
         <span className="flex items-center gap-1 text-[#0060A9]">
           <Radio className="h-3 w-3" />
@@ -437,7 +437,7 @@ function CrawlingFeedCard({
               }`}
             >
               {isSocial ? <Share2 className="h-2.5 w-2.5" /> : <Globe className="h-2.5 w-2.5" />}
-              <span>{item.platform || (isSocial ? "Sosmed" : "Web")}</span>
+              <span>{item.platform || (isSocial ? "Social" : "Web")}</span>
             </span>
           </div>
 
@@ -454,13 +454,13 @@ function CrawlingFeedCard({
         {item.disease && <span className="truncate font-bold text-slate-700">{translateDisease(item.disease)}</span>}
         {item.location && (
           <>
-            <span className="text-slate-300">•</span>
+            <span className="text-slate-300">â€¢</span>
             <span className="truncate">{item.location}</span>
           </>
         )}
         {item.source && (
           <>
-            <span className="text-slate-300">•</span>
+            <span className="text-slate-300">â€¢</span>
             <span className="truncate text-[#0060A9]">{item.source}</span>
           </>
         )}
@@ -469,7 +469,7 @@ function CrawlingFeedCard({
       {item.sourceUrl && (
         <div className="mt-1.5 flex items-center gap-1 text-[8.5px] font-bold text-slate-400">
           <ExternalLink className="h-2.5 w-2.5" />
-          <span>{t("tv.crawledSource") || "Buka sumber asli"}</span>
+          <span>{t("tv.crawledSource") || "Open original source"}</span>
         </div>
       )}
     </article>
@@ -492,7 +492,7 @@ function EmptyChannelFeed({ channel, t }: { channel: "web" | "social"; t: Transl
         {isSocial ? <Share2 className="h-4 w-4" /> : <Globe className="h-4 w-4" />}
       </div>
       <p className="mt-2 text-[10px] font-bold text-slate-600">
-        {isSocial ? "Belum ada sinyal sosial media baru" : "Belum ada berita web baru"}
+        {isSocial ? "No recent social media signals detected" : "No recent web news detected"}
       </p>
     </div>
   );
