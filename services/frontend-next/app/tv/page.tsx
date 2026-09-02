@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -12,6 +12,7 @@ import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import CrawlingFeedPanel from '@/components/CrawlingFeedPanel'
+import CountryFlag from '@/components/CountryFlag'
 
 const AseanMap = dynamic(() => import('@/components/AseanMap'), { ssr: false })
 type BaseMap = 'osm'|'terrain'|'satellite'|'light'|'dark'
@@ -199,17 +200,12 @@ export default function TvPage() {
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-3">
-                <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-[#0060A9]">
-                  <Sparkles className="h-3.5 w-3.5"/>{t('tv.localAiSummary')}
-                </p>
-                <p className="mt-2 text-xs font-medium leading-5 text-slate-700">{data?.ai_summary.text}</p>
-              </div>
+              
               <div>
                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">{t('tv.regionDistribution')}</p>
                 {(data?.by_country??[]).slice(0,8).map(c=>(
                   <div key={c.name} className="mt-2 flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
-                    <span className="flex items-center gap-2 font-bold"><MapPin className="h-3 w-3 text-[#0060A9]"/>{c.name}</span>
+                    <span className="flex items-center gap-2 font-bold"><CountryFlag countryName={c.name} shape="circle" size="sm" /><span>{c.name}</span></span>
                     <b className="font-mono text-[#0060A9]">{c.cases.toLocaleString(numLocale)}</b>
                   </div>
                 ))}
