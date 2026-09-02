@@ -12,6 +12,7 @@ import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import CrawlingFeedPanel from '@/components/CrawlingFeedPanel'
+import AnalyticsSituationPanel from '@/components/AnalyticsSituationPanel'
 import CountryFlag from '@/components/CountryFlag'
 
 const AseanMap = dynamic(() => import('@/components/AseanMap'), { ssr: false })
@@ -174,46 +175,18 @@ export default function TvPage() {
         />
       </div>
 
-      <div className={`pointer-events-none fixed bottom-12 right-3 z-30 transition-all ${rightHidden?'w-11':'w-80 2xl:w-96'} ${kpiHidden?'top-[74px]':'top-[198px]'}`}>
-        <div className="pointer-events-auto flex h-full flex-col overflow-hidden rounded-2xl border border-[#cfe0f1] bg-white/95 shadow-[0_8px_24px_rgba(0,96,169,.1)] backdrop-blur-xl">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 p-2.5">
-            <button onClick={()=>setRightHidden(v=>!v)} className="grid h-7 w-7 place-items-center rounded-lg border border-slate-200 bg-white">
-              {rightHidden?<ChevronLeft className="h-3.5 w-3.5 text-[#0060A9]"/>:<ChevronRight className="h-3.5 w-3.5 text-[#0060A9]"/>}
-            </button>
-            <div className={rightHidden?'hidden':'flex items-center gap-2'}>
-              <Sparkles className="h-4 w-4 text-[#0060A9]"/>
-              <h3 className="text-xs font-black uppercase tracking-wider text-[#0060A9]">{t('tv.situationAnalytics')}</h3>
-            </div>
-          </div>
-          {!rightHidden && (
-            <div className="flex-1 space-y-3 overflow-y-auto p-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">{t('tv.casesPerDisease')}</p>
-                <div className="mt-2 h-48">
-                  <ResponsiveContainer>
-                    <BarChart data={(data?.by_disease??[]).slice(0,7).map(d=>({...d, name: translateDisease(d.name)}))} layout="vertical">
-                      <XAxis type="number" tick={{fontSize:9}}/>
-                      <YAxis type="category" dataKey="name" width={85} tick={{fontSize:9}}/>
-                      <Tooltip/>
-                      <Bar dataKey="cases" fill="#0060A9" radius={[0,4,4,0]}/>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-              
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">{t('tv.regionDistribution')}</p>
-                {(data?.by_country??[]).slice(0,8).map(c=>(
-                  <div key={c.name} className="mt-2 flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
-                    <span className="flex items-center gap-2 font-bold"><CountryFlag countryName={c.name} shape="circle" size="sm" /><span>{c.name}</span></span>
-                    <b className="font-mono text-[#0060A9]">{c.cases.toLocaleString(numLocale)}</b>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+                  <div className={`pointer-events-none fixed bottom-12 right-3 z-30 transition-all ${rightHidden?'w-11':'w-80 2xl:w-96'} ${kpiHidden?'top-[74px]':'top-[198px]'}`}>
+        <AnalyticsSituationPanel
+          collapsed={rightHidden}
+          onToggle={() => setRightHidden(v => !v)}
+          byDisease={data?.by_disease}
+          byCountry={data?.by_country}
+          translateDisease={translateDisease}
+          numLocale={numLocale}
+        />
       </div>
+
+
 
       {drawer && (
         <div className="fixed inset-y-0 right-0 z-50 flex w-80 flex-col border-l border-slate-200 bg-white/95 shadow-2xl backdrop-blur-xl">
