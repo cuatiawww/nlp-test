@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from . import db
 from .collectors.rss_news import RSSNewsCollector
@@ -64,20 +65,23 @@ async def run_source_async(source_id: str):
 
 def register_scheduled_jobs(scheduler: AsyncIOScheduler):
     sources = db.fetch_sources()
-    for source in sources:
+    for idx, source in enumerate(sources):
         schedule = source.get("schedule")
         if not schedule:
             continue
         source_id = str(source["id"])
+        # Stagger initial run so sources start collecting immediately on startup
+        start_time = datetime.now(timezone.utc) + timedelta(seconds=idx * 2)
         scheduler.add_job(
             run_source_async,
             "interval",
             minutes=_parse_interval(schedule),
+            next_run_time=start_time,
             id=f"source_{source_id}",
             args=[source_id],
             replace_existing=True,
         )
-        logger.info("Scheduled %s: every %s", source["name"], schedule)
+        logger.info("Scheduled %s: every %s (first run in %ds)", source["name"], schedule, idx * 2)
 
 
 def _parse_interval(schedule: str) -> int:

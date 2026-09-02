@@ -52,14 +52,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY) as Locale | null;
-      if (saved === "id" || saved === "en") {
-        setLocaleState(saved);
-        document.documentElement.lang = saved;
-      } else {
-        setLocaleState("en");
-        document.documentElement.lang = "en";
-      }
+      setLocaleState("en");
+      localStorage.setItem(STORAGE_KEY, "en");
+      document.documentElement.lang = "en";
     } catch {
       // ignore localStorage errors in private modes
     }

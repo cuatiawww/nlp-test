@@ -1,5 +1,7 @@
 import type { DiseaseEvent } from "@/types";
 
+export type FeedChannel = "web" | "social";
+
 export type CrawlingFeedItem = {
   id: string;
   countryCode: string;
@@ -11,6 +13,8 @@ export type CrawlingFeedItem = {
   source?: string | null;
   sourceUrl?: string | null;
   detectedAt: string;
+  channel: FeedChannel;
+  platform: string;
 };
 
 type CountryMeta = {
@@ -74,6 +78,69 @@ export function sourceDomain(url?: string | null, sourceName?: string | null): s
   return sourceName?.trim() || null;
 }
 
+export function detectChannelAndPlatform(event: DiseaseEvent): { channel: FeedChannel; platform: string } {
+  const sourceType = (event.source_type || "").toLowerCase();
+  const sourceName = (event.source_name || "").toLowerCase();
+  const url = (event.url || "").toLowerCase();
+  const domain = sourceDomain(event.url, event.source_name)?.toLowerCase() || "";
+
+  if (
+    sourceType === "social_media" ||
+    url.includes("twitter.com") ||
+    url.includes("x.com") ||
+    url.includes("t.co") ||
+    domain.includes("twitter") ||
+    domain.includes("x.com") ||
+    sourceName.includes("twitter") ||
+    sourceName.includes("x.com")
+  ) {
+    return { channel: "social", platform: "X (Twitter)" };
+  }
+
+  if (url.includes("instagram.com") || domain.includes("instagram") || sourceName.includes("instagram")) {
+    return { channel: "social", platform: "Instagram" };
+  }
+
+  if (url.includes("reddit.com") || domain.includes("reddit") || sourceName.includes("reddit")) {
+    return { channel: "social", platform: "Reddit" };
+  }
+
+  if (
+    url.includes("mastodon") ||
+    domain.includes("mastodon") ||
+    sourceName.includes("mastodon") ||
+    url.includes("mstdn") ||
+    url.includes("fosstodon")
+  ) {
+    return { channel: "social", platform: "Mastodon" };
+  }
+
+  if (url.includes("facebook.com") || url.includes("fb.com") || domain.includes("facebook") || sourceName.includes("facebook")) {
+    return { channel: "social", platform: "Facebook" };
+  }
+
+  if (url.includes("t.me") || url.includes("telegram") || domain.includes("telegram") || sourceName.includes("telegram")) {
+    return { channel: "social", platform: "Telegram" };
+  }
+
+  if (url.includes("tiktok.com") || domain.includes("tiktok") || sourceName.includes("tiktok")) {
+    return { channel: "social", platform: "TikTok" };
+  }
+
+  if (url.includes("youtube.com") || url.includes("youtu.be") || domain.includes("youtube") || sourceName.includes("youtube")) {
+    return { channel: "social", platform: "YouTube" };
+  }
+
+  if (sourceType === "social_media" || sourceType === "api") {
+    return { channel: "social", platform: event.source_name || "Social Media" };
+  }
+
+  return {
+    channel: "web",
+    platform: domain || event.source_name || "Web Portal",
+  };
+}
+
 function cleanTitle(title?: string | null): string {
   const value = title?.replace(/\s+/g, " ").trim();
   return value || "Disease information signal detected";
@@ -81,6 +148,7 @@ function cleanTitle(title?: string | null): string {
 
 export function toCrawlingFeedItem(event: DiseaseEvent): CrawlingFeedItem {
   const country = countryForEvent(event);
+  const { channel, platform } = detectChannelAndPlatform(event);
   return {
     id: event.id,
     countryCode: country.code,
@@ -92,13 +160,23 @@ export function toCrawlingFeedItem(event: DiseaseEvent): CrawlingFeedItem {
     source: sourceDomain(event.url, event.source_name),
     sourceUrl: event.url,
     detectedAt: event.created_at ?? event.published_at ?? new Date().toISOString(),
+    channel,
+    platform,
   };
 }
 
+/** Backend timestamps are serialized by PostgreSQL without an offset but represent UTC. */
+export function timestampMs(value: string): number {
+  const normalized = value.trim().replace(" ", "T");
+  if (!normalized) return Number.NaN;
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  return Date.parse(hasTimezone ? normalized : normalized + "Z");
+}
+
 export function relativeTime(value: string, now = Date.now()): string {
-  const timestamp = new Date(value).getTime();
+  const timestamp = timestampMs(value);
+  if (!Number.isFinite(timestamp)) return "0s ago";
   const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
-  if (seconds < 5) return "Just now";
   if (seconds < 60) return seconds + "s ago";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return minutes + "m ago";
@@ -106,4 +184,3 @@ export function relativeTime(value: string, now = Date.now()): string {
   if (hours < 24) return hours + "h ago";
   return Math.floor(hours / 24) + "d ago";
 }
-

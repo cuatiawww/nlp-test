@@ -115,16 +115,7 @@ export default function TvPage() {
           </div>
         </div>
 
-        <div className="pointer-events-auto hidden items-center gap-3 rounded-2xl border border-[#cfe0f1] bg-white/95 px-4 py-1.5 shadow-[0_8px_24px_rgba(0,96,169,.09)] backdrop-blur-xl md:flex">
-          <div className="text-center">
-            <div className="flex gap-2 font-mono text-sm font-black text-[#0060A9]">
-              <span>{clock.wib}</span><b className="text-slate-300">•</b>
-              <span>{clock.wita}</span><b className="text-slate-300">•</b>
-              <span>{clock.wit}</span>
-            </div>
-            <span className="text-[10px] font-semibold text-slate-600">{clock.date}</span>
-          </div>
-        </div>
+
 
         <div className="pointer-events-auto flex items-center gap-2">
           <LanguageSwitcher compact />
@@ -173,7 +164,7 @@ export default function TvPage() {
         </div>
       </div>
 
-      <div className={`pointer-events-none fixed bottom-12 left-3 z-30 transition-all ${leftHidden?'w-11':'w-80 2xl:w-96'} ${kpiHidden?'top-[74px]':'top-[198px]'}`}>
+      <div className={`pointer-events-none fixed bottom-12 left-3 z-30 transition-all ${leftHidden?'w-12':'w-[360px] 2xl:w-[420px]'} ${kpiHidden?'top-[74px]':'top-[198px]'}`}>
         <CrawlingFeedPanel
           collapsed={leftHidden}
           onToggle={() => setLeftHidden((value) => !value)}

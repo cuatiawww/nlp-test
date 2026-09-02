@@ -1,6 +1,7 @@
-import os
+﻿import os
 import re
 import unicodedata
+from typing import Any
 
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
@@ -15,6 +16,17 @@ DEEPSEEK_TIMEOUT_SECONDS = int(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "20"))
 DEEPSEEK_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_MIN_CONFIDENCE", "0.85"))
 DEEPSEEK_TRIGGER_CONFIDENCE = float(os.getenv("DEEPSEEK_TRIGGER_CONFIDENCE", "0.75"))
 DEEPSEEK_LOCATION_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_LOCATION_MIN_CONFIDENCE", "0.80"))
+
+# WHO ICD-11 MMS Configuration
+WHO_ICD_CLIENT_ID = os.getenv("WHO_ICD_CLIENT_ID", "").strip()
+WHO_ICD_CLIENT_SECRET = os.getenv("WHO_ICD_CLIENT_SECRET", "").strip()
+WHO_ICD_TOKEN_URL = os.getenv("WHO_ICD_TOKEN_URL", "https://icdaccessmanagement.who.int/connect/token")
+WHO_ICD_API_URL = os.getenv("WHO_ICD_API_URL", "https://id.who.int").rstrip("/")
+WHO_ICD_RELEASE = os.getenv("WHO_ICD_RELEASE", "11/2026-01/mms").strip("/")
+WHO_ICD_LANGUAGE = os.getenv("WHO_ICD_LANGUAGE", "en")
+WHO_ICD_API_VERSION = os.getenv("WHO_ICD_API_VERSION", "v2")
+WHO_DISCOVERY_ENABLED = os.getenv("WHO_DISCOVERY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+WHO_DISCOVERY_MIN_CONFIDENCE = float(os.getenv("WHO_DISCOVERY_MIN_CONFIDENCE", "0.70"))
 
 MODEL_MAP = {
     "xlm-roberta": "xlm-roberta-base",
@@ -57,9 +69,6 @@ SOURCE_CREDIBILITY_MAP = {
 }
 
 LOW_CONFIDENCE_THRESHOLD = float(os.getenv("LOW_CONFIDENCE_THRESHOLD", "0.5"))
-# Explicit outbreak/cluster reports for a WHO-known disease without a
-# disease-specific DB rule use the normal 25-case floor. The incident wording
-# is still mandatory, so statistics and policy articles cannot trigger it.
 EXPLICIT_KNOWN_DISEASE_MIN_CASES = int(os.getenv("EXPLICIT_KNOWN_DISEASE_MIN_CASES", "25"))
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
@@ -78,13 +87,15 @@ LOCATION_STOPWORDS = {
     "senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu",
     "kasus", "pasien", "rumah", "sakit", "anak", "umum", "sehat",
     "pagi", "siang", "sore", "malam", "hari", "bulan", "tahun",
-    "sarang", "jentik", "nyamuk", "fogging", "psn", "plus", "3m",
-    "cegah", "gejala", "waspada", "pemberantasan", "vaksin", "penularan",
+    "pos", "posko", "kantor", "dinas", "kementerian", "badan",
+    "pusat", "daerah", "wilayah", "provinsi", "kabupaten", "kota",
+    "kecamatan", "kelurahan", "desa", "dusun", "kampung", "rt", "rw",
+    "jalan", "gang", "blok", "nomor", "no", "lantai", "gedung",
 }
 LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
-WHO_DISEASE_CONCEPTS: list[dict] = []
+WHO_DISEASE_CONCEPTS: list[dict[str, Any]] = []
 
 ASEAN_COUNTRIES = frozenset({
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar",
@@ -129,7 +140,7 @@ def load_who_disease_concepts_from_db():
         from psycopg.rows import dict_row
         conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
         rows = conn.execute(
-            """SELECT canonical_name, english_name, ontology_code
+            """SELECT canonical_name, english_name, ontology_code, ontology_uri
                FROM disease_concepts
                WHERE is_active = TRUE AND ontology_system = 'WHO ICD-11 MMS'
                ORDER BY canonical_name"""
@@ -187,6 +198,7 @@ def build_location_patterns():
     else:
         LOCATION_PATTERNS = []
 
+
 def load_locations_from_db():
     global LOCATION_COORDS, LOCATION_COUNTRIES, LOCATION_PATTERNS
     try:
@@ -203,8 +215,6 @@ def load_locations_from_db():
         ]
         LOCATION_COORDS = {r["name"]: (r["latitude"], r["longitude"]) for r in usable_rows}
         LOCATION_COUNTRIES = {r["name"]: r["country"] for r in usable_rows if r.get("country")}
-        # Build one alternation regex once instead of compiling 15k regexes
-        # for every article. Longer names win over nested short names.
         alternatives = sorted(
             (
                 "".join(
@@ -218,10 +228,6 @@ def load_locations_from_db():
         )
         if alternatives:
             combined = re.compile(
-                # `\w` treats Khmer combining marks as non-word characters,
-                # which breaks names embedded in phrases such as
-                # `ខេត្តមណ្ឌលគិរី`. Keep boundaries for Latin words while
-                # allowing scripts whose words are not whitespace-delimited.
                 rf"(?<![A-Za-z])(?:{'|'.join(re.escape(name) for name in alternatives)})(?![A-Za-z])",
                 re.IGNORECASE,
             )
@@ -339,3 +345,119 @@ def load_language_models_from_db():
         logging.getLogger(__name__).warning(
             "Failed to load language models from DB: %s", e
         )
+
+
+def upsert_discovered_disease_concept(
+    canonical_name: str,
+    english_name: str,
+    ontology_code: str,
+    ontology_uri: str,
+    ontology_release: str = WHO_ICD_RELEASE,
+    aliases: list[dict[str, Any]] | None = None,
+) -> bool:
+    """Atomic upsert of a validated WHO ICD-11 disease concept, aliases, keywords, and labels."""
+    if not canonical_name or not ontology_code:
+        return False
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        def _norm(s: str) -> str:
+            return re.sub(r"\s+", " ", re.sub(r"[^\w\s-]", " ", (s or "").lower())).strip()
+
+        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+            with conn.transaction():
+                # 1. Upsert into disease_concepts
+                row = conn.execute(
+                    """
+                    INSERT INTO disease_concepts
+                      (canonical_name, english_name, ontology_system, ontology_code,
+                       ontology_uri, ontology_release, source, confidence, is_active, updated_at)
+                    VALUES (%s, %s, 'WHO ICD-11 MMS', %s, %s, %s, 'who_icd11_discovery', 1.0, TRUE, NOW())
+                    ON CONFLICT (canonical_name) DO UPDATE SET
+                      english_name = EXCLUDED.english_name,
+                      ontology_system = 'WHO ICD-11 MMS',
+                      ontology_code = EXCLUDED.ontology_code,
+                      ontology_uri = EXCLUDED.ontology_uri,
+                      ontology_release = EXCLUDED.ontology_release,
+                      is_active = TRUE,
+                      updated_at = NOW()
+                    RETURNING id
+                    """,
+                    (canonical_name, english_name or canonical_name, ontology_code, ontology_uri, ontology_release),
+                ).fetchone()
+                concept_id = row["id"]
+
+                # 2. Add aliases
+                all_aliases = list(aliases or [])
+                all_aliases.append({"surface_form": canonical_name, "language": "en", "confidence": 1.0})
+                if english_name and english_name != canonical_name:
+                    all_aliases.append({"surface_form": english_name, "language": "en", "confidence": 1.0})
+
+                for item in all_aliases:
+                    surface = str(item.get("surface_form") or "").strip()
+                    if not surface:
+                        continue
+                    lang = str(item.get("language") or "unknown")
+                    conf = float(item.get("confidence") or 1.0)
+                    norm_alias = _norm(surface)
+                    conn.execute(
+                        """
+                        INSERT INTO disease_aliases
+                          (concept_id, alias, normalized_alias, language, source, confidence, is_active, updated_at)
+                        VALUES (%s, %s, %s, %s, 'who_icd11_discovery', %s, TRUE, NOW())
+                        ON CONFLICT (concept_id, normalized_alias, language) DO UPDATE SET
+                          confidence = GREATEST(disease_aliases.confidence, EXCLUDED.confidence),
+                          is_active = TRUE,
+                          updated_at = NOW()
+                        """,
+                        (concept_id, surface, norm_alias, lang, conf),
+                    )
+                    # 3. Add to nlp_keywords
+                    conn.execute(
+                        """
+                        INSERT INTO nlp_keywords (category, keyword, target_label, priority, is_active, updated_at)
+                        VALUES ('disease', %s, %s, 350, TRUE, NOW())
+                        ON CONFLICT (category, keyword) DO UPDATE SET
+                          target_label = EXCLUDED.target_label,
+                          is_active = TRUE,
+                          priority = LEAST(nlp_keywords.priority, EXCLUDED.priority),
+                          updated_at = NOW()
+                        """,
+                        (norm_alias, canonical_name),
+                    )
+
+                # 4. Add to nlp_labels
+                conn.execute(
+                    """
+                    INSERT INTO nlp_labels (category, label, priority, is_active, updated_at)
+                    VALUES ('disease', %s, 50, TRUE, NOW())
+                    ON CONFLICT (category, label) DO UPDATE SET is_active = TRUE, updated_at = NOW()
+                    """,
+                    (canonical_name,),
+                )
+
+                # 5. Add default outbreak rule if missing
+                conn.execute(
+                    """
+                    INSERT INTO disease_outbreak_rules (disease_name, display_label, min_case_count, priority, is_active, updated_at)
+                    VALUES (%s, %s, %s, 50, TRUE, NOW())
+                    ON CONFLICT (disease_name) DO NOTHING
+                    """,
+                    (canonical_name.upper(), canonical_name, EXPLICIT_KNOWN_DISEASE_MIN_CASES),
+                )
+
+        # 6. Hot reload in-memory cache
+        load_keywords_from_db()
+        load_who_disease_concepts_from_db()
+        load_outbreak_rules_from_db()
+        try:
+            from .models.classifier import refresh_labels_from_db
+            refresh_labels_from_db()
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to upsert discovered WHO disease concept '%s': %s", canonical_name, e)
+        return False

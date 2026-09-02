@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from typing import Optional
 
 from . import config, extractors
@@ -64,15 +64,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # coordinates for a national report.
         location = location_country
     lat, lon = config.LOCATION_COORDS.get(location, (None, None))
-    # A source URL/country hint is stronger than a legacy gazetteer row. This
-    # prevents the old generic location name "Sudan" (once seeded with an
-    # Indonesian country value) from overriding an explicit Sudan context.
     raw_country = location_country or (config.LOCATION_COUNTRIES.get(location) if location else None) or None
     country = extractors.country_scope(raw_country)
     symptoms = extractors.extract_terms(analysis_text, config.SYMPTOM_DICT)
-    # Prefer explicit diseases in the title/opening section. Mentions deeper in
-    # an article are often comparisons or differential diagnoses (the Thai
-    # Mpox fact sheet also mentions influenza and malaria).
+    
+    # Prefer explicit diseases in the title/opening section.
     primary_aliases = sorted(set(
         extractors.extract_alias_diseases(text[:1200])
         + extractors.extract_alias_diseases(analysis_text[:1200])
@@ -89,9 +85,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         who_mentions
         + extractors.canonicalize_who_disease_labels(keyword_diseases, config.WHO_DISEASE_CONCEPTS)
     ))
-    # Keep all explicit WHO-backed mentions even when a short alias appears
-    # early in the article (a situation common in humanitarian situation
-    # reports listing several concurrent outbreaks).
+    
     def _rank_diseases(candidates: list[str], sample: str) -> list[str]:
         unique = list(dict.fromkeys([c for c in candidates if c]))
         l_sample = sample.lower()
@@ -170,9 +164,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if extracted:
                 disease = extracted[0]
 
-    # Optional accuracy fallback: DeepSeek may translate an unseen disease name,
-    # but it can only select a concept already resolved to WHO ICD-11 in the DB.
-    # Any API failure leaves the deterministic/model result unchanged.
     is_noisy = extractors.is_content_too_short_or_noisy(text, has_health_indicators=has_keywords)
     if is_noisy and not extracted:
         is_health_related = False
@@ -196,17 +187,23 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 extracted = list(dict.fromkeys([*extracted, disease]))
                 has_keywords = True
                 is_health_related = True
+            elif disease == "UNKNOWN" or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE:
+                # Dynamic WHO ICD-11 Discovery & Self-Learning
+                from .icd11 import resolve_and_learn_disease
+                dynamic_resolved = resolve_and_learn_disease(analysis_text or text, language=language)
+                if dynamic_resolved:
+                    disease = dynamic_resolved["canonical_name"]
+                    confidence = dynamic_resolved["confidence"]
+                    extracted = [disease, *[x for x in extracted if x != disease]]
+                    has_keywords = True
+                    is_health_related = True
         except Exception as e:
-            logger.info("DeepSeek fallback unavailable; continuing without it: %s", e)
+            logger.info("DeepSeek / WHO ICD-11 discovery fallback unavailable: %s", e)
 
-    # An explicit disease entity found in locally translated text is stronger
-    # than a contradictory generic zero-shot label (observed as Thai COVID-19
-    # being classified as hantavirus). This path does not require an API call.
     if translated_text and extracted:
         disease = extracted[0]
         confidence = max(confidence, 0.85)
     if who_mentions:
-        # An explicit WHO-backed term wins over a generic classifier guess
         opening_text = text[:1500] + " " + analysis_text[:1500]
         opening_who = [w for w in who_mentions if w.lower().split()[0] in opening_text.lower()]
         disease = opening_who[0] if opening_who else who_mentions[0]
@@ -238,19 +235,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         for marker in reference_markers
     ) >= 2
     if is_reference_content:
-        # Educational/fact-sheet pages contain historical and comparison
-        # figures. They are health information, not a local incident report.
         if case_count == 1:
             case_count = 0
         event_type = "health update"
         event_confidence = max(event_confidence, 0.85)
     if case_count == 1 and disease == "UNKNOWN" and not extracted:
-        # DEFAULT_CASE_COUNT=1 is useful for disease reports with no explicit
-        # number, but must not fabricate a case in a general health article.
         case_count = 0
     if death_count > 0 and not explicit_case_count and case_count == 1:
-        # A death-only report (for example "23 deaths") must not inherit the
-        # schema's synthetic DEFAULT_CASE_COUNT=1.
         case_count = 0
     if structured.get("is_health_related") is True:
         is_health_related = True
@@ -269,12 +260,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         and extractors.is_policy_or_statistical_health_content(analysis_text)
         and case_count == 1
     ):
-        # DEFAULT_CASE_COUNT=1 is a fallback for an incident with no number;
-        # policy/education pages must not inherit that synthetic case.
         case_count = 0
     outbreak_signal = max(case_count, death_count)
     outbreak_alert = explicit_outbreak and outbreak_signal >= config.OUTBREAK_RULES.get("UNKNOWN", 25)
-    # B4: disease-outbreak matching — token-based (bukan partial substring)
     disease_tokens = set(disease.upper().split())
     if "CAMPAK" in disease_tokens or "MEASLES" in disease_tokens:
         disease_tokens.update({"CAMPAK", "MEASLES"})
@@ -322,8 +310,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             outbreak_alert = False
             event_type = "unknown"
             event_confidence = 0.0
-        # Keep confirmed deaths for audit, but remove the synthetic default
-        # case count when no actual case number was found.
         if case_count == 1:
             case_count = 0
     needs_review = confidence < config.LOW_CONFIDENCE_THRESHOLD
@@ -349,29 +335,26 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         normalized_text=extractors.normalize_text(text),
         published_at=published_at,
         location_name=location,
+        locations=all_locations,
+        original_location=original_location,
+        country=country,
         latitude=lat,
         longitude=lon,
-        country=country,
-        translated=translation["translated"],
-        translation_provider=translation["provider"],
-        translated_text=translated_text,
-        original_location_name=original_location,
         symptoms=symptoms,
         disease_extracted=extracted,
         disease_classification=disease,
         case_count=case_count,
         death_count=death_count,
-        confidence=round(confidence, 4),
+        confidence=confidence,
         outbreak_alert=outbreak_alert,
         sentiment=sentiment,
-        sentiment_score=round(sentiment_score, 4),
-        needs_review=needs_review,
+        sentiment_score=sentiment_score,
         event_type=event_type,
-        event_confidence=round(event_confidence, 4),
+        event_confidence=event_confidence,
         relevance_score=relevance,
-        relevance_confidence=round(relevance_confidence, 4),
-        source_credibility=round(cred_score, 2),
+        relevance_confidence=relevance_confidence,
+        source_credibility=cred_score,
         source_credibility_label=source_type,
         is_health_related=is_health_related,
-        locations=all_locations,
+        needs_review=needs_review,
     )

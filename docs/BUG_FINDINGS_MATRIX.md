@@ -1,4 +1,4 @@
-# Matriks Temuan Bug & Rencana Solusi (Disease Surveillance AI)
+﻿# Matriks Temuan Bug & Rencana Solusi (Disease Surveillance AI)
 
 Dokumen ini mencatat seluruh temuan bug, akar masalah teknis (*root cause*), dan rencana perbaikan pada stack sistem NLP Surveillance Penyakit.
 
@@ -8,6 +8,7 @@ Dokumen ini mencatat seluruh temuan bug, akar masalah teknis (*root cause*), dan
 
 | ID | Judul Temuan Singkat | Komponen Terdampak | Akar Masalah Utama | Rencana Solusi Singkat |
 |---|---|---|---|---|
+| **BUG-17** | **Auto-Discovery & Dynamic WHO ICD-11 Mapping for Unknown Diseases** | `services/nlp-python/app/icd11.py`, `pipeline.py`, `config.py` | Penyakit baru/regional tidak dikenali karena fallback LLM dibatasi list DB statis & WHO sync belum terintegrasi real-time. | Gabungkan unconstrained LLM extraction + WHO ICD-11 API search + atomic DB upsert (4 tabel) + in-memory deduplication & hot-reload. |
 | **BUG-01** | **Kebocoran Filter Negara pada Penentuan Lokasi NLP** | `services/nlp-python/app/extractors.py` | Token lokasi tetap dikembalikan saat filter negara aktif jika tidak ada di folded list. | Skip token jika negara ditentukan dan token tidak ada di kamus negara bersangkutan. |
 | **BUG-02** | **Tie-Breaker Posisi Karakter Terakhir Memenangkan Lokasi Acak** | `services/nlp-python/app/extractors.py` | `max()` memenangkan indeks posisi terbesar (paling belakang teks). | Berikan prioritas pada lokasi di awal teks/judul (`-item[1]`). |
 | **BUG-03** | **Entri Provinsi Filipina Belum Lengkap & Entri 3-Huruf Ambigu** | Database `locations` | "Davao de Oro" terpecah menjadi "Davao" dan "Oro" (desa di Jatim). | Tambahkan migrasi `029_philippines_locations_fix.sql`. |
@@ -29,7 +30,8 @@ Dokumen ini mencatat seluruh temuan bug, akar masalah teknis (*root cause*), dan
 ## 1. Matriks Temuan Bug Mendalam
 
 | ID | Komponen & File | Gejala / Dampak | Akar Masalah (Root Cause) | Tingkat Keparahan | Rencana Penyelesaian |
-|---|---|---|---|---|---|
+|---|---|---|---|---|
+| **BUG-17** | **Auto-Discovery & Dynamic WHO ICD-11 Mapping for Unknown Diseases** | `services/nlp-python/app/icd11.py`, `pipeline.py`, `config.py` | Penyakit baru/regional tidak dikenali karena fallback LLM dibatasi list DB statis & WHO sync belum terintegrasi real-time. | Gabungkan unconstrained LLM extraction + WHO ICD-11 API search + atomic DB upsert (4 tabel) + in-memory deduplication & hot-reload. |---|
 | **BUG-01** | **NLP Extractor**<br>`services/nlp-python/app/extractors.py` | URL berita Filipina (`dengue-in-the-philippines-2026`) salah terdeteksi sebagai **Indonesia**. | **Country Filter Leak**: Baris `loc = folded_names.get(match.group(0).lower(), match.group(0))` mengembalikan default string saat token tidak ada di `folded_names`. Kata `"Oro"` (desa di Jatim) tetap lolos meskipun negara artikel sudah diketahui adalah `Philippines`. | **Critical** (P0) | Ubah logic pencocokan agar jika `country` ditentukan dan token tidak ada di `folded_names`, proses langsung melakukan `continue` (skip). |
 | **BUG-02** | **NLP Tie-Breaker**<br>`services/nlp-python/app/extractors.py` | Lokasi pelengkap di kalimat terakhir selalu mengalahkan lokasi utama di judul / lead paragraph. | **Posisi Karakter Terakhir Menang**: `max(hits, key=lambda item: (counts[item[0]], item[1], len(item[0])))` memenangkan `item[1]` (indeks karakter) terbesar. Kata `"Oro"` berada di posisi 543 (paling belakang) sehingga mengalahkan Mandaluyong, Zamboanga, Cebu, dan Davao. | **High** (P1) | Perbaiki bobot penentuan lokasi: Berikan prioritas pada lokasi yang muncul di judul artikel / awal paragraf, atau gunakan indeks kemunculan pertama (`-item[1]`). |
 | **BUG-03** | **Database Gazetteer**<br>Tabel `locations` & SQL init | Frasa "Davao de Oro" terpecah menjadi "Davao" dan "Oro" (desa di Indonesia). | **Entri Provinsi Belum Lengkap**: Di database `locations`, entri "Davao de Oro" (provinsi berpenduduk >700 ribu di Filipina) belum ada. Hanya ada "Davao" dan entri ambigu "Oro" (Indonesia). | **Medium** (P2) | Buat migrasi SQL baru `029_philippines_locations_fix.sql` untuk menambahkan `Davao de Oro`, `Central Luzon`, `Calabarzon`, dll., serta me-nonaktifkan kata pendek 3-huruf yang ambigu tanpa awalan. |
@@ -76,3 +78,28 @@ Dokumen ini mencatat seluruh temuan bug, akar masalah teknis (*root cause*), dan
   2. Fixed typo in `pipeline.py` and added `is_outbreak_content` alias in `extractors.py`.
   3. Added `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` in `docker-compose.yml` to prevent startup timeout.
 - **Verification**: Batch re-analysis completed 10/10 with 0 failures and live per-item logging.
+
+### BUG-17: Auto-Discovery & Dynamic WHO ICD-11 MMS Mapping for Unknown Emerging Diseases
+- **Severity**: High (P1)
+- **Components**: `services/nlp-python` (`app/icd11.py`, `app/pipeline.py`, `app/config.py`, `app/main.py`, `app/test_icd11_discovery.py`)
+- **Symptom**: Berita tentang penyakit yang belum terdaftar di tabel database lokal (seperti *Cacar Monyet / Mpox*, *Flu Burung H5N1*, *Virus Nipah*, *Marburg*, *Demam Keong*) selalu jatuh ke klasifikasi `UNKNOWN`, meskipun kredensial WHO ICD-11 API dan OpenAI/DeepSeek sudah ada di `.env`.
+- **Root Cause**:
+  1. Fallback LLM sebelumnya (`deepseek.py`) dibatasi (*hard-constrained*) hanya boleh mencocokkan penyakit yang sudah terdaftar di `config.WHO_DISEASE_CONCEPTS`.
+  2. Layanan `nlp-python` belum memiliki client WHO ICD-11 MMS terintegrasi untuk verifikasi ontologi kode resmi secara real-time.
+  3. Belum ada modul auto-persist yang secara atomik memasukkan konsep baru ke tabel `disease_concepts`, `disease_aliases`, `nlp_keywords`, dan `nlp_labels`, serta me-reload in-memory cache seketika.
+- **Fix**:
+  1. **Modul ICD-11 Terintegrasi (`app/icd11.py`)**:
+     - Implementasi `who_token()` dengan OAuth2 client credentials dan token TTL cache.
+     - Implementasi `who_search()` ke endpoint `/icd/release/11/2026-01/mms/search` dengan flexisearch dan entity scoring.
+     - Implementasi `discover_disease_entity()` menggunakan LLM unconstrained prompt untuk mengekstrak nama penyakit raw, istilah medis resmi bahasa Inggris, dan sinonim ilmiah.
+  2. **Pipeline Integration & In-Flight Mutex (`resolve_and_learn_disease`)**:
+     - Menerapkan in-memory deduplication lock untuk mencegah *stampeding herd* / panggilan API ganda saat beberapa artikel mengenai penyakit baru yang sama diproses bersamaan.
+     - Menghubungkan trigger fallback di `pipeline.py` saat `disease == "UNKNOWN"` dan terindikasi berita kesehatan.
+  3. **Atomic Database Persisting & Hot Cache Reload (`config.py`)**:
+     - Fungsi `upsert_discovered_disease_concept()` yang menyimpan entitas secara atomik ke 4 tabel (`disease_concepts`, `disease_aliases`, `nlp_keywords`, `nlp_labels`) dan default `disease_outbreak_rules`.
+     - Hot-reload runtime cache (`load_keywords_from_db`, `load_who_disease_concepts_from_db`, `load_outbreak_rules_from_db`) sehingga request berikutnya langsung match dalam < 5ms via kamus lokal.
+  4. **Strict Medical Guardrail**:
+     - Hanya kandidat yang memiliki kode resmi terverifikasi dari WHO (`theCode`) yang dapat di-upsert ke database untuk mencegah halusinasi AI.
+- **Verification & TDD**:
+  - Dibuat test suite `app/test_icd11_discovery.py` dengan 6 unit & integration tests (token caching, search response parsing, code filter, LLM entity discovery, DB upsert, pipeline integration, dan negative guardrail non-health).
+  - Seluruh 6 test ICD-11 dan 20 test eksisting lulus 100% (**26 / 26 Ran OK**).

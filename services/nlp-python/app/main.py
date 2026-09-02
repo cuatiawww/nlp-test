@@ -1,8 +1,8 @@
-import logging
+﻿import logging
+from typing import Optional
 
 from fastapi import FastAPI, Body
 from pydantic import BaseModel
-from typing import Optional
 
 from .schemas import AnalyzeRequest, AnalyzeResponse
 from . import pipeline
@@ -10,7 +10,7 @@ from . import pipeline
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Disease NLP Service", version="0.2.0")
+app = FastAPI(title="Disease NLP Service", version="0.3.0")
 
 
 @app.on_event("startup")
@@ -29,8 +29,6 @@ def startup():
     load_language_markers_from_db()
     load_extraction_rules_from_db()
     load_language_models_from_db()
-    # Load the local translator before the health endpoint becomes available,
-    # so the first non-Latin request does not pay model initialization cost.
     try:
         from .translator import preload_local_model
         preload_local_model()
@@ -72,6 +70,21 @@ def health():
 @app.post("/nlp/analyze", response_model=AnalyzeResponse)
 def analyze(payload: AnalyzeRequest):
     return pipeline.run(payload)
+
+
+class ICD11ResolveRequest(BaseModel):
+    text: str
+    language: Optional[str] = "unknown"
+
+
+@app.post("/icd11/resolve")
+def resolve_icd11(payload: ICD11ResolveRequest):
+    """Resolve an unseen disease from news text against WHO ICD-11 and persist to DB."""
+    from .icd11 import resolve_and_learn_disease
+    resolved = resolve_and_learn_disease(payload.text, language=payload.language or "unknown")
+    if resolved:
+        return {"success": True, "data": resolved}
+    return {"success": False, "message": "No verified WHO ICD-11 concept resolved for the given text"}
 
 
 @app.post("/reload")

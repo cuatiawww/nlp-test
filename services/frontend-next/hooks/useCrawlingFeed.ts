@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchEvents } from "@/lib/api";
-import { toCrawlingFeedItem, type CrawlingFeedItem } from "@/lib/crawling-feed";
+import { timestampMs, toCrawlingFeedItem, type CrawlingFeedItem } from "@/lib/crawling-feed";
 
 const MAX_ITEMS = 100;
-const POLL_INTERVAL_MS = 5_000;
+// Keep the polling window short enough for a new crawler result to feel live
+// while avoiding a request on every render.
+const POLL_INTERVAL_MS = 3_000;
 
 export function useCrawlingFeed() {
   const [items, setItems] = useState<CrawlingFeedItem[]>([]);
@@ -18,9 +20,15 @@ export function useCrawlingFeed() {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const events = await fetchEvents({ per_page: MAX_ITEMS });
+      const events = await fetchEvents({ per_page: MAX_ITEMS, is_health_related: true });
       if (!mounted.current) return;
-      const nextItems = events.map(toCrawlingFeedItem);
+      const nextItems = events
+        .map(toCrawlingFeedItem)
+        .sort((a, b) => {
+          const nextTime = timestampMs(b.detectedAt);
+          const previousTime = timestampMs(a.detectedAt);
+          return (Number.isFinite(nextTime) ? nextTime : 0) - (Number.isFinite(previousTime) ? previousTime : 0);
+        });
       setItems((previous) => {
         const known = new Set(nextItems.map((item) => item.id));
         const merged = [...nextItems, ...previous.filter((item) => !known.has(item.id))].slice(0, MAX_ITEMS);
