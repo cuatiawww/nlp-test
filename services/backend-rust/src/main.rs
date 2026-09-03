@@ -27,6 +27,7 @@ struct AppState {
     nlp_service_url: String,
     collector_url: String,
     amqp_channel: lapin::Channel,
+    dashboard_api_token: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -417,6 +418,8 @@ async fn main() -> anyhow::Result<()> {
     let nlp_service_url = env::var("NLP_SERVICE_URL").unwrap_or_else(|_| "http://nlp-python:8000".to_string());
     let collector_url = env::var("COLLECTOR_URL").unwrap_or_else(|_| "http://collector-python:8002".to_string());
     let port = env::var("BACKEND_PORT").unwrap_or_else(|_| "8080".to_string());
+    let dashboard_api_token = env::var("API_TOKEN")
+        .expect("API_TOKEN must be configured");
 
     let pg_config: Config = database_url.parse()?;
     let mgr_config = ManagerConfig { recycling_method: RecyclingMethod::Fast };
@@ -444,6 +447,7 @@ async fn main() -> anyhow::Result<()> {
         nlp_service_url,
         collector_url,
         amqp_channel,
+        dashboard_api_token,
     });
 
     let app = Router::new()
@@ -454,6 +458,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/events/stats", get(dashboard_stats))
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/public-dashboard", get(public_dashboard))
+        .route("/api/v1/dashboard/summary", get(dashboard_summary))
         .route("/api/v1/sources", get(list_sources).post(create_source))
         .route("/api/v1/sources/collect-all", post(trigger_collect_all))
         .route(
@@ -1514,6 +1519,150 @@ async fn dashboard_stats(
             "by_relevance": by_relevance,
             "by_source": by_source,
         }
+    })))
+}
+
+fn require_dashboard_token(
+    state: &Arc<AppState>,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let supplied = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or("");
+
+    if supplied.is_empty() || supplied != state.dashboard_api_token {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "success": false,
+                "message": "Unauthorized",
+                "data": null
+            })),
+        ));
+    }
+
+    Ok(())
+}
+
+fn change_percentage(current: i64, previous: i64) -> f64 {
+    if previous == 0 {
+        if current == 0 { 0.0 } else { 100.0 }
+    } else {
+        (((current - previous) as f64 / previous as f64) * 100.0 * 10.0).round() / 10.0
+    }
+}
+
+fn compact_dashboard_item(value: &Value) -> Value {
+    let field = |name: &str| value.get(name).cloned().unwrap_or(Value::Null);
+    let event_id = value
+        .get("detail")
+        .and_then(|detail| detail.get("event_id"))
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    json!({
+        "event_id": event_id,
+        "location": field("location_name"),
+        "disease": field("disease"),
+        "country": field("country"),
+        "latitude": field("latitude"),
+        "longitude": field("longitude"),
+        "cases": field("cases"),
+        "deaths": field("deaths"),
+        "event_count": field("event_count"),
+        "confidence": field("confidence"),
+        "threshold": field("threshold"),
+        "severity": field("severity"),
+        "has_alert": field("has_alert"),
+        "latest_date": field("latest_date")
+    })
+}
+
+async fn dashboard_summary(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<PublicDashboardQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_dashboard_token(&state, &headers)?;
+
+    // Reuse the existing dashboard aggregation and EWS business rules.
+    let Json(snapshot) = public_dashboard(State(state), Query(query)).await?;
+    let source = snapshot.get("data").cloned().unwrap_or_else(|| json!({}));
+    let trends = source.get("trends").cloned().unwrap_or_else(|| json!({}));
+    let kpis = source.get("kpis").cloned().unwrap_or_else(|| json!({}));
+
+    let trend = |name: &str| {
+        let item = trends.get(name).cloned().unwrap_or_else(|| json!({}));
+        let current = item.get("current").and_then(Value::as_i64).unwrap_or(0);
+        let previous = item.get("previous").and_then(Value::as_i64).unwrap_or(0);
+        json!({
+            "current": current,
+            "previous": previous,
+            "percentage_change": change_percentage(current, previous)
+        })
+    };
+
+    let alerts = source
+        .get("alerts")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().map(compact_dashboard_item).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let locations = source
+        .get("locations")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().map(compact_dashboard_item).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let cases_by_disease = source
+        .get("by_disease")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter().map(|item| json!({
+                "disease": item.get("name").cloned().unwrap_or(Value::Null),
+                "cases": item.get("cases").cloned().unwrap_or(Value::Null),
+                "deaths": item.get("deaths").cloned().unwrap_or(Value::Null),
+                "events": item.get("events").cloned().unwrap_or(Value::Null)
+            })).collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let country_distribution = source
+        .get("by_country")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter().map(|item| json!({
+                "country": item.get("name").cloned().unwrap_or(Value::Null),
+                "cases": item.get("cases").cloned().unwrap_or(Value::Null)
+            })).collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let data = json!({
+        "updated_at": source.get("updated_at").cloned().unwrap_or(Value::Null),
+        "filters": {
+            "country": source.get("filters").and_then(|v| v.get("country")).cloned().unwrap_or(Value::Null),
+            "year": source.get("filters").and_then(|v| v.get("year")).cloned().unwrap_or(Value::Null),
+            "available_years": source.get("available_years").cloned().unwrap_or_else(|| json!([]))
+        },
+        "summary_cards": {
+            "detected_cases": trend("cases"),
+            "deaths": trend("deaths"),
+            "validated_events": trend("events"),
+            "locations": trend("locations"),
+            "active_alerts": trend("alerts")
+        },
+        "year_totals": kpis,
+        "early_warning_system": { "alerts": alerts },
+        "cases_by_disease": cases_by_disease,
+        "country_distribution": country_distribution,
+        "location_summary": locations,
+        "ai_summary": source.get("ai_summary").cloned().unwrap_or_else(|| json!({}))
+    });
+
+    Ok(Json(json!({
+        "success": true,
+        "message": "Success",
+        "data": data
     })))
 }
 
@@ -3389,5 +3538,3 @@ async fn list_audit_logs(
         total_pages: Some(total_pages),
     }))
 }
-
-

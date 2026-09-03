@@ -1,0 +1,111 @@
+{
+  "info": {
+    "name": "NLP Penyakit - Existing Dashboard API",
+    "description": "Collection khusus API Dashboard Summary terstruktur. Menggunakan static Bearer Token dari API_TOKEN.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{api_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8081",
+      "type": "string",
+      "description": "Backend Rust langsung. Untuk akses melalui Next.js existing gunakan https://abvc-surveillance.org/nlp"
+    },
+    {
+      "key": "year",
+      "value": "2026",
+      "type": "string",
+      "description": "Tahun yang tersedia pada response available_years"
+    },
+    {
+      "key": "api_token",
+      "value": "",
+      "type": "string",
+      "description": "Isi dengan nilai API_TOKEN dari file .env Backend Rust."
+    },
+    {
+      "key": "country",
+      "value": "Indonesia",
+      "type": "string",
+      "description": "Nama negara atau all untuk seluruh ASEAN"
+    }
+  ],
+  "item": [
+    {
+      "name": "Dashboard Home - All ASEAN",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/dashboard/summary?year={{year}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "dashboard",
+            "summary"
+          ],
+          "query": [
+            {
+              "key": "year",
+              "value": "{{year}}"
+            }
+          ]
+        },
+        "description": "Data utama Dashboard Home tanpa filter negara: KPI/tren, EWS alerts, lokasi peta, by_disease, by_country, dan ai_summary."
+      }
+    },
+    {
+      "name": "Dashboard Home - Filter Country",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/dashboard/summary?country={{country}}&year={{year}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "dashboard",
+            "summary"
+          ],
+          "query": [
+            {
+              "key": "country",
+              "value": "{{country}}"
+            },
+            {
+              "key": "year",
+              "value": "{{year}}"
+            }
+          ]
+        },
+        "description": "Data Dashboard Home mengikuti filter Country dan Year yang sama seperti Surveillance Filter existing."
+      }
+    }
+  ]
+}
