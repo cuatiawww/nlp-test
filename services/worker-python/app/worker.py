@@ -114,7 +114,8 @@ def callback(ch, method, properties, body):
     try:
         msg = json.loads(body)
         published_at = msg.get("published_at", "")
-        if not is_allowed_processing_year(published_at):
+        source_type = msg.get("source_type", "")
+        if source_type != "social_media" and not is_allowed_processing_year(published_at):
             logger.info(
                 "Skipping non-current/undated message: published_at=%s current_year=%s",
                 published_at or "<empty>", CURRENT_YEAR,
@@ -288,3 +289,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -65,3 +65,6 @@ database/dump*.sql
 
 *:Zone.Identifier
 *Zone.Identifier*
+
+*.tsbuildinfo
+.state_checkpoints.json

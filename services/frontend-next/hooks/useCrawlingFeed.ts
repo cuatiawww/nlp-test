@@ -20,7 +20,7 @@ export function useCrawlingFeed() {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const events = await fetchEvents({ per_page: MAX_ITEMS, is_health_related: true });
+      const events = await fetchEvents({ per_page: MAX_ITEMS });
       if (!mounted.current) return;
       const nextItems = events
         .map(toCrawlingFeedItem)

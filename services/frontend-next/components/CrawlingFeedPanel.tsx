@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -15,8 +15,8 @@ import {
 import { useCrawlingFeed } from "@/hooks/useCrawlingFeed";
 import { relativeTime, type CrawlingFeedItem, type FeedChannel } from "@/lib/crawling-feed";
 import CountryFlag from "@/components/CountryFlag";
+import SocialMediaIcon from "@/components/SocialMediaIcon";
 
-const MAX_VISIBLE_PER_COUNTRY = 2;
 const MAX_VISIBLE_ITEMS = 50;
 
 type Translation = (key: string, params?: Record<string, string | number>) => string;
@@ -70,15 +70,7 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
       );
     }
 
-    const countryCounts = new Map<string, number>();
-    return filtered
-      .filter((item) => {
-        const count = countryCounts.get(item.countryCode) ?? 0;
-        if (count >= MAX_VISIBLE_PER_COUNTRY) return false;
-        countryCounts.set(item.countryCode, count + 1);
-        return true;
-      })
-      .slice(0, MAX_VISIBLE_ITEMS);
+    return filtered.slice(0, MAX_VISIBLE_ITEMS);
   };
 
   const webItems = useMemo(() => filterItems(items, "web"), [items, query]);
@@ -418,27 +410,32 @@ function CrawlingFeedCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <CountryFlag
-              countryCode={item.countryCode}
-              countryName={item.countryName}
-              shape="circle"
-              size="sm"
-            />
-            <h4 className="truncate text-[10px] font-black uppercase tracking-wide text-[#0060A9]">
-              {item.countryName}
-            </h4>
+            {isSocial ? (
+              <div className="inline-flex items-center gap-1.5 rounded-lg bg-purple-50 px-2 py-1 ring-1 ring-purple-200/80 shadow-xs">
+                <SocialMediaIcon platform={item.platform} size="md" />
+                <span className="text-[10.5px] font-black uppercase tracking-wide text-purple-900">
+                  {item.platform || "Social Media"}
+                </span>
+              </div>
+            ) : (
+              <>
+                <CountryFlag
+                  countryCode={item.countryCode}
+                  countryName={item.countryName}
+                  shape="circle"
+                  size="sm"
+                />
+                <h4 className="truncate text-[10px] font-black uppercase tracking-wide text-[#0060A9]">
+                  {item.countryName}
+                </h4>
 
-            {/* Source Channel Badge */}
-            <span
-              className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8.5px] font-extrabold ${
-                isSocial
-                  ? "bg-purple-100 text-purple-700 ring-1 ring-purple-200"
-                  : "bg-blue-100 text-blue-700 ring-1 ring-blue-200"
-              }`}
-            >
-              {isSocial ? <Share2 className="h-2.5 w-2.5" /> : <Globe className="h-2.5 w-2.5" />}
-              <span>{item.platform || (isSocial ? "Social" : "Web")}</span>
-            </span>
+                {/* Source Channel Badge */}
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8.5px] font-extrabold text-blue-700 ring-1 ring-blue-200">
+                  <Globe className="h-2.5 w-2.5" />
+                  <span>{item.platform || "Web"}</span>
+                </span>
+              </>
+            )}
           </div>
 
           <p className="mt-1 line-clamp-2 text-xs font-bold leading-snug text-slate-900">
@@ -454,13 +451,13 @@ function CrawlingFeedCard({
         {item.disease && <span className="truncate font-bold text-slate-700">{translateDisease(item.disease)}</span>}
         {item.location && (
           <>
-            <span className="text-slate-300">â€¢</span>
+            <span className="text-slate-300">•</span>
             <span className="truncate">{item.location}</span>
           </>
         )}
         {item.source && (
           <>
-            <span className="text-slate-300">â€¢</span>
+            <span className="text-slate-300">•</span>
             <span className="truncate text-[#0060A9]">{item.source}</span>
           </>
         )}
@@ -497,3 +494,4 @@ function EmptyChannelFeed({ channel, t }: { channel: "web" | "social"; t: Transl
     </div>
   );
 }
+

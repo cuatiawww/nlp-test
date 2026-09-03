@@ -38,7 +38,7 @@ export const ASEAN_COUNTRIES: CountryMeta[] = [
   { code: "TL", name: "Timor-Leste", flag: "🇹🇱", aliases: ["timor-leste", "timor lest", "timor", "tl"] },
 ];
 
-const fallbackCountry: CountryMeta = { code: "ASEAN", name: "ASEAN Region", flag: "🌏", aliases: [] };
+const fallbackCountry: CountryMeta = { code: "OUTSIDE_ASEAN", name: "OUTSIDE ASEAN", flag: "🌐", aliases: ["outside asean", "outside"] };
 
 function findCountry(value: string | null | undefined): CountryMeta | undefined {
   const normalized = value?.trim().toLowerCase();
@@ -64,6 +64,10 @@ function countryFromSource(sourceUrl?: string | null, sourceName?: string | null
 }
 
 export function countryForEvent(event: DiseaseEvent): CountryMeta {
+  const c = (event.country || "").trim().toLowerCase();
+  if (c === "outside asean" || c.includes("outside") || c.includes("syria") || c.includes("congo") || c.includes("sudan") || c.includes("texas")) {
+    return fallbackCountry;
+  }
   return findCountry(event.country) ?? findCountry(event.location_name) ?? countryFromSource(event.url, event.source_name) ?? fallbackCountry;
 }
 
@@ -84,8 +88,24 @@ export function detectChannelAndPlatform(event: DiseaseEvent): { channel: FeedCh
   const url = (event.url || "").toLowerCase();
   const domain = sourceDomain(event.url, event.source_name)?.toLowerCase() || "";
 
+  // Check specific platforms FIRST
+  if (url.includes("reddit.com") || domain.includes("reddit") || sourceName.includes("reddit")) {
+    return { channel: "social", platform: "Reddit" };
+  }
+
+  if (url.includes("instagram.com") || domain.includes("instagram") || sourceName.includes("instagram")) {
+    return { channel: "social", platform: "Instagram" };
+  }
+
+  if (url.includes("facebook.com") || url.includes("fb.com") || domain.includes("facebook") || sourceName.includes("facebook")) {
+    return { channel: "social", platform: "Facebook" };
+  }
+
+  if (url.includes("tiktok.com") || domain.includes("tiktok") || sourceName.includes("tiktok")) {
+    return { channel: "social", platform: "TikTok" };
+  }
+
   if (
-    sourceType === "social_media" ||
     url.includes("twitter.com") ||
     url.includes("x.com") ||
     url.includes("t.co") ||
@@ -95,14 +115,6 @@ export function detectChannelAndPlatform(event: DiseaseEvent): { channel: FeedCh
     sourceName.includes("x.com")
   ) {
     return { channel: "social", platform: "X (Twitter)" };
-  }
-
-  if (url.includes("instagram.com") || domain.includes("instagram") || sourceName.includes("instagram")) {
-    return { channel: "social", platform: "Instagram" };
-  }
-
-  if (url.includes("reddit.com") || domain.includes("reddit") || sourceName.includes("reddit")) {
-    return { channel: "social", platform: "Reddit" };
   }
 
   if (
@@ -115,16 +127,8 @@ export function detectChannelAndPlatform(event: DiseaseEvent): { channel: FeedCh
     return { channel: "social", platform: "Mastodon" };
   }
 
-  if (url.includes("facebook.com") || url.includes("fb.com") || domain.includes("facebook") || sourceName.includes("facebook")) {
-    return { channel: "social", platform: "Facebook" };
-  }
-
   if (url.includes("t.me") || url.includes("telegram") || domain.includes("telegram") || sourceName.includes("telegram")) {
     return { channel: "social", platform: "Telegram" };
-  }
-
-  if (url.includes("tiktok.com") || domain.includes("tiktok") || sourceName.includes("tiktok")) {
-    return { channel: "social", platform: "TikTok" };
   }
 
   if (url.includes("youtube.com") || url.includes("youtu.be") || domain.includes("youtube") || sourceName.includes("youtube")) {
@@ -184,3 +188,4 @@ export function relativeTime(value: string, now = Date.now()): string {
   if (hours < 24) return hours + "h ago";
   return Math.floor(hours / 24) + "d ago";
 }
+

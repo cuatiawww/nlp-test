@@ -106,6 +106,15 @@ async def collect_all():
     return {"success": True, "status": "triggered_all", "total": total}
 
 
+@app.post("/collect/social-media-csv")
+async def collect_social_media_csv():
+    import asyncio
+    from .collectors.social_csv_ingest import SocialCSVIngestCollector
+    collector = SocialCSVIngestCollector()
+    result = await asyncio.to_thread(collector.collect)
+    return result
+
+
 @app.post("/collect/{source_id}")
 async def collect_one(source_id: str):
     try:
@@ -168,3 +177,4 @@ async def get_asset(object_path: str):
     except Exception as e:
         logger.warning(f"Asset not found in MinIO: {object_path} ({e})")
         raise HTTPException(status_code=404, detail="Asset not found")
+

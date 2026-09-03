@@ -51,10 +51,12 @@ function normalizeCode(code?: string | null, name?: string | null): string {
     if (["AU", "AUS", "AUSTRALIA"].includes(c)) return "AU";
     if (["US", "USA", "UNITED STATES"].includes(c)) return "US";
     if (["GB", "GBR", "UK", "UNITED KINGDOM"].includes(c)) return "GB";
+    if (["OUTSIDE_ASEAN", "OUTSIDE ASEAN", "GLOBAL", "WORLD"].includes(c)) return "GLOBAL";
     if (["ASEAN"].includes(c)) return "ASEAN";
   }
   if (name) {
     const n = name.trim().toLowerCase();
+    if (n.includes("outside")) return "GLOBAL";
     if (n.includes("indonesia")) return "ID";
     if (n.includes("malaysia")) return "MY";
     if (n.includes("singapore")) return "SG";
@@ -310,6 +312,16 @@ function SvgFlag({ code }: { code: string }) {
           </g>
         </svg>
       );
+    case "OUTSIDE_ASEAN":
+    case "GLOBAL":
+    case "WORLD":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-full w-full p-0.5 bg-slate-100">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+          <path d="M2 12h20" />
+        </svg>
+      );
     case "ASEAN":
     default:
       return (
@@ -383,3 +395,4 @@ export default function CountryFlag({
     </span>
   );
 }
+

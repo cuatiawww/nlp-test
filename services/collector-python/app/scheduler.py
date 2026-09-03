@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone, timedelta
@@ -7,6 +8,7 @@ from .collectors.rss_news import RSSNewsCollector
 from .collectors.web_scraper import WebScraperCollector
 from .collectors.csv_ingest import CSVIngestCollector
 from .collectors.social_media import SocialMediaCollector
+from .collectors.social_csv_ingest import SocialCSVIngestCollector
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,6 @@ COLLECTOR_MAP = {
 
 
 def run_source(source_id: str):
-    import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -30,8 +31,6 @@ def run_source(source_id: str):
 
 
 async def run_source_async(source_id: str):
-    import asyncio
-
     source = db.fetch_source(source_id)
     if not source:
         logger.warning("Source %s not found", source_id)
@@ -44,10 +43,11 @@ async def run_source_async(source_id: str):
 
     run_id = db.create_run(str(source["id"]))
     collector = collector_cls(source)
-    # Collectors use synchronous HTTP/feed parsers. Run them outside the
-    # asyncio event loop so one slow source cannot make every scheduled job
-    # miss its interval.
-    result = await asyncio.to_thread(collector.collect)
+    if asyncio.iscoroutinefunction(collector.collect):
+        result = await collector.collect()
+    else:
+        result = await asyncio.to_thread(collector.collect)
+
     db.finish_run(
         run_id,
         "SUCCESS" if not result.error_message else "FAILED",
@@ -64,6 +64,13 @@ async def run_source_async(source_id: str):
     )
 
 
+async def run_social_media_csv_job():
+    """Periodic job scanning and ingesting social media CSV directory."""
+    collector = SocialCSVIngestCollector()
+    result = await asyncio.to_thread(collector.collect)
+    logger.info("Social CSV Watcher completed: %s", result)
+
+
 def register_scheduled_jobs(scheduler: AsyncIOScheduler):
     sources = db.fetch_sources()
     for idx, source in enumerate(sources):
@@ -71,7 +78,6 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
         if not schedule:
             continue
         source_id = str(source["id"])
-        # Stagger initial run so sources start collecting immediately on startup (every 2 seconds)
         start_time = datetime.now(timezone.utc) + timedelta(seconds=idx * 2)
         interval_minutes = _parse_interval(schedule)
         scheduler.add_job(
@@ -84,6 +90,19 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
             replace_existing=True,
         )
         logger.info("Scheduled %s: every %d min (first run in %ds)", source["name"], interval_minutes, idx * 2)
+
+    # Register Social Media CSV Ingest Watcher
+    csv_interval = int(os.getenv("SOCIAL_MEDIA_CSV_INTERVAL_MINUTES", "5"))
+    social_start = datetime.now(timezone.utc) + timedelta(seconds=15)
+    scheduler.add_job(
+        run_social_media_csv_job,
+        "interval",
+        minutes=csv_interval,
+        next_run_time=social_start,
+        id="job_social_media_csv",
+        replace_existing=True,
+    )
+    logger.info("Scheduled Social Media CSV Watcher: every %d min", csv_interval)
 
 
 def _parse_interval(schedule: str) -> int:
