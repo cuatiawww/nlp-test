@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import unicodedata
@@ -450,11 +451,11 @@ def _extract_count(text: str, field: str, default: int) -> int:
     )
     localized_patterns = {
         "case_count": [
-            r"\b([0-9][0-9,.]*)(?:\s+[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+){0,3}\s+(?:cases?|infections?|patients?|warga|kasus|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
+            r"\b([0-9][0-9,.]*)(?:\s+[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+){0,3}\s+(?:cases?|infections?|patients?|warga|kasus|pasien|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
             r"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*([0-9][0-9,.]*)\s*\)",
-            r"(?:with|logged|recorded|reported|total of|mencatat|sebanyak|ghi\s+nhận|có)\s+([0-9][0-9,.]*)\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca)",
+            r"(?:with|logged|recorded|reported|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có)\s+([0-9][0-9,.]*)\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca)",
             r"\b([0-9][0-9,.]*)\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
@@ -472,44 +473,128 @@ def _extract_count(text: str, field: str, default: int) -> int:
         ],
     }
     for pattern in localized_patterns.get(field, []):
-        match = re.search(pattern, search_text, re.IGNORECASE)
-        if match and not (
-            match.start(1) > 0
-            and search_text[match.start(1) - 1] in ".,0123456789"
-        ):
-            return _parse_count(match.group(1))
+        for match in re.finditer(pattern, search_text, re.IGNORECASE):
+            if not (
+                match.start(1) > 0
+                and search_text[match.start(1) - 1] in ".,0123456789"
+            ):
+                try:
+                    parsed = _parse_count(match.group(1), match.group(0))
+                    if parsed is not None:
+                        return parsed
+                except Exception:
+                    continue
+
     patterns = config.EXTRACTION_RULES.get(field, [])
-    if not patterns:
-        return default
-    for pattern in patterns:
-        match = re.search(pattern, search_text.lower())
-        if match and not (
-            match.start(1) > 0
-            and search_text[match.start(1) - 1] in ".,0123456789"
-        ):
-            return _parse_count(match.group(1))
+    if patterns:
+        for pattern in patterns:
+            for match in re.finditer(pattern, search_text.lower()):
+                if not (
+                    match.start(1) > 0
+                    and search_text[match.start(1) - 1] in ".,0123456789"
+                ):
+                    try:
+                        parsed = _parse_count(match.group(1), match.group(0))
+                        if parsed is not None:
+                            return parsed
+                    except Exception:
+                        continue
     return default
 
 
-def _parse_count(value: str) -> int:
-    value = value.strip()
-    if re.fullmatch(r"\d{1,3}(?:[,.]\d{3})+", value):
-        value = re.sub(r"[,.]", "", value)
-    return int(value)
+def _parse_count(value: str, context: str = "") -> Optional[int]:
+    """Safely parse count string to int, supporting decimals, multipliers, and formatting."""
+    try:
+        if not value:
+            return None
+        val = value.strip().strip(".,;:()[]{}")
+        if not val:
+            return None
+
+        # Exclude percentage rates and per-capita incidence contexts
+        ctx_lower = (context or "").lower()
+        if ctx_lower and re.search(r"(?:%|persen|percent|peratus|pc|pct)\b", ctx_lower):
+            return None
+        if ctx_lower and re.search(
+            r"\bper\s+(?:100|1000|10\.000|100\.000|10,000|100,000|seribu|ribu|thousand|penduduk|populasi|capita|orang|warga)\b",
+            ctx_lower,
+        ):
+            return None
+
+        # Determine multiplier from context
+        multiplier = 1
+        if ctx_lower:
+            if re.search(r"\b(?:miliar|milyar|billion|tỷ)\b", ctx_lower) or re.search(r"\d\s*(?:b|mld)\b", ctx_lower):
+                multiplier = 1_000_000_000
+            elif re.search(r"\b(?:juta|million|triệu|lakh|crore|ล้าน|លាន|သန်း)\b", ctx_lower) or re.search(r"\d\s*m\b", ctx_lower):
+                multiplier = 1_000_000
+            elif re.search(r"\b(?:ribu|thousand|nghìn|ngàn|พัน|ពាន់|သိန်း)\b", ctx_lower) or re.search(r"\d\s*k\b", ctx_lower):
+                multiplier = 1_000
+
+        # Case 1: Standard thousands separator (e.g. 19,313 or 10.000 or 1,000,000 or 1.000.000)
+        if re.fullmatch(r"\d{1,3}(?:[,.]\d{3})+", val):
+            clean_int = re.sub(r"[,.]", "", val)
+            return max(0, int(clean_int) * multiplier)
+
+        # Case 2: Pure integer digits
+        if re.fullmatch(r"\d+", val):
+            return max(0, int(val) * multiplier)
+
+        # Case 3: Decimal numbers (e.g. '2.1' or '2,1' or '12.5')
+        norm_val = val
+        if norm_val.count(",") == 1 and "." not in norm_val:
+            norm_val = norm_val.replace(",", ".")
+        elif norm_val.count(".") == 1 and "," not in norm_val:
+            pass
+
+        try:
+            num_float = float(norm_val)
+            if multiplier > 1:
+                return max(0, int(round(num_float * multiplier)))
+            return max(0, int(round(num_float)))
+        except (ValueError, OverflowError):
+            pass
+
+        # Case 4: General fallback - clean non-digits except period
+        clean_fallback = re.sub(r"[^\d.,]", "", val).strip(".,")
+        if re.fullmatch(r"\d{1,3}(?:[,.]\d{3})+", clean_fallback):
+            clean_fallback = re.sub(r"[,.]", "", clean_fallback)
+        else:
+            if clean_fallback.count(",") == 1 and "." not in clean_fallback:
+                clean_fallback = clean_fallback.replace(",", ".")
+            clean_fallback = re.sub(r"[^\d.]", "", clean_fallback)
+        try:
+            return max(0, int(round(float(clean_fallback) * multiplier)))
+        except Exception:
+            return None
+    except Exception:
+        return None
 
 
 def extract_case_count(text: str) -> int:
-    default = int(os.getenv("DEFAULT_CASE_COUNT", "1"))
-    return _extract_count(text, "case_count", default)
+    try:
+        default = int(os.getenv("DEFAULT_CASE_COUNT", "1"))
+    except (ValueError, TypeError):
+        default = 1
+    try:
+        return _extract_count(text, "case_count", default)
+    except Exception:
+        return default
 
 
 def has_explicit_case_count(text: str) -> bool:
     """Whether a case number was actually present, excluding the default 1."""
-    return _extract_count(text, "case_count", -1) >= 0
+    try:
+        return _extract_count(text, "case_count", -1) >= 0
+    except Exception:
+        return False
 
 
 def extract_death_count(text: str) -> int:
-    return _extract_count(text, "death_count", 0)
+    try:
+        return _extract_count(text, "death_count", 0)
+    except Exception:
+        return 0
 
 
 def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:

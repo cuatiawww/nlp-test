@@ -61,5 +61,51 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         self.assertEqual(loc, "Selangor")
 
 
+    def test_extract_decimal_case_count_with_multiplier_million(self):
+        text = "Ditemukan 2.1 juta kasus terkonfirmasi di wilayah tersebut."
+        self.assertEqual(extractors.extract_case_count(text), 2100000)
+
+    def test_extract_decimal_case_count_with_multiplier_english(self):
+        text = "There were 2.1 million cases recorded worldwide."
+        self.assertEqual(extractors.extract_case_count(text), 2100000)
+
+    def test_extract_decimal_case_count_with_comma_and_multiplier(self):
+        text = "Mencatat 1,5 juta kasus demam berdarah selama periode tersebut."
+        self.assertEqual(extractors.extract_case_count(text), 1500000)
+
+    def test_extract_thousand_multiplier(self):
+        text = "Kemenkes melaporkan 3.5 ribu pasien terinfeksi."
+        self.assertEqual(extractors.extract_case_count(text), 3500)
+
+    def test_extract_decimal_case_count_pure(self):
+        text = "Tercatat sebanyak 2.1 kasus per wilayah."
+        # Should not throw ValueError: invalid literal for int() with base 10: '2.1'
+        self.assertEqual(extractors.extract_case_count(text), 2)
+
+    def test_extract_percentage_ignored_as_case_count(self):
+        text = "Kasus demam berdarah naik 2.1 persen pada tahun ini."
+        # Percentages must not crash with ValueError and must not be treated as absolute count
+        self.assertEqual(extractors.extract_case_count(text), 1)
+
+    def test_extract_thousands_separator_both_formats(self):
+        text_dot = "Sebanyak 10.000 kasus baru."
+        self.assertEqual(extractors.extract_case_count(text_dot), 10000)
+        text_comma = "Sebanyak 10,000 kasus baru."
+        self.assertEqual(extractors.extract_case_count(text_comma), 10000)
+
+    def test_extract_trailing_punctuation(self):
+        text = "Sebanyak 15. kasus telah dilaporkan."
+        self.assertEqual(extractors.extract_case_count(text), 15)
+
+    def test_extract_death_count_decimal_and_multipliers(self):
+        text_m = "Tercatat 1.2 ribu kematian akibat wabah tersebut."
+        self.assertEqual(extractors.extract_death_count(text_m), 1200)
+
+    def test_extract_count_never_crashes_on_malformed_inputs(self):
+        # Arbitrary messy texts that previously could trigger ValueError in int()
+        self.assertEqual(extractors.extract_case_count("Kasus: .."), 1)
+        self.assertEqual(extractors.extract_death_count("Kematian: ..."), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

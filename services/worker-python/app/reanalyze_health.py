@@ -130,6 +130,15 @@ def call_nlp(row: dict, max_recovery_attempts: int = 2) -> dict:
             )
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.HTTPError as exc:
+            err_detail = ""
+            try:
+                err_json = response.json()
+                err_detail = err_json.get("detail", response.text[:300])
+            except Exception:
+                err_detail = response.text[:300]
+            logger.error("NLP service HTTP %s on event id=%s: %s", response.status_code, row.get("id"), err_detail)
+            raise RuntimeError(f"NLP service HTTP {response.status_code} on event {row.get('id')}: {err_detail}") from exc
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
             if attempt < max_recovery_attempts:
                 logger.warning(

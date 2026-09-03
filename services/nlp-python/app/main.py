@@ -1,7 +1,7 @@
 ﻿import logging
 from typing import Optional
 
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, HTTPException, status
 from pydantic import BaseModel
 
 from .schemas import AnalyzeRequest, AnalyzeResponse
@@ -69,7 +69,16 @@ def health():
 
 @app.post("/nlp/analyze", response_model=AnalyzeResponse)
 def analyze(payload: AnalyzeRequest):
-    return pipeline.run(payload)
+    try:
+        return pipeline.run(payload)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to analyze payload: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"NLP analysis failed: {type(exc).__name__}: {str(exc)}",
+        )
 
 
 class ICD11ResolveRequest(BaseModel):
