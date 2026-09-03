@@ -375,6 +375,78 @@ python3 scripts/export_training_data.py \
   --max-per-label 100000
 ```
 
+Jika database hanya dapat diakses dari jaringan Docker STG dan container
+`disease-worker-python` sudah berjalan, jalankan dari folder training dan
+ambil script dari repository aplikasi:
+
+```bash
+cd ~/docker/nlp-penyakit-training
+
+EXPORT_DIR="disease-training-$(date +%Y%m%d-%H%M%S)"
+
+docker exec -i disease-worker-python \
+  python - --all-years \
+  --output-dir "/tmp/${EXPORT_DIR}" \
+  --min-confidence 0.85 \
+  --max-per-label 100000 \
+  < ../nlp-penyakit-git/scripts/export_training_data.py
+
+mkdir -p "$EXPORT_DIR"
+docker cp \
+  "disease-worker-python:/tmp/${EXPORT_DIR}/." \
+  "$EXPORT_DIR/"
+
+cat "$EXPORT_DIR/manifest.json"
+wc -l "$EXPORT_DIR"/train.jsonl "$EXPORT_DIR"/test.jsonl
+```
+
+Upload `train.jsonl`, `test.jsonl`, dan `manifest.json` ke folder Google Drive
+`disease-nlp/all-years/` sebelum membuka notebook fine-tuning.
+
+Untuk membuat satu paket Colab lengkap dari STG, termasuk notebook dan script
+training:
+
+```bash
+cd /home/nlpdev/docker/nlp-penyakit-training
+
+REPO_DIR="/home/nlpdev/docker/nlp-penyakit-git"
+PACKAGE_DIR="colab_export"
+EXPORT_DIR="disease-training-$(date +%Y%m%d-%H%M%S)"
+
+mkdir -p "$PACKAGE_DIR/all-years" "$PACKAGE_DIR/scripts"
+
+cp "$REPO_DIR/training/fine_tune.ipynb" \
+  "$PACKAGE_DIR/fine_tune.ipynb"
+
+cp "$REPO_DIR/scripts/train_classifier.py" \
+  "$PACKAGE_DIR/scripts/train_classifier.py"
+
+docker exec -i disease-worker-python \
+  python - --all-years \
+  --output-dir "/tmp/${EXPORT_DIR}" \
+  --min-confidence 0.85 \
+  --max-per-label 100000 \
+  < "$REPO_DIR/scripts/export_training_data.py"
+
+docker cp \
+  "disease-worker-python:/tmp/${EXPORT_DIR}/." \
+  "$PACKAGE_DIR/all-years/"
+
+cat "$PACKAGE_DIR/all-years/manifest.json"
+```
+
+Paket siap upload ke Google Drive sebagai folder `disease-nlp/`:
+
+```text
+colab_export/
+├── fine_tune.ipynb
+├── all-years/
+│   ├── train.jsonl
+│   ├── test.jsonl
+│   └── manifest.json
+└── scripts/
+```
+
 3. Latih kandidat XLM-RoBERTa (gunakan GPU/Colab untuk dataset besar):
 
 ```bash
