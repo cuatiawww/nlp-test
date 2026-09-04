@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import ProvNttBencanaPage from '@/components/kejadian/ProvNttBencanaPage'
+import RegionalIncidentPage from '@/components/incident/RegionalIncidentPage'
 
 export const metadata: Metadata = {
   title: 'Detail Kejadian | Dashboard EOC Kemenkes',
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function DetailRegionPage() {
-  return <ProvNttBencanaPage />
+  return <RegionalIncidentPage />
 }

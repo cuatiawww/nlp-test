@@ -1651,23 +1651,11 @@ export default function DisasterMap({
             geojsonCache[cacheKey] = data.geojson
             load(data.geojson)
           } else {
-            // fallback lokal
-            fetch(`${NEXT_BASE_PATH}/indonesia-provinces.geojson`)
-              .then((fr) => fr.json())
-              .then((fgeo) => {
-                geojsonCache[cacheKey] = fgeo
-                load(fgeo)
-              })
+            console.error('GeoJSON provinsi tidak tersedia dari API')
           }
         })
         .catch(() => {
-          fetch(`${NEXT_BASE_PATH}/indonesia-provinces.geojson`)
-            .then((fr) => fr.json())
-            .then((fgeo) => {
-              geojsonCache[cacheKey] = fgeo
-              load(fgeo)
-            })
-            .catch((e) => console.error('GeoJSON provinsi gagal:', e))
+          console.error('GeoJSON provinsi gagal dimuat dari API')
         })
         .finally(() => setIsLoading(false))
     }
@@ -1718,36 +1706,16 @@ export default function DisasterMap({
           load(geojsonCache[cacheKey])
         } else {
           setIsLoading(true)
-          const provUpper = provinceName.toUpperCase()
-          const isNtt = provUpper.includes('NUSA TENGGARA TIMUR') || provUpper.includes('NTT')
-          const nttFallbackUrl = `${NEXT_BASE_PATH}/data/ntt-kabupaten.geojson`
-
-          const loadNttDirect = () => {
-            fetch('/data/ntt-kabupaten.geojson')
-              .then((fr) => fr.json())
-              .then((fgeo) => {
-                geojsonCache[cacheKey] = fgeo
-                load(fgeo)
-              })
-              .catch((err) => console.error('GeoJSON fallback gagal:', err))
-          }
-
           fetch(`/api/wilayah-geojson?level=kabupaten&province=${encodeURIComponent(provinceName)}`)
             .then((r) => r.json())
             .then((data) => {
               if (data?.success && data.geojson) {
                 geojsonCache[cacheKey] = data.geojson
                 load(data.geojson)
-              } else if (isNtt) {
-                loadNttDirect()
               }
             })
             .catch((e) => {
-              if (isNtt) {
-                loadNttDirect()
-              } else {
-                console.error('GeoJSON kabupaten gagal:', e)
-              }
+              console.error('GeoJSON kabupaten gagal:', e)
             })
             .finally(() => setIsLoading(false))
         }

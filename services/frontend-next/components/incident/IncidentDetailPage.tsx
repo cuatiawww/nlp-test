@@ -57,11 +57,9 @@ import {
   FileSpreadsheet,
   Layers
 } from 'lucide-react'
-import DisasterMap from './DisasterMap'
+import IncidentMap from './IncidentMap'
 import TimelineCalendarModal from './TimelineCalendarModal'
-import NttCsvManagerModal from './NttCsvManagerModal'
-import BmkgSeismicDetailModal from './BmkgSeismicDetailModal'
-import RelawanMobilisasiTab from './RelawanMobilisasiTab'
+import VolunteerMobilizationTab from './VolunteerMobilizationTab'
 import { useAuthStore } from '@/lib/authStore'
 import {
   ResponsiveContainer,
@@ -80,7 +78,7 @@ import {
   Cell
 } from 'recharts'
 
-interface DetailKejadianPageProps {
+interface IncidentDetailPageProps {
   selectedEvent: any
   onBack: () => void
   onDetailLoaded?: (detailData: any) => void
@@ -240,7 +238,7 @@ const formatPerkembangan = (p: any): string => {
 }
 
 
-export default function DetailKejadianPage({ selectedEvent, onBack, onDetailLoaded, isLoading, hideBack }: DetailKejadianPageProps) {
+export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoaded, isLoading, hideBack }: IncidentDetailPageProps) {
   const { token, user, isGuest: storeIsGuest } = useAuthStore()
   const isGuest = storeIsGuest || !token || !user
 
@@ -274,7 +272,6 @@ export default function DetailKejadianPage({ selectedEvent, onBack, onDetailLoad
   const [logsError, setLogsError] = useState<string | null>(null)
   const [showLogModal, setShowLogModal] = useState(false)
   const [showApiSourcesModal, setShowApiSourcesModal] = useState(false)
-  const [showNttCsvModal, setShowNttCsvModal] = useState(false)
   const [trendWindowDays, setTrendWindowDays] = useState(7)
 
   // ── Tenaga Cadangan Kesehatan (TCK) Kemkes ──
@@ -410,7 +407,6 @@ export default function DetailKejadianPage({ selectedEvent, onBack, onDetailLoad
   const [kabupatenMatrixSearch, setKabupatenMatrixSearch] = useState<string>('')
   const [kabupatenMatrixDate, setKabupatenMatrixDate] = useState<string>('')
   const [modalFaskesTypeFilter, setModalFaskesTypeFilter] = useState<'all' | 'rs' | 'puskesmas' | 'klinik' | 'pustu' | 'merawat'>('all')
-  const [showBmkgSeismicModal, setShowBmkgSeismicModal] = useState<boolean>(false)
 
   // Faskes Terdampak (Google Sheets Live API) State
   const [faskesTerdampakList, setFaskesTerdampakList] = useState<any[]>([])
@@ -2162,8 +2158,10 @@ export default function DetailKejadianPage({ selectedEvent, onBack, onDetailLoad
     const mag = eventData.magnitudo || ''
     const depth = eventData.kedalaman || ''
     const mmi = eventData.skala_mmi || ''
+    const eventType = String(eventData.jenis_bencana || selectedEvent?.jenis_bencana || '').toLowerCase()
+    const isEarthquakeEvent = eventType.includes('gempa') || eventType.includes('earthquake') || eventType.includes('seismic')
 
-    if (lat === 0 && lng === 0) return
+    if ((lat === 0 && lng === 0) || !isEarthquakeEvent) return
 
     let active = true
     const url = `/api/bencana-seismic?lat=${lat}&lng=${lng}&date=${date}&kabupaten=${encodeURIComponent(kab)}&provinsi=${encodeURIComponent(prov)}&magnitudo=${encodeURIComponent(mag)}&kedalaman=${encodeURIComponent(depth)}&mmi=${encodeURIComponent(mmi)}`
@@ -4909,16 +4907,6 @@ export default function DetailKejadianPage({ selectedEvent, onBack, onDetailLoad
                           ? 'TREN KUALITAS UDARA (ISPU / SO2)'
                           : 'HISTORI CUACA & PARAMETER BMKG'}
                     </span>
-                    {disasterTheme.type === 'gempa' && (
-                      <button
-                        type="button"
-                        onClick={() => setShowBmkgSeismicModal(true)}
-                        title="Lihat Data Detail Aktivitas Seismik & Gempa Susulan BMKG dari Hari Kejadian s.d Hari Ini"
-                        className="inline-flex items-center justify-center p-1 rounded-full text-slate-500 hover:text-teal-700 hover:bg-teal-50 border border-slate-200 hover:border-teal-300 transition-all shadow-xs cursor-pointer group shrink-0"
-                      >
-                        <Info className="w-3.5 h-3.5 text-slate-600 group-hover:text-teal-700" />
-                      </button>
-                    )}
                   </div>
                 </div>
 
@@ -5189,7 +5177,7 @@ export default function DetailKejadianPage({ selectedEvent, onBack, onDetailLoad
           </p>
 
           <div className="h-[540px] sm:h-[580px] lg:h-[620px] rounded-xl overflow-hidden border border-slate-200 shadow-inner mt-2">
-            <DisasterMap
+            <IncidentMap
               markers={mapMarkers}
               userScope={mapUserScope}
               isGuest={false}
@@ -8049,7 +8037,7 @@ export default function DetailKejadianPage({ selectedEvent, onBack, onDetailLoad
             })()}
 
             {matrixTab === 'relawan_mobilisasi' && (
-              <RelawanMobilisasiTab isNttEvent={isNttEvent} />
+              <VolunteerMobilizationTab isNttEvent={isNttEvent} />
             )}
 
             {false && matrixTab === 'datastudio_kluster' && (
@@ -10634,36 +10622,6 @@ export default function DetailKejadianPage({ selectedEvent, onBack, onDetailLoad
             </div>
           </div>
         </div>
-      )}
-
-      {showNttCsvModal && (
-        <NttCsvManagerModal
-          isOpen={showNttCsvModal}
-          onClose={() => setShowNttCsvModal(false)}
-          initialDate={targetSituasiDate || latestNttDate}
-          onSuccessImport={() => {
-            const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
-            fetch(`${basePath}/api/ntt-data`, { cache: 'no-store' })
-              .then((res) => res.json())
-              .then((json) => {
-                if (json.success && json.data) {
-                  setNttApiData(json.data)
-                }
-              })
-              .catch(() => {})
-          }}
-        />
-      )}
-
-      {showBmkgSeismicModal && (
-        <BmkgSeismicDetailModal
-          isOpen={showBmkgSeismicModal}
-          onClose={() => setShowBmkgSeismicModal(false)}
-          eventData={eventData}
-          seismicResult={seismicResult}
-          bmkgGempa={bmkgGempa}
-          earthquakeTimeline={earthquakeTimeline}
-        />
       )}
 
     </div>
