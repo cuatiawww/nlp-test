@@ -47,7 +47,9 @@
     "priority": "Prioritas",
     "never": "Belum pernah",
     "running": "Berjalan",
-    "confirmDeleteGeneric": "Hapus item ini?"
+    "confirmDeleteGeneric": "Hapus item ini?",
+    "done": "Selesai",
+    "failed": "Gagal"
   },
   "header": {
     "title": "Disease Surveillance AI",
@@ -148,7 +150,8 @@
       "fullUrl": "URL Lengkap",
       "urlUnavailable": "URL sumber tidak tersedia.",
       "originalContent": "Main Content Asli",
-      "openSource": "Buka sumber"
+      "openSource": "Buka sumber",
+      "badgeDetails": "Ringkasan Kejadian Wabah"
     },
     "refresh": "Perbarui",
     "filterTitle": "Filter Pemantauan",
@@ -209,7 +212,8 @@
     "perLocation": "Per Lokasi",
     "noLocationData": "Belum ada data lokasi untuk negara ini",
     "totalCases": "Total Kasus",
-    "publishDateUnit": "Rilis"
+    "publishDateUnit": "Rilis",
+    "filterApply": "Terapkan Filter"
   },
   "ews": {
     "title": "Aktifkan Layanan Peringatan Dini (EWS)",
@@ -306,7 +310,8 @@
     "waitingCrawlingSignals": "Waiting for incoming crawling signals...",
     "monitoringDiseaseSources": "Monitoring ASEAN regional disease outbreak sources",
     "collapseFeed": "Ciutkan feed crawling",
-    "expandFeed": "Buka feed crawling"
+    "expandFeed": "Buka feed crawling",
+    "controls": "Kontrol TV"
   },
   "severity": {
     "AWAS": "CRITICAL",

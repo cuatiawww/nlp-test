@@ -47,7 +47,9 @@
     "priority": "Priority",
     "never": "Never",
     "running": "Running",
-    "confirmDeleteGeneric": "Are you sure you want to delete this item?"
+    "confirmDeleteGeneric": "Are you sure you want to delete this item?",
+    "done": "Done",
+    "failed": "Failed"
   },
   "header": {
     "title": "Disease Surveillance AI",
@@ -148,7 +150,8 @@
       "fullUrl": "Full URL",
       "urlUnavailable": "Source URL unavailable.",
       "originalContent": "Original Main Content",
-      "openSource": "Open source"
+      "openSource": "Open source",
+      "badgeDetails": "Outbreak Event Summary"
     },
     "refresh": "Refresh",
     "filterTitle": "Surveillance Filter",
@@ -209,7 +212,8 @@
     "perLocation": "By Location",
     "noLocationData": "No location data for this country yet",
     "totalCases": "Total Cases",
-    "publishDateUnit": "Published"
+    "publishDateUnit": "Published",
+    "filterApply": "Apply Filter"
   },
   "ews": {
     "title": "Enable Early Warning Service (EWS)",
@@ -306,7 +310,8 @@
     "waitingCrawlingSignals": "Waiting for incoming crawling signals...",
     "monitoringDiseaseSources": "Monitoring ASEAN regional disease outbreak sources",
     "collapseFeed": "Collapse crawling feed",
-    "expandFeed": "Expand crawling feed"
+    "expandFeed": "Expand crawling feed",
+    "controls": "TV Controls"
   },
   "severity": {
     "AWAS": "CRITICAL",
