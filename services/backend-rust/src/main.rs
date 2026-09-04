@@ -10,7 +10,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{env, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, env, net::SocketAddr, sync::Arc};
 use tokio_postgres::{Config, NoTls};
 use lapin::{
     options::{BasicPublishOptions, QueueDeclareOptions},
@@ -94,6 +94,8 @@ struct NlpResponse {
     original_location_name: Option<String>,
     symptoms: Vec<String>,
     disease_extracted: Vec<String>,
+    #[serde(default)]
+    disease_mentions: Vec<Value>,
     disease_classification: String,
     case_count: i32,
     death_count: i32,
@@ -869,6 +871,12 @@ async fn analyze_url(
     }
 
     let client = state.db.get().await.map_err(internal_error)?;
+    // URL analysis must reflect the current pipeline. A stale cached event
+    // can otherwise keep returning a previous wrong classification after the
+    // NLP rules/model have been fixed. Caching remains opt-in.
+    let use_analysis_cache = env::var("ANALYZE_URL_USE_CACHE")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false);
 
     let row = client
         .query_opt(
@@ -885,7 +893,7 @@ async fn analyze_url(
                         END
                     ) AS country,
                     de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude,
-                    de.symptoms, de.disease_extracted,
+                    de.symptoms, de.disease_extracted, de.disease_mentions,
                     de.disease_classification, de.case_count, de.death_count, de.confidence,
                     de.outbreak_alert, de.sentiment, de.needs_review, de.event_type,
                     de.event_confidence::float8, de.relevance_score, de.relevance_confidence::float8,
@@ -894,14 +902,15 @@ async fn analyze_url(
              JOIN raw_reports rr ON de.raw_report_id = rr.id
              LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
              WHERE rr.url = $1
-               AND de.created_at > NOW() - INTERVAL '7 days'
+                AND de.created_at > NOW() - INTERVAL '7 days'
+                AND $2::boolean = TRUE
                AND de.disease_classification IS NOT NULL
                AND de.disease_classification != 'UNKNOWN'
                AND de.disease_classification != 'Unknown Disease'
                AND de.confidence >= 0.50
              ORDER BY de.created_at DESC
              LIMIT 1",
-            &[&url],
+             &[&url, &use_analysis_cache],
         )
         .await
         .map_err(internal_error)?;
@@ -978,6 +987,7 @@ async fn analyze_url(
                 "locations": cached_locations,
                 "symptoms": symptoms,
                 "disease_extracted": disease_extracted,
+                "disease_mentions": row.get::<_, Value>("disease_mentions"),
                 "disease_classification": row.get::<_, String>("disease_classification"),
                 "case_count": row.get::<_, i32>("case_count"),
                 "death_count": row.get::<_, i32>("death_count"),
@@ -1026,7 +1036,7 @@ async fn analyze_url(
             )
         })?;
     if !resp.status().is_success() {
-        let status = resp.status();
+        let _status = resp.status();
         let detail = resp.text().await.unwrap_or_default();
         let parsed_error = serde_json::from_str::<serde_json::Value>(&detail)
             .ok()
@@ -1151,6 +1161,7 @@ async fn analyze_url(
                 raw_report_id, source_type, source_name, original_text, language,
                 location_name, geom, symptoms, disease_extracted, disease_classification,
                 case_count, death_count, confidence, outbreak_alert,
+                disease_mentions,
                 sentiment, needs_review, event_type, event_confidence,
                 relevance_score, relevance_confidence, source_credibility,
                 source_credibility_label, is_health_related
@@ -1160,11 +1171,11 @@ async fn analyze_url(
                 CASE WHEN $7::float8 IS NULL OR $8::float8 IS NULL THEN NULL
                      ELSE ST_SetSRID(ST_MakePoint($8, $7), 4326)
                 END,
-                $9::jsonb, $10::jsonb, $11,
-                $12, $13, $14, $15,
-                 $16, $17, $18, $19::float8,
-                 $20, $21::float8, $22::float8,
-                 $23, $24
+                 $9::jsonb, $10::jsonb, $11::jsonb, $12,
+                 $13, $14, $15, $16,
+                  $17, $18, $19, $20::float8,
+                  $21, $22::float8, $23::float8,
+                  $24, $25
              ) RETURNING id",
             &[
                 &raw_id,
@@ -1177,6 +1188,7 @@ async fn analyze_url(
                 &nlp.longitude,
                 &json!(nlp.symptoms),
                 &json!(nlp.disease_extracted),
+                &json!(nlp.disease_mentions),
                 &nlp.disease_classification,
                 &nlp.case_count,
                 &nlp.death_count,
@@ -1223,6 +1235,7 @@ async fn analyze_url(
                     raw_report_id, source_type, source_name, original_text, language,
                     location_name, geom, symptoms, disease_extracted, disease_classification,
                     case_count, death_count, confidence, outbreak_alert,
+                    disease_mentions,
                     sentiment, needs_review, event_type, event_confidence,
                     relevance_score, relevance_confidence, source_credibility,
                     source_credibility_label, is_health_related
@@ -1232,11 +1245,11 @@ async fn analyze_url(
                     CASE WHEN $7::float8 IS NULL OR $8::float8 IS NULL THEN NULL
                          ELSE ST_SetSRID(ST_MakePoint($8, $7), 4326)
                     END,
-                    $9::jsonb, $10::jsonb, $11,
-                    $12, $13, $14, $15,
-                    $16, $17, $18, $19::float8,
-                    $20, $21::float8, $22::float8,
-                    $23, $24
+                     $9::jsonb, $10::jsonb, $11::jsonb, $12,
+                     $13, $14, $15, $16,
+                     $17, $18, $19, $20::float8,
+                     $21, $22::float8, $23::float8,
+                     $24, $25
                  ) RETURNING id",
                 &[
                     &raw_id,
@@ -1249,6 +1262,7 @@ async fn analyze_url(
                     &loc.longitude,
                     &json!(nlp.symptoms),
                     &json!(nlp.disease_extracted),
+                    &json!(nlp.disease_mentions),
                     &nlp.disease_classification,
                     &nlp.case_count,
                     &nlp.death_count,
@@ -1322,6 +1336,7 @@ async fn analyze_url(
             "original_location_name": nlp.original_location_name,
             "symptoms": nlp.symptoms,
             "disease_extracted": nlp.disease_extracted,
+            "disease_mentions": nlp.disease_mentions,
             "disease_classification": nlp.disease_classification,
             "case_count": nlp.case_count,
             "death_count": nlp.death_count,
@@ -3635,6 +3650,7 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
     let client = pool.get().await?;
     client.batch_execute(
         r#"
+        ALTER TABLE disease_events ADD COLUMN IF NOT EXISTS disease_mentions JSONB NOT NULL DEFAULT '[]'::jsonb;
         CREATE TABLE IF NOT EXISTS schema_migrations (
             filename TEXT PRIMARY KEY,
             applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
