@@ -15,6 +15,9 @@ import {
   ShieldAlert,
   HeartPulse,
   Activity,
+  Sparkles,
+  Bell,
+  TrendingUp,
   FileText,
   Home,
   CheckCircle2,
@@ -281,6 +284,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   const [tckError, setTckError] = useState<string | null>(null)
   const [tckSearch, setTckSearch] = useState('')
   const [tckTab, setTckTab] = useState<'semua' | 'nakes' | 'emt'>('semua')
+  const [positivityTab, setPositivityTab] = useState<'insight' | 'peringatan'>('insight')
   const [tckDisplayLimit, setTckDisplayLimit] = useState<number>(30)
 
   // ── Tren Korban Chart View Mode & Interactive Series Filter ──
@@ -403,7 +407,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   const [floodHydrology, setFloodHydrology] = useState<any>(null)
   const [mounted, setMounted] = useState(false)
   const [showKabupatenMatrixModal, setShowKabupatenMatrixModal] = useState<boolean>(false)
-  const [kabupatenMatrixTab, setKabupatenMatrixTab] = useState<'all' | 'korban' | 'faskes' | 'faskes_terdampak' | 'pengungsi' | 'penyakit'>('all')
+  const [kabupatenMatrixTab, setKabupatenMatrixTab] = useState<'all' | 'korban' | 'faskes' | 'faskes_terdampak' | 'pengungsi' | 'penyakit' | 'tck'>('all')
   const [kabupatenMatrixSearch, setKabupatenMatrixSearch] = useState<string>('')
   const [kabupatenMatrixDate, setKabupatenMatrixDate] = useState<string>('')
   const [modalFaskesTypeFilter, setModalFaskesTypeFilter] = useState<'all' | 'rs' | 'puskesmas' | 'klinik' | 'pustu' | 'merawat'>('all')
@@ -5176,7 +5180,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <button
                     type="button"
                     onClick={() => {
-                      setKabupatenMatrixTab('tck');
+                      setKabupatenMatrixTab('penyakit');
                       setShowKabupatenMatrixModal(true);
                     }}
                     className="inline-flex items-center gap-0.5 text-xs font-bold text-purple-600 hover:text-purple-700 cursor-pointer transition-colors"
@@ -8389,699 +8393,553 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           </div>
         </article>
 
-        {/* 3. Dynamic EOC Actions & Response Card (Inputted from Laporan Kejadian Formulir Lengkap) */}
-        {(() => {
-          const rawBantuan = stripHtmlText(eventData.bantuan || eventData.bantuan_diterima)
-          const rawBantuanDiperlukan = stripHtmlText(eventData.bantuan_diperlukan)
-          const rawEmt = eventData.mobilisasi_emt
-          const rawPsc = eventData.mobilisasi_psc
-          const rawRekomendasi = stripHtmlText(eventData.rekomendasi)
-          const rawTindakLanjut = stripHtmlText(eventData.tindak_lanjut)
-          const rawHambatan = stripHtmlText(eventData.hambatan)
-
-          const isValidReportText = (t: string) => {
-            if (!t) return false
-            const l = t.trim().toLowerCase()
-            return l !== '' && l !== '-' && l !== 'n/a' && l !== 'na' && l !== 'null' && l !== 'none' && l !== 'nihil' && l !== 'tidak ada' && l !== 'belum ada'
-          }
-
-          // Agregasi seluruh laporan kabupaten jika di halaman Provinsi NTT
-          const aggregatedBantuan = (() => {
-            if (isNttEvent && nttSipkkReports.length > 0) {
-              const list: string[] = []
-              if (rawBantuan && isValidReportText(rawBantuan)) list.push(rawBantuan)
-              nttSipkkReports.forEach((rep: any) => {
-                const b = stripHtmlText(rep.bantuan || rep.bantuan_diterima)
-                const kab = resolveKabupatenName(rep)
-                if (b && isValidReportText(b) && !list.includes(b)) {
-                  list.push(`• [${kab}] ${b}`)
-                }
-              })
-              return list.join('\n')
-            }
-            return isValidReportText(rawBantuan) ? rawBantuan : ''
-          })()
-
-          const aggregatedBantuanDiperlukan = (() => {
-            if (isNttEvent && nttSipkkReports.length > 0) {
-              const list: string[] = []
-              if (rawBantuanDiperlukan && isValidReportText(rawBantuanDiperlukan)) list.push(rawBantuanDiperlukan)
-              nttSipkkReports.forEach((rep: any) => {
-                const b = stripHtmlText(rep.bantuan_diperlukan)
-                const kab = resolveKabupatenName(rep)
-                if (b && isValidReportText(b) && !list.includes(b)) {
-                  list.push(`• [${kab}] ${b}`)
-                }
-              })
-              return list.join('\n')
-            }
-            return isValidReportText(rawBantuanDiperlukan) ? rawBantuanDiperlukan : ''
-          })()
-
-          const aggregatedEmt = (() => {
-            if (isNttEvent && nttSipkkReports.length > 0) {
-              const list: string[] = []
-              if (rawEmt && isValidReportText(rawEmt)) list.push(rawEmt)
-              nttSipkkReports.forEach((rep: any) => {
-                if (rep.mobilisasi_emt && isValidReportText(rep.mobilisasi_emt) && !list.includes(rep.mobilisasi_emt)) list.push(rep.mobilisasi_emt)
-              })
-              return list.join(', ')
-            }
-            return isValidReportText(rawEmt) ? rawEmt : ''
-          })()
-
-          const aggregatedPsc = (() => {
-            if (isNttEvent && nttSipkkReports.length > 0) {
-              const list: string[] = []
-              if (rawPsc && isValidReportText(rawPsc)) list.push(rawPsc)
-              nttSipkkReports.forEach((rep: any) => {
-                if (rep.mobilisasi_psc && isValidReportText(rep.mobilisasi_psc) && !list.includes(rep.mobilisasi_psc)) list.push(rep.mobilisasi_psc)
-              })
-              return list.join(', ')
-            }
-            return isValidReportText(rawPsc) ? rawPsc : ''
-          })()
-
-          const aggregatedRekomendasi = (() => {
-            if (isNttEvent && nttSipkkReports.length > 0) {
-              const list: string[] = []
-              if (rawRekomendasi && isValidReportText(rawRekomendasi)) list.push(rawRekomendasi)
-              nttSipkkReports.forEach((rep: any) => {
-                const r = stripHtmlText(rep.rekomendasi)
-                const kab = resolveKabupatenName(rep)
-                if (r && isValidReportText(r) && !list.includes(r)) {
-                  list.push(`• [${kab}] ${r}`)
-                }
-              })
-              return list.join('\n')
-            }
-            return isValidReportText(rawRekomendasi) ? rawRekomendasi : ''
-          })()
-
-          const aggregatedTindakLanjut = (() => {
-            if (isNttEvent && nttSipkkReports.length > 0) {
-              const list: string[] = []
-              if (rawTindakLanjut && isValidReportText(rawTindakLanjut)) list.push(rawTindakLanjut)
-              nttSipkkReports.forEach((rep: any) => {
-                const tl = stripHtmlText(rep.tindak_lanjut)
-                const kab = resolveKabupatenName(rep)
-                if (tl && isValidReportText(tl) && !list.includes(tl)) {
-                  list.push(`• [${kab}] ${tl}`)
-                }
-              })
-              return list.join('\n')
-            }
-            return isValidReportText(rawTindakLanjut) ? rawTindakLanjut : ''
-          })()
-
-          const aggregatedHambatan = (() => {
-            if (isNttEvent && nttSipkkReports.length > 0) {
-              const list: string[] = []
-              if (rawHambatan && isValidReportText(rawHambatan)) list.push(rawHambatan)
-              nttSipkkReports.forEach((rep: any) => {
-                const h = stripHtmlText(rep.hambatan)
-                const kab = resolveKabupatenName(rep)
-                if (h && isValidReportText(h) && !list.includes(h)) {
-                  list.push(`• [${kab}] ${h}`)
-                }
-              })
-              return list.join('\n')
-            }
-            return isValidReportText(rawHambatan) ? rawHambatan : ''
-          })()
-
-          const emtText = aggregatedEmt || ''
-          const pscText = aggregatedPsc || ''
-          const bantuanText = aggregatedBantuan || ''
-          const bantuanDiperlukanText = aggregatedBantuanDiperlukan || ''
-          const rekomendasiText = aggregatedRekomendasi || ''
-          const tindakLanjutText = aggregatedTindakLanjut || ''
-          const hambatanText = aggregatedHambatan || ''
-
-          return (
-            <article className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm space-y-4">
-              <div className="pb-3.5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h4 className="text-xl sm:text-2xl font-black text-slate-900 m-0">
-                    Respon Dinkes &amp; EOC Kemenkes {isNttEvent ? '— Provinsi Nusa Tenggara Timur' : ''}
-                  </h4>
-                  <p className="text-sm sm:text-base text-slate-600 font-normal mt-1.5 mb-0">
-                    {isNttEvent
-                      ? 'Agregasi terpadu upaya penanggulangan dan distribusi logistik kesehatan dari seluruh kabupaten terdampak se-NTT'
-                      : 'Upaya penanggulangan, distribusi logistik, dan rekomendasi tindak lanjut real-time dari laporan kejadian'}
-                  </p>
-                </div>
-                {isNttEvent && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-xs font-black uppercase tracking-wider self-start sm:self-auto shrink-0 shadow-2xs">
-                    <span className="w-2 h-2 rounded-full bg-teal-600 animate-pulse" />
-                    Agregasi 7 Kab. Terdampak NTT
-                  </span>
-                )}
+        {/* ── Section 3: Ringkasan Insight, Tren Tahunan & Rekomendasi Tindakan Surveilans (3 Cards) ── */}
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Card 1: INSIGHT POSITIVITY RATE */}
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+            <div>
+              {/* Header */}
+              <div className="mb-4">
+                <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-tight m-0">
+                  INSIGHT POSITIVITY RATE
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 font-normal mt-1 m-0 leading-normal">
+                  Ringkasan insight dan peringatan dini dari data surveilans mingguan.
+                </p>
               </div>
 
-              {isNttEvent ? (
-                <div className="space-y-4">
-                  {/* Filter Toolbar: Tab Pilar + Dropdown Wilayah + Live Search */}
-                  <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-slate-50/90 p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                    {/* Pilar Tabs */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setUpayaActiveTab('all')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
-                          upayaActiveTab === 'all'
-                            ? 'bg-slate-900 text-white shadow-xs'
-                            : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        <Layers className="h-3.5 w-3.5" />
-                        Semua 4 Pilar ({classifiedUpaya.totalFiltered})
-                      </button>
+              {/* Segmented Tab Buttons */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100/90 rounded-xl border border-slate-200/60 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setPositivityTab('insight')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    positivityTab === 'insight'
+                      ? 'bg-white text-teal-900 shadow-xs border border-teal-200/70 font-black'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-teal-600" />
+                  INSIGHT TERKINI
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPositivityTab('peringatan')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    positivityTab === 'peringatan'
+                      ? 'bg-white text-teal-900 shadow-xs border border-teal-200/70 font-black'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Bell className="h-3.5 w-3.5 text-teal-600" />
+                  PERINGATAN DINI
+                </button>
+              </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setUpayaActiveTab('pelayanan')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
-                          upayaActiveTab === 'pelayanan'
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-50'
-                        }`}
-                      >
-                        <Stethoscope className="h-3.5 w-3.5 text-emerald-600" />
-                        Pelayanan Medis ({classifiedUpaya.pelayanan.length})
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setUpayaActiveTab('logistik')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
-                          upayaActiveTab === 'logistik'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
-                        }`}
-                      >
-                        <Warehouse className="h-3.5 w-3.5 text-amber-600" />
-                        Logistik &amp; Farmasi ({classifiedUpaya.logistik.length})
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setUpayaActiveTab('surveilans')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
-                          upayaActiveTab === 'surveilans'
-                            ? 'bg-sky-600 text-white shadow-xs'
-                            : 'bg-white text-sky-800 border border-sky-200 hover:bg-sky-50'
-                        }`}
-                      >
-                        <Activity className="h-3.5 w-3.5 text-sky-600" />
-                        Data &amp; Surveilans ({classifiedUpaya.surveilans.length})
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setUpayaActiveTab('administrasi')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
-                          upayaActiveTab === 'administrasi'
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : 'bg-white text-indigo-800 border border-indigo-200 hover:bg-indigo-50'
-                        }`}
-                      >
-                        <FileText className="h-3.5 w-3.5 text-indigo-600" />
-                        Administrasi &amp; Perencanaan ({classifiedUpaya.administrasi.length})
-                      </button>
+              {/* Tab Content */}
+              {positivityTab === 'insight' ? (
+                <div className="space-y-2.5">
+                  {/* Item 1 */}
+                  <div className="p-3 sm:p-3.5 rounded-xl border border-slate-150 bg-slate-50/50 hover:bg-white transition-all flex items-start gap-3 shadow-2xs">
+                    <div className="p-1.5 rounded-lg bg-rose-50 text-rose-600 border border-rose-200/60 shrink-0 mt-0.5">
+                      <AlertTriangle className="h-4 w-4" />
                     </div>
-
-                    {/* Filter Kabupaten & Live Search */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* Dropdown Kabupaten */}
-                      {upayaAvailableKabupatens.length > 0 && (
-                        <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
-                          <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                          <select
-                            value={upayaSelectedKabupaten}
-                            onChange={(e) => setUpayaSelectedKabupaten(e.target.value)}
-                            className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer pr-1"
-                          >
-                            <option value="all">Semua Wilayah ({upayaAvailableKabupatens.length} Kab)</option>
-                            {upayaAvailableKabupatens.map((kab, kIdx) => (
-                              <option key={kIdx} value={kab}>
-                                {kab}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      {/* Search Box */}
-                      <div className="relative min-w-[210px]">
-                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                        <input
-                          type="text"
-                          value={upayaSearchQuery}
-                          onChange={(e) => setUpayaSearchQuery(e.target.value)}
-                          placeholder="Cari tindakan / aksi..."
-                          className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-500 focus:border-slate-500 shadow-2xs"
-                        />
-                        {upayaSearchQuery && (
-                          <button
-                            type="button"
-                            onClick={() => setUpayaSearchQuery('')}
-                            className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
+                        Positivity Rate Influenza minggu ini 23% (+7.0% dari minggu lalu)
+                      </p>
+                      <p className="text-xs text-rose-600 font-semibold mt-0.5 m-0 flex items-center gap-1">
+                        ⚠️ Perlu pemantauan ketat.
+                      </p>
                     </div>
                   </div>
 
-                  {/* 4 Pilar Grid (Saat Tab 'all' aktif) */}
-                  {upayaActiveTab === 'all' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                      {/* Pilar 1: Pelayanan Medis & Kesmas */}
-                      <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50/40 via-white to-slate-50/20 p-4 space-y-3 flex flex-col justify-between shadow-2xs">
-                        <div>
-                          <div className="flex items-center justify-between pb-2.5 border-b border-emerald-200/60">
-                            <div className="flex items-center gap-2">
-                              <span className="p-1.5 rounded-lg bg-emerald-100 text-emerald-800">
-                                <Stethoscope className="h-4 w-4" />
-                              </span>
-                              <div>
-                                <h5 className="text-xs sm:text-sm font-black uppercase tracking-wider text-emerald-950 m-0">
-                                  Pelayanan Medis
-                                </h5>
-                                <span className="text-[10px] text-emerald-700 font-semibold block">Pos Medik, Rujukan, Kesling</span>
-                              </div>
-                            </div>
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-black text-xs">
-                              {classifiedUpaya.pelayanan.length}
-                            </span>
-                          </div>
-
-                          <div className="mt-3 space-y-2 max-h-[460px] overflow-y-auto pr-1">
-                            {classifiedUpaya.pelayanan.length > 0 ? (
-                              classifiedUpaya.pelayanan.map((item, idx) => (
-                                <div key={idx} className="bg-white p-3 rounded-xl border border-emerald-150/90 shadow-2xs space-y-1.5 hover:border-emerald-300 transition-colors">
-                                  <div className="flex flex-wrap items-center justify-between gap-1">
-                                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                      {item.kabupaten}
-                                    </span>
-                                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      {item.sub_klaster || item.category}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                                    {item.text}
-                                  </p>
-                                </div>
-                              ))
-                            ) : (
-                              <div className="p-4 text-center text-slate-400 font-semibold text-xs bg-white rounded-xl border border-emerald-100">
-                                Tidak ada aksi pelayanan medis yang sesuai filter.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Pilar 2: Logistik & Farmasi Kesehatan */}
-                      <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-b from-amber-50/40 via-white to-slate-50/20 p-4 space-y-3 flex flex-col justify-between shadow-2xs">
-                        <div>
-                          <div className="flex items-center justify-between pb-2.5 border-b border-amber-200/60">
-                            <div className="flex items-center gap-2">
-                              <span className="p-1.5 rounded-lg bg-amber-100 text-amber-800">
-                                <Warehouse className="h-4 w-4" />
-                              </span>
-                              <div>
-                                <h5 className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-950 m-0">
-                                  Logistik &amp; Farmasi
-                                </h5>
-                                <span className="text-[10px] text-amber-700 font-semibold block">Obat, BMHP, Gudang, Faskes</span>
-                              </div>
-                            </div>
-                            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-black text-xs">
-                              {classifiedUpaya.logistik.length}
-                            </span>
-                          </div>
-
-                          <div className="mt-3 space-y-2 max-h-[460px] overflow-y-auto pr-1">
-                            {classifiedUpaya.logistik.length > 0 ? (
-                              classifiedUpaya.logistik.map((item, idx) => (
-                                <div key={idx} className="bg-white p-3 rounded-xl border border-amber-150/90 shadow-2xs space-y-1.5 hover:border-amber-300 transition-colors">
-                                  <div className="flex flex-wrap items-center justify-between gap-1">
-                                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                      {item.kabupaten}
-                                    </span>
-                                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-                                      {item.sub_klaster || item.category}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                                    {item.text}
-                                  </p>
-                                </div>
-                              ))
-                            ) : (
-                              <div className="p-4 text-center text-slate-400 font-semibold text-xs bg-white rounded-xl border border-amber-100">
-                                Tidak ada aksi logistik yang sesuai filter.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Pilar 3: Data, Informasi & Surveilans */}
-                      <div className="rounded-2xl border border-sky-200/90 bg-gradient-to-b from-sky-50/40 via-white to-slate-50/20 p-4 space-y-3 flex flex-col justify-between shadow-2xs">
-                        <div>
-                          <div className="flex items-center justify-between pb-2.5 border-b border-sky-200/60">
-                            <div className="flex items-center gap-2">
-                              <span className="p-1.5 rounded-lg bg-sky-100 text-sky-800">
-                                <Activity className="h-4 w-4" />
-                              </span>
-                              <div>
-                                <h5 className="text-xs sm:text-sm font-black uppercase tracking-wider text-sky-950 m-0">
-                                  Data &amp; Surveilans
-                                </h5>
-                                <span className="text-[10px] text-sky-700 font-semibold block">SKDR, SitRep, Rekap Triase</span>
-                              </div>
-                            </div>
-                            <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 font-black text-xs">
-                              {classifiedUpaya.surveilans.length}
-                            </span>
-                          </div>
-
-                          <div className="mt-3 space-y-2 max-h-[460px] overflow-y-auto pr-1">
-                            {classifiedUpaya.surveilans.length > 0 ? (
-                              classifiedUpaya.surveilans.map((item, idx) => (
-                                <div key={idx} className="bg-white p-3 rounded-xl border border-sky-150/90 shadow-2xs space-y-1.5 hover:border-sky-300 transition-colors">
-                                  <div className="flex flex-wrap items-center justify-between gap-1">
-                                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                      {item.kabupaten}
-                                    </span>
-                                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
-                                      {item.sub_klaster || item.category}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                                    {item.text}
-                                  </p>
-                                </div>
-                              ))
-                            ) : (
-                              <div className="p-4 text-center text-slate-400 font-semibold text-xs bg-white rounded-xl border border-sky-100">
-                                Tidak ada aksi surveilans yang sesuai filter.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Pilar 4: Administrasi & Manajemen Krisis */}
-                      <div className="rounded-2xl border border-indigo-200/90 bg-gradient-to-b from-indigo-50/40 via-white to-slate-50/20 p-4 space-y-3 flex flex-col justify-between shadow-2xs">
-                        <div>
-                          <div className="flex items-center justify-between pb-2.5 border-b border-indigo-200/60">
-                            <div className="flex items-center gap-2">
-                              <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-800">
-                                <FileText className="h-4 w-4" />
-                              </span>
-                              <div>
-                                <h5 className="text-xs sm:text-sm font-black uppercase tracking-wider text-indigo-950 m-0">
-                                  Administrasi &amp; Keuangan
-                                </h5>
-                                <span className="text-[10px] text-indigo-700 font-semibold block">RAB, Surat Nakes, Perencanaan</span>
-                              </div>
-                            </div>
-                            <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-black text-xs">
-                              {classifiedUpaya.administrasi.length}
-                            </span>
-                          </div>
-
-                          <div className="mt-3 space-y-2 max-h-[460px] overflow-y-auto pr-1">
-                            {classifiedUpaya.administrasi.length > 0 ? (
-                              classifiedUpaya.administrasi.map((item, idx) => (
-                                <div key={idx} className="bg-white p-3 rounded-xl border border-indigo-150/90 shadow-2xs space-y-1.5 hover:border-indigo-300 transition-colors">
-                                  <div className="flex flex-wrap items-center justify-between gap-1">
-                                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                      {item.kabupaten}
-                                    </span>
-                                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                      {item.sub_klaster || item.category}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                                    {item.text}
-                                  </p>
-                                </div>
-                              ))
-                            ) : (
-                              <div className="p-4 text-center text-slate-400 font-semibold text-xs bg-white rounded-xl border border-indigo-100">
-                                Tidak ada aksi administrasi yang sesuai filter.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                  {/* Item 2 */}
+                  <div className="p-3 sm:p-3.5 rounded-xl border border-slate-150 bg-slate-50/50 hover:bg-white transition-all flex items-start gap-3 shadow-2xs">
+                    <div className="p-1.5 rounded-lg bg-teal-50 text-teal-600 border border-teal-200/60 shrink-0 mt-0.5">
+                      <Sparkles className="h-4 w-4" />
                     </div>
-                  ) : (
-                    /* Tampilan Fokus Single Pilar (Saat Tab spesifik dipilih) */
-                    <div className="bg-slate-50/60 p-4 sm:p-5 rounded-2xl border border-slate-200 space-y-3">
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                        <div className="flex items-center gap-2">
-                          {upayaActiveTab === 'pelayanan' && <Stethoscope className="h-5 w-5 text-emerald-600" />}
-                          {upayaActiveTab === 'logistik' && <Warehouse className="h-5 w-5 text-amber-600" />}
-                          {upayaActiveTab === 'surveilans' && <Activity className="h-5 w-5 text-sky-600" />}
-                          {upayaActiveTab === 'administrasi' && <FileText className="h-5 w-5 text-indigo-600" />}
-                          <h5 className="text-base font-black text-slate-900 m-0 uppercase tracking-wide">
-                            {upayaActiveTab === 'pelayanan' && 'Fokus: Pelayanan Medis & Posko Kesehatan'}
-                            {upayaActiveTab === 'logistik' && 'Fokus: Logistik & Farmasi Kesehatan'}
-                            {upayaActiveTab === 'surveilans' && 'Fokus: Data, Informasi & Surveilans SKDR'}
-                            {upayaActiveTab === 'administrasi' && 'Fokus: Administrasi, Keuangan & Perencanaan'}
-                          </h5>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setUpayaActiveTab('all')}
-                          className="text-xs font-bold text-teal-700 hover:text-teal-900 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200 cursor-pointer"
-                        >
-                          &larr; Kembali ke Semua 4 Pilar
-                        </button>
-                      </div>
-
-                      {/* Responsive Multi-Column Cards */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[560px] overflow-y-auto pr-1">
-                        {(() => {
-                          const list =
-                            upayaActiveTab === 'pelayanan'
-                              ? classifiedUpaya.pelayanan
-                              : upayaActiveTab === 'logistik'
-                                ? classifiedUpaya.logistik
-                                : upayaActiveTab === 'surveilans'
-                                  ? classifiedUpaya.surveilans
-                                  : classifiedUpaya.administrasi
-
-                          if (list.length === 0) {
-                            return (
-                              <div className="col-span-full p-6 text-center text-slate-400 font-semibold text-sm bg-white rounded-2xl border border-slate-200">
-                                Tidak ada data aksi yang sesuai dengan filter atau kata kunci pencarian.
-                              </div>
-                            )
-                          }
-
-                          return list.map((item, idx) => (
-                            <div
-                              key={idx}
-                              className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2 hover:border-slate-400 transition-all"
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-slate-100">
-                                <span className="text-xs font-black text-slate-800 flex items-center gap-1">
-                                  <MapPin className="h-3 w-3 text-slate-400" />
-                                  {item.kabupaten}
-                                </span>
-                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                                  {item.sub_klaster || item.category}
-                                </span>
-                              </div>
-                              <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                                {item.text}
-                              </p>
-                            </div>
-                          ))
-                        })()}
-                      </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
+                        Rata-rata Multipatogen 48.3%
+                      </p>
+                      <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
+                        Multipatogen dalam batas wajar
+                      </p>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Item 3 */}
+                  <div className="p-3 sm:p-3.5 rounded-xl border border-slate-150 bg-slate-50/50 hover:bg-white transition-all flex items-start gap-3 shadow-2xs">
+                    <div className="p-1.5 rounded-lg bg-teal-50 text-teal-600 border border-teal-200/60 shrink-0 mt-0.5">
+                      <Users className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
+                        Total kasus positif COVID-19 kumulatif 4 dari 16065 pemeriksaan
+                      </p>
+                      <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
+                        Kasus COVID-19 terkendali.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Item 4 */}
+                  <div className="p-3 sm:p-3.5 rounded-xl border border-slate-150 bg-slate-50/50 hover:bg-white transition-all flex items-start gap-3 shadow-2xs">
+                    <div className="p-1.5 rounded-lg bg-teal-50 text-teal-600 border border-teal-200/60 shrink-0 mt-0.5">
+                      <TrendingUp className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
+                        Rata-rata Proporsi ILI keseluruhan 0.20%
+                      </p>
+                      <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
+                        Proporsi ILI dalam batas normal.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Item 5 */}
+                  <div className="p-3 sm:p-3.5 rounded-xl border border-slate-150 bg-slate-50/50 hover:bg-white transition-all flex items-start gap-3 shadow-2xs">
+                    <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-200/60 shrink-0 mt-0.5">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
+                        Rata-rata Insidens Influenza PR COVID-19: 0.0%, PR Influenza: 23% (COVID -4.3%)
+                      </p>
+                      <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
+                        Lanjutkan surveilans.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Item 6 */}
+                  <div className="p-3 sm:p-3.5 rounded-xl border border-slate-150 bg-slate-50/50 hover:bg-white transition-all flex items-start gap-3 shadow-2xs">
+                    <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-200/60 shrink-0 mt-0.5">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
+                        Peringatan terbaru PR Influenza meningkat minggu ini
+                      </p>
+                      <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
+                        Pantau dashboard secara berkala.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ) : (
-                /* Layout Non-NTT Standar (3 Kolom Lama) */
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                  {/* Col 1: Upaya Penanggulangan */}
-                  <div className="rounded-xl border border-amber-200/80 bg-gradient-to-b from-amber-50/50 to-slate-50/30 p-4 sm:p-5 space-y-3 flex flex-col justify-between shadow-2xs">
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between pb-2.5 border-b border-amber-200/60 gap-2">
-                        <h5 className="text-sm sm:text-base font-black uppercase tracking-wider text-amber-950 m-0">
-                          Upaya Penanggulangan Krisis
-                        </h5>
-                        <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-extrabold text-xs shrink-0">
-                          {compiledUpaya.length > 0 ? `${compiledUpaya.length} Upaya Terinput` : 'Prosedur EOC'}
-                        </span>
-                      </div>
-
-                      <div className="mt-2 space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
-                        {filteredCompiledUpaya.length > 0 ? (
-                          filteredCompiledUpaya.map((item, idx) => (
-                            <div key={idx} className="bg-white p-3 rounded-xl border border-amber-150 shadow-2xs space-y-1.5 hover:border-amber-300 transition-colors">
-                              <div className="flex flex-wrap justify-between items-center gap-1">
-                                <span className="text-xs font-black uppercase tracking-wide text-amber-800">
-                                  {item.label}
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  {item.kabupaten && (
-                                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                      {item.kabupaten}
-                                    </span>
-                                  )}
-                                  {item.category && (
-                                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-                                      {item.category}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                                {item.text}
-                              </p>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="p-4 text-center text-slate-400 font-semibold text-xs bg-white rounded-xl border border-amber-100">
-                            Belum ada data rincian upaya penanggulangan yang dilaporkan.
-                          </div>
-                        )}
-                      </div>
+                <div className="space-y-3">
+                  {/* Peringatan Dini Item 1 */}
+                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50/80 transition-all flex items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                      <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                        PR Influenza (rata-rata 17.8%) — SEDANG
+                      </span>
                     </div>
+                    <span className="px-3 py-1 rounded-lg bg-[#d97706] text-white font-black text-xs shrink-0 shadow-2xs">
+                      17.8%
+                    </span>
                   </div>
 
-                  {/* Col 2: Mobilisasi & Distribusi Logistik Bantuan */}
-                  <div className="rounded-xl border border-cyan-200/80 bg-gradient-to-b from-cyan-50/50 to-slate-50/30 p-4 sm:p-5 space-y-3 flex flex-col justify-between shadow-2xs">
-                    <div>
-                      <div className="flex items-center justify-between pb-2.5 border-b border-cyan-200/60">
-                        <h5 className="text-sm sm:text-base font-black uppercase tracking-wider text-cyan-950 m-0">
-                          Distribusi Logistik &amp; Bantuan
-                        </h5>
-                        <span className="px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-900 font-extrabold text-xs">
-                          Klaster Logistik
-                        </span>
-                      </div>
-
-                      <div className="mt-3.5 space-y-2.5 max-h-[340px] overflow-y-auto pr-1">
-                        {(emtText || pscText) && (
-                          <div className="grid grid-cols-2 gap-2">
-                            {emtText && (
-                              <div className="bg-white p-2.5 rounded-xl border border-cyan-150 shadow-2xs">
-                                <span className="text-[10px] font-black uppercase text-slate-400 block">Tim EMT</span>
-                                <span className="text-xs sm:text-sm font-bold text-cyan-900 block truncate" title={emtText}>{emtText}</span>
-                              </div>
-                            )}
-                            {pscText && (
-                              <div className="bg-white p-2.5 rounded-xl border border-cyan-150 shadow-2xs">
-                                <span className="text-[10px] font-black uppercase text-slate-400 block">PSC 119</span>
-                                <span className="text-xs sm:text-sm font-bold text-cyan-900 block truncate" title={pscText}>{pscText}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {bantuanText ? (
-                          <div className="bg-white p-3.5 rounded-xl border border-cyan-150 shadow-2xs space-y-1">
-                            <span className="text-xs font-black uppercase tracking-wide text-cyan-800 block">Logistik Tersalurkan / Diterima</span>
-                            <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                              {bantuanText}
-                            </p>
-                          </div>
-                        ) : !emtText && !pscText && !bantuanDiperlukanText ? (
-                          <div className="p-4 text-center text-slate-400 font-semibold text-xs bg-white rounded-xl border border-cyan-100">
-                            Belum ada catatan distribusi logistik yang dilaporkan.
-                          </div>
-                        ) : null}
-
-                        {bantuanDiperlukanText && (
-                          <div className="bg-white p-3.5 rounded-xl border border-teal-200 shadow-2xs space-y-1">
-                            <span className="text-xs font-black uppercase tracking-wide text-teal-800 block">Bantuan Yang Diperlukan Segera</span>
-                            <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                              {bantuanDiperlukanText}
-                            </p>
-                          </div>
-                        )}
-                      </div>
+                  {/* Peringatan Dini Item 2 */}
+                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50/80 transition-all flex items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0" />
+                      <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                        Multipatogen (rata-rata 48.3%) — TINGGI
+                      </span>
                     </div>
+                    <span className="px-3 py-1 rounded-lg bg-[#dc2626] text-white font-black text-xs shrink-0 shadow-2xs">
+                      48.3%
+                    </span>
                   </div>
 
-                  {/* Col 3: Rekomendasi, Tindak Lanjut & Hambatan */}
-                  <div className="rounded-xl border border-teal-200/80 bg-gradient-to-b from-teal-50/50 to-slate-50/30 p-4 sm:p-5 space-y-3 flex flex-col justify-between shadow-2xs">
-                    <div>
-                      <div className="flex items-center justify-between pb-2.5 border-b border-teal-200/60">
-                        <h5 className="text-sm sm:text-base font-black uppercase tracking-wider text-teal-950 m-0">
-                          Rekomendasi &amp; Tindak Lanjut
-                        </h5>
-                        <span className="px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-900 font-extrabold text-xs">
-                          Rencana Aksi
-                        </span>
-                      </div>
-
-                      <div className="mt-3.5 space-y-2.5 max-h-[340px] overflow-y-auto pr-1">
-                        {rekomendasiText ? (
-                          <div className="bg-white p-3.5 rounded-xl border border-teal-150 shadow-2xs space-y-1">
-                            <span className="text-xs font-black uppercase tracking-wide text-teal-800 block">Rekomendasi EOC</span>
-                            <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                              {rekomendasiText}
-                            </p>
-                          </div>
-                        ) : !tindakLanjutText && !hambatanText ? (
-                          <div className="p-4 text-center text-slate-400 font-semibold text-xs bg-white rounded-xl border border-teal-100">
-                            Belum ada catatan rekomendasi atau RTL yang dilaporkan.
-                          </div>
-                        ) : null}
-
-                        {tindakLanjutText && (
-                          <div className="bg-white p-3.5 rounded-xl border border-indigo-150 shadow-2xs space-y-1">
-                            <span className="text-xs font-black uppercase tracking-wide text-indigo-800 block">Rencana Tindak Lanjut (RTL)</span>
-                            <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-normal whitespace-pre-line m-0">
-                              {tindakLanjutText}
-                            </p>
-                          </div>
-                        )}
-
-                        {hambatanText && (
-                          <div className="bg-rose-50/90 p-3.5 rounded-xl border border-rose-200 shadow-2xs space-y-1">
-                            <span className="text-xs font-black uppercase tracking-wide text-rose-800 flex items-center gap-1.5">
-                              <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
-                              Hambatan Pelayanan Lapangan
-                            </span>
-                            <p className="text-xs sm:text-sm text-rose-950 leading-relaxed font-semibold whitespace-pre-line m-0">
-                              {hambatanText}
-                            </p>
-                          </div>
-                        )}
-                      </div>
+                  {/* Peringatan Dini Item 3 */}
+                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50/80 transition-all flex items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                      <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                        RSV (rata-rata 11.3%) — SEDANG
+                      </span>
                     </div>
+                    <span className="px-3 py-1 rounded-lg bg-[#d97706] text-white font-black text-xs shrink-0 shadow-2xs">
+                      11.3%
+                    </span>
                   </div>
+
+                  {/* Peringatan Dini Item 4 */}
+                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50/80 transition-all flex items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0" />
+                      <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                        Proporsi ILI (rata-rata 0.2%) — RENDAH
+                      </span>
+                    </div>
+                    <span className="px-3 py-1 rounded-lg bg-[#059669] text-white font-black text-xs shrink-0 shadow-2xs">
+                      0.2%
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 mt-5 italic font-normal">
+                    *Data diperbarui secara berkala berdasarkan laporan masuk.
+                  </p>
                 </div>
               )}
+            </div>
+          </div>
 
-              {eventData.pelapor_nama && (
-                <div className="pt-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between text-xs sm:text-sm text-slate-600 font-medium gap-2">
-                  <span className="flex items-center gap-1.5 text-slate-700">
-                    <span className="font-bold text-slate-900">Penanggung Jawab / Pelapor:</span> {eventData.pelapor_nama} {eventData.pelapor_jabatan ? `(${eventData.pelapor_jabatan})` : ''} {eventData.pelapor_instansi ? `- ${eventData.pelapor_instansi}` : ''} {eventData.pelapor_nip ? `[NIP: ${eventData.pelapor_nip}]` : ''}
+          {/* Card 2: TREN & PERBANDINGAN TAHUNAN */}
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+            <div>
+              {/* Header */}
+              <div className="mb-4">
+                <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-tight m-0">
+                  TREN &amp; PERBANDINGAN TAHUNAN
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 font-normal mt-1 m-0 leading-normal">
+                  Perbandingan rata-rata indikator 2025 vs 2026 untuk melihat perubahan tahunan.
+                </p>
+              </div>
+
+              {/* 2 Top Mini Highlight Boxes */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="rounded-xl border border-emerald-200 bg-[#f0fdf4] p-3 flex flex-col justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#16a34a] block">
+                    PENURUNAN TERBESAR
                   </span>
-                  {eventData.pelapor_no_telp && (
-                    <span className="text-teal-800 font-bold bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">Kontak: {eventData.pelapor_no_telp}</span>
-                  )}
+                  <div className="mt-1">
+                    <span className="text-xs font-bold text-slate-900 block leading-tight">
+                      Positivity Rate COVID-19
+                    </span>
+                    <span className="text-xs font-bold text-[#16a34a] block mt-0.5">
+                      6.7% → 2.1% (▼ -68.7%)
+                    </span>
+                  </div>
                 </div>
-              )}
-            </article>
-          );
-        })()}
 
+                <div className="rounded-xl border border-rose-200 bg-[#fff1f2] p-3 flex flex-col justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#e11d48] block">
+                    KENAIKAN TERBESAR
+                  </span>
+                  <div className="mt-1">
+                    <span className="text-xs font-bold text-slate-900 block leading-tight">
+                      Multipatogen Lainnya
+                    </span>
+                    <span className="text-xs font-bold text-[#e11d48] block mt-0.5">
+                      38.0% → 55.5% [▲ 46.1%]
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 6 Ranked Rows */}
+              <div className="space-y-2">
+                {/* Row 1 */}
+                <div className="flex items-center justify-between p-2 rounded-xl border border-slate-100 bg-slate-50/40 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-5 h-5 rounded-md bg-slate-100 border border-slate-200/80 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0">
+                      1
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 leading-tight truncate">
+                        Positivity Rate Influenza
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>2025: <strong className="font-semibold text-slate-700">24.6%</strong></span>
+                        <span>2026: <strong className="font-semibold text-slate-700">13.0%</strong></span>
+                        <span className="text-emerald-600 font-bold">▼ -47.2%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 shrink-0 ml-2">
+                    SEDANG
+                  </span>
+                </div>
+
+                {/* Row 2 */}
+                <div className="flex items-center justify-between p-2 rounded-xl border border-slate-100 bg-slate-50/40 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-5 h-5 rounded-md bg-slate-100 border border-slate-200/80 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0">
+                      2
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 leading-tight truncate">
+                        Positivity Rate COVID-19
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>2025: <strong className="font-semibold text-slate-700">6.7%</strong></span>
+                        <span>2026: <strong className="font-semibold text-slate-700">2.1%</strong></span>
+                        <span className="text-emerald-600 font-bold">▼ -68.7%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 ml-2">
+                    RENDAH
+                  </span>
+                </div>
+
+                {/* Row 3 */}
+                <div className="flex items-center justify-between p-2 rounded-xl border border-slate-100 bg-slate-50/40 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-5 h-5 rounded-md bg-slate-100 border border-slate-200/80 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0">
+                      3
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 leading-tight truncate">
+                        Proporsi RSV
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>2025: <strong className="font-semibold text-slate-700">12.2%</strong></span>
+                        <span>2026: <strong className="font-semibold text-slate-700">11.0%</strong></span>
+                        <span className="text-emerald-600 font-bold">▼ -9.8%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 shrink-0 ml-2">
+                    SEDANG
+                  </span>
+                </div>
+
+                {/* Row 4 */}
+                <div className="flex items-center justify-between p-2 rounded-xl border border-slate-100 bg-slate-50/40 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-5 h-5 rounded-md bg-slate-100 border border-slate-200/80 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0">
+                      4
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 leading-tight truncate">
+                        Multipatogen Lainnya
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>2025: <strong className="font-semibold text-slate-700">38.0%</strong></span>
+                        <span>2026: <strong className="font-semibold text-slate-700">55.5%</strong></span>
+                        <span className="text-rose-600 font-bold">▲ 46.1%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-rose-50 text-rose-700 border border-rose-200 shrink-0 ml-2">
+                    TINGGI
+                  </span>
+                </div>
+
+                {/* Row 5 */}
+                <div className="flex items-center justify-between p-2 rounded-xl border border-slate-100 bg-slate-50/40 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-5 h-5 rounded-md bg-slate-100 border border-slate-200/80 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0">
+                      5
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 leading-tight truncate">
+                        Proporsi ILI
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>2025: <strong className="font-semibold text-slate-700">0.2%</strong></span>
+                        <span>2026: <strong className="font-semibold text-slate-700">0.2%</strong></span>
+                        <span className="text-slate-500 font-medium">- 0.0%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 ml-2">
+                    RENDAH
+                  </span>
+                </div>
+
+                {/* Row 6 */}
+                <div className="flex items-center justify-between p-2 rounded-xl border border-slate-100 bg-slate-50/40 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-5 h-5 rounded-md bg-slate-100 border border-slate-200/80 flex items-center justify-center text-[10px] font-bold text-slate-500 shrink-0">
+                      6
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 leading-tight truncate">
+                        Proporsi SARI
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>2025: <strong className="font-semibold text-slate-700">0.9%</strong></span>
+                        <span>2026: <strong className="font-semibold text-slate-700">1.1%</strong></span>
+                        <span className="text-rose-600 font-bold">▲ 22.2%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 ml-2">
+                    RENDAH
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: REKOMENDASI TINDAKAN */}
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+            <div>
+              {/* Header */}
+              <div className="mb-4">
+                <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-tight m-0">
+                  REKOMENDASI TINDAKAN
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 font-normal mt-1 m-0 leading-normal">
+                  Rekomendasi prioritas pemantauan berdasarkan indikator surveilans.
+                </p>
+              </div>
+
+              {/* 6 Actions */}
+              <div className="space-y-3">
+                {/* Action 1 */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-4 text-xs font-black text-slate-400 shrink-0">1</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Multipatogen Lainnya</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-rose-50 text-rose-700 border border-rose-200 shrink-0">
+                      TINGGI
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
+                    Tingkatkan frekuensi pemantauan dan evaluasi. Cek tren peningkatan tahunan.
+                  </p>
+                  <div className="flex items-center gap-2.5 pl-6 pt-0.5">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-[#ef4444]" style={{ width: '48.3%' }} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 min-w-[36px] text-right">48.3%</span>
+                  </div>
+                </div>
+
+                {/* Action 2 */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-4 text-xs font-black text-slate-400 shrink-0">2</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Positivity Rate Influenza</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                      SEDANG
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
+                    Perkuat pemantauan dan evaluasi berkala. Cek tren penurunan tahunan.
+                  </p>
+                  <div className="flex items-center gap-2.5 pl-6 pt-0.5">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-[#f59e0b]" style={{ width: '17.8%' }} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 min-w-[36px] text-right">17.8%</span>
+                  </div>
+                </div>
+
+                {/* Action 3 */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-4 text-xs font-black text-slate-400 shrink-0">3</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Proporsi RSV</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                      SEDANG
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
+                    Perkuat pemantauan dan evaluasi berkala. Cek tren penurunan tahunan.
+                  </p>
+                  <div className="flex items-center gap-2.5 pl-6 pt-0.5">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-[#f59e0b]" style={{ width: '11.3%' }} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 min-w-[36px] text-right">11.3%</span>
+                  </div>
+                </div>
+
+                {/* Action 4 */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-4 text-xs font-black text-slate-400 shrink-0">4</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Positivity Rate COVID-19</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                      RENDAH
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
+                    Pemantauan rutin sesuai prosedur. Cek tren penurunan tahunan.
+                  </p>
+                  <div className="flex items-center gap-2.5 pl-6 pt-0.5">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-[#10b981]" style={{ width: '4%' }} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 min-w-[36px] text-right">4%</span>
+                  </div>
+                </div>
+
+                {/* Action 5 */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-4 text-xs font-black text-slate-400 shrink-0">5</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Proporsi SARI</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                      RENDAH
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
+                    Pemantauan rutin sesuai prosedur. Cek tren peningkatan tahunan.
+                  </p>
+                  <div className="flex items-center gap-2.5 pl-6 pt-0.5">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-[#10b981]" style={{ width: '1%' }} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 min-w-[36px] text-right">1%</span>
+                  </div>
+                </div>
+
+                {/* Action 6 */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-4 text-xs font-black text-slate-400 shrink-0">6</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Proporsi ILI</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                      RENDAH
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
+                    Pemantauan rutin sesuai prosedur.
+                  </p>
+                  <div className="flex items-center gap-2.5 pl-6 pt-0.5">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-[#10b981]" style={{ width: '0.2%' }} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 min-w-[36px] text-right">0.2%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Legend */}
+            <div className="pt-3 border-t border-slate-100 mt-3 space-y-1.5">
+              <div className="flex items-center gap-3 text-[10px] font-bold">
+                <span className="flex items-center gap-1 text-emerald-700">
+                  <span className="w-2.5 h-1 rounded-xs bg-[#10b981]" /> RENDAH (0-10%)
+                </span>
+                <span className="flex items-center gap-1 text-amber-700">
+                  <span className="w-2.5 h-1 rounded-xs bg-[#f59e0b]" /> SEDANG (10-20%)
+                </span>
+                <span className="flex items-center gap-1 text-rose-700">
+                  <span className="w-2.5 h-1 rounded-xs bg-[#ef4444]" /> TINGGI (&gt;20%)
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-normal m-0 leading-tight">
+                Kategori berdasarkan distribusi data surveilans per indikator. Ambang batas indikatif, bukan standar baku.
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
       {/* ==================== MATRIKS KORBAN & FASKES PER KABUPATEN POPUP MODAL ==================== */}
       {showKabupatenMatrixModal && (
