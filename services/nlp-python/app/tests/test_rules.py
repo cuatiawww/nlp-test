@@ -25,6 +25,25 @@ class ClassificationRulesTest(unittest.TestCase):
         self.assertEqual(country_scope("Democratic Republic of the Congo"), "OUTSIDE ASEAN")
         self.assertEqual(country_scope("Indonesia"), "Indonesia")
 
+    def test_organisation_name_does_not_become_publisher_country(self):
+        self.assertEqual(extract_country_hint("CDC in Laos works with the Lao Ministry of Health"), "Laos")
+
+    def test_who_aliases_are_used_for_entity_matching(self):
+        concepts = [{
+            "canonical_name": "dengue fever",
+            "english_name": "Dengue",
+            "aliases": [{"alias": "demam berdarah", "language": "id"}],
+        }]
+        self.assertEqual(extract_who_disease_mentions("Program demam berdarah di Laos", concepts), ["dengue fever"])
+
+    def test_unicode_who_alias_is_not_dropped(self):
+        concepts = [{
+            "canonical_name": "dengue fever",
+            "english_name": "Dengue",
+            "aliases": [{"alias": "ไข้เลือดออก", "language": "th"}],
+        }]
+        self.assertEqual(extract_who_disease_mentions("พบผู้ป่วยไข้เลือดออก", concepts), ["dengue fever"])
+
     def test_policy_statistics_are_not_outbreak(self):
         text = (
             "Per Mei 2026 terdapat 39.672 kasus DBD dan 105 kematian. "

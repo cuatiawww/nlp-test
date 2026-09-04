@@ -1,9 +1,10 @@
 ﻿import logging
+import re
 from typing import Optional
 
 from . import config, extractors
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
-from .schemas import AnalyzeRequest, AnalyzeResponse
+from .schemas import AnalyzeRequest, AnalyzeResponse, DiseaseMention
 from .translator import translate_and_extract
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         "my": "Myanmar", "tl": "Philippines", "tet": "Timor-Leste",
     }
     location_country = (
-        payload.source_country
+        extractors.normalize_country(payload.source_country)
         or extractors.extract_country_hint(text)
         or country_by_language.get(language, "")
     )
@@ -169,12 +170,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         is_health_related = False
         disease = "UNKNOWN"
 
+    # Multiple explicit diseases are common in prevention/advisory articles.
+    # Ask the constrained agent to arbitrate the primary disease instead of
+    # allowing alphabetical/global-frequency ordering to decide it.
     should_use_deepseek = (
         not is_noisy
         and (
             disease == "UNKNOWN"
             or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
             or (language not in {"en", "id"} and not extracted)
+            or len(extracted) > 1
+            or bool(extracted and not who_mentions)
         )
     )
     if should_use_deepseek:
@@ -184,10 +190,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if resolved:
                 disease = resolved["canonical_name"]
                 confidence = resolved["confidence"]
-                extracted = list(dict.fromkeys([*extracted, disease]))
+                extracted = [
+                    disease,
+                    *[item for item in extracted if item.lower() != disease.lower()],
+                ]
                 has_keywords = True
                 is_health_related = True
-            elif disease == "UNKNOWN" or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE:
+            elif (
+                disease == "UNKNOWN"
+                or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
+                or (extracted and not who_mentions)
+            ):
                 # Dynamic WHO ICD-11 Discovery & Self-Learning
                 from .icd11 import resolve_and_learn_disease
                 dynamic_resolved = resolve_and_learn_disease(analysis_text or text, language=language)
@@ -203,7 +216,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if translated_text and extracted:
         disease = extracted[0]
         confidence = max(confidence, 0.85)
-    if who_mentions:
+    if who_mentions and disease == "UNKNOWN":
         opening_text = text[:1500] + " " + analysis_text[:1500]
         opening_who = [w for w in who_mentions if w.lower().split()[0] in opening_text.lower()]
         disease = opening_who[0] if opening_who else who_mentions[0]
@@ -328,6 +341,87 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     ]
     extracted = list(dict.fromkeys(extracted))
 
+    # Resolve every explicit mention, including secondary diseases. The agent
+    # chooses the primary disease, but WHO validation is applied to the full
+    # mention set so related diseases are not lost.
+    try:
+        from .icd11 import resolve_disease_term
+        term_resolutions = {}
+        for candidate in extracted[:12]:
+            term_resolutions[candidate] = resolve_disease_term(
+                candidate, language=language, sample_text=text
+            )
+        for candidate, resolved_term in term_resolutions.items():
+            if resolved_term and resolved_term.get("canonical_name"):
+                canonical = resolved_term["canonical_name"]
+                extracted = [
+                    canonical if value == candidate else value
+                    for value in extracted
+                ]
+                if disease == candidate:
+                    disease = canonical
+                    confidence = max(confidence, resolved_term.get("confidence", 0.90))
+        extracted = list(dict.fromkeys(extracted))
+    except Exception as exc:
+        logger.info("WHO term resolution unavailable: %s", exc)
+
+    def _norm_disease(value: str) -> str:
+        # Keep Unicode disease names (Thai/Lao/Khmer/etc.) available for
+        # evidence lookup after alias matching.
+        return re.sub(r"[^\w\s-]+", " ", (value or "").lower(), flags=re.UNICODE).strip()
+
+    def _concept_for(value: str):
+        normalized = _norm_disease(value)
+        if not normalized:
+            return None
+        for concept in config.WHO_DISEASE_CONCEPTS:
+            names = [concept.get("canonical_name"), concept.get("english_name")]
+            names.extend(
+                item.get("alias") if isinstance(item, dict) else item
+                for item in (concept.get("aliases") or [])
+            )
+            cleaned = [_norm_disease(str(name or "")) for name in names]
+            if normalized in cleaned or any(
+                len(normalized) >= 4 and (normalized in name or name in normalized)
+                for name in cleaned if name
+            ):
+                return concept
+        return None
+
+    def _mention_evidence(value: str, concept) -> tuple[str, str]:
+        names = [value]
+        if concept:
+            names.extend([concept.get("canonical_name"), concept.get("english_name")])
+            names.extend(
+                item.get("alias") if isinstance(item, dict) else item
+                for item in (concept.get("aliases") or [])
+            )
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+            if any(name and str(name).lower() in sentence.lower() for name in names):
+                surface = next(
+                    (str(name) for name in names if name and str(name).lower() in sentence.lower()),
+                    value,
+                )
+                return surface, sentence.strip()[:500]
+        return value, text[:500].strip()
+
+    disease_mentions: list[DiseaseMention] = []
+    for candidate in extracted:
+        concept = _concept_for(candidate)
+        canonical = concept.get("canonical_name") if concept else candidate
+        surface, evidence = _mention_evidence(candidate, concept)
+        disease_mentions.append(
+            DiseaseMention(
+                surface_form=surface,
+                canonical_name=canonical,
+                icd11_code=concept.get("ontology_code") if concept else None,
+                role="primary" if _norm_disease(canonical) == _norm_disease(disease) else "secondary",
+                evidence=evidence,
+                confidence=max(confidence if canonical == disease else 0.70, 0.0),
+                resolution_source=("WHO ICD-11" if concept and concept.get("ontology_code") else "keyword/agent"),
+            )
+        )
+
     published_at = payload.published_at or extractors.extract_date_from_text(text)
 
     return AnalyzeResponse(
@@ -342,6 +436,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         longitude=lon,
         symptoms=symptoms,
         disease_extracted=extracted,
+        disease_mentions=disease_mentions,
         disease_classification=disease,
         case_count=case_count,
         death_count=death_count,

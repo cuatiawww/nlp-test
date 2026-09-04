@@ -8,14 +8,17 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", OPENAI_API_KEY).strip()
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", OPENAI_BASE_URL).rstrip("/")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", OPENAI_MODEL)
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", os.getenv("OPENAI_MAX_TOKENS", "2000")))
 DEEPSEEK_TIMEOUT_SECONDS = int(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "20"))
 DEEPSEEK_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_MIN_CONFIDENCE", "0.85"))
 DEEPSEEK_TRIGGER_CONFIDENCE = float(os.getenv("DEEPSEEK_TRIGGER_CONFIDENCE", "0.75"))
 DEEPSEEK_LOCATION_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_LOCATION_MIN_CONFIDENCE", "0.80"))
+AGENT_ENABLED = os.getenv("AGENT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+AGENT_PROVIDER_ORDER = os.getenv("AGENT_PROVIDER_ORDER", "deepseek,openai")
+AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", str(DEEPSEEK_TIMEOUT_SECONDS)))
 
 # WHO ICD-11 MMS Configuration
 WHO_ICD_CLIENT_ID = os.getenv("WHO_ICD_CLIENT_ID", "").strip()
@@ -27,6 +30,7 @@ WHO_ICD_LANGUAGE = os.getenv("WHO_ICD_LANGUAGE", "en")
 WHO_ICD_API_VERSION = os.getenv("WHO_ICD_API_VERSION", "v2")
 WHO_DISCOVERY_ENABLED = os.getenv("WHO_DISCOVERY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 WHO_DISCOVERY_MIN_CONFIDENCE = float(os.getenv("WHO_DISCOVERY_MIN_CONFIDENCE", "0.70"))
+WHO_TERM_RESOLUTION_ENABLED = os.getenv("WHO_TERM_RESOLUTION_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
 MODEL_MAP = {
     "xlm-roberta": "xlm-roberta-base",
@@ -140,10 +144,20 @@ def load_who_disease_concepts_from_db():
         from psycopg.rows import dict_row
         conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
         rows = conn.execute(
-            """SELECT canonical_name, english_name, ontology_code, ontology_uri
-               FROM disease_concepts
-               WHERE is_active = TRUE AND ontology_system = 'WHO ICD-11 MMS'
-               ORDER BY canonical_name"""
+            """SELECT c.canonical_name, c.english_name, c.ontology_code, c.ontology_uri,
+                      COALESCE(
+                        json_agg(
+                          json_build_object('alias', a.alias, 'language', a.language)
+                          ORDER BY a.confidence DESC, a.alias
+                        ) FILTER (WHERE a.id IS NOT NULL),
+                        '[]'::json
+                      ) AS aliases
+               FROM disease_concepts c
+               LEFT JOIN disease_aliases a
+                 ON a.concept_id = c.id AND a.is_active = TRUE
+               WHERE c.is_active = TRUE AND c.ontology_system = 'WHO ICD-11 MMS'
+               GROUP BY c.id, c.canonical_name, c.english_name, c.ontology_code, c.ontology_uri
+               ORDER BY c.canonical_name"""
         ).fetchall()
         conn.close()
         WHO_DISEASE_CONCEPTS = list(rows)
@@ -460,4 +474,41 @@ def upsert_discovered_disease_concept(
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("Failed to upsert discovered WHO disease concept '%s': %s", canonical_name, e)
+        return False
+
+
+def upsert_disease_discovery_candidate(
+    surface_form: str,
+    sample_text: str = "",
+    language: str = "unknown",
+    provider: str = "",
+    confidence: float = 0.0,
+) -> bool:
+    """Quarantine terminology that an agent found but WHO did not validate."""
+    if not surface_form or not surface_form.strip():
+        return False
+    normalized = re.sub(r"\s+", " ", re.sub(r"[^\w\s-]", " ", surface_form.lower())).strip()
+    if not normalized:
+        return False
+    try:
+        import psycopg
+        with psycopg.connect(DATABASE_URL) as conn:
+            conn.execute(
+                """INSERT INTO disease_discovery_candidates
+                   (surface_form, normalized_form, language, sample_text, provider, confidence)
+                   VALUES (%s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (normalized_form) DO UPDATE SET
+                     occurrences = disease_discovery_candidates.occurrences + 1,
+                     sample_text = COALESCE(EXCLUDED.sample_text, disease_discovery_candidates.sample_text),
+                     provider = COALESCE(NULLIF(EXCLUDED.provider, ''), disease_discovery_candidates.provider),
+                     confidence = GREATEST(COALESCE(disease_discovery_candidates.confidence, 0), EXCLUDED.confidence),
+                     updated_at = NOW()""",
+                (surface_form.strip(), normalized, language or "unknown", sample_text[:5000], provider, confidence),
+            )
+        return True
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Failed to store unresolved disease candidate '%s': %s", surface_form, e,
+        )
         return False

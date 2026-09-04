@@ -18,6 +18,7 @@ import urllib.parse
 from typing import Any
 
 from . import config
+from .agent import chat_json
 
 logger = logging.getLogger(__name__)
 
@@ -146,12 +147,55 @@ def who_search(term: str, token: str | None = None) -> dict[str, Any] | None:
         return None
 
 
+def resolve_disease_term(term: str, language: str = "", sample_text: str = "") -> dict[str, Any] | None:
+    """Resolve one explicit surface term directly against local concepts/WHO."""
+    if not config.WHO_TERM_RESOLUTION_ENABLED or not term or not term.strip():
+        return None
+    normalized = _normalize(term)
+    for concept in config.WHO_DISEASE_CONCEPTS:
+        names = [concept.get("canonical_name"), concept.get("english_name")]
+        names.extend(
+            item.get("alias") if isinstance(item, dict) else item
+            for item in (concept.get("aliases") or [])
+        )
+        if any(_normalize(str(name or "")) == normalized for name in names):
+            return {
+                "canonical_name": concept["canonical_name"],
+                "english_name": concept.get("english_name") or concept["canonical_name"],
+                "ontology_code": concept.get("ontology_code"),
+                "ontology_uri": concept.get("ontology_uri"),
+                "confidence": 0.99,
+                "resolution_source": "local WHO concept",
+            }
+
+    concept = who_search(term)
+    if concept:
+        aliases = [{"surface_form": term, "language": language or "unknown", "confidence": 0.90}]
+        config.upsert_discovered_disease_concept(
+            canonical_name=concept["canonical_name"],
+            english_name=concept["english_name"],
+            ontology_code=concept["ontology_code"],
+            ontology_uri=concept["ontology_uri"],
+            ontology_release=concept.get("ontology_release", config.WHO_ICD_RELEASE),
+            aliases=aliases,
+        )
+        return {
+            "canonical_name": concept["canonical_name"],
+            "english_name": concept["english_name"],
+            "ontology_code": concept["ontology_code"],
+            "ontology_uri": concept["ontology_uri"],
+            "confidence": 0.90,
+            "resolution_source": "WHO ICD-11 search",
+        }
+
+    config.upsert_disease_discovery_candidate(
+        term, sample_text=sample_text, language=language or "unknown", provider="WHO search"
+    )
+    return None
+
+
 def discover_disease_entity(text: str, language: str = "") -> dict[str, Any] | None:
     """Use LLM to extract disease entity without static DB concept constraints."""
-    api_key = config.DEEPSEEK_API_KEY or config.OPENAI_API_KEY
-    if not api_key:
-        return None
-
     sample = (text or "")[:5000].strip()
     if not sample:
         return None
@@ -171,41 +215,15 @@ def discover_disease_entity(text: str, language: str = "") -> dict[str, Any] | N
         f"article_sample={json.dumps(sample, ensure_ascii=False)}"
     )
 
-    body = {
-        "model": config.DEEPSEEK_MODEL,
-        "messages": [
-            {"role": "system", "content": "You are a cautious medical entity detector. Output valid JSON only."},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-        "max_completion_tokens": 500,
-    }
-
-    base_url = config.DEEPSEEK_BASE_URL
-    url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
-
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "disease-surveillance-nlp/1.0",
-        },
-        method="POST",
+    result = chat_json(
+        "You are a cautious medical entity detector. Output valid JSON only.",
+        prompt,
+        max_tokens=500,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=config.DEEPSEEK_TIMEOUT_SECONDS) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        message = payload["choices"][0]["message"]
-        result = _json_response(message.get("content") or "")
-        if not result.get("is_actual_disease"):
-            return None
-        return result
-    except Exception as e:
-        logger.info("LLM disease discovery extraction failed: %s", e)
+    result.pop("_provider", None)
+    if not result.get("is_actual_disease"):
         return None
+    return result
 
 
 def resolve_and_learn_disease(text: str, language: str = "") -> dict[str, Any] | None:
@@ -249,7 +267,12 @@ def resolve_and_learn_disease(text: str, language: str = "") -> dict[str, Any] |
     for term in search_terms:
         norm_t = _normalize(term)
         for concept in config.WHO_DISEASE_CONCEPTS:
-            if _normalize(concept.get("canonical_name", "")) == norm_t or _normalize(concept.get("english_name", "")) == norm_t:
+            concept_terms = [concept.get("canonical_name"), concept.get("english_name")]
+            concept_terms.extend(
+                item.get("alias") if isinstance(item, dict) else item
+                for item in (concept.get("aliases") or [])
+            )
+            if any(_normalize(str(value or "")) == norm_t for value in concept_terms):
                 # If raw term differs, register new alias in DB
                 if raw_term and _normalize(raw_term) != norm_t:
                     config.upsert_discovered_disease_concept(
@@ -277,6 +300,13 @@ def resolve_and_learn_disease(text: str, language: str = "") -> dict[str, Any] |
 
     if not concept:
         logger.info("No official WHO ICD-11 concept found for terms: %s", search_terms)
+        config.upsert_disease_discovery_candidate(
+            raw_term or en_term or synonym,
+            sample_text=text,
+            language=language or "unknown",
+            provider="agent",
+            confidence=confidence,
+        )
         with _DISCOVERY_LOCK:
             _DISCOVERY_CACHE[sample_key] = (None, now + _CACHE_TTL_SECONDS)
         return None

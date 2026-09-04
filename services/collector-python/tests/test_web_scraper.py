@@ -55,6 +55,20 @@ class WebScraperHelpersTest(unittest.TestCase):
     def test_country_hint_is_empty_for_unrecognised_path(self):
         self.assertEqual(_country_hint_from_url("https://example.org/news/article"), "")
 
+    def test_country_hint_uses_article_path_not_publisher_tld(self):
+        self.assertEqual(
+            _country_hint_from_url("https://www.cdc.gov/global-health/countries/laos.html"),
+            "Laos",
+        )
+        self.assertEqual(
+            _country_hint_from_url("https://laos.embassy.gov.au/vtan/article.html"),
+            "Laos",
+        )
+        self.assertEqual(
+            _country_hint_from_url("https://www.smartraveller.gov.au/destinations/asia/laos"),
+            "Laos",
+        )
+
     def test_detects_blocked_statuses(self):
         for status in (403, 429, 503):
             self.assertTrue(_is_challenge(status, ""))

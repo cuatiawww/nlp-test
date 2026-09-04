@@ -57,6 +57,10 @@ docker compose exec -T postgres psql -U postgres -d disease_ai -c "ALTER TABLE d
 
 Akses: **http://localhost:3010/nlp/**
 
+Walkthrough implementasi agent WHO ICD-11, fallback DeepSeek/OpenAI, disease
+mentions, dan verifikasi hasil tersedia di
+[`docs/ICD11_AGENT_WALKTHROUGH.md`](docs/ICD11_AGENT_WALKTHROUGH.md).
+
 ## Frontend Pages
 
 Semua halaman diakses via prefix **`/nlp/`** (Next.js basePath).

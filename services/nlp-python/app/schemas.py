@@ -19,6 +19,16 @@ class LocationItem(BaseModel):
     country: Optional[str] = None
 
 
+class DiseaseMention(BaseModel):
+    surface_form: str
+    canonical_name: str
+    icd11_code: Optional[str] = None
+    role: str = "secondary"
+    evidence: str = ""
+    confidence: float = 0.0
+    resolution_source: str = "local"
+
+
 class AnalyzeResponse(BaseModel):
     language: str
     normalized_text: str
@@ -33,6 +43,7 @@ class AnalyzeResponse(BaseModel):
     original_location_name: Optional[str] = None
     symptoms: list[str]
     disease_extracted: list[str]
+    disease_mentions: list[DiseaseMention] = []
     disease_classification: str
     case_count: int
     death_count: int

@@ -38,11 +38,40 @@ URL_COUNTRY_SLUGS = {
 
 
 def _country_hint_from_url(url: str) -> str:
+    """Return the country targeted by an article URL, never its publisher country.
+
+    Country context is deliberately limited to explicit path/host tokens.  A
+    ``.au`` host or a mention of an organisation such as CDC must not turn an
+    article about Laos into an Australian/US event.
+    """
     parsed = urlparse(url)
+    aliases = {
+        "brunei": "Brunei", "cambodia": "Cambodia", "indonesia": "Indonesia",
+        "laos": "Laos", "lao": "Laos", "lao-pdr": "Laos", "malaysia": "Malaysia",
+        "myanmar": "Myanmar", "burma": "Myanmar", "philippines": "Philippines",
+        "singapore": "Singapore", "thailand": "Thailand", "timor-leste": "Timor-Leste",
+        "east-timor": "Timor-Leste", "vietnam": "Vietnam", "viet-nam": "Vietnam",
+        "south-sudan": "South Sudan", "sudan": "Sudan",
+    }
     segments = [segment.strip().lower() for segment in parsed.path.split("/") if segment.strip()]
     for index, segment in enumerate(segments[:-1]):
         if segment == "report":
-            return URL_COUNTRY_SLUGS.get(segments[index + 1], "")
+            return aliases.get(segments[index + 1], "")
+
+    # Prefer an explicit country token anywhere in the path.  This covers
+    # /countries/laos.html, /destinations/asia/laos and article slugs ending
+    # in -laos, while avoiding generic publisher TLDs.
+    for segment in segments:
+        clean = re.sub(r"\.(?:html?|php)$", "", segment)
+        for token in re.split(r"[^a-z]+", clean):
+            if token in aliases:
+                return aliases[token]
+
+    # Some country offices use a country subdomain, e.g. laos.embassy.gov.au.
+    host_parts = [part for part in (parsed.hostname or "").lower().split(".") if part]
+    for part in host_parts:
+        if part in aliases:
+            return aliases[part]
     return ""
 
 

@@ -89,6 +89,8 @@ COUNTRY_ALIASES = {
     "indonesia": "Indonesia",
     "laos": "Laos",
     "lao pdr": "Laos",
+    "lao people's democratic republic": "Laos",
+    "lao people s democratic republic": "Laos",
     "malaysia": "Malaysia",
     "myanmar": "Myanmar",
     "burma": "Myanmar",
@@ -116,7 +118,6 @@ COUNTRY_ALIASES = {
     "usa": "United States",
     "us": "United States",
     "amerika serikat": "United States",
-    "cdc": "United States",
     "mexico": "Mexico",
     "meksiko": "Mexico",
     "canada": "Canada",
@@ -154,6 +155,18 @@ COUNTRY_ALIASES = {
     "egypt": "Egypt",
     "saudi arabia": "Saudi Arabia",
 }
+
+
+def normalize_country(value: Optional[str]) -> Optional[str]:
+    """Normalize a supplied country hint without confusing organizations with countries."""
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    folded = _fold_location_text(raw)
+    for alias, standard in COUNTRY_ALIASES.items():
+        if folded == _fold_location_text(alias):
+            return standard
+    return raw
 
 
 def extract_country_hint(text: str) -> Optional[str]:
@@ -203,27 +216,37 @@ WHO_STOPWORDS = {
     "case", "cases", "death", "deaths", "health", "medical"
 }
 
+
+def _normalize_entity_text(value: str) -> str:
+    """Normalize entity text while retaining Unicode scripts (Thai/Lao/Khmer)."""
+    folded = strip_diacritics((value or "").casefold())
+    folded = folded.replace("_", " ")
+    return re.sub(r"[^\w]+", " ", folded, flags=re.UNICODE).strip()
+
 def extract_who_disease_mentions(text: str, concepts: list[dict]) -> list[str]:
     """Match explicit WHO concept names and their clean specific variants."""
-    raw_val = (text or "").lower()
-    val_diacritic = strip_diacritics(raw_val)
-    value = re.sub(r"[^a-z0-9]+", " ", raw_val + " " + val_diacritic).strip()
+    value = _normalize_entity_text(text)
     mentions: list[str] = []
     for concept in concepts:
         canonical = str(concept.get("canonical_name") or "").strip()
         english = str(concept.get("english_name") or "").strip()
         terms = set()
         for name in (canonical, english):
-            full_folded = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+            full_folded = _normalize_entity_text(name)
             if full_folded and full_folded not in WHO_STOPWORDS and len(full_folded) >= 4:
                 terms.add(full_folded)
             for sub in re.split(r"[/,()]", name):
-                t = re.sub(r"[^a-z0-9]+", " ", sub.lower()).strip()
+                t = _normalize_entity_text(sub)
                 if len(t) >= 4 and t not in WHO_STOPWORDS:
                     terms.add(t)
             for token in full_folded.split():
                 if len(token) >= 4 and token not in WHO_STOPWORDS and any(c.isdigit() for c in token):
                     terms.add(token)
+        for alias_item in concept.get("aliases") or []:
+            alias = alias_item.get("alias") if isinstance(alias_item, dict) else alias_item
+            alias_clean = _normalize_entity_text(str(alias or ""))
+            if len(alias_clean) >= 4 and alias_clean not in WHO_STOPWORDS:
+                terms.add(alias_clean)
 
         for term in sorted(terms, key=len, reverse=True):
             if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", value):
@@ -236,14 +259,14 @@ def canonicalize_who_disease_labels(labels: list[str], concepts: list[dict]) -> 
     """Map local keyword labels (e.g. KOLERA/MEASLES/AVIAN_INFLUENZA) to WHO canonicals."""
     matched = []
     for label in labels:
-        lbl_clean = re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
+        lbl_clean = _normalize_entity_text(label)
         if not lbl_clean:
             continue
         for concept in concepts:
             canonical = str(concept.get("canonical_name") or "").strip()
             english = str(concept.get("english_name") or "").strip()
-            can_clean = re.sub(r"[^a-z0-9]+", " ", canonical.lower()).strip()
-            eng_clean = re.sub(r"[^a-z0-9]+", " ", english.lower()).strip()
+            can_clean = _normalize_entity_text(canonical)
+            eng_clean = _normalize_entity_text(english)
 
             if lbl_clean == can_clean or lbl_clean == eng_clean:
                 matched.append(canonical)
@@ -251,6 +274,15 @@ def canonicalize_who_disease_labels(labels: list[str], concepts: list[dict]) -> 
             if len(lbl_clean) >= 4 and (lbl_clean in can_clean or lbl_clean in eng_clean or can_clean in lbl_clean):
                 matched.append(canonical)
                 break
+            for alias_item in concept.get("aliases") or []:
+                alias = alias_item.get("alias") if isinstance(alias_item, dict) else alias_item
+                alias_clean = _normalize_entity_text(str(alias or ""))
+                if alias_clean and (lbl_clean == alias_clean or (len(lbl_clean) >= 4 and lbl_clean in alias_clean)):
+                    matched.append(canonical)
+                    break
+            else:
+                continue
+            break
     return sorted(set(matched))
 
 
