@@ -354,7 +354,7 @@ export default function DashboardPage() {
       <section className="w-full bg-[#f8fafc] pb-5">
         <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[381px_minmax(0,1fr)] xl:items-stretch">
           <section
-            className="flex overflow-hidden border border-[#cfe0f1] bg-gradient-to-b from-[#f0f6fc] to-[#e8f1fa] xl:h-[550px] xl:w-[381px]"
+            className="flex overflow-hidden border border-[#cfe0f1] bg-gradient-to-b from-[#f0f6fc] to-[#e8f1fa] xl:h-[700px] 2xl:h-[760px] xl:w-[381px]"
             style={{ borderRadius: "17px 17px 22px 17px" }}
           >
             <div className="flex w-full flex-col">
@@ -412,7 +412,7 @@ export default function DashboardPage() {
           </section>
 
           <article
-            className="flex flex-col border border-[#cfe0f1] bg-white p-4 xl:h-[550px]"
+            className="flex flex-col border border-[#cfe0f1] bg-white p-4 xl:h-[700px] 2xl:h-[760px]"
             style={{ borderRadius: "17px 17px 22px 17px" }}
           >
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -431,7 +431,7 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-4 min-h-[300px] w-full flex-1 overflow-hidden rounded-xl">
+            <div className="mt-4 min-h-[460px] w-full flex-1 overflow-hidden rounded-xl">
               <SpatialOutbreakMap
                 countries={countryData}
                 locations={data?.locations ?? []}

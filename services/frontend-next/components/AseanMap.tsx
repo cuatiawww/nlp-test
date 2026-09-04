@@ -51,6 +51,7 @@ type Props = {
   showWind?: boolean;
   ewsRadiusKm?: number | null;
   embedded?: boolean;
+  highlightCountry?: string;
 };
 
 const HIGHLIGHT = "#0060A9";
@@ -81,6 +82,7 @@ export default function AseanMap({
   showWind,
   ewsRadiusKm,
   embedded,
+  highlightCountry,
 }: Props) {
   const { t } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
@@ -97,6 +99,7 @@ export default function AseanMap({
     totalCases: number;
     locations: { name: string; cases: number }[];
   } | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<OutbreakLocation | null>(null);
 
   const latestPropsRef = useRef({ countryData, outbreakLocations, locationsData });
   useEffect(() => {
@@ -221,6 +224,23 @@ export default function AseanMap({
     });
 
     const clickKey = map.on("singleclick", (evt) => {
+      const markerHits: FeatureLike[] = [];
+      map.forEachFeatureAtPixel(
+        evt.pixel,
+        (f) => {
+          markerHits.push(f);
+          return true;
+        },
+        { hitTolerance: 10, layerFilter: (l) => l === markerLayer },
+      );
+
+      const clickedLocation = markerHits[0]?.get("location") as OutbreakLocation | undefined;
+      if (clickedLocation) {
+        setSelected(null);
+        setSelectedLocation(clickedLocation);
+        return;
+      }
+
       const hits: FeatureLike[] = [];
       map.forEachFeatureAtPixel(
         evt.pixel,
@@ -233,6 +253,7 @@ export default function AseanMap({
 
       if (hits.length === 0) {
         setSelected(null);
+        setSelectedLocation(null);
         return;
       }
 
@@ -260,6 +281,7 @@ export default function AseanMap({
         totalCases,
         locations: locs.sort((a, b) => b.cases - a.cases),
       });
+      setSelectedLocation(null);
 
       const geom = (hits[0] as Feature<Geometry>).getGeometry();
       if (geom) {
@@ -275,7 +297,7 @@ export default function AseanMap({
       if (evt.dragging) return;
       const hit = map.hasFeatureAtPixel(evt.pixel, {
         hitTolerance: 8,
-        layerFilter: (l) => l === vectorLayer,
+        layerFilter: (l) => l === vectorLayer || l === markerLayer,
       });
       (map.getTargetElement() as HTMLElement).style.cursor = hit
         ? "pointer"
@@ -455,19 +477,20 @@ export default function AseanMap({
         { featureProjection: "EPSG:3857" },
       ) as Feature;
       feature.set("severity", item.severity);
+      feature.set("location", item);
       markerSource.addFeature(feature);
     });
 
     const hasLocation = result?.latitude != null && result?.longitude != null;
     const hasCountry = !!result?.country && result?.language !== "en";
 
-    const targetCountry = result?.country?.toLowerCase();
+    const targetCountry = (result?.country || highlightCountry)?.toLowerCase();
 
     vectorLayer.setStyle((f: FeatureLike) => {
       const name = (f.get("name") as string).toLowerCase();
       const item = countryData?.find((d) => d.name.toLowerCase() === name);
       const isHighlighted =
-        hasCountry && !!targetCountry && name === targetCountry;
+        !!targetCountry && (name === targetCountry || name === highlightCountry?.toLowerCase());
       const fill = isHighlighted ? "#dc2626" : countryFill(item?.cases);
       const stroke = isHighlighted ? "#dc2626" : "#475569";
       const sw = isHighlighted ? 2 : 1;
@@ -517,7 +540,7 @@ export default function AseanMap({
       ) as Feature;
       f.set("type", "exact");
       markerSource.addFeature(f);
-    } else if (hasCountry && targetCountry) {
+    } else if ((hasCountry || highlightCountry) && targetCountry) {
       const feature = vectorSource
         .getFeatures()
         .find((f) => (f.get("name") as string).toLowerCase() === targetCountry);
@@ -534,10 +557,11 @@ export default function AseanMap({
         ?.getView()
         .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 500 });
     }
-  }, [countryData, result, outbreakLocations]);
+  }, [countryData, result, outbreakLocations, highlightCountry]);
 
   const resetView = () => {
     setSelected(null);
+    setSelectedLocation(null);
     mapRef.current
       ?.getView()
       .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 450 });
@@ -652,6 +676,53 @@ export default function AseanMap({
               <span className="h-3 w-3 shrink-0 rounded-[3px] bg-slate-400" /> 0
             </li>
           </ul>
+        </div>
+      )}
+
+      {selectedLocation && (
+        <div
+          className="absolute bottom-16 left-1/2 z-30 w-[min(410px,calc(100%-32px))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5"
+          style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
+        >
+          <button
+            type="button"
+            onClick={resetView}
+            className="absolute right-3.5 top-3.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <div className="pr-8">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#0060A9]">Regional IBS Alert</p>
+            <h3 className="mt-1 truncate text-base font-black text-slate-900">{selectedLocation.location_name}</h3>
+            <p className="truncate text-[11px] font-semibold text-slate-500">
+              {selectedLocation.disease} • {selectedLocation.country}
+            </p>
+          </div>
+          <div className="mt-3 grid grid-cols-4 gap-2">
+            <div className="rounded-xl border border-blue-200/80 bg-blue-50/70 p-2 text-center">
+              <span className="text-[9px] font-bold text-[#0060A9]">Cases</span>
+              <p className="mt-0.5 text-sm font-black text-[#0060A9]">{selectedLocation.cases.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl border border-rose-200/80 bg-rose-50/70 p-2 text-center">
+              <span className="text-[9px] font-bold text-rose-700">Deaths</span>
+              <p className="mt-0.5 text-sm font-black text-rose-700">{selectedLocation.deaths.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 p-2 text-center">
+              <span className="text-[9px] font-bold text-amber-700">Status</span>
+              <p className="mt-0.5 text-[10px] font-black text-amber-800">{selectedLocation.severity}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-center">
+              <span className="text-[9px] font-bold text-slate-600">Events</span>
+              <p className="mt-0.5 text-sm font-black text-slate-800">{selectedLocation.event_count.toLocaleString()}</p>
+            </div>
+          </div>
+          <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-500">
+            <div className="flex items-center justify-between gap-3">
+              <span>Sumber: {selectedLocation.detail?.source_name || "SKDR IBS"}</span>
+              <span>{selectedLocation.latest_date ? new Date(selectedLocation.latest_date).toLocaleDateString("id-ID") : "-"}</span>
+            </div>
+          </div>
         </div>
       )}
 

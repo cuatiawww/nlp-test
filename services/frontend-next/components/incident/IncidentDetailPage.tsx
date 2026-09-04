@@ -801,9 +801,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     }
   }, [isNttEvent])
 
-  // Regional detail uses the production dashboard aggregation, restricted to
-  // SKDR IBS records so RSS and social-media events do not contaminate the
-  // regional surveillance view.
+  // Regional detail uses the production dashboard aggregation for both SKDR
+  // channels. RSS and social-media events stay outside this surveillance view.
   useEffect(() => {
     if (!isRegionalTemplate) return
 
@@ -814,11 +813,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         const data = await fetchPublicDashboard({
           country: 'Indonesia',
           year: new Date().getFullYear(),
-          source: 'ibs',
+          source: 'skdr',
         })
         if (active) setRegionalSkdrData(data)
       } catch (error) {
-        if (active) console.warn('[Regional SKDR IBS Fetch Error]', error)
+        if (active) console.warn('[Regional SKDR Fetch Error]', error)
       } finally {
         if (active) setLoadingRegionalSkdr(false)
       }
@@ -1989,6 +1988,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
   // Fetch real weather, wind direction & visibility from Open-Meteo for disaster location on event date (startStr to endStr)
   useEffect(() => {
+    if (isRegionalTemplate) return
     const lat = Number(eventData.latitude || (detail?.lokasi && detail.lokasi[0]?.latitude) || 1.6833)
     const lng = Number(eventData.longitude || (detail?.lokasi && detail.lokasi[0]?.longitude) || 98.8472)
 
@@ -2042,10 +2042,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         setRealtimeWeather(null)
         setRealtimeWind(null)
       })
-  }, [eventData, detail, startStr, endStr, eventDateObj])
+  }, [eventData, detail, startStr, endStr, eventDateObj, isRegionalTemplate])
 
   // Fetch real Air Quality (ISPU / AQI, PM2.5, PM10, SO2) from Open-Meteo Air Quality API
   useEffect(() => {
+    if (isRegionalTemplate) return
     const lat = Number(eventData.latitude || (detail?.lokasi && detail.lokasi[0]?.latitude) || 1.6833)
     const lng = Number(eventData.longitude || (detail?.lokasi && detail.lokasi[0]?.longitude) || 98.8472)
 
@@ -2130,10 +2131,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     return () => {
       active = false
     }
-  }, [eventData, detail, eventDateObj])
+  }, [eventData, detail, eventDateObj, isRegionalTemplate])
 
   // Fetch weekly weather history/forecast (H-3 to H+3) from Open-Meteo for all disasters
   useEffect(() => {
+    if (isRegionalTemplate) return
     const lat = Number(eventData.latitude || (detail?.lokasi && detail.lokasi[0]?.latitude) || 1.6833)
     const lng = Number(eventData.longitude || (detail?.lokasi && detail.lokasi[0]?.longitude) || 98.8472)
 
@@ -2192,10 +2194,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     return () => {
       active = false
     }
-  }, [eventDateObj, eventData.latitude, eventData.longitude, detail, startStr, endStr])
+  }, [eventDateObj, eventData.latitude, eventData.longitude, detail, startStr, endStr, isRegionalTemplate])
 
   // Fetch real BMKG, PetaBencana, & Regional Disaster data matching disaster latitude, longitude, and event date
   useEffect(() => {
+    if (isRegionalTemplate) return
     const lat = Number(eventData.latitude || (detail?.lokasi && detail.lokasi[0]?.latitude) || selectedEvent?.latitude || 0)
     const lng = Number(eventData.longitude || (detail?.lokasi && detail.lokasi[0]?.longitude) || selectedEvent?.longitude || 0)
     const date = formatDateISO(eventDateObj)
@@ -2250,11 +2253,13 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     eventData.kedalaman,
     eventData.skala_mmi,
     detail?.lokasi,
-    eventDateObj
+    eventDateObj,
+    isRegionalTemplate
   ])
 
   // Fetch live environmental, hydrology, air quality, marine, and weather data from Open-Meteo
   useEffect(() => {
+    if (isRegionalTemplate) return
     const lat = Number(eventData.latitude || (detail?.lokasi && detail.lokasi[0]?.latitude) || 0)
     const lng = Number(eventData.longitude || (detail?.lokasi && detail.lokasi[0]?.longitude) || 0)
     if (lat === 0 && lng === 0) return
@@ -2278,7 +2283,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     eventData.latitude,
     eventData.longitude,
     detail?.lokasi,
-    eventDateObj
+    eventDateObj,
+    isRegionalTemplate
   ])
 
   const weatherTimeline = useMemo(() => {
@@ -2385,6 +2391,21 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
   const disasterTheme = useMemo(() => {
     const name = String(eventData.jenis_bencana || eventData.nama_bencana || '').toLowerCase()
+
+    if (isRegionalTemplate) {
+      return {
+        type: 'surveillance',
+        bg: 'bg-gradient-to-br from-blue-50 via-white to-teal-50 border-blue-200/80',
+        text: 'text-slate-900',
+        accentBg: 'bg-blue-100 text-blue-900',
+        iconColor: 'text-[#0060A9] bg-blue-50 border-blue-200',
+        bulletinBg: 'bg-gradient-to-r from-blue-50 via-white to-teal-50 border-blue-200/80',
+        bulletinText: 'text-slate-900',
+        bulletinTag: 'bg-[#0060A9] text-white',
+        titleColor: 'text-[#0060A9]',
+        cardHeaderIcon: Activity,
+      }
+    }
 
     if (name.includes('kebakaran') || name.includes('karhutla') || name.includes('fire')) {
       return {
@@ -2524,7 +2545,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       titleColor: 'text-indigo-800',
       cardHeaderIcon: CloudLightning,
     }
-  }, [eventData])
+  }, [eventData, isRegionalTemplate])
 
   const latestNttDate = useMemo(() => {
     return nttApiData.tanggal || modalAvailableDates[modalAvailableDates.length - 1] || ''
@@ -3476,6 +3497,49 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   const dynamicCharacteristics = useMemo(() => {
     const name = String(eventData.jenis_bencana || eventData.nama_bencana || '').toLowerCase()
 
+    if (isRegionalTemplate) {
+      const topDisease = regionalSkdrData?.by_disease?.[0]
+      const weekly = regionalSkdrData?.weekly_trend || []
+      const latestWeek = weekly[weekly.length - 1]
+      const previousWeek = weekly[weekly.length - 2]
+      const trendLabel = latestWeek && previousWeek
+        ? latestWeek.cases > previousWeek.cases
+          ? 'Increasing'
+          : latestWeek.cases < previousWeek.cases
+            ? 'Decreasing'
+            : 'Stable'
+        : 'Awaiting weekly series'
+
+      return [
+        {
+          label: 'Active Epidemiological Week',
+          value: latestWeek ? `Week ${latestWeek.week}` : 'Awaiting SKDR data',
+          icon: Calendar,
+          color: 'text-[#0060A9]'
+        },
+        {
+          label: 'Leading Signal',
+          value: topDisease ? `${topDisease.name} (${topDisease.cases.toLocaleString('en-US')})` : 'No disease signal',
+          icon: HeartPulse,
+          color: 'text-rose-600'
+        },
+        {
+          label: 'Alert Status',
+          value: regionalSkdrData?.kpis.active_alerts
+            ? `${regionalSkdrData.kpis.active_alerts.toLocaleString('en-US')} active alerts`
+            : 'No active alerts',
+          icon: AlertTriangle,
+          color: 'text-amber-600'
+        },
+        {
+          label: 'Case Trend',
+          value: trendLabel,
+          icon: TrendingUp,
+          color: trendLabel === 'Increasing' ? 'text-rose-600' : 'text-emerald-600'
+        }
+      ]
+    }
+
     if (name.includes('kebakaran') || name.includes('karhutla') || name.includes('fire')) {
       const hotspotVal = eventData.hotspot
         ? `${eventData.hotspot} Titik`
@@ -3753,7 +3817,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       { label: 'Kualitas Udara ISPU (Open-Meteo AQ)', value: ispuDef, icon: Droplets, color: 'text-blue-500' },
       { label: 'Tekanan Udara Barometrik', value: pressDef, icon: Activity, color: 'text-cyan-600' }
     ]
-  }, [eventData, parsedTma, parsedLuas, parsedLama, soilSaturation, eventDayIspu, eventDayIspuCategory, realtimeWind, totalRainfall, peakRainfall, bmkgGempa, seismicResult, petaBencanaData, floodHydrology, detail?.lokasi])
+  }, [eventData, parsedTma, parsedLuas, parsedLama, soilSaturation, eventDayIspu, eventDayIspuCategory, realtimeWind, totalRainfall, peakRainfall, bmkgGempa, seismicResult, petaBencanaData, floodHydrology, detail?.lokasi, isRegionalTemplate, regionalSkdrData])
 
   const eocNarrative = useMemo(() => {
     if (isNttEvent) {
@@ -4850,7 +4914,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           <button
             onClick={onBack}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm transition"
-            title="Kembali ke Dashboard"
+            title="Back to dashboard"
           >
             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
@@ -4858,20 +4922,20 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           </button>
           )}
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-            <span>Dashboard Surveilans</span>
+            <span>{isRegionalTemplate ? 'Surveillance Dashboard' : 'Incident Dashboard'}</span>
             <span>/</span>
-            <span className="font-bold text-teal-800">Detail Region (Indonesia)</span>
+            <span className="font-bold text-teal-800">{isRegionalTemplate ? 'Regional Surveillance (Indonesia)' : 'Incident Detail'}</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 sm:justify-end shrink-0">
-          <span>Terakhir Diperbarui: {formattedDate}</span>
+          <span>Last updated: {formattedDate}</span>
           <button
             onClick={() => setShowApiSourcesModal(true)}
             className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-bold text-sky-800 shadow-xs transition hover:bg-sky-100 hover:border-sky-300"
-            title="Informasi Sumber Data & Integrasi API Eksternal"
+          title="View data sources and integrations"
           >
             <Info className="h-3.5 w-3.5 text-sky-700" />
-            <span>Sumber Data API</span>
+            <span>Data Sources</span>
           </button>
           {/* Timeline Log button - Hidden as requested */}
           {/* 
@@ -4907,7 +4971,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             title="Bagikan tautan"
           >
             <Share2 className="h-3.5 w-3.5" />
-            {shareCopied ? 'Tersalin' : 'Share'}
+            {shareCopied ? 'Copied' : 'Share'}
           </button>
 
         </div>
@@ -4917,10 +4981,12 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       <div className="relative overflow-hidden rounded-2xl border border-teal-200/80 bg-gradient-to-r from-[#eef9f8] via-[#f3faf9] to-[#e8f7f5] p-5 sm:p-6 shadow-[0_2px_12px_rgba(13,148,136,0.05)]">
         <div className="relative z-10 max-w-2xl">
           <h1 className="text-xl sm:text-2xl font-black uppercase tracking-wide text-slate-900 leading-tight">
-            TEMUAN UTAMA SURVEILANS
+            {isRegionalTemplate ? 'KEY SURVEILLANCE FINDINGS' : 'KEY INCIDENT FINDINGS'}
           </h1>
           <p className="mt-1.5 text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
-            Ringkasan insight, minggu signifikan, dan proyeksi tren untuk pemantauan kasus Influenza dan COVID-19.
+            {isRegionalTemplate
+              ? 'National surveillance signals, epidemiological trends, and alert coverage from SKDR IBS and EBS.'
+              : 'Summary insights, significant weeks, and trend projections for the selected incident.'}
           </p>
         </div>
         {/* Decorative Clinic & Healthcare Line Art */}
@@ -5031,9 +5097,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     })()}
                   </div>
                   <div className="min-w-0">
-                    <span className="text-xs font-black text-slate-500 uppercase tracking-wider block leading-none">JENIS BENCANA</span>
+                    <span className="text-xs font-black text-slate-500 uppercase tracking-wider block leading-none">
+                      {isRegionalTemplate ? 'SURVEILLANCE DOMAIN' : 'DISASTER TYPE'}
+                    </span>
                     <span className="text-2xl sm:text-3xl font-black text-slate-900 block leading-tight mt-1 uppercase tracking-tight truncate">
-                      {eventData.jenis_bencana}
+                      {isRegionalTemplate ? 'SKDR IBS & EBS' : eventData.jenis_bencana}
                     </span>
                   </div>
                 </div>
@@ -5050,7 +5118,9 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       </div>
                     ) : (
                       <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                        <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-black shrink-0">Waktu Kejadian</span>
+                        <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-black shrink-0">
+                          {isRegionalTemplate ? 'REPORTING PERIOD' : 'EVENT TIME'}
+                        </span>
                         <span className="truncate max-w-full" title={eventData.tgl_kejadian || formattedDate || '-'}>{eventData.tgl_kejadian || formattedDate || '-'}</span>
                       </div>
                     )}
@@ -5064,7 +5134,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                 </div>
               </div>
 
-              {/* Col 2: Disaster Specific Physical/Geological Parameters */}
+              {/* Col 2: Disaster-specific parameters or surveillance indicators */}
               <div className="col-span-1 md:col-span-1 2xl:col-span-4 flex flex-col justify-center gap-3 px-0 md:px-2 border-b md:border-b-0 2xl:border-r border-slate-250/60 pb-3 md:pb-0 min-w-0">
                 {dynamicCharacteristics.map((item, idx) => {
                   const IconComp = item.icon
@@ -5084,8 +5154,34 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                 })}
               </div>
 
-              {/* Col 3: Weather / Air Quality / Seismic Timeline (Expanded Width - Responsive Scroll) */}
+              {/* Col 3: Surveillance trend or disaster-specific timeline */}
               <div className="col-span-1 md:col-span-2 2xl:col-span-5 flex flex-col justify-between pl-0 2xl:pl-2 min-w-0">
+                {isRegionalTemplate ? (
+                  <div className="flex h-full flex-col justify-between">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="truncate text-xs font-black uppercase tracking-wider text-slate-800">
+                        WEEKLY SKDR SIGNAL
+                      </span>
+                      <TrendingUp className="h-4 w-4 shrink-0 text-[#0060A9]" />
+                    </div>
+                    {regionalSkdrData?.weekly_trend?.length ? (
+                      <div className="grid flex-1 grid-cols-2 gap-1.5 sm:grid-cols-4">
+                        {regionalSkdrData.weekly_trend.slice(-8).map((week) => (
+                          <div key={week.week} className="flex min-h-[76px] flex-col justify-between rounded-xl border border-blue-100 bg-blue-50/60 p-2 text-center">
+                            <span className="text-[10px] font-black text-slate-500">WEEK {week.week}</span>
+                            <span className="text-lg font-black text-[#0060A9]">{week.cases.toLocaleString('en-US')}</span>
+                            <span className="text-[9px] font-bold text-slate-500">{week.events.toLocaleString('en-US')} events</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs font-semibold text-slate-500">
+                        Awaiting weekly SKDR data
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-xs font-black text-slate-800 uppercase tracking-wider block truncate">
@@ -5170,6 +5266,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     )
                   })}
                 </div>
+                  </>
+                )}
               </div>
 
             </div>
@@ -5356,27 +5454,29 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-2 mb-1">
             <h4 className="text-xl sm:text-2xl font-black text-slate-900">
-              Pemetaan Spasial Kejadian Bencana - {displayRegion}
+              {isRegionalTemplate ? `SKDR Surveillance Map - ${displayRegion}` : `Disaster Event Map - ${displayRegion}`}
             </h4>
             {/* SPASIAL MODE button - Hidden as requested */}
             {/* 
             <a
-              href="/dashboard-eoc/gempa-ntt/tv"
+              href={isRegionalTemplate ? '/dashboard-eoc/detail-region/tv' : '/dashboard-eoc/detail-region/tv'}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#047D78] hover:bg-[#03625d] text-white text-xs sm:text-sm font-black uppercase tracking-wider shadow-md shadow-teal-900/15 hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5 border border-teal-600/30 self-start sm:self-auto shrink-0 group"
-              title="Buka Spasial Mode / Layar TV Video Wall Command Center"
+              title="Open spatial mode / command center video wall"
             >
               <Tv className="h-4 w-4 text-emerald-200 group-hover:scale-110 transition-transform" />
               <span className="tracking-wider">SPASIAL MODE</span>
               <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-white/20 text-white uppercase tracking-wider border border-white/25">
-                PROV. NTT
+                {isRegionalTemplate ? 'INDONESIA' : 'REGION'}
               </span>
             </a>
             */}
           </div>
           <p className="text-sm sm:text-base text-slate-600 font-normal mb-3">
-            Visualisasi geospasial lokasi kejadian, radius terdampak, jaringan fasilitas kesehatan siaga, dan rute navigasi darurat
+            {isRegionalTemplate
+              ? 'Geospatial view of surveillance reporting areas, case signals, and alert priority. This map does not infer weather or facility readiness.'
+              : 'Geospatial view of the incident location, affected radius, standby health facilities, and emergency navigation routes.'}
           </p>
 
           <div className="h-[540px] sm:h-[580px] lg:h-[620px] rounded-xl overflow-hidden border border-slate-200 shadow-inner mt-2">
@@ -5384,6 +5484,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               countries={regionalMapCountries}
               locations={regionalMapLocations}
               highlightCountry="Indonesia"
+              surveillanceOnly={isRegionalTemplate}
             />
           </div>
         </div>
@@ -5396,41 +5497,41 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <div>
                 <div className="flex items-center gap-2">
                   <span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-[#0060A9]">
-                    SKDR IBS
+                    SKDR IBS &amp; EBS
                   </span>
                   <span className="text-[11px] font-semibold text-slate-400">
-                    {loadingRegionalSkdr ? 'Memperbarui...' : 'Data tervalidasi dashboard NLP'}
+                    {loadingRegionalSkdr ? 'Refreshing...' : 'Validated NLP dashboard data'}
                   </span>
                 </div>
                 <h3 id="regional-skdr-title" className="mt-2 text-xl sm:text-2xl font-black text-slate-900">
-                  Ringkasan Surveilans Kesehatan Indonesia
+                  Indonesia Surveillance Overview
                 </h3>
                 <p className="mt-1 text-sm text-slate-600">
-                  Rekap kasus, kematian, penyakit, dan wilayah pelapor dari sumber IBS. Angka faskes tidak dicampur karena IBS tidak menyediakan status operasional fasilitas.
+                  Aggregated cases, deaths, disease signals, reporting areas, and alerts from SKDR IBS and EBS. Facility operational status is intentionally excluded because it is not provided by these surveillance feeds.
                 </p>
               </div>
               <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-600">
                 <Clock className="h-3.5 w-3.5 text-[#0060A9]" />
-                {regionalSkdrData?.updated_at ? new Date(regionalSkdrData.updated_at).toLocaleString('id-ID') : 'Menunggu data'}
+                {regionalSkdrData?.updated_at ? new Date(regionalSkdrData.updated_at).toLocaleString('en-US') : 'Awaiting data'}
               </span>
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
               <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-blue-700">Total Kasus IBS</span>
-                <div className="mt-1 text-2xl font-black text-blue-950">{(regionalSkdrData?.kpis.cases || 0).toLocaleString('id-ID')}</div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-blue-700">Total SKDR Cases</span>
+                <div className="mt-1 text-2xl font-black text-blue-950">{(regionalSkdrData?.kpis.cases || 0).toLocaleString('en-US')}</div>
               </div>
               <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-rose-700">Kematian</span>
-                <div className="mt-1 text-2xl font-black text-rose-950">{(regionalSkdrData?.kpis.deaths || 0).toLocaleString('id-ID')}</div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-rose-700">Deaths</span>
+                <div className="mt-1 text-2xl font-black text-rose-950">{(regionalSkdrData?.kpis.deaths || 0).toLocaleString('en-US')}</div>
               </div>
               <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-amber-700">Wilayah Pelapor</span>
-                <div className="mt-1 text-2xl font-black text-amber-950">{(regionalSkdrData?.kpis.locations || 0).toLocaleString('id-ID')}</div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-700">Reporting Areas</span>
+                <div className="mt-1 text-2xl font-black text-amber-950">{(regionalSkdrData?.kpis.locations || 0).toLocaleString('en-US')}</div>
               </div>
               <div className="rounded-xl border border-red-200 bg-red-50/70 p-3.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-red-700">Alert Aktif</span>
-                <div className="mt-1 text-2xl font-black text-red-950">{(regionalSkdrData?.kpis.active_alerts || 0).toLocaleString('id-ID')}</div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-red-700">Active Alerts</span>
+                <div className="mt-1 text-2xl font-black text-red-950">{(regionalSkdrData?.kpis.active_alerts || 0).toLocaleString('en-US')}</div>
               </div>
             </div>
           </div>
@@ -5440,8 +5541,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs xl:col-span-3">
                 <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
                   <div>
-                    <h4 className="text-lg font-black text-slate-900">Distribusi Penyakit IBS</h4>
-                    <p className="text-xs text-slate-500">Top penyakit berdasarkan kasus teragregasi.</p>
+                <h4 className="text-lg font-black text-slate-900">Disease Signal Distribution</h4>
+                    <p className="text-xs text-slate-500">Leading signals ranked by aggregated cases.</p>
                   </div>
                   <Table2 className="h-5 w-5 text-[#0060A9]" />
                 </div>
@@ -5451,7 +5552,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                       <XAxis dataKey="name" interval={0} angle={-25} textAnchor="end" height={60} tick={{ fontSize: 10, fontWeight: 700 }} />
                       <YAxis allowDecimals={false} tick={{ fontSize: 10, fontWeight: 700 }} />
-                      <Tooltip formatter={(value: any) => [`${Number(value || 0).toLocaleString('id-ID')} kasus`, 'Kasus']} />
+                      <Tooltip formatter={(value: any) => [`${Number(value || 0).toLocaleString('en-US')} cases`, 'Cases']} />
                       <Bar dataKey="cases" fill="#0060A9" radius={[6, 6, 0, 0]} maxBarSize={42} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -5461,8 +5562,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs xl:col-span-2">
                 <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
                   <div>
-                    <h4 className="text-lg font-black text-slate-900">Matriks Wilayah IBS</h4>
-                    <p className="text-xs text-slate-500">Klik baris untuk membaca prioritas wilayah.</p>
+                <h4 className="text-lg font-black text-slate-900">Regional Surveillance Matrix</h4>
+                    <p className="text-xs text-slate-500">Compare reported burden and alert priority by area.</p>
                   </div>
                   <MapPin className="h-5 w-5 text-[#0060A9]" />
                 </div>
@@ -5470,9 +5571,9 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <table className="w-full min-w-[430px] text-left text-xs">
                     <thead className="border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-500">
                       <tr>
-                        <th className="px-2 py-2">Wilayah</th>
-                        <th className="px-2 py-2 text-right">Kasus</th>
-                        <th className="px-2 py-2 text-right">Meninggal</th>
+                        <th className="px-2 py-2">Area</th>
+                        <th className="px-2 py-2 text-right">Cases</th>
+                        <th className="px-2 py-2 text-right">Deaths</th>
                         <th className="px-2 py-2 text-center">Status</th>
                       </tr>
                     </thead>
@@ -5480,8 +5581,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       {regionalSkdrMatrix.slice(0, 8).map((row) => (
                         <tr key={row.name} className="border-b border-slate-100 last:border-0 hover:bg-blue-50/50">
                           <td className="max-w-[180px] truncate px-2 py-2.5 font-bold text-slate-800" title={row.name}>{row.name}</td>
-                          <td className="px-2 py-2.5 text-right font-black text-[#0060A9]">{row.cases.toLocaleString('id-ID')}</td>
-                          <td className="px-2 py-2.5 text-right font-bold text-rose-700">{row.deaths.toLocaleString('id-ID')}</td>
+                          <td className="px-2 py-2.5 text-right font-black text-[#0060A9]">{row.cases.toLocaleString('en-US')}</td>
+                          <td className="px-2 py-2.5 text-right font-bold text-rose-700">{row.deaths.toLocaleString('en-US')}</td>
                           <td className="px-2 py-2.5 text-center">
                             <span className={`rounded-full px-2 py-1 text-[9px] font-black ${row.severity === 'AWAS' ? 'bg-red-100 text-red-700' : row.severity === 'SIAGA' ? 'bg-amber-100 text-amber-800' : row.severity === 'WASPADA' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-50 text-blue-700'}`}>
                               {row.severity}
@@ -5493,17 +5594,43 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   </table>
                 </div>
                 {regionalSkdrMatrix.length > 8 && (
-                  <p className="mt-3 text-[11px] font-semibold text-slate-500">Menampilkan 8 wilayah dengan kasus tertinggi dari {regionalSkdrMatrix.length} wilayah pelapor.</p>
+                  <p className="mt-3 text-[11px] font-semibold text-slate-500">Showing the 8 areas with the highest case burden out of {regionalSkdrMatrix.length} reporting areas.</p>
                 )}
               </article>
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
               <AlertTriangle className="mx-auto h-8 w-8 text-slate-400" />
-              <h4 className="mt-2 text-sm font-black text-slate-700">Belum ada data IBS yang sudah diproses NLP</h4>
-              <p className="mx-auto mt-1 max-w-xl text-xs text-slate-500">Pastikan collector SKDR IBS aktif dan hasilnya sudah masuk ke disease_events sebelum dashboard dapat membuat grafik dan matriks.</p>
+                  <h4 className="mt-2 text-sm font-black text-slate-700">No processed SKDR data available</h4>
+              <p className="mx-auto mt-1 max-w-xl text-xs text-slate-500">Confirm that the IBS/EBS collectors are running and that normalized records have reached disease_events.</p>
             </div>
           )}
+
+          {regionalSkdrData?.weekly_trend?.length ? (
+            <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
+              <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h4 className="text-lg font-black text-slate-900">Weekly SKDR Trend</h4>
+                  <p className="text-xs text-slate-500">Cases, deaths, and event volume by epidemiological week.</p>
+                </div>
+                <TrendingUp className="h-5 w-5 text-[#0060A9]" />
+              </div>
+              <div className="h-[300px] w-full text-xs font-semibold">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                  <LineChart data={regionalSkdrData.weekly_trend} margin={{ top: 10, right: 15, left: -8, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="week" tickFormatter={(value) => `M${value}`} tick={{ fontSize: 10, fontWeight: 700 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fontWeight: 700 }} />
+                    <Tooltip labelFormatter={(value) => `Epidemiological week ${value}`} formatter={(value: any, name: any) => [Number(value || 0).toLocaleString('en-US'), name === 'cases' ? 'Cases' : name === 'deaths' ? 'Deaths' : 'Events']} />
+                    <Legend formatter={(value) => value === 'cases' ? 'Cases' : value === 'deaths' ? 'Deaths' : 'Events'} />
+                    <Line type="monotone" dataKey="cases" name="cases" stroke="#0060A9" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="deaths" name="deaths" stroke="#e11d48" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="events" name="events" stroke="#B49B58" strokeWidth={2.5} strokeDasharray="5 4" dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+          ) : null}
         </section>
       )}
 
@@ -5515,7 +5642,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         {/* Map and Chronology have been moved to a full-width section above this grid */}
 
         {/* 1. ANALISIS TREN DAMPAK KEJADIAN (Directly after Map & Chronology) */}
-        {(() => {
+        {!isRegionalTemplate && (() => {
           // ── Narrative helpers ──────────────────────────────────────────────────────────
           const victimLast = victimTrendData[victimTrendData.length - 1] || {};
           const victimFirst = victimTrendData[0] || {};
@@ -6275,7 +6402,9 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           );
         })()}
 
-        {/* Matriks Akses Lokasi Terdekat Card */}
+        {!isRegionalTemplate && (
+        <>
+        {/* Nearest Location Access Matrix Card */}
         <article className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-[0_6px_18px_rgba(20,120,116,0.03)] space-y-4">
           <div className="border-b border-slate-100 pb-3.5 mb-2">
             <h4 className="text-xl sm:text-2xl font-black text-slate-900 m-0">
@@ -8339,6 +8468,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             </div>
           </div>
         </section>
+        </>
+        )}
       </div>
       {/* ==================== MATRIKS KORBAN & FASKES PER KABUPATEN POPUP MODAL ==================== */}
       {showKabupatenMatrixModal && (
@@ -9730,10 +9861,12 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <div className="flex items-center gap-3">
                 <div>
                   <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
-                    Sumber Data & Integrasi API Real-Time
+                    {isRegionalTemplate ? 'Surveillance Data Sources' : 'Real-Time Data Sources & API Integration'}
                   </h3>
                   <p className="text-xs font-semibold text-slate-500 mt-0.5">
-                    Transparansi integrasi data hidro-meteorologi, seismik, kelautan, dan surveilans EOC Kemenkes RI
+                    {isRegionalTemplate
+                      ? 'Transparent data scope for the Indonesia SKDR surveillance view.'
+                      : 'Transparent integration of hydrometeorological, seismic, marine, and health emergency data.'}
                   </p>
                 </div>
               </div>
@@ -9746,8 +9879,33 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               </button>
             </div>
 
-            {/* Modal Body: List of API Sources */}
-            <div className="px-6 py-5 overflow-y-auto space-y-3.5 divide-y divide-slate-100">
+            {/* Modal Body: Source registry */}
+            <div className="px-6 py-5 overflow-y-auto">
+              {isRegionalTemplate ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4">
+                    <div className="flex items-center gap-2">
+                      <Activity className="h-5 w-5 text-[#0060A9]" />
+                      <h4 className="text-sm font-black text-slate-900">SKDR IBS &amp; EBS</h4>
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                      The regional view is powered by normalized Integrated Disease Surveillance (IBS) and Event-Based Surveillance (EBS) records.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-bold text-blue-800">
+                      <span className="rounded-md bg-white px-2 py-1">Cases</span>
+                      <span className="rounded-md bg-white px-2 py-1">Deaths</span>
+                      <span className="rounded-md bg-white px-2 py-1">Disease signals</span>
+                      <span className="rounded-md bg-white px-2 py-1">Reporting areas</span>
+                      <span className="rounded-md bg-white px-2 py-1">Alert status</span>
+                      <span className="rounded-md bg-white px-2 py-1">Epidemiological week</span>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-600">
+                    Weather, earthquake, air-quality, flood, facility-readiness, and disaster-impact metrics are not used in this regional surveillance template unless supplied by the SKDR feed itself.
+                  </div>
+                </div>
+              ) : (
+              <div className="space-y-3.5 divide-y divide-slate-100">
               {/* 1. Open-Meteo Flood / GloFAS */}
               <div className="pt-3.5 first:pt-0 flex items-start gap-3.5">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-50 border border-cyan-200 text-cyan-700">
@@ -9915,19 +10073,23 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   </p>
                 </div>
               </div>
+              </div>
+              )}
             </div>
 
             {/* Modal Footer */}
             <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
               <span className="text-[11.5px] font-bold text-slate-500 flex items-center gap-1.5">
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                Seluruh data terintegrasi otomatis secara real-time tanpa simulasi angka palsu.
+                {isRegionalTemplate
+                  ? 'Values are read from normalized SKDR records; no weather or facility-readiness estimates are generated.'
+                  : 'All data is integrated automatically without simulated values.'}
               </span>
               <button
                 onClick={() => setShowApiSourcesModal(false)}
                 className="px-5 py-2 rounded-xl bg-[#047D78] hover:bg-[#03625d] text-white text-xs font-black uppercase tracking-wider transition-all duration-200 shadow-md shadow-teal-900/15 hover:shadow-lg hover:-translate-y-0.5 cursor-pointer border border-teal-600/30"
               >
-                Tutup
+                Close
               </button>
             </div>
           </div>

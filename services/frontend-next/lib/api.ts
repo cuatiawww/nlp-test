@@ -258,11 +258,13 @@ export const fetchDashboardStats = () =>
 export const fetchPublicDashboard = (filters?: {
   country?: string;
   year?: number;
+  source?: "ibs" | "ebs" | "skdr";
 }) => {
   const params = new URLSearchParams();
   if (filters?.country && filters.country !== "all")
     params.set("country", filters.country);
   if (filters?.year) params.set("year", String(filters.year));
+  if (filters?.source) params.set("source", filters.source);
   const query = params.toString();
   return fetchFrom<PublicDashboard>(
     `/api/v1/public-dashboard${query ? `?${query}` : ""}`,

@@ -175,6 +175,7 @@ struct LoginRequest {
 struct PublicDashboardQuery {
     country: Option<String>,
     year: Option<i32>,
+    source: Option<String>,
 }
 
 
@@ -1695,18 +1696,26 @@ async fn public_dashboard(
     let client = state.db.get().await.map_err(internal_error)?;
     let selected_year = query.year.unwrap_or_else(|| chrono::Utc::now().year());
     let selected_country = query.country.filter(|value| !value.trim().is_empty() && value != "all");
+    let selected_source = query.source
+        .filter(|value| matches!(value.trim().to_lowercase().as_str(), "ibs" | "ebs" | "skdr"))
+        .map(|value| value.trim().to_lowercase());
 
     let available_years = client.query(
         "SELECT DISTINCT EXTRACT(YEAR FROM published_at)::int AS year
          FROM disease_events
          WHERE published_at IS NOT NULL
-           AND is_health_related = TRUE
+         AND is_health_related = TRUE
            AND disease_classification IS NOT NULL
            AND UPPER(disease_classification) <> 'UNKNOWN'
            AND UPPER(disease_classification) NOT LIKE 'NEGATIVE%'
            AND COALESCE(confidence, 0) >= 0.15
+           AND ($1::text IS NULL OR EXISTS (
+             SELECT 1 FROM skdr_reports sr
+             WHERE sr.raw_report_id = disease_events.raw_report_id
+               AND ($1::text = 'skdr' OR sr.endpoint_name = $1::text)
+           ))
          ORDER BY year DESC",
-        &[],
+        &[&selected_source],
     ).await.map_err(internal_error)?
       .into_iter().map(|row| row.get::<_, i32>(0)).collect::<Vec<_>>();
 
@@ -1756,6 +1765,11 @@ async fn public_dashboard(
                 AND e0.published_at IS NOT NULL
                 AND e0.published_at >= make_date($1, 1, 1)
                 AND e0.published_at < make_date($1 + 1, 1, 1)
+                AND ($3::text IS NULL OR EXISTS (
+                  SELECT 1 FROM skdr_reports sr
+                  WHERE sr.raw_report_id = e0.raw_report_id
+                    AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
+                ))
             ) e
          LEFT JOIN LATERAL (
            SELECT l0.* FROM locations l0
@@ -1786,7 +1800,7 @@ async fn public_dashboard(
                     ELSE 'OUTSIDE ASEAN' END), l.latitude, l.longitude
          ORDER BY cases DESC, latest_date DESC
          LIMIT 100",
-        &[&selected_year, &selected_country],
+        &[&selected_year, &selected_country, &selected_source],
     ).await.map_err(internal_error)?;
 
      let trend_row = client.query_one(
@@ -1806,6 +1820,11 @@ async fn public_dashboard(
               AND e.published_at IS NOT NULL
               AND e.published_at >= make_date($1, 1, 1)
               AND e.published_at < make_date($1 + 1, 1, 1)
+              AND ($3::text IS NULL OR EXISTS (
+                SELECT 1 FROM skdr_reports sr
+                WHERE sr.raw_report_id = e.raw_report_id
+                  AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
+              ))
           ), valid AS (
             SELECT ranked.*, l.latitude AS resolved_latitude, l.longitude AS resolved_longitude,
                    COALESCE(CASE WHEN LOWER(ranked.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
@@ -1843,7 +1862,7 @@ async fn public_dashboard(
           FROM bounds b
           LEFT JOIN valid ON ($2::text IS NULL OR LOWER(valid.resolved_country) = LOWER($2))
          GROUP BY b.current_start,b.previous_start",
-        &[&selected_year, &selected_country],
+        &[&selected_year, &selected_country, &selected_source],
     ).await.map_err(internal_error)?;
     let trends = json!({
         "current_month": trend_row.get::<_, String>(10), "previous_month": trend_row.get::<_, String>(11),
@@ -1853,6 +1872,49 @@ async fn public_dashboard(
         "locations": {"current": trend_row.get::<_, i64>(6), "previous": trend_row.get::<_, i64>(7)},
         "alerts": {"current": trend_row.get::<_, i64>(8), "previous": trend_row.get::<_, i64>(9)}
     });
+
+    let weekly_trend = if selected_source.is_some() {
+        client.query(
+            "SELECT COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int) AS epidemiological_week,
+                    COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)), 0)::bigint AS cases,
+                    COALESCE(SUM(GREATEST(COALESCE(e.death_count, 0), 0)), 0)::bigint AS deaths,
+                    COUNT(*)::bigint AS events
+             FROM disease_events e
+             JOIN skdr_reports sr ON sr.raw_report_id = e.raw_report_id
+             LEFT JOIN LATERAL (
+               SELECT l0.* FROM locations l0
+               WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
+               ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+               LIMIT 1
+             ) l ON TRUE
+             WHERE e.is_health_related = TRUE
+               AND e.disease_classification IS NOT NULL
+               AND UPPER(e.disease_classification) <> 'UNKNOWN'
+               AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
+               AND e.confidence >= 0.15
+               AND e.published_at IS NOT NULL
+               AND e.published_at >= make_date($1, 1, 1)
+               AND e.published_at < make_date($1 + 1, 1, 1)
+               AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
+               AND ($2::text IS NULL OR LOWER(COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+                 WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+                 WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                   THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) = LOWER($2))
+             GROUP BY COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int)
+             ORDER BY epidemiological_week",
+            &[&selected_year, &selected_country, &selected_source],
+        ).await.map_err(internal_error)?
+        .into_iter()
+        .map(|row| json!({
+            "week": row.get::<_, i32>(0),
+            "cases": row.get::<_, i64>(1),
+            "deaths": row.get::<_, i64>(2),
+            "events": row.get::<_, i64>(3),
+        }))
+        .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     let mut locations = Vec::new();
     let mut alerts = Vec::new();
@@ -1942,11 +2004,12 @@ async fn public_dashboard(
     Ok(Json(json!({"success": true, "data": {
          "updated_at": chrono::Utc::now().to_rfc3339(),
          "available_years": available_years,
-         "filters": {"country": selected_country, "year": selected_year},
+         "filters": {"country": selected_country, "year": selected_year, "source": selected_source},
          "kpis": {"cases": total_cases, "deaths": total_deaths, "events": total_events,
                   "locations": location_keys.len(), "active_alerts": active_alerts},
-        "alerts": alerts, "locations": locations, "by_disease": by_disease, "trends": trends,
-        "by_country": by_country,
+         "alerts": alerts, "locations": locations, "by_disease": by_disease, "trends": trends,
+         "weekly_trend": weekly_trend,
+         "by_country": by_country,
         "ai_summary": {"text": summary_text, "provider": "local-rule-engine", "cached": true}
     }})))
 }
