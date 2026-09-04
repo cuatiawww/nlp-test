@@ -459,6 +459,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/events/stats", get(dashboard_stats))
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/public-dashboard", get(public_dashboard))
+        .route("/api/v1/skdr-reports", get(list_skdr_reports))
         .route("/api/v1/dashboard/summary", get(dashboard_summary))
         .route("/api/v1/sources", get(list_sources).post(create_source))
         .route("/api/v1/sources/collect-all", post(trigger_collect_all))
@@ -2169,6 +2170,60 @@ async fn public_dashboard(
          "by_country": by_country,
          "ai_summary": {"text": summary_text, "provider": "local-rule-engine", "cached": true}
     }})))
+}
+
+async fn list_skdr_reports(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let endpoint = params.get("endpoint").cloned().filter(|v| !v.trim().is_empty());
+    let limit: i64 = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100);
+
+    let rows = if let Some(ref ep) = endpoint {
+        client.query(
+            "SELECT id::text, endpoint_name, external_key, report_year, epidemiological_week,
+                    report_date::text, payload, fetched_at::text, created_at::text
+             FROM skdr_reports
+             WHERE LOWER(endpoint_name) = LOWER($1)
+             ORDER BY report_date DESC NULLS LAST, created_at DESC
+             LIMIT $2",
+            &[ep, &limit],
+        ).await.map_err(internal_error)?
+    } else {
+        client.query(
+            "SELECT id::text, endpoint_name, external_key, report_year, epidemiological_week,
+                    report_date::text, payload, fetched_at::text, created_at::text
+             FROM skdr_reports
+             ORDER BY report_date DESC NULLS LAST, created_at DESC
+             LIMIT $1",
+            &[&limit],
+        ).await.map_err(internal_error)?
+    };
+
+    let data: Vec<Value> = rows.iter().map(|r| {
+        json!({
+            "id": r.get::<_, String>(0),
+            "endpoint_name": r.get::<_, String>(1),
+            "external_key": r.get::<_, Option<String>>(2),
+            "report_year": r.get::<_, i32>(3),
+            "epidemiological_week": r.get::<_, Option<i32>>(4),
+            "report_date": r.get::<_, Option<String>>(5),
+            "payload": r.get::<_, Value>(6),
+            "fetched_at": r.get::<_, Option<String>>(7),
+            "created_at": r.get::<_, Option<String>>(8),
+        })
+    }).collect();
+
+    let total = data.len() as i64;
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: Some(total),
+        page: Some(1),
+        per_page: Some(limit),
+        total_pages: Some(1),
+    }))
 }
 
 async fn summary(
