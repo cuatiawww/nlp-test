@@ -25,6 +25,10 @@ import {
   XCircle,
   HelpCircle,
   Clock,
+  ClipboardCheck,
+  ShieldCheck,
+  Cross,
+  Shield,
   CloudRain,
   Cloud,
   CloudLightning,
@@ -295,6 +299,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
   // ── Tren Korban Chart View Mode & Interactive Series Filter ──
   const [trendMetricMode, setTrendMetricMode] = useState<'dual' | 'korban' | 'penduduk'>('dual')
+  const [surveillanceTrendMode, setSurveillanceTrendMode] = useState<'Dual' | 'Kasus' | 'Sinyal'>('Dual')
   const [visibleLines, setVisibleLines] = useState<{ [key: string]: boolean }>({
     'Meninggal': true,
     'Luka-luka': true,
@@ -318,6 +323,17 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       'Total Korban': dataKey === 'Total Korban',
       'Penduduk Terancam/Terdampak': dataKey === 'Penduduk Terancam/Terdampak',
     })
+  }
+
+  const resetSurveillanceLines = () => {
+    setVisibleLines(prev => ({
+      ...prev,
+      'Kasus Baru': true,
+      'Kasus Terkonfirmasi': true,
+      'Sinyal Alert EWS': true,
+      'Kematian': true,
+      'Total Kumulatif': true,
+    }))
   }
 
   const resetAllLines = () => {
@@ -5500,41 +5516,34 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       </article>
 
       {isRegionalTemplate && (() => {
-          // ── Surveillance Data & Metrics Preparation ──
+          // ── Surveillance Data & Metrics Preparation (SKDR IBS & EBS) ──
           const totalKasus = regionalSkdrData?.kpis.cases ?? 90195;
           const totalKematian = regionalSkdrData?.kpis.deaths ?? 19;
           const totalAlerts = regionalSkdrData?.kpis.active_alerts ?? 28;
           const topDiseaseObj = regionalSkdrData?.by_disease?.[0];
           const topDiseaseName = topDiseaseObj ? formatDisasterName(topDiseaseObj.name) : 'Demam Berdarah Dengue (DBD)';
           const topDiseaseCases = topDiseaseObj ? topDiseaseObj.cases : 15400;
+          const cfrRate = ((totalKematian / (totalKasus || 1)) * 100).toFixed(2);
 
-          // Trend series for 8 weeks
+          // Trend series for 12 weeks of SKDR IBS & EBS surveillance
           const weeksData = [
-            { week: '15 Agu', cases: 5420, deaths: 1, alert: 12, cumulative: 5420, rawat: 3400, terancam: 1899985 },
-            { week: '16 Agu', cases: 6850, deaths: 2, alert: 14, cumulative: 12270, rawat: 3900, terancam: 1899985 },
-            { week: '17 Agu', cases: 8100, deaths: 2, alert: 18, cumulative: 20370, rawat: 4500, terancam: 1899985 },
-            { week: '18 Agu', cases: 10250, deaths: 3, alert: 22, cumulative: 30620, rawat: 5800, terancam: 1899985 },
-            { week: '19 Agu', cases: 12400, deaths: 3, alert: 25, cumulative: 43020, rawat: 7200, terancam: 1899985 },
-            { week: '20 Agu', cases: 14800, deaths: 4, alert: 28, cumulative: 57820, rawat: 8900, terancam: 1899985 },
-            { week: '21 Agu', cases: 17250, deaths: 3, alert: 26, cumulative: 75070, rawat: 10400, terancam: 1899985 },
-            { week: '22 Agu', cases: 15125, deaths: 1, alert: 24, cumulative: 90195, rawat: 9800, terancam: 1899985 },
-            { week: '23 Agu', cases: 16800, deaths: 2, alert: 27, cumulative: 106995, rawat: 11200, terancam: 1899985 },
-            { week: '24 Agu', cases: 17900, deaths: 2, alert: 29, cumulative: 124895, rawat: 12100, terancam: 1899985 },
-            { week: '25 Agu', cases: 18400, deaths: 3, alert: 31, cumulative: 143295, rawat: 13000, terancam: 1899985 },
-            { week: '26 Agu', cases: 18100, deaths: 2, alert: 30, cumulative: 161395, rawat: 12800, terancam: 1899985 },
-            { week: '27 Agu', cases: 18600, deaths: 2, alert: 32, cumulative: 179995, rawat: 13200, terancam: 1899985 },
-            { week: '28 Agu', cases: 19100, deaths: 3, alert: 34, cumulative: 199095, rawat: 13800, terancam: 1899985 },
-            { week: '29 Agu', cases: 19500, deaths: 2, alert: 35, cumulative: 218595, rawat: 14100, terancam: 1899985 },
-            { week: '30 Agu', cases: 19200, deaths: 1, alert: 33, cumulative: 237795, rawat: 13900, terancam: 1899985 },
-            { week: '31 Agu', cases: 18800, deaths: 2, alert: 30, cumulative: 256595, rawat: 13500, terancam: 1899985 },
-            { week: '1 Sep', cases: 17400, deaths: 2, alert: 28, cumulative: 273995, rawat: 12900, terancam: 1899985 },
-            { week: '2 Sep', cases: 18200, deaths: 2, alert: 29, cumulative: 292195, rawat: 13400, terancam: 1899985 },
-            { week: '3 Sep', cases: 16900, deaths: 1, alert: 25, cumulative: 309095, rawat: 12500, terancam: 1899985 }
+            { week: 'W-23', cases: 5420, terkonfirmasi: 3400, deaths: 1, alert: 12, cumulative: 5420 },
+            { week: 'W-24', cases: 6850, terkonfirmasi: 3900, deaths: 2, alert: 14, cumulative: 12270 },
+            { week: 'W-25', cases: 8100, terkonfirmasi: 4500, deaths: 2, alert: 18, cumulative: 20370 },
+            { week: 'W-26', cases: 10250, terkonfirmasi: 5800, deaths: 3, alert: 22, cumulative: 30620 },
+            { week: 'W-27', cases: 12400, terkonfirmasi: 7200, deaths: 3, alert: 25, cumulative: 43020 },
+            { week: 'W-28', cases: 14800, terkonfirmasi: 8900, deaths: 4, alert: 28, cumulative: 57820 },
+            { week: 'W-29', cases: 17250, terkonfirmasi: 10400, deaths: 3, alert: 26, cumulative: 75070 },
+            { week: 'W-30', cases: 15125, terkonfirmasi: 9800, deaths: 1, alert: 24, cumulative: 90195 },
+            { week: 'W-31', cases: 16800, terkonfirmasi: 11200, deaths: 2, alert: 27, cumulative: 106995 },
+            { week: 'W-32', cases: 17900, terkonfirmasi: 12100, deaths: 2, alert: 29, cumulative: 124895 },
+            { week: 'W-33', cases: 18400, terkonfirmasi: 13000, deaths: 3, alert: 31, cumulative: 143295 },
+            { week: 'W-34', cases: 16900, terkonfirmasi: 12500, deaths: 1, alert: 25, cumulative: 160195 }
           ];
 
           const currentWeekCases = weeksData[weeksData.length - 1].cases;
 
-          // Surveillance Faskes Breakdown Data (Pie Charts identical to Gambar 1)
+          // Surveillance Faskes Breakdown Data (Pie Charts disesuaikan dengan SKDR IBS & EBS)
           const faskesSurveillanceBreakdown = [
             {
               key: 'rs',
@@ -5544,42 +5553,42 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               color: 'text-rose-600',
               pieData: [
                 { name: 'Sinyal Alert Aktif', value: 18, fill: '#ef4444' },
-                { name: 'Aktif Rawat', value: 7, fill: '#3b82f6' },
-                { name: 'Disiagakan', value: 40, fill: '#10b981' }
+                { name: 'Investigasi / Rawat', value: 7, fill: '#3b82f6' },
+                { name: 'Melapor Rutin / Siaga', value: 40, fill: '#10b981' }
               ],
-              terdampak: 18,
-              rawatPasien: 7,
-              standby: 40
+              alertCount: 18,
+              investigasiCount: 7,
+              siagaCount: 40
             },
             {
               key: 'puskesmas',
               title: 'Puskesmas',
-              icon: Cross,
+              icon: PlusSquare,
               totalMaster: 445,
               color: 'text-amber-600',
               pieData: [
                 { name: 'Sinyal Alert Aktif', value: 139, fill: '#ef4444' },
-                { name: 'Aktif Rawat', value: 118, fill: '#3b82f6' },
-                { name: 'Disiagakan', value: 188, fill: '#10b981' }
+                { name: 'Investigasi / Rawat', value: 118, fill: '#3b82f6' },
+                { name: 'Melapor Rutin / Siaga', value: 188, fill: '#10b981' }
               ],
-              terdampak: 139,
-              rawatPasien: 118,
-              standby: 188
+              alertCount: 139,
+              investigasiCount: 118,
+              siagaCount: 188
             },
             {
               key: 'pustu',
               title: 'Puskesmas Pembantu',
-              icon: Shield,
+              icon: ShieldCheck,
               totalMaster: 1121,
               color: 'text-emerald-600',
               pieData: [
-                { name: 'Sinyal Alert Aktif', value: 0, fill: '#ef4444' },
-                { name: 'Aktif Rawat', value: 0, fill: '#3b82f6' },
-                { name: 'Disiagakan', value: 1121, fill: '#10b981' }
+                { name: 'Sinyal Alert Aktif', value: 12, fill: '#ef4444' },
+                { name: 'Investigasi / Rawat', value: 45, fill: '#3b82f6' },
+                { name: 'Melapor Rutin / Siaga', value: 1064, fill: '#10b981' }
               ],
-              terdampak: 0,
-              rawatPasien: 0,
-              standby: 1121
+              alertCount: 12,
+              investigasiCount: 45,
+              siagaCount: 1064
             },
             {
               key: 'klinik',
@@ -5588,13 +5597,13 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               totalMaster: 196,
               color: 'text-blue-600',
               pieData: [
-                { name: 'Sinyal Alert Aktif', value: 0, fill: '#ef4444' },
-                { name: 'Aktif Rawat', value: 0, fill: '#3b82f6' },
-                { name: 'Disiagakan', value: 196, fill: '#10b981' }
+                { name: 'Sinyal Alert Aktif', value: 5, fill: '#ef4444' },
+                { name: 'Investigasi / Rawat', value: 14, fill: '#3b82f6' },
+                { name: 'Melapor Rutin / Siaga', value: 177, fill: '#10b981' }
               ],
-              terdampak: 0,
-              rawatPasien: 0,
-              standby: 196
+              alertCount: 5,
+              investigasiCount: 14,
+              siagaCount: 177
             }
           ];
 
@@ -5606,23 +5615,23 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   Analisis Tren &amp; Dinamika Surveilans Nasional (SKDR IBS &amp; EBS) - {displayRegion}
                 </h3>
                 <p className="text-sm sm:text-base text-slate-600 font-normal mt-1.5 mb-0">
-                  Visualisasi pergerakan data dari tanggal kejadian awal hingga perkembangan terkini berdasarkan laporan terverifikasi SKDR IBS &amp; EBS Kemenkes RI
+                  Visualisasi pergerakan data dari tanggal deteksi awal hingga perkembangan terkini berdasarkan laporan terverifikasi SKDR IBS &amp; EBS Kemenkes RI
                 </p>
               </div>
 
               {/* ─── SECTION 1: TREN KASUS & SURVEILANS EPIDEMIOLOGI (30% KIRI - 70% KANAN) ─── */}
               <article className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7 shadow-2xs hover:shadow-xs transition-all">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
-                  {/* Sisi Kiri (30% / 4 cols): Judul Besar, Deskripsi, 4 Quick Stat Cards, & Insight Box */}
+                  {/* Sisi Kiri (30% / 4 cols): Info Title, 4 Stat Cards & Insight Surveilans */}
                   <div className="lg:col-span-4 flex flex-col justify-between space-y-4">
                     <div>
                       <div className="flex items-center justify-between gap-2.5">
                         <div>
                           <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0">
-                            Tren Korban &amp; Kasus Terdeteksi
+                            Tren Kasus &amp; Surveilans Epidemiologi
                           </h4>
                           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0 leading-relaxed">
-                            Dinamika penambahan korban jiwa (meninggal &amp; luka-luka), fluktuasi jumlah kasus di titik surveilans, serta estimasi populasi rentan/terancam yang tercatat pada setiap pembaruan laporan SKDR.
+                            Dinamika pelaporan kasus mingguan SKDR IBS, deteksi dini alert EBS, rasio fatalitas (CFR), serta sebaran kasus bergejala terverifikasi di {displayRegion}.
                           </p>
                         </div>
                         <button
@@ -5639,23 +5648,31 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                         </button>
                       </div>
 
-                      {/* 4 Stat Cards Berwarna (Identik dengan Gambar 1) */}
+                      {/* 4 Stat Cards Berwarna (Adaptasi Penuh Surveilans SKDR IBS & EBS) */}
                       <div className="grid grid-cols-2 gap-3 mt-4">
                         <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-rose-800 block">Meninggal</span>
-                          <span className="text-xl sm:text-2xl font-black text-rose-950">127 <span className="text-xs sm:text-sm font-bold text-rose-700">Jiwa</span></span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-rose-800 block">Kematian / CFR</span>
+                          <span className="text-xl sm:text-2xl font-black text-rose-950">
+                            {totalKematian.toLocaleString('id-ID')} <span className="text-xs sm:text-sm font-bold text-rose-700">Jiwa ({cfrRate}%)</span>
+                          </span>
                         </div>
                         <div className="p-3.5 rounded-xl bg-orange-50/70 border border-orange-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-orange-800 block">Luka-Luka</span>
-                          <span className="text-xl sm:text-2xl font-black text-orange-950">1.738 <span className="text-xs sm:text-sm font-bold text-orange-700">Jiwa</span></span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-orange-800 block">Kasus Mingguan (W-34)</span>
+                          <span className="text-xl sm:text-2xl font-black text-orange-950">
+                            {currentWeekCases.toLocaleString('id-ID')} <span className="text-xs sm:text-sm font-bold text-orange-700">Kasus Baru</span>
+                          </span>
                         </div>
                         <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-amber-800 block">Pengungsi</span>
-                          <span className="text-xl sm:text-2xl font-black text-amber-950">166.829 <span className="text-xs sm:text-sm font-bold text-amber-700">Jiwa</span></span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-amber-800 block">Sinyal Alert EWS</span>
+                          <span className="text-xl sm:text-2xl font-black text-amber-950">
+                            {totalAlerts.toLocaleString('id-ID')} <span className="text-xs sm:text-sm font-bold text-amber-700">Sinyal Aktif</span>
+                          </span>
                         </div>
                         <div className="p-3.5 rounded-xl bg-teal-50/70 border border-teal-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-teal-800 block">Terdampak</span>
-                          <span className="text-xl sm:text-2xl font-black text-teal-950">1.899.985 <span className="text-xs sm:text-sm font-bold text-teal-700">Jiwa</span></span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-teal-800 block">Total Kasus Kumulatif</span>
+                          <span className="text-xl sm:text-2xl font-black text-teal-950">
+                            {totalKasus.toLocaleString('id-ID')} <span className="text-xs sm:text-sm font-bold text-teal-700">Terdeteksi</span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -5664,7 +5681,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <div className="rounded-xl bg-teal-50/90 border border-teal-200 p-4 text-xs sm:text-sm text-teal-950 leading-relaxed font-medium">
                       <div className="flex items-center gap-2 text-teal-900 font-black text-sm mb-1.5">
                         <Activity className="h-4 w-4 text-[#047d78]" />
-                        <span>Insight Surveilans &amp; Korban:</span>
+                        <span>Insight Surveilans Epidemiologi:</span>
                       </div>
                       <p className="text-teal-950 font-medium m-0 text-xs sm:text-sm leading-relaxed">
                         Dinamika pelaporan surveilans SKDR IBS &amp; EBS menunjukkan konsentrasi sinyal tertinggi pada {topDiseaseName}. Respon verifikasi lapangan dan penyelidikan epidemiologi (PE) di seluruh faskes rujukan mencapai 92% dalam 24 jam pertama.
@@ -5680,82 +5697,82 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                         <span className="text-[11px] font-bold text-slate-500 mr-1 hidden sm:inline">Filter Baris:</span>
                         <button
                           type="button"
-                          onClick={() => toggleLine('Meninggal')}
+                          onClick={() => toggleLine('Kasus Baru')}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                            visibleLines['Meninggal'] !== false
-                              ? 'bg-rose-50 text-rose-700 border-rose-300 shadow-2xs font-black'
-                              : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
-                          }`}
-                        >
-                          <span className="h-2 w-2 rounded-full bg-[#e11d48]" />
-                          Meninggal
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleLine('Luka-luka')}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                            visibleLines['Luka-luka'] !== false
+                            visibleLines['Kasus Baru'] !== false
                               ? 'bg-orange-50 text-orange-700 border-orange-300 shadow-2xs font-black'
                               : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#f97316]" />
-                          Luka-luka
+                          Kasus Baru
                         </button>
                         <button
                           type="button"
-                          onClick={() => toggleLine('Total Pengungsi')}
+                          onClick={() => toggleLine('Kasus Terkonfirmasi')}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                            visibleLines['Total Pengungsi'] !== false
-                              ? 'bg-amber-50 text-amber-800 border-amber-300 shadow-2xs font-black'
-                              : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
-                          }`}
-                        >
-                          <span className="h-2 w-2 rounded-full bg-[#d97706]" />
-                          Pengungsi
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleLine('Total Korban')}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                            visibleLines['Total Korban'] !== false
-                              ? 'bg-slate-800 text-white border-slate-900 shadow-2xs font-black'
-                              : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
-                          }`}
-                        >
-                          <span className="h-2 w-2 rounded-full bg-slate-900" />
-                          Total Korban
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleLine('Penduduk Terancam/Terdampak')}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                            visibleLines['Penduduk Terancam/Terdampak'] !== false
+                            visibleLines['Kasus Terkonfirmasi'] !== false
                               ? 'bg-teal-50 text-teal-800 border-teal-300 shadow-2xs font-black'
                               : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#047d78]" />
-                          Terdampak
+                          Terkonfirmasi
                         </button>
                         <button
                           type="button"
-                          onClick={resetLines}
+                          onClick={() => toggleLine('Sinyal Alert EWS')}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                            visibleLines['Sinyal Alert EWS'] !== false
+                              ? 'bg-amber-50 text-amber-800 border-amber-300 shadow-2xs font-black'
+                              : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
+                          }`}
+                        >
+                          <span className="h-2 w-2 rounded-full bg-[#d97706]" />
+                          Sinyal Alert EWS
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleLine('Kematian')}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                            visibleLines['Kematian'] !== false
+                              ? 'bg-rose-50 text-rose-700 border-rose-300 shadow-2xs font-black'
+                              : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
+                          }`}
+                        >
+                          <span className="h-2 w-2 rounded-full bg-[#e11d48]" />
+                          Kematian
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleLine('Total Kumulatif')}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                            visibleLines['Total Kumulatif'] !== false
+                              ? 'bg-slate-800 text-white border-slate-900 shadow-2xs font-black'
+                              : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
+                          }`}
+                        >
+                          <span className="h-2 w-2 rounded-full bg-[#1e293b]" />
+                          Total Kumulatif
+                        </button>
+                        <button
+                          type="button"
+                          onClick={resetSurveillanceLines}
                           className="px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-200/70 rounded-md transition text-xs font-bold cursor-pointer"
                         >
                           Reset
                         </button>
                       </div>
 
-                      {/* View Mode Pills (Dual | Korban | Penduduk) */}
+                      {/* View Mode Pills (Dual | Kasus | Sinyal) */}
                       <div className="flex items-center gap-1 bg-slate-200/80 p-0.5 rounded-lg text-xs font-bold">
-                        {(['Dual', 'Korban', 'Penduduk'] as const).map(mode => (
+                        {(['Dual', 'Kasus', 'Sinyal'] as const).map(mode => (
                           <button
                             key={mode}
                             type="button"
-                            onClick={() => setAxisMode(mode)}
+                            onClick={() => setSurveillanceTrendMode(mode)}
                             className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
-                              axisMode === mode
+                              surveillanceTrendMode === mode
                                 ? 'bg-teal-700 text-white shadow-2xs font-black'
                                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                             }`}
@@ -5790,7 +5807,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                             orientation="right"
                             tick={{ fontSize: 10, fontWeight: 700, fill: '#047d78' }}
                             stroke="#047d78"
-                            tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                            tickFormatter={(v) => Number(v) >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
                           />
                           <Tooltip
                             contentStyle={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '11px', fontWeight: 700, boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
@@ -5798,49 +5815,61 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           <Legend
                             wrapperStyle={{ paddingTop: 8, fontSize: '11px', fontWeight: 700 }}
                           />
-                          {visibleLines['Luka-luka'] !== false && (
+                          {visibleLines['Kasus Baru'] !== false && (surveillanceTrendMode !== 'Sinyal') && (
                             <Line
                               yAxisId="left"
                               type="monotone"
                               dataKey="cases"
-                              name="Luka-luka"
+                              name="Kasus Baru"
                               stroke="#f97316"
                               strokeWidth={2.5}
                               dot={{ r: 3.5, fill: '#f97316' }}
                               activeDot={{ r: 6 }}
                             />
                           )}
-                          {visibleLines['Meninggal'] !== false && (
+                          {visibleLines['Kasus Terkonfirmasi'] !== false && (surveillanceTrendMode !== 'Sinyal') && (
+                            <Line
+                              yAxisId="left"
+                              type="monotone"
+                              dataKey="terkonfirmasi"
+                              name="Kasus Terkonfirmasi"
+                              stroke="#047d78"
+                              strokeWidth={2.5}
+                              dot={{ r: 3.5, fill: '#047d78' }}
+                              activeDot={{ r: 6 }}
+                            />
+                          )}
+                          {visibleLines['Sinyal Alert EWS'] !== false && (surveillanceTrendMode !== 'Kasus') && (
+                            <Line
+                              yAxisId="left"
+                              type="monotone"
+                              dataKey="alert"
+                              name="Sinyal Alert EWS"
+                              stroke="#d97706"
+                              strokeWidth={2}
+                              dot={{ r: 3.5, fill: '#d97706' }}
+                              activeDot={{ r: 5 }}
+                            />
+                          )}
+                          {visibleLines['Kematian'] !== false && (surveillanceTrendMode !== 'Kasus') && (
                             <Line
                               yAxisId="left"
                               type="monotone"
                               dataKey="deaths"
-                              name="Meninggal"
+                              name="Kematian"
                               stroke="#e11d48"
-                              strokeWidth={2.5}
+                              strokeWidth={2}
                               dot={{ r: 3.5, fill: '#e11d48' }}
-                              activeDot={{ r: 6 }}
+                              activeDot={{ r: 5 }}
                             />
                           )}
-                          {visibleLines['Total Pengungsi'] !== false && (
-                            <Line
-                              yAxisId="left"
-                              type="monotone"
-                              dataKey="rawat"
-                              name="Total Pengungsi"
-                              stroke="#d97706"
-                              strokeWidth={2.5}
-                              dot={{ r: 3.5, fill: '#d97706' }}
-                              activeDot={{ r: 6 }}
-                            />
-                          )}
-                          {visibleLines['Penduduk Terancam/Terdampak'] !== false && (
+                          {visibleLines['Total Kumulatif'] !== false && (surveillanceTrendMode !== 'Sinyal') && (
                             <Line
                               yAxisId="right"
                               type="monotone"
-                              dataKey="terancam"
-                              name="Penduduk Terancam/Terdampak"
-                              stroke="#047d78"
+                              dataKey="cumulative"
+                              name="Total Kumulatif"
+                              stroke="#1e293b"
                               strokeWidth={2}
                               strokeDasharray="4 4"
                               dot={false}
@@ -5861,7 +5890,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                 </div>
               </article>
 
-              {/* ─── SECTION 2: PROPORSI & KESIAPAN FASKES (Gambar 1 Section 2) ─── */}
+              {/* ─── SECTION 2: PROPORSI & KESIAPAN FASKES PELAPOR SKDR (Gambar 1 Section 2) ─── */}
               <article className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-2xs hover:shadow-xs transition-all">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-stretch">
                   {/* Sisi Kiri (4 cols / ~33%): Ringkasan Status & Kesiapan Faskes */}
@@ -5870,84 +5899,87 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <div className="flex items-center justify-between gap-2.5">
                         <div>
                           <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0">
-                            Proporsi &amp; Kesiapan Faskes
+                            Proporsi &amp; Kesiapan Faskes Pelapor SKDR
                           </h4>
                           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0">
-                            Pemantauan operasional &amp; rujukan darurat di {displayRegion}.
+                            Pemantauan operasional &amp; kepatuhan pelaporan fasilitas kesehatan terintegrasi sistem SKDR IBS &amp; EBS di {displayRegion}.
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={() => {
-                            setKabupatenMatrixTab('faskes_terdampak');
+                            setKabupatenMatrixTab('faskes');
                             setShowKabupatenMatrixModal(true);
                           }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#047D78] hover:bg-[#03625d] text-white text-[11px] font-black tracking-wider uppercase transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer shrink-0 border border-teal-600/30 group"
-                          title="Buka Matriks Faskes Terdampak &amp; Triase Pasien"
+                          title="Buka Matriks Kesiapan &amp; Pelaporan Faskes SKDR"
                         >
                           <Table2 className="h-3.5 w-3.5 text-teal-100 group-hover:scale-110 transition-transform" />
                           <span>LIHAT MATRIKS</span>
                         </button>
                       </div>
 
-                      {/* Top Metric Strip (Total 1827, Aktif Rawat 127, Disiagakan 1543) */}
+                      {/* Top Metric Strip (Total Unit, Aktif Melapor, Siaga Respons KLB) */}
                       <div className="grid grid-cols-3 gap-2 mt-4 text-center">
                         <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Unit</span>
-                          <span className="text-base sm:text-lg font-black text-slate-900 block mt-0.5">1827</span>
+                          <span className="text-base sm:text-lg font-black text-slate-900 block mt-0.5">1.827</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/70">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">Aktif Rawat</span>
-                          <span className="text-base sm:text-lg font-black text-blue-900 block mt-0.5">127</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">Aktif Melapor</span>
+                          <span className="text-base sm:text-lg font-black text-blue-900 block mt-0.5">1.644 <span className="text-[10px] font-bold text-blue-600">(90%)</span></span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200/70">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">Disiagakan</span>
-                          <span className="text-base sm:text-lg font-black text-emerald-900 block mt-0.5">1543</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">Siaga Respons KLB</span>
+                          <span className="text-base sm:text-lg font-black text-emerald-900 block mt-0.5">183</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Damage & Logistics Card (Identik dengan Gambar 1) */}
+                    {/* Status Pemantauan Sinyal Faskes (Pemantauan Sinyal Alert Faskes) */}
                     <div className="rounded-2xl bg-slate-50/80 border border-slate-200/90 p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs sm:text-sm font-black text-slate-900">
-                          Faskes Terdampak Bencana
+                          Status Pemantauan Sinyal Faskes
                         </span>
                         <span className="px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[11px] font-black text-rose-700 flex items-center gap-1.5">
                           <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping" />
-                          157 Unit Terdampak
+                          157 Faskes dalam Pengawasan
                         </span>
                       </div>
 
-                      {/* 3 Damage Metrics Columns */}
+                      {/* 3 Metriks Status Sinyal Kolom (Status AWAS, SIAGA, WASPADA) */}
                       <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="p-2.5 rounded-xl bg-white border border-rose-150 shadow-2xs">
-                          <span className="text-[10px] font-bold text-rose-700 uppercase block">Rusak Berat</span>
+                        <div className="p-2.5 rounded-xl bg-white border border-rose-200 shadow-2xs">
+                          <span className="text-[10px] font-bold text-rose-700 uppercase block">Status AWAS</span>
                           <span className="text-lg font-black text-rose-900 leading-tight block mt-0.5">40</span>
+                          <span className="text-[9px] font-semibold text-rose-600 block mt-0.5">≥ 2x Threshold</span>
                         </div>
-                        <div className="p-2.5 rounded-xl bg-white border border-amber-150 shadow-2xs">
-                          <span className="text-[10px] font-bold text-amber-700 uppercase block">Rusak Sedang</span>
+                        <div className="p-2.5 rounded-xl bg-white border border-amber-200 shadow-2xs">
+                          <span className="text-[10px] font-bold text-amber-700 uppercase block">Status SIAGA</span>
                           <span className="text-lg font-black text-amber-900 leading-tight block mt-0.5">58</span>
+                          <span className="text-[9px] font-semibold text-amber-600 block mt-0.5">Tren Naik</span>
                         </div>
-                        <div className="p-2.5 rounded-xl bg-white border border-amber-100 shadow-2xs">
-                          <span className="text-[10px] font-bold text-amber-600 uppercase block">Rusak Ringan</span>
-                          <span className="text-lg font-black text-amber-800 leading-tight block mt-0.5">59</span>
+                        <div className="p-2.5 rounded-xl bg-white border border-emerald-200 shadow-2xs">
+                          <span className="text-[10px] font-bold text-emerald-700 uppercase block">Status WASPADA</span>
+                          <span className="text-lg font-black text-emerald-900 leading-tight block mt-0.5">59</span>
+                          <span className="text-[9px] font-semibold text-emerald-600 block mt-0.5">Verifikasi PE</span>
                         </div>
                       </div>
 
-                      {/* Logistics Infrastructure Pills Footer */}
+                      {/* Kinerja Surveilans SKDR Footer (Ketepatan, Kelengkapan, Respon PE) */}
                       <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] font-bold text-slate-600">
-                        <div className="flex items-center gap-1">
-                          <Zap className="h-3.5 w-3.5 text-amber-500" />
-                          <span>Listrik: <b className="text-slate-800">54</b></span>
+                        <div className="flex items-center gap-1" title="Ketepatan waktu pelaporan mingguan faskes ke SKDR">
+                          <Clock className="h-3.5 w-3.5 text-blue-600" />
+                          <span>Ketepatan: <b className="text-slate-900">88%</b></span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Droplets className="h-3.5 w-3.5 text-blue-500" />
-                          <span>Air: <b className="text-slate-800">50</b></span>
+                        <div className="flex items-center gap-1" title="Kelengkapan laporan mingguan faskes ke SKDR">
+                          <ClipboardCheck className="h-3.5 w-3.5 text-emerald-600" />
+                          <span>Kelengkapan: <b className="text-slate-900">94%</b></span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Home className="h-3.5 w-3.5 text-purple-500" />
-                          <span>Tenda: <b className="text-slate-800">111</b></span>
+                        <div className="flex items-center gap-1" title="Verifikasi sinyal alert &amp; penyelidikan epidemiologi &lt; 24 jam">
+                          <ShieldCheck className="h-3.5 w-3.5 text-teal-600" />
+                          <span>Respon PE: <b className="text-slate-900">91%</b></span>
                         </div>
                       </div>
                     </div>
@@ -5957,14 +5989,12 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div className="lg:col-span-8 flex flex-col justify-between">
                     <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
                       <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                        Kesiapan Operasional &amp; Dampak per Kategori Faskes
+                        Kesiapan Operasional &amp; Pelaporan per Kategori Faskes
                       </span>
                       <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Rusak Berat</span>
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Rusak Sedang</span>
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-yellow-400" /> Rusak Ringan</span>
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Aktif Rawat</span>
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Disiagakan</span>
+                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Sinyal Alert Aktif</span>
+                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Investigasi / Rawat</span>
+                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Melapor Rutin / Siaga</span>
                       </div>
                     </div>
 
@@ -6021,24 +6051,24 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                             <div className="mt-1.5 pt-2 border-t border-slate-100 grid grid-cols-3 gap-0.5 text-[11px] font-bold text-center">
                               <div className="text-rose-700">
                                 <div className="flex items-baseline justify-center gap-0.5">
-                                  <span className="block text-rose-600 font-black leading-none text-xs">{cat.terdampak}</span>
-                                  <span className="text-[9px] font-bold text-rose-500">|{Math.round((cat.terdampak / cat.totalMaster) * 100)}%</span>
+                                  <span className="block text-rose-600 font-black leading-none text-xs">{cat.alertCount}</span>
+                                  <span className="text-[9px] font-bold text-rose-500">|{Math.round((cat.alertCount / cat.totalMaster) * 100)}%</span>
                                 </div>
-                                <span className="text-[8px] font-semibold text-slate-500 block mt-0.5">Terdampak</span>
+                                <span className="text-[8px] font-semibold text-slate-500 block mt-0.5">Alert</span>
                               </div>
                               <div className="border-x border-slate-150 px-0.5 text-blue-700">
                                 <div className="flex items-baseline justify-center gap-0.5">
-                                  <span className="block text-blue-600 font-black leading-none text-xs">{cat.rawatPasien}</span>
-                                  <span className="text-[9px] font-bold text-blue-500">|{Math.round((cat.rawatPasien / cat.totalMaster) * 100)}%</span>
+                                  <span className="block text-blue-600 font-black leading-none text-xs">{cat.investigasiCount}</span>
+                                  <span className="text-[9px] font-bold text-blue-500">|{Math.round((cat.investigasiCount / cat.totalMaster) * 100)}%</span>
                                 </div>
-                                <span className="text-[8px] font-semibold text-blue-600 block mt-0.5">Merawat</span>
+                                <span className="text-[8px] font-semibold text-blue-600 block mt-0.5">Investigasi</span>
                               </div>
                               <div className="text-emerald-700">
                                 <div className="flex items-baseline justify-center gap-0.5">
-                                  <span className="block text-emerald-600 font-black leading-none text-xs">{cat.standby}</span>
-                                  <span className="text-[9px] font-bold text-emerald-500">|{Math.round((cat.standby / cat.totalMaster) * 100)}%</span>
+                                  <span className="block text-emerald-600 font-black leading-none text-xs">{cat.siagaCount}</span>
+                                  <span className="text-[9px] font-bold text-emerald-500">|{Math.round((cat.siagaCount / cat.totalMaster) * 100)}%</span>
                                 </div>
-                                <span className="text-[8px] font-semibold text-emerald-600 block mt-0.5">Disiagakan</span>
+                                <span className="text-[8px] font-semibold text-emerald-600 block mt-0.5">Siaga/Rutin</span>
                               </div>
                             </div>
                           </div>
