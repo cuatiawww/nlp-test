@@ -1732,11 +1732,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     return name.includes('banjir');
   }, [eventData.jenis_bencana, eventData.nama_bencana]);
 
-  const mapUserScope = useMemo(() => ({
-    mode: 'kabupaten' as const,
-    provinsi: { label: eventData.provinsi || '' },
-    kabupaten: { label: eventData.kabupaten || '' },
-  }), [eventData.provinsi, eventData.kabupaten]);
+  // This generic detail page is not tied to a province or district boundary.
+  // Leaving the scope unset also prevents the copied map from requesting the
+  // legacy wilayah GeoJSON endpoint that is not part of this application.
+  const mapUserScope = undefined;
 
   // Mapping nama provinsi → kode_prop TCK Kemkes
   const PROV_CODE_MAP: Record<string, string> = {
@@ -5181,7 +5180,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               markers={mapMarkers}
               userScope={mapUserScope}
               isGuest={false}
-              isFloodEocMode={true}
+              isFloodEocMode={false}
               selectedRouteTarget={selectedRouteTarget}
               routeCoords={routeCoords}
               routeInfo={routeInfo}

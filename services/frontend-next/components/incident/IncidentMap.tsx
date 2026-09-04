@@ -191,7 +191,7 @@ interface MarkerData {
   jml_titik_lokasi?: number
 }
 
-interface DisasterMapProps {
+interface IncidentMapProps {
   markers: MarkerData[]
   selectedRegions?: any[]
   userScope?: any
@@ -401,8 +401,8 @@ const getDistanceInKm = (lat1: number, lon1: number, lat2: number, lon2: number)
 const geojsonCache: Record<string, any> = {}
 
 // basePath untuk URL fetch API — NEXT_PUBLIC_BASE_PATH diinjeksi saat build time oleh Next.js
-// Fallback ke string kosong jika tidak ada (development tanpa basePath)
-const NEXT_BASE_PATH: string = process.env.NEXT_PUBLIC_BASE_PATH ?? ''
+// next.config.mjs always serves this application below /nlp.
+const NEXT_BASE_PATH: string = process.env.NEXT_PUBLIC_BASE_PATH || '/nlp'
 
 // ─────────────────────────────────────────────
 // Helper: Categorize a faskes item into rs/puskesmas/klinik/pustu
@@ -436,7 +436,7 @@ function categorizeFaskes(f: any): 'rs' | 'puskesmas' | 'klinik' | 'pustu' {
 // Component
 // ─────────────────────────────────────────────
 
-export default function DisasterMap({
+export default function IncidentMap({
   markers,
   selectedRegions = [],
   userScope,
@@ -459,10 +459,10 @@ export default function DisasterMap({
   onSelectRouteSource,
   lokasiList = [],
   earthquakePoints = []
-}: DisasterMapProps) {
+}: IncidentMapProps) {
   const { token, user, isGuest: storeIsGuest } = useAuthStore()
   const isGuest = propIsGuest || storeIsGuest || !token || !user
-  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '/nlp'
 
   const [showTckLayer, setShowTckLayer] = useState(false) // Toggle layer TCK Kemkes (default: non-aktif)
   const [showPosko, setShowPosko] = useState(false) // Toggle layer Posko Pengungsian (default: non-aktif)
@@ -516,44 +516,6 @@ export default function DisasterMap({
   const poskoListRef = useRef(poskoList)
   const faskesRusakListRef = useRef(faskesRusakList)
   const lokasiListRef = useRef(lokasiList)
-  const nttSituasiRef = useRef<any[]>([])
-
-  useEffect(() => {
-    let active = true
-    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
-    const normalizeNttRows = (rows: any[]): any[] => {
-      if (!Array.isArray(rows)) return []
-      return rows.map(r => {
-        const out: any = {}
-        Object.keys(r).forEach(k => {
-          const key = k.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-          out[key] = r[k]
-        })
-        // Ensure numeric fields parsed correctly
-        out.meninggal = Number(out.meninggal || 0)
-        out.luka_berat = Number(out.luka_berat || 0)
-        out.luka_ringan = Number(out.luka_ringan || 0)
-        out.pengungsi = Number(out.pengungsi || 0)
-        out.titik_pengungsian = Number(out.titik_pengungsian || 0)
-        out.populasi_terdampak = Number(out.populasi_terdampak || out.penduduk_terdampak || 0)
-        return out
-      })
-    }
-    fetch(`${basePath}/api/ntt-data`, { cache: 'no-store' })
-      .then((res) => res.json())
-      .then((json) => {
-        if (!active) return
-        if (json.success) {
-          const list = json.tables?.situasi_kesehatan || json.data?.situasi_kesehatan || []
-          nttSituasiRef.current = normalizeNttRows(Array.isArray(list) ? list : [])
-        }
-      })
-      .catch((e) => console.warn('[DisasterMap] NTT Data fetch:', e))
-    return () => {
-      active = false
-    }
-  }, [])
-
   // ── UI state ──
   const [isLoading, setIsLoading] = useState(false)
   const [mapInstance, setMapInstance] = useState<OlMap | null>(null)
@@ -650,7 +612,7 @@ export default function DisasterMap({
   const [showBnpbHillshade, setShowBnpbHillshade] = useState(false)
   const [showBnpbKepadatan, setShowBnpbKepadatan] = useState(false)
   const [showBnpbBanjir, setShowBnpbBanjir] = useState(false)
-  const [showBnpbGempa, setShowBnpbGempa] = useState(true)
+  const [showBnpbGempa, setShowBnpbGempa] = useState(false)
   const [showBnpbLongsor, setShowBnpbLongsor] = useState(false)
   const [showBnpbKarhutla, setShowBnpbKarhutla] = useState(false)
 
@@ -658,7 +620,7 @@ export default function DisasterMap({
   useEffect(() => {
     if (!disasterType || disasterCategory === 'none') {
       setShowBnpbBanjir(false)
-      setShowBnpbGempa(true)
+      setShowBnpbGempa(false)
       setShowBnpbLongsor(false)
       setShowBnpbKarhutla(false)
       return
@@ -800,7 +762,7 @@ export default function DisasterMap({
   } | null>(null)
 
   // ── API Indonesia early warnings state ──
-  const [activeWarnings, setActiveWarnings] = useState<any[]>([])
+  const [activeWarnings] = useState<any[]>([])
 
   const warningsByProvince = useMemo(() => {
     const m = new Map<string, any[]>()
@@ -815,32 +777,6 @@ export default function DisasterMap({
     })
     return m
   }, [activeWarnings])
-
-  // Fetch API Indonesia warnings on mount
-  useEffect(() => {
-    let active = true
-    async function fetchWarnings() {
-      try {
-        const res = await fetch('/api/peringatan-dini')
-        if (res.ok) {
-          const json = await res.json()
-          if (json.success && Array.isArray(json.data)) {
-            if (active) {
-              setActiveWarnings(json.data)
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[EWS Map] Failed to fetch Peringatan Dini:', e)
-      }
-    }
-    void fetchWarnings()
-    const interval = setInterval(fetchWarnings, 300000)
-    return () => {
-      active = false
-      clearInterval(interval)
-    }
-  }, [])
 
   // ── Sync refs ──
   useEffect(() => {
@@ -1074,10 +1010,10 @@ export default function DisasterMap({
 
     const firstM = markers && markers[0]
     const hasInitialCoord = firstM && Number(firstM.lng) !== 0 && Number(firstM.lat) !== 0
-    const initialCenter = isFloodEocMode && hasInitialCoord
+    const initialCenter = hasInitialCoord
       ? fromLonLat([Number(firstM.lng), Number(firstM.lat)])
       : fromLonLat([118, -2.5])
-    const initialZoom = isFloodEocMode ? 8.2 : 4.8
+    const initialZoom = hasInitialCoord ? 8.2 : 4.8
 
     const map = new OlMap({
       target: mapRef.current,
@@ -1323,26 +1259,20 @@ export default function DisasterMap({
         const allLokasi = lokasiListRef.current || []
         const kabLokasi = allLokasi.filter((l: any) => cleanKey(l.kabupaten) === kabCleaned)
 
-        // NTT Collector Dataset lookup
-        let nttData: any = null
-        if (Array.isArray(nttSituasiRef.current) && nttSituasiRef.current.length > 0) {
-          nttData = nttSituasiRef.current.find((item: any) => cleanKey(item.kabupaten) === kabCleaned)
-        }
-
-        const meninggal = nttData ? Number(nttData.meninggal || 0) : kabMarkers.reduce((s, m) => s + (m.meninggal || 0), 0)
-        const lukaBerat = nttData ? Number(nttData.luka_berat || 0) : kabMarkers.reduce((s, m) => s + (m.luka_berat || 0), 0)
-        const lukaRingan = nttData ? Number(nttData.luka_ringan || 0) : kabMarkers.reduce((s, m) => s + (m.luka_ringan || 0), 0)
-        const totalLuka = nttData ? (lukaBerat + lukaRingan) : (kabMarkers.reduce((s, m) => s + (m.luka_berat || 0) + (m.luka_ringan || 0), 0) || kabMarkers.reduce((s, m) => s + (m.total_korban || 0), 0))
-        const pengungsi = nttData ? Number(nttData.pengungsi || 0) : (kabPosko.reduce((s: number, p: any) => s + Number(p.jumlah_jiwa || p.jiwa || 0), 0) || kabMarkers.reduce((s, m) => s + (m.pengungsi || 0), 0))
-        const titikPosko = nttData ? Number(nttData.titik_pengungsian || 0) : kabPosko.length
-        const populasiTerdampak = nttData ? Number(nttData.populasi_terdampak || 0) : kabMarkers.reduce((s, m) => s + (m.terdampak || 0), 0)
+        const meninggal = kabMarkers.reduce((s, m) => s + (m.meninggal || 0), 0)
+        const lukaBerat = kabMarkers.reduce((s, m) => s + (m.luka_berat || 0), 0)
+        const lukaRingan = kabMarkers.reduce((s, m) => s + (m.luka_ringan || 0), 0)
+        const totalLuka = kabMarkers.reduce((s, m) => s + (m.luka_berat || 0) + (m.luka_ringan || 0), 0) || kabMarkers.reduce((s, m) => s + (m.total_korban || 0), 0)
+        const pengungsi = kabPosko.reduce((s: number, p: any) => s + Number(p.jumlah_jiwa || p.jiwa || 0), 0) || kabMarkers.reduce((s, m) => s + (m.pengungsi || 0), 0)
+        const titikPosko = kabPosko.length
+        const populasiTerdampak = kabMarkers.reduce((s, m) => s + (m.terdampak || 0), 0)
 
         setActivePopup({
           type: 'kabupaten',
           name: kabName,
           featureExtent: extent,
           stats: {
-            totalEvents: kabMarkers.length || (nttData ? 1 : 0),
+            totalEvents: kabMarkers.length,
             totalKorban: (meninggal + totalLuka) || kabMarkers.reduce((s, m) => s + (m.total_korban || 0), 0),
             meninggal,
             lukaBerat,
@@ -1365,11 +1295,18 @@ export default function DisasterMap({
 
     mapInstanceRef.current = map
     setMapInstance(map)
+    // OpenLayers can initialize before the surrounding card has its final size.
+    // Force a first measurement and keep it in sync when the card resizes.
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => map.updateSize())
+      : null
+    if (mapRef.current) resizeObserver?.observe(mapRef.current)
+    requestAnimationFrame(() => map.updateSize())
 
     // Setup Windy Layer via npm ol-wind (async fetch GFS data)
     async function initWindy() {
       try {
-        const res = await fetch('/api/gfs')
+        const res = await fetch(`${NEXT_BASE_PATH}/api/gfs`)
         if (!res.ok) return
         const windData = await res.json()
         const baseVelocity = 0.01
@@ -1416,6 +1353,7 @@ export default function DisasterMap({
     void initWindy()
 
     return () => {
+      resizeObserver?.disconnect()
       map.setTarget(undefined)
       mapInstanceRef.current = null
       pulseOverlaysRef.current.forEach((ov) => map.removeOverlay(ov))
@@ -1625,6 +1563,12 @@ export default function DisasterMap({
     if (!map || !provinceLayer) return
 
     const source = provinceLayer.getSource()!
+    // Boundary data is optional for the generic regional template. Only load
+    // it when a caller explicitly provides a geographic scope.
+    if (!userScope?.mode) {
+      source.clear()
+      return
+    }
     if (source.getFeatures().length > 0) {
       updateChoroplethStyles()
       return  // already loaded
@@ -1706,7 +1650,7 @@ export default function DisasterMap({
           load(geojsonCache[cacheKey])
         } else {
           setIsLoading(true)
-          fetch(`/api/wilayah-geojson?level=kabupaten&province=${encodeURIComponent(provinceName)}`)
+          fetch(`${NEXT_BASE_PATH}/api/wilayah-geojson?level=kabupaten&province=${encodeURIComponent(provinceName)}`)
             .then((r) => r.json())
             .then((data) => {
               if (data?.success && data.geojson) {
@@ -1784,10 +1728,18 @@ export default function DisasterMap({
 
   // ── BMKG Data Fetch & Proximity Alert EWS ──
   useEffect(() => {
+    // The regional template is provider-agnostic. Do not call the legacy
+    // earthquake endpoint unless this detail explicitly represents an earthquake.
+    if (disasterCategory !== 'gempa') {
+      setBmkgGempas([])
+      setActiveBmkgAlert(null)
+      return
+    }
+
     let active = true
     async function fetchBmkg() {
       try {
-        const res = await fetch('/api/bmkg-gempa')
+        const res = await fetch(`${NEXT_BASE_PATH}/api/bmkg-gempa`)
         if (res.ok) {
           const json = await res.json()
           if (json.success && json.data?.Infogempa?.gempa) {
@@ -1856,7 +1808,7 @@ export default function DisasterMap({
       active = false
       clearInterval(interval)
     }
-  }, [])
+  }, [disasterCategory])
 
   // ─────────────────────────────────────────────
   // Sync marker features when markers/visibility changes

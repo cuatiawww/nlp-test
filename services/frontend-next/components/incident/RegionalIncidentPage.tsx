@@ -20,6 +20,10 @@ const TEMPLATE_EVENT = {
   updated_at: '2026-08-22T10:00:00Z',
   latitude: -6.2,
   longitude: 106.816666,
+  // The map component consumes the normalized marker field names.
+  lat: -6.2,
+  lng: 106.816666,
+  total_korban: 0,
   status_bencana: 'Active Response',
   keterangan: 'Static regional incident detail template for layout validation.',
   kronologis: 'Static regional incident detail template for layout validation.',
