@@ -1721,15 +1721,23 @@ async fn public_dashboard(
                   'needs_review', e.needs_review, 'is_health_related', e.is_health_related,
                   'outbreak_alert', e.outbreak_alert
                 ) ORDER BY e.published_at DESC, e.confidence DESC)->0) AS detail
-         FROM (
-           SELECT e0.*, rr.url AS report_url,
-                  ROW_NUMBER() OVER (
-                    PARTITION BY COALESCE(NULLIF(rr.url, ''), e0.raw_report_id::text, e0.id::text)
-                    ORDER BY e0.confidence DESC NULLS LAST, e0.created_at DESC
-                  ) AS dedup_rank
-           FROM disease_events e0
-           LEFT JOIN raw_reports rr ON rr.id = e0.raw_report_id
-         ) e
+            FROM (
+              SELECT e0.*, rr.url AS report_url,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY COALESCE(NULLIF(rr.url, ''), e0.raw_report_id::text, e0.id::text)
+                       ORDER BY e0.confidence DESC NULLS LAST, e0.created_at DESC
+                     ) AS dedup_rank
+              FROM disease_events e0
+              LEFT JOIN raw_reports rr ON rr.id = e0.raw_report_id
+              WHERE e0.is_health_related = TRUE
+                AND e0.disease_classification IS NOT NULL
+                AND UPPER(e0.disease_classification) <> 'UNKNOWN'
+                AND UPPER(e0.disease_classification) NOT LIKE 'NEGATIVE%'
+                AND e0.confidence >= 0.15
+                AND e0.published_at IS NOT NULL
+                AND e0.published_at >= make_date($1, 1, 1)
+                AND e0.published_at < make_date($1 + 1, 1, 1)
+            ) e
          LEFT JOIN LATERAL (
            SELECT l0.* FROM locations l0
            WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
@@ -1742,10 +1750,11 @@ async fn public_dashboard(
            AND e.disease_classification IS NOT NULL
            AND UPPER(e.disease_classification) <> 'UNKNOWN'
            AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-           AND COALESCE(e.confidence, 0) >= 0.15
+            AND e.confidence >= 0.15
            AND e.dedup_rank = 1
            AND e.published_at IS NOT NULL
-           AND EXTRACT(YEAR FROM e.published_at)::int = $1
+            AND e.published_at >= make_date($1, 1, 1)
+            AND e.published_at < make_date($1 + 1, 1, 1)
            AND ($2::text IS NULL OR LOWER(COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
              WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
              WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
@@ -1761,27 +1770,38 @@ async fn public_dashboard(
         &[&selected_year, &selected_country],
     ).await.map_err(internal_error)?;
 
-    let trend_row = client.query_one(
-        "WITH valid AS (
-           SELECT e.*, COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-             WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-             WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-               THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) AS resolved_country
-           FROM disease_events e
-           LEFT JOIN LATERAL (
-             SELECT l0.* FROM locations l0
-             WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
-             ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
-             LIMIT 1
-           ) l ON TRUE
-           WHERE e.is_health_related = TRUE
-             AND e.disease_classification IS NOT NULL
-             AND UPPER(e.disease_classification) <> 'UNKNOWN'
-             AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-             AND COALESCE(e.confidence, 0) >= 0.15
-             AND e.published_at IS NOT NULL
-             AND EXTRACT(YEAR FROM e.published_at)::int = $1
-         ), bounds AS (
+     let trend_row = client.query_one(
+         "WITH ranked AS (
+            SELECT e.*, rr.url AS report_url,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY COALESCE(NULLIF(rr.url, ''), e.raw_report_id::text, e.id::text)
+                     ORDER BY e.confidence DESC NULLS LAST, e.created_at DESC
+                   ) AS dedup_rank
+            FROM disease_events e
+            LEFT JOIN raw_reports rr ON rr.id = e.raw_report_id
+            WHERE e.is_health_related = TRUE
+              AND e.disease_classification IS NOT NULL
+              AND UPPER(e.disease_classification) <> 'UNKNOWN'
+              AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
+              AND e.confidence >= 0.15
+              AND e.published_at IS NOT NULL
+              AND e.published_at >= make_date($1, 1, 1)
+              AND e.published_at < make_date($1 + 1, 1, 1)
+          ), valid AS (
+            SELECT ranked.*, l.latitude AS resolved_latitude, l.longitude AS resolved_longitude,
+                   COALESCE(CASE WHEN LOWER(ranked.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+              WHEN LOWER(ranked.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+              WHEN LOWER(ranked.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                THEN INITCAP(LOWER(ranked.location_name)) ELSE 'OUTSIDE ASEAN' END) AS resolved_country
+            FROM ranked
+            LEFT JOIN LATERAL (
+              SELECT l0.* FROM locations l0
+              WHERE LOWER(l0.name) = LOWER(ranked.location_name) AND l0.is_active = TRUE
+              ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+              LIMIT 1
+            ) l ON TRUE
+            WHERE ranked.dedup_rank = 1
+          ), bounds AS (
            SELECT CASE WHEN $1 = EXTRACT(YEAR FROM CURRENT_DATE)::int
                     THEN date_trunc('month', CURRENT_DATE)::date
                     ELSE make_date($1, 12, 1) END AS current_start,
@@ -1798,11 +1818,11 @@ async fn public_dashboard(
            COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
            COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.current_start)::bigint,
            COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
-           COUNT(*) FILTER (WHERE published_at>=b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL)::bigint,
-           COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL)::bigint,
+            COUNT(*) FILTER (WHERE published_at>=b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
+            COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
            TO_CHAR(b.current_start,'YYYY-MM'), TO_CHAR(b.previous_start,'YYYY-MM')
-         FROM bounds b
-         LEFT JOIN valid ON ($2::text IS NULL OR LOWER(valid.resolved_country) = LOWER($2))
+          FROM bounds b
+          LEFT JOIN valid ON ($2::text IS NULL OR LOWER(valid.resolved_country) = LOWER($2))
          GROUP BY b.current_start,b.previous_start",
         &[&selected_year, &selected_country],
     ).await.map_err(internal_error)?;
@@ -1817,8 +1837,9 @@ async fn public_dashboard(
 
     let mut locations = Vec::new();
     let mut alerts = Vec::new();
-    let mut disease_totals = std::collections::HashMap::<String, (i64, i64, i64)>::new();
-    let mut country_totals = std::collections::HashMap::<String, i64>::new();
+     let mut disease_totals = std::collections::HashMap::<String, (i64, i64, i64)>::new();
+     let mut country_totals = std::collections::HashMap::<String, i64>::new();
+     let mut location_keys = std::collections::HashSet::<String>::new();
     let mut total_cases = 0i64;
     let mut total_deaths = 0i64;
     let mut total_events = 0i64;
@@ -1839,7 +1860,10 @@ async fn public_dashboard(
         let detail: Value = row.get(12);
         let threshold_i64 = i64::from(threshold.max(1));
         let ratio = cases as f64 / threshold_i64 as f64;
-        let candidate_severity = if cases >= threshold_i64 * 2 || deaths > 0 { "AWAS" }
+        // A threshold alone is not an outbreak signal. Require the NLP event
+        // to be explicitly marked as an outbreak before EWS can escalate it.
+        let candidate_severity = if !model_alert { "NORMAL" }
+            else if cases >= threshold_i64 * 2 || deaths > 0 { "AWAS" }
             else if cases >= threshold_i64 || model_alert { "SIAGA" }
             else if ratio >= 0.75 { "WASPADA" }
             else { "NORMAL" };
@@ -1850,10 +1874,11 @@ async fn public_dashboard(
         let severity = if ews_verified { candidate_severity } else { "NORMAL" };
         let is_alert = severity != "NORMAL";
 
-        total_cases += cases;
-        total_deaths += deaths;
-        total_events += event_count;
-        let entry = disease_totals.entry(disease.clone()).or_insert((0, 0, 0));
+         total_cases += cases;
+         total_deaths += deaths;
+         total_events += event_count;
+         location_keys.insert(location.trim().to_lowercase());
+         let entry = disease_totals.entry(disease.clone()).or_insert((0, 0, 0));
         entry.0 += cases; entry.1 += deaths; entry.2 += event_count;
         *country_totals.entry(country.clone()).or_insert(0) += cases;
 
@@ -1896,11 +1921,11 @@ async fn public_dashboard(
     };
 
     Ok(Json(json!({"success": true, "data": {
-        "updated_at": chrono::Utc::now().to_rfc3339(),
-        "available_years": available_years,
-        "filters": {"country": selected_country, "year": selected_year},
-        "kpis": {"cases": total_cases, "deaths": total_deaths, "events": total_events,
-                 "locations": locations.len(), "active_alerts": active_alerts},
+         "updated_at": chrono::Utc::now().to_rfc3339(),
+         "available_years": available_years,
+         "filters": {"country": selected_country, "year": selected_year},
+         "kpis": {"cases": total_cases, "deaths": total_deaths, "events": total_events,
+                  "locations": location_keys.len(), "active_alerts": active_alerts},
         "alerts": alerts, "locations": locations, "by_disease": by_disease, "trends": trends,
         "by_country": by_country,
         "ai_summary": {"text": summary_text, "provider": "local-rule-engine", "cached": true}

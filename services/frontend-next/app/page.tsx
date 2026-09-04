@@ -16,17 +16,26 @@ import {
   Globe2,
   MapPin,
   RefreshCw,
+  Shield,
   Skull,
   Sparkles,
+  TrendingDown,
+  TrendingUp,
   X,
+  Zap,
 } from "lucide-react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  Legend,
   Pie,
   PieChart,
+  RadialBar,
+  RadialBarChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -57,7 +66,7 @@ const severityClass = {
   NORMAL: "bg-blue-100 text-[#0060A9]",
 };
 
-function cleanArticleContent(value?: string | null, fallback = "Konten sumber tidak tersedia."): string {
+function cleanArticleContent(value?: string | null, fallback = "Source content is not available."): string {
   if (!value) return fallback;
   return value
     .replace(
@@ -506,6 +515,293 @@ export default function DashboardPage() {
           </div>
         </section>
       </div>
+
+            {/* ===== ANALYTICS INSIGHT CHARTS (No Duplicate Summary Cards) ===== */}
+      <section className="mt-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
+
+          {/* Panel B — Disease Risk Profile (Stacked Bar: Cases + Deaths with Smart Normalization) */}
+          <div
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)]"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-[#0060A9]">
+                <Zap className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xs font-black uppercase tracking-wider text-slate-700">Disease Risk Profile</h2>
+                <p className="text-[10px] text-slate-400">Cases vs Deaths — Top diseases by clinical burden</p>
+              </div>
+            </div>
+            {(() => {
+              // Smart disease normalizer to unify NLP variants (e.g., 'dengue fever DBD' + 'DBD', 'Campak' + 'Measles')
+              const normalizeName = (raw: string): string => {
+                const lower = (raw || '').toLowerCase().trim();
+                if (lower.includes('dengue') || lower.includes('dbd')) return 'Dengue Fever';
+                if (lower.includes('hand foot') || lower.includes('hfmd')) return 'Hand, Foot & Mouth';
+                if (lower.includes('campak') || lower.includes('measles')) return 'Measles';
+                if (lower.includes('flu') || lower.includes('influenza')) return 'Influenza';
+                if (lower.includes('rabies')) return 'Rabies';
+                if (lower.includes('covid')) return 'COVID-19';
+                if (lower.includes('chikungunya')) return 'Chikungunya';
+                if (lower.includes('meningitis')) return 'Meningitis';
+                if (lower.includes('hanta')) return 'Hantavirus';
+                if (lower.includes('ebola')) return 'Ebola';
+                if (lower.includes('mers')) return 'MERS-CoV';
+                if (lower.includes('avian') || lower.includes('h5n1')) return 'Avian Flu';
+                if (lower.includes('malaria')) return 'Malaria';
+                if (lower.includes('zika')) return 'Zika';
+                return raw.charAt(0).toUpperCase() + raw.slice(1);
+              };
+
+              // Merge duplicated diseases together
+              const mergedMap = new Map<string, { name: string; cases: number; deaths: number; events: number }>();
+              (data?.by_disease ?? []).forEach((d) => {
+                const unified = normalizeName(d.name);
+                const existing = mergedMap.get(unified);
+                if (existing) {
+                  existing.cases += d.cases;
+                  existing.deaths += d.deaths;
+                  existing.events += d.events;
+                } else {
+                  mergedMap.set(unified, {
+                    name: unified,
+                    cases: d.cases,
+                    deaths: d.deaths,
+                    events: d.events,
+                  });
+                }
+              });
+
+              const diseaseRisk = Array.from(mergedMap.values())
+                .filter((d) => d.cases > 0)
+                .sort((a, b) => b.cases - a.cases)
+                .slice(0, 6)
+                .map((d) => ({
+                  ...d,
+                  cfr: d.cases > 0 ? ((d.deaths / d.cases) * 100).toFixed(1) : '0.0',
+                }));
+
+              if (diseaseRisk.length === 0) {
+                return (
+                  <p className="py-12 text-center text-sm text-slate-400">No disease data available</p>
+                );
+              }
+
+              return (
+                <div className="h-64">
+                  <ResponsiveContainer>
+                    <BarChart
+                      data={diseaseRisk}
+                      layout="vertical"
+                      margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                      <XAxis type="number" tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={125}
+                        tick={{ fontSize: 10, fill: "#475569", fontWeight: 700 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip
+                        contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: 11 }}
+                        formatter={(value: number, name: string) => [
+                          value.toLocaleString(numLocale),
+                          name === "cases" ? "Cases" : "Deaths",
+                        ]}
+                      />
+                      <Legend
+                        iconType="circle"
+                        iconSize={8}
+                        formatter={(value) => (
+                          <span style={{ fontSize: 10, color: "#64748b", fontWeight: 700 }}>
+                            {value === "cases" ? "Cases" : "Deaths"}
+                          </span>
+                        )}
+                      />
+                      <Bar dataKey="cases" fill="#0060A9" radius={[0, 4, 4, 0]} maxBarSize={14} name="cases" />
+                      <Bar dataKey="deaths" fill="#ED2939" radius={[0, 4, 4, 0]} maxBarSize={14} name="deaths" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
+
+            {/* CFR mini badges with deduplicated diseases */}
+            {(() => {
+              const normalizeName = (raw: string): string => {
+                const lower = (raw || '').toLowerCase().trim();
+                if (lower.includes('dengue') || lower.includes('dbd')) return 'Dengue Fever';
+                if (lower.includes('hand foot') || lower.includes('hfmd')) return 'Hand, Foot & Mouth';
+                if (lower.includes('campak') || lower.includes('measles')) return 'Measles';
+                if (lower.includes('flu') || lower.includes('influenza')) return 'Influenza';
+                if (lower.includes('rabies')) return 'Rabies';
+                if (lower.includes('covid')) return 'COVID-19';
+                if (lower.includes('meningitis')) return 'Meningitis';
+                return raw.charAt(0).toUpperCase() + raw.slice(1);
+              };
+
+              const mergedMap = new Map<string, { name: string; cases: number; deaths: number }>();
+              (data?.by_disease ?? []).forEach((d) => {
+                const unified = normalizeName(d.name);
+                const existing = mergedMap.get(unified);
+                if (existing) {
+                  existing.cases += d.cases;
+                  existing.deaths += d.deaths;
+                } else {
+                  mergedMap.set(unified, { name: unified, cases: d.cases, deaths: d.deaths });
+                }
+              });
+
+              const list = Array.from(mergedMap.values())
+                .filter((d) => d.cases > 0)
+                .map((d) => ({
+                  ...d,
+                  cfrNum: (d.deaths / d.cases) * 100,
+                  cfrStr: ((d.deaths / d.cases) * 100).toFixed(1),
+                }))
+                .sort((a, b) => b.cfrNum - a.cfrNum)
+                .slice(0, 6);
+
+              if (list.length === 0) return null;
+
+              return (
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <p className="mb-2 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                    Case Fatality Rate (CFR)
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {list.map((d) => {
+                      const highRisk = d.cfrNum >= 2;
+                      return (
+                        <span
+                          key={d.name}
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-black ring-1 ${
+                            highRisk
+                              ? "bg-red-50 text-[#ED2939] ring-red-200"
+                              : "bg-blue-50 text-[#0060A9] ring-blue-200"
+                          }`}
+                        >
+                          {d.name}: {d.cfrStr}%
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Panel C — Alert Severity Breakdown (RadialBarChart Donut) */}
+          <div
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)]"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-[#ED2939]">
+                <Shield className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xs font-black uppercase tracking-wider text-slate-700">ASEAN Alert Status</h2>
+                <p className="text-[10px] text-slate-400">Location severity distribution across the region</p>
+              </div>
+            </div>
+            {(() => {
+              const allLocs = data?.locations ?? [];
+              const counts = allLocs.reduce(
+                (acc, loc) => {
+                  acc[loc.severity] = (acc[loc.severity] || 0) + 1;
+                  return acc;
+                },
+                {} as Record<string, number>,
+              );
+              const total = allLocs.length;
+
+              const severityData = [
+                { name: "Normal", value: counts["NORMAL"] || 0, fill: "#22c55e" },
+                { name: "Warning", value: counts["WASPADA"] || 0, fill: "#f59e0b" },
+                { name: "High", value: counts["SIAGA"] || 0, fill: "#B49B58" },
+                { name: "Critical", value: counts["AWAS"] || 0, fill: "#ED2939" },
+              ].filter((d) => d.value > 0);
+
+              if (total === 0) {
+                return (
+                  <p className="py-12 text-center text-sm text-slate-400">No location data available</p>
+                );
+              }
+
+              return (
+                <>
+                  <div className="relative h-48">
+                    <ResponsiveContainer>
+                      <RadialBarChart
+                        innerRadius="35%"
+                        outerRadius="95%"
+                        data={severityData}
+                        startAngle={180}
+                        endAngle={-180}
+                      >
+                        <RadialBar
+                          dataKey="value"
+                          cornerRadius={6}
+                          background={{ fill: "#f8fafc" }}
+                        />
+                        <Tooltip
+                          contentStyle={{ borderRadius: "10px", border: "1px solid #e2e8f0", fontSize: 11 }}
+                          formatter={(value: number, name: string) => [
+                            `${value} locations (${total > 0 ? ((value / total) * 100).toFixed(0) : 0}%)`,
+                            name,
+                          ]}
+                        />
+                      </RadialBarChart>
+                    </ResponsiveContainer>
+                    {/* Center total label */}
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                      <p className="text-2xl font-black text-slate-800">{total}</p>
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Locations</p>
+                    </div>
+                  </div>
+                  {/* Legend */}
+                  <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                    {[
+                      { key: "AWAS", label: "Critical", fill: "#ED2939" },
+                      { key: "SIAGA", label: "High", fill: "#B49B58" },
+                      { key: "WASPADA", label: "Warning", fill: "#f59e0b" },
+                      { key: "NORMAL", label: "Normal", fill: "#22c55e" },
+                    ].map(({ key, label, fill }) => {
+                      const val = counts[key] || 0;
+                      const pct = total > 0 ? ((val / total) * 100).toFixed(0) : "0";
+                      return (
+                        <div key={key} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: fill }}
+                            />
+                            <span className="text-[10px] font-semibold text-slate-600">{label}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+                              <div
+                                className="h-full rounded-full transition-all duration-700"
+                                style={{ width: `${pct}%`, backgroundColor: fill }}
+                              />
+                            </div>
+                            <span className="w-6 text-right text-[10px] font-black text-slate-700">{val}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      </section>
+      {/* ===== END ANALYTICS INSIGHT CHARTS ===== */}
 
       <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">

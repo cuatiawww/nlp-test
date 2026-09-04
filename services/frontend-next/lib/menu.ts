@@ -1,4 +1,4 @@
-import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, Settings } from 'lucide-react'
+﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, Settings } from 'lucide-react'
 
 export type SidebarItem = {
   label: string
@@ -26,6 +26,7 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'Events', labelKey: 'sidebar.items.events', icon: Database, href: '/events' },
       { label: 'URL Analysis', labelKey: 'sidebar.items.analyze', icon: Search, href: '/analyze' },
       { label: 'Processing', labelKey: 'sidebar.items.processing', icon: Activity, href: '/processing' },
+      { label: 'Reports & Matrix', labelKey: 'sidebar.items.reports', icon: FileText, href: '/reports' },
     ],
   },
   {
@@ -67,6 +68,7 @@ export const consoleMenu: SidebarGroup[] = [
     items: [
       { label: 'Surveillance Dashboard', icon: Home, href: '/' },
       { label: 'TV Command Center', icon: Activity, href: '/tv' },
+      { label: 'Reports & Matrix', icon: FileText, href: '/reports' },
     ],
   },
 ]

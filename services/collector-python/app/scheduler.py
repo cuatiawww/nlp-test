@@ -72,7 +72,31 @@ async def run_social_media_csv_job():
 
 
 def register_scheduled_jobs(scheduler: AsyncIOScheduler):
-    sources = db.fetch_sources()
+    # Register the file watcher first. It does not need the source registry or
+    # the database and must remain available during a DB restart.
+    try:
+        csv_interval = max(1, int(os.getenv("SOCIAL_MEDIA_CSV_INTERVAL_MINUTES", "5")))
+    except ValueError:
+        csv_interval = 5
+    social_start = datetime.now(timezone.utc) + timedelta(seconds=15)
+    scheduler.add_job(
+        run_social_media_csv_job,
+        "interval",
+        minutes=csv_interval,
+        next_run_time=social_start,
+        id="job_social_media_csv",
+        replace_existing=True,
+    )
+    logger.info("Scheduled Social Media CSV Watcher: every %d min", csv_interval)
+
+    # CSV social ingestion is independent from the configured DB sources.
+    # Keep it alive when the source registry is temporarily unavailable; the
+    # old behavior aborted collector startup before the CSV job was registered.
+    try:
+        sources = db.fetch_sources()
+    except Exception as exc:
+        logger.exception("Could not load scheduled sources; continuing with CSV watcher: %s", exc)
+        sources = []
     for idx, source in enumerate(sources):
         schedule = source.get("schedule")
         if not schedule:
@@ -90,20 +114,6 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
             replace_existing=True,
         )
         logger.info("Scheduled %s: every %d min (first run in %ds)", source["name"], interval_minutes, idx * 2)
-
-    # Register Social Media CSV Ingest Watcher
-    csv_interval = int(os.getenv("SOCIAL_MEDIA_CSV_INTERVAL_MINUTES", "5"))
-    social_start = datetime.now(timezone.utc) + timedelta(seconds=15)
-    scheduler.add_job(
-        run_social_media_csv_job,
-        "interval",
-        minutes=csv_interval,
-        next_run_time=social_start,
-        id="job_social_media_csv",
-        replace_existing=True,
-    )
-    logger.info("Scheduled Social Media CSV Watcher: every %d min", csv_interval)
-
 
 def _parse_interval(schedule: str) -> int:
     max_interval = int(os.getenv("CRAWLER_MAX_INTERVAL_MINUTES", "10"))

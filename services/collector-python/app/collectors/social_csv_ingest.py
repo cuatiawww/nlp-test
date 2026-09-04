@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import threading
 import urllib.request
 from typing import Dict, List, Optional, Tuple
 
@@ -32,6 +33,8 @@ GENERIC_SHORT_NOISE = {
     "get well soon", "gws", "cepat sembuh", "semoga lekas sembuh", "be strong",
     "praying for you", "stay safe", "wkwk", "wkwkwk", "haha", "hahaha", "amin", "aamiin"
 }
+
+_COLLECTION_LOCK = threading.Lock()
 
 
 def detect_platform_from_url(url: str, filename: str = "") -> str:
@@ -108,6 +111,9 @@ class SocialCSVIngestCollector:
         self.data_dir = data_dir or os.getenv("SOCIAL_MEDIA_CSV_DIR", "/app/data/social_media")
         self.checkpoint_file = os.path.join(self.data_dir, ".state_checkpoints.json")
         self._og_cache: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+        self.loop_mode = os.getenv("SOCIAL_MEDIA_CSV_LOOP", "true").lower() in {
+            "1", "true", "yes", "on"
+        }
 
     def _load_checkpoints(self) -> set:
         if os.path.exists(self.checkpoint_file):
@@ -125,10 +131,31 @@ class SocialCSVIngestCollector:
         except Exception as exc:
             logger.warning("Could not save checkpoints to %s: %s", self.checkpoint_file, exc)
 
-    def collect(self, max_posts: int = 25) -> dict:
+    def collect(self, max_posts: Optional[int] = None) -> dict:
+        # The scheduler and the manual trigger share one process. Prevent
+        # simultaneous runs from racing on the checkpoint file or publishing
+        # the same batch twice.
+        if not _COLLECTION_LOCK.acquire(blocking=False):
+            return {
+                "success": True,
+                "skipped": True,
+                "reason": "social CSV collection is already running",
+            }
+        try:
+            return self._collect(max_posts)
+        finally:
+            _COLLECTION_LOCK.release()
+
+    def _collect(self, max_posts: Optional[int] = None) -> dict:
         """Scan directory, group comments per post, extract caption, and publish."""
         if not os.path.exists(self.data_dir):
             return {"success": False, "error": f"Directory not found: {self.data_dir}"}
+
+        if max_posts is None:
+            try:
+                max_posts = max(1, int(os.getenv("SOCIAL_MEDIA_CSV_BATCH_SIZE", "25")))
+            except ValueError:
+                max_posts = 25
 
         csv_files = glob.glob(os.path.join(self.data_dir, "*.csv"))
         if not csv_files:
@@ -137,22 +164,20 @@ class SocialCSVIngestCollector:
         checkpoints = self._load_checkpoints()
         total_ingested = 0
         total_comments_read = 0
+        grouped_posts: List[Tuple[str, str, dict]] = []
 
-        for file_path in csv_files:
-            if total_ingested >= max_posts:
-                break
-
+        # Read every file first. This lets the loop know when a complete cycle
+        # has finished, even when one run is limited to a small batch.
+        for file_path in sorted(csv_files):
             filename = os.path.basename(file_path)
             posts_map: Dict[str, dict] = {}
-
-            # Read and group CSV rows by post
             try:
                 with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
                         total_comments_read += 1
-                        post_id = row.get("post_id") or row.get("id") or ""
-                        url = row.get("video_link") or row.get("url") or row.get("link") or ""
+                        post_id = (row.get("post_id") or row.get("id") or "").strip()
+                        url = (row.get("video_link") or row.get("url") or row.get("link") or "").strip()
                         key = post_id or url
                         if not key:
                             continue
@@ -168,81 +193,102 @@ class SocialCSVIngestCollector:
                                 "comments": [],
                                 "filename": filename,
                             }
+                        else:
+                            # A post can have a blank URL/caption on its first
+                            # comment row and a populated value on a later row.
+                            posts_map[key]["url"] = posts_map[key]["url"] or url
+                            posts_map[key]["date"] = posts_map[key]["date"] or row.get("comment_date") or row.get("date") or ""
+                            posts_map[key]["caption"] = posts_map[key]["caption"] or row.get("caption") or row.get("post_content") or ""
 
                         comment_text = row.get("comment") or row.get("text") or ""
                         commenter = row.get("commenter_username") or row.get("user") or ""
                         if is_meaningful_comment(comment_text):
                             posts_map[key]["comments"].append((commenter, comment_text))
-
             except Exception as exc:
                 logger.exception("Failed reading %s: %s", filename, exc)
                 continue
 
-            # Process each unique post
-            for key, post in posts_map.items():
-                if total_ingested >= max_posts:
-                    break
+            grouped_posts.extend((filename, key, post) for key, post in posts_map.items())
 
-                if key in checkpoints:
-                    continue
+        skipped = 0
+        failed = 0
+        for filename, key, post in grouped_posts:
+            checkpoint_key = f"{filename}:{key}"
+            if checkpoint_key in checkpoints:
+                continue
+            if key in checkpoints:
+                # Migrate the old pre-file-prefix checkpoint format while
+                # preserving its already-processed status.
+                checkpoints.add(checkpoint_key)
+                continue
+            if total_ingested >= max_posts:
+                break
 
-                platform = detect_platform_from_url(post["url"], post["filename"])
-                caption = post["caption"]
-                og_title = None
+            platform = detect_platform_from_url(post["url"], filename)
+            caption = post["caption"]
+            og_title = None
 
-                # Fetch OpenGraph caption if not provided in CSV
-                if not caption and post["url"]:
-                    if post["url"] in self._og_cache:
-                        og_title, caption = self._og_cache[post["url"]]
-                    else:
-                        og_title, caption = fetch_opengraph_caption(post["url"])
-                        self._og_cache[post["url"]] = (og_title, caption)
+            if not caption and post["url"]:
+                if post["url"] in self._og_cache:
+                    og_title, caption = self._og_cache[post["url"]]
+                else:
+                    og_title, caption = fetch_opengraph_caption(post["url"])
+                    self._og_cache[post["url"]] = (og_title, caption)
 
-                # Skip posts with no caption and no meaningful comments
-                if not caption and not post["comments"]:
-                    continue
+            # Mark unusable rows as handled so they do not prevent the loop
+            # from completing a cycle on every scheduler tick.
+            if not caption and not post["comments"]:
+                checkpoints.add(checkpoint_key)
+                skipped += 1
+                continue
 
-                # Build rich detailed content document
-                title_topic = og_title or f"Laporan {platform} — {post['source'] or 'Surveillance'}"
-                content_parts = [
-                    f"[POST UTAMA {platform.upper()}]",
-                    f"Akun Pengunggah: {post['account'] or 'Netizen / Komunitas'}",
-                    f"Topik/Narasi: {caption or title_topic}",
-                ]
-                if post["source"]:
-                    content_parts.append(f"Kategori Pencarian: {post['source']}")
+            title_topic = og_title or f"Laporan {platform} — {post['source'] or 'Surveillance'}"
+            content_parts = [
+                f"[POST UTAMA {platform.upper()}]",
+                f"Akun Pengunggah: {post['account'] or 'Netizen / Komunitas'}",
+                f"Topik/Narasi: {caption or title_topic}",
+            ]
+            if post["source"]:
+                content_parts.append(f"Kategori Pencarian: {post['source']}")
+            if post["comments"]:
+                content_parts.append("\n[LAPORAN & DISKUSI WARGA]")
+                for commenter, c_text in post["comments"][:6]:
+                    c_user = f"@{commenter}" if commenter else "Warga"
+                    content_parts.append(f"- {c_user}: {c_text}")
 
-                if post["comments"]:
-                    content_parts.append("\n[LAPORAN & DISKUSI WARGA]")
-                    for commenter, c_text in post["comments"][:6]:
-                        c_user = f"@{commenter}" if commenter else "Warga"
-                        content_parts.append(f"- {c_user}: {c_text}")
+            full_text = "\n".join(content_parts)
+            try:
+                from .. import rabbitmq
+                from ..minio_client import upload_file
 
-                full_text = "\n".join(content_parts)
+                obj_hash = hashlib.sha256(f"{checkpoint_key}_{full_text}".encode()).hexdigest()
+                obj_path = f"social/{platform.lower()}/{obj_hash}.txt"
+                upload_file(obj_path, full_text.encode("utf-8"), "text/plain; charset=utf-8")
 
-                # Publish to RabbitMQ pipeline
-                try:
-                    from .. import rabbitmq
-                    from ..minio_client import upload_file
+                rabbitmq.publish({
+                    "source_type": "social_media",
+                    "source_name": platform,
+                    "published_at": post["date"][:10] if post["date"] else "",
+                    "text": full_text,
+                    "url": post["url"],
+                    "object_path": obj_path,
+                    "collector_run_id": "",
+                    "collector_source_id": f"social_csv_{platform.lower()}",
+                })
+                total_ingested += 1
+                checkpoints.add(checkpoint_key)
+            except Exception as exc:
+                failed += 1
+                logger.exception("Failed publishing social post %s: %s", key, exc)
 
-                    obj_hash = hashlib.sha256(f"{key}_{full_text[:100]}".encode()).hexdigest()
-                    obj_path = f"social/{platform.lower()}/{obj_hash}.txt"
-                    upload_file(obj_path, full_text.encode("utf-8"), "text/plain; charset=utf-8")
-
-                    rabbitmq.publish({
-                        "source_type": "social_media",
-                        "source_name": platform,
-                        "published_at": post["date"][:10] if post["date"] else "",
-                        "text": full_text,
-                        "url": post["url"],
-                        "object_path": obj_path,
-                        "collector_run_id": "",
-                        "collector_source_id": f"social_csv_{platform.lower()}",
-                    })
-                    total_ingested += 1
-                    checkpoints.add(key)
-                except Exception as exc:
-                    logger.exception("Failed publishing social post %s: %s", key, exc)
+        # In loop mode, start the next cycle only after every grouped post has
+        # either been published or explicitly classified as unusable. Failed
+        # messages remain pending and will be retried on the next run.
+        cycle_reset = False
+        all_checkpoint_keys = {f"{filename}:{key}" for filename, key, _ in grouped_posts}
+        if self.loop_mode and all_checkpoint_keys and all_checkpoint_keys.issubset(checkpoints) and failed == 0:
+            checkpoints.clear()
+            cycle_reset = True
 
         self._save_checkpoints(checkpoints)
         return {
@@ -250,4 +296,8 @@ class SocialCSVIngestCollector:
             "files_processed": len(csv_files),
             "comments_read": total_comments_read,
             "posts_ingested": total_ingested,
+            "posts_skipped": skipped,
+            "posts_failed": failed,
+            "loop_mode": self.loop_mode,
+            "cycle_reset": cycle_reset,
         }

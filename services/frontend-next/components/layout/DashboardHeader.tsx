@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import {
   ChevronDown,
@@ -7,6 +7,7 @@ import {
   LogOut,
   Menu,
   Tv,
+  FileSpreadsheet,
   Settings as SettingsIcon,
   Users as UsersIcon,
 } from "lucide-react";
@@ -129,21 +130,40 @@ export default function DashboardHeader({
                 </Link>
               </div>
             ) : (
-              /* In Regular Dashboard Mode: Show standard Dashboard & TV mode (NO CONSOLE BUTTON - completely hidden) */
+              /* In Regular Dashboard Mode: Show standard Dashboard, TV mode, and Laporan */
               <div className="hidden items-center rounded-2xl border border-[#0060A9]/15 bg-white/75 p-1.5 shadow-sm sm:flex">
                 <Link
                   href="/"
-                  className="flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#004b85]"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname === "/"
+                      ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
+                      : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
+                  }`}
                 >
                   <LayoutDashboard className="h-4 w-4" />
                   {t("header.dashboard")}
                 </Link>
                 <Link
                   href="/tv"
-                  className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white hover:text-[#0060A9]"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname === "/tv"
+                      ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
+                      : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
+                  }`}
                 >
                   <Tv className="h-4 w-4" />
                   {t("header.tvMode")}
+                </Link>
+                <Link
+                  href="/reports"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname?.startsWith("/reports") || pathname?.startsWith("/laporan")
+                      ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
+                      : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
+                  }`}
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  {t("header.reports") || "REPORTS"}
                 </Link>
               </div>
             )}

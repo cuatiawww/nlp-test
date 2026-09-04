@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { analyzeUrl } from '@/lib/api'
 import AnalyzeResultCard from '@/components/AnalyzeResultCard'
@@ -19,6 +19,14 @@ export default function AnalyzePage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
+    if (initialUrl) {
+      setUrl(initialUrl)
+      void handleSubmit(initialUrl)
+    }
+  }, [])
 
   const getSource = (key: string, rawSource?: string): string => {
     if (!rawSource) return ''
@@ -60,8 +68,8 @@ export default function AnalyzePage() {
     return <span className="text-xs text-slate-400">-</span>
   }
 
-  async function handleSubmit() {
-    if (!url.trim()) {
+  async function handleSubmit(value = url.trim()) {
+    if (!value) {
       toast.error(t('pages.analyze.urlRequired'))
       return
     }
@@ -69,7 +77,7 @@ export default function AnalyzePage() {
     setError('')
     setResult(null)
     try {
-      const data = await analyzeUrl(url.trim())
+      const data = await analyzeUrl(value)
       setResult(data)
       toast.success(t('pages.analyze.done'))
     } catch (e: any) {
@@ -103,7 +111,7 @@ export default function AnalyzePage() {
           />
         </div>
         <button
-          onClick={handleSubmit}
+          onClick={() => handleSubmit()}
           disabled={loading}
           className="flex items-center gap-2 rounded-xl bg-[#0060A9] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#004b85] disabled:opacity-50"
         >

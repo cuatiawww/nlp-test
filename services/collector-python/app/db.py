@@ -8,7 +8,12 @@ _conn = None
 def get_conn():
     global _conn
     if _conn is None or _conn.closed:
-        _conn = psycopg.connect(config.DATABASE_URL, row_factory=dict_row)
+        # Avoid blocking collector startup indefinitely when Postgres is
+        # restarting or temporarily unreachable. The CSV watcher can still
+        # operate without the source registry connection.
+        separator = "&" if "?" in config.DATABASE_URL else "?"
+        conninfo = f"{config.DATABASE_URL}{separator}connect_timeout=5"
+        _conn = psycopg.connect(conninfo, row_factory=dict_row)
     return _conn
 
 

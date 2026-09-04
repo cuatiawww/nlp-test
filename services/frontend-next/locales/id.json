@@ -54,7 +54,8 @@
     "subtitle": "Analisis spasial outbreak penyakit dan peringatan dini kesehatan di kawasan Asia Tenggara.",
     "kemenkes": "ASEAN Surveillance Centre",
     "dashboard": "DASHBOARD",
-    "tvMode": "MODE TV",
+    "tvMode": "TV MODE",
+    "reports": "REPORTS",
     "login": "MASUK",
     "logout": "Keluar",
     "openMenu": "Buka menu",
@@ -83,7 +84,8 @@
       "users": "Users",
       "hardcode1": "Hardcode Audit 1",
       "hardcode2": "Hardcode Audit 2",
-      "systemSettings": "Pengaturan Sistem"
+      "systemSettings": "Pengaturan Sistem",
+      "reports": "Reports & Matrix"
     }
   },
   "dashboard": {
@@ -253,9 +255,9 @@
     "activeEwsRadiusSub": "Denyut radius baru muncul setelah diset",
     "impactRadius": "Radius dampak",
     "resetLayers": "Reset Pengaturan Layer",
-    "legendAwas": "Awas / Kasus Sangat Tinggi",
-    "legendSiaga": "Siaga",
-    "legendWaspada": "Waspada",
+    "legendAwas": "Critical",
+    "legendSiaga": "High",
+    "legendWaspada": "Warning",
     "legendEws": "Radius EWS Aktif",
     "popupCases": "Kasus",
     "popupDeaths": "Kematian",
@@ -286,6 +288,7 @@
     "deaths": "KEMATIAN",
     "eventsVerified": "EVENT TERVERIFIKASI",
     "activeAlerts": "PERINGATAN AKTIF",
+    "currentPeriod": "Periode {period}",
     "earlyWarningTitle": "Peringatan Dini Penyakit",
     "activeOutbreakNotif": "{count} notifikasi outbreak aktif",
     "searchPlaceholder": "Cari penyakit, lokasi, negara...",
@@ -294,6 +297,7 @@
     "tickerAlert": "{severity}: {disease} di {location} • {cases} {casesUnit}",
     "liveCrawlingFeedTitle": "LIVE ASEAN CRAWLING WEB & SOCIAL MEDIA",
     "liveCrawlingStatus": "Real-time ASEAN Surveillance Active",
+    "liveCrawlingWaiting": "Backend terhubung; menunggu crawling baru",
     "collectorReconnecting": "Connecting...",
     "collectorActive": "Collector Active",
     "crawlingFeedCount": "{count} sinyal tersimpan",
@@ -304,10 +308,15 @@
     "expandFeed": "Buka feed crawling"
   },
   "severity": {
-    "AWAS": "AWAS",
-    "SIAGA": "SIAGA",
-    "WASPADA": "WASPADA",
-    "NORMAL": "NORMAL"
+    "AWAS": "CRITICAL",
+    "SIAGA": "HIGH",
+    "WASPADA": "WARNING",
+    "NORMAL": "NORMAL",
+    "CRITICAL": "CRITICAL",
+    "HIGH": "HIGH",
+    "WARNING": "WARNING",
+    "WATCH": "WARNING",
+    "SAFE": "NORMAL"
   },
   "diseases": {
     "Demam Berdarah": "Demam Berdarah",

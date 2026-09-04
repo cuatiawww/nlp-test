@@ -16,10 +16,17 @@ Modul ini mengimpor dan memproses data postingan/komentar media sosial (Instagra
 ```env
 SOCIAL_MEDIA_CSV_DIR=/app/data/social_media
 SOCIAL_MEDIA_CSV_INTERVAL_MINUTES=5
+SOCIAL_MEDIA_CSV_LOOP=true
+SOCIAL_MEDIA_CSV_BATCH_SIZE=25
 ```
 
 ### Endpoint Manual & Scheduler:
 - **Scheduler**: Berjalan otomatis setiap `SOCIAL_MEDIA_CSV_INTERVAL_MINUTES` menit.
+- **Loop mode**: Jika `SOCIAL_MEDIA_CSV_LOOP=true`, semua post unik dalam CSV diproses
+  per batch lalu diulang dari awal setelah satu siklus selesai. Checkpoint tetap dipakai
+  sebagai cursor siklus, bukan sebagai daftar permanen yang menghentikan crawler.
+- **Deduplikasi**: Re-play URL sosial memperbarui analisis URL yang sama di worker,
+  sehingga tidak membuat `raw_reports`/`disease_events` baru pada setiap siklus.
 - **Manual Trigger**:
   ```bash
   curl -X POST http://localhost:8002/collect/social-media-csv

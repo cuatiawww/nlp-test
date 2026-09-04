@@ -64,7 +64,7 @@ Semua halaman diakses via prefix **`/nlp/`** (Next.js basePath).
 | Route | Fitur |
 |-------|-------|
 | `/` | Dashboard publik fullscreen: KPI tren bulanan, filter negara/tahun, EWS, peta spasial, grafik, tabel lokasi, dan ringkasan AI lokal |
-| `/tv` | Command-center fullscreen untuk pemantauan outbreak |
+| `/tv` | Command-center fullscreen untuk pemantauan outbreak; KPI memakai tren bulan berjalan yang sama dengan `/nlp/`, sedangkan peta dan analitik menampilkan snapshot tahun terpilih |
 | `/analyze` | Analisis URL: main content bersih, translasi lokal, detail NLP, sumber lengkap, dan peta |
 | `/sources` | CRUD sumber data (modal popup), Trigger per-source + Trigger All |
 | `/events` | Data events hasil NLP — filter Semua/Health/Non Health, search, pagination angka, kolom Diproses |
@@ -113,6 +113,13 @@ Semua halaman CRUD menggunakan **modal popup** (bukan inline form). Semua tabel 
   "total_pages": 8
 }
 ```
+
+**Definisi angka dashboard:** `kpis` adalah snapshot akumulasi tahun dan filter
+yang dipilih, sedangkan `trends.*.current` adalah bulan berjalan dan
+`trends.*.previous` adalah bulan sebelumnya. Kartu KPI pada `/nlp/` dan
+`/nlp/tv` menggunakan `trends.*.current`; data snapshot pada peta, grafik, dan
+panel analitik menggunakan `kpis`/agregasi tahunan. URL yang sama hanya dihitung
+satu kali setelah proses NLP ulang.
 
 ### NLP API Internal (:8001)
 

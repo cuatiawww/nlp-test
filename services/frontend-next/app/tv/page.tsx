@@ -34,7 +34,7 @@ export default function TvPage() {
 
   const [data,setData]=useState<PublicDashboard|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
   const [drawer,setDrawer]=useState(false), [sound,setSound]=useState(false), [fullscreen,setFullscreen]=useState(false), [kpiHidden,setKpiHidden]=useState(false), [leftHidden,setLeftHidden]=useState(false), [rightHidden,setRightHidden]=useState(false)
-  const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [choropleth,setChoropleth]=useState(true)
+  const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
   const [bnpb,setBnpb]=useState({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false}), [wind,setWind]=useState(false), [ewsRadius,setEwsRadius]=useState<number|null>(null)
   const [clock,setClock]=useState({wib:'',wita:'',wit:'',date:''})
   const load=useCallback(async()=>{try{setData(await fetchPublicDashboard());setCountdown(60)}finally{setLoading(false)}},[])
@@ -72,10 +72,12 @@ export default function TvPage() {
   const playSound=()=>{setSound(v=>!v);if(!sound){const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);g.gain.value=.04;o.start();o.stop(c.currentTime+.25)}}
 
   const cards=[
-    [t('tv.casesDetected'),data?.kpis.cases??0,Bug,'text-[#0060A9]','bg-blue-50 text-[#0060A9] border-blue-200'],
-    [t('tv.deaths'),data?.kpis.deaths??0,Skull,'text-[#ED2939]','bg-red-50 text-[#ED2939] border-red-200'],
-    [t('tv.eventsVerified'),data?.kpis.events??0,Activity,'text-sky-600','bg-sky-50 text-sky-600 border-sky-200'],
-    [t('tv.activeAlerts'),data?.kpis.active_alerts??0,ShieldAlert,'text-[#B49B58]','bg-[#fbf8ee] text-[#B49B58] border-[#e9dfc4]']
+    // Keep TV KPI semantics identical to the public dashboard: current month.
+    // The API's kpis fields are year-to-date totals and are used by the map.
+    [t('tv.casesDetected'),data?.trends?.cases.current??data?.kpis.cases??0,Bug,'text-[#0060A9]','bg-blue-50 text-[#0060A9] border-blue-200'],
+    [t('tv.deaths'),data?.trends?.deaths.current??data?.kpis.deaths??0,Skull,'text-[#ED2939]','bg-red-50 text-[#ED2939] border-red-200'],
+    [t('tv.eventsVerified'),data?.trends?.events.current??data?.kpis.events??0,Activity,'text-sky-600','bg-sky-50 text-sky-600 border-sky-200'],
+    [t('tv.activeAlerts'),data?.trends?.alerts.current??data?.kpis.active_alerts??0,ShieldAlert,'text-[#B49B58]','bg-[#fbf8ee] text-[#B49B58] border-[#e9dfc4]']
   ] as const
 
   return (
@@ -88,6 +90,11 @@ export default function TvPage() {
           showMarkers={markers}
           countryData={choropleth?data?.by_country:undefined}
           outbreakLocations={data?.locations}
+          locationsData={data?.locations?.map((l) => ({
+            name: l.location_name || l.disease || "Kasus Terpantau",
+            cases: l.cases || 1,
+            country: l.country,
+          }))}
           bnpbLayers={bnpb}
           showWind={wind}
           ewsRadiusKm={ewsRadius}
@@ -96,25 +103,33 @@ export default function TvPage() {
       </div>
 
       <header className="pointer-events-none fixed left-2 right-2 top-2 z-40 flex items-center justify-between gap-3 sm:left-3 sm:right-3 sm:top-3">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-[#cfe0f1] bg-white/95 px-4 py-2 text-slate-800 shadow-[0_8px_24px_rgba(0,96,169,.09)] backdrop-blur-xl">
-          <Link href="/" className="grid h-9 w-9 place-items-center rounded-xl border border-blue-200 bg-blue-50 text-[#0060A9] transition hover:bg-blue-100">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-[#cfe0f1] bg-white/95 p-1.5 text-slate-800 shadow-[0_8px_24px_rgba(0,96,169,.09)] backdrop-blur-xl transition-all">
+          <Link href="/" className="grid h-8 w-8 place-items-center rounded-xl border border-blue-200 bg-blue-50 text-[#0060A9] transition hover:bg-blue-100" title="Kembali ke Beranda">
             <ArrowLeft className="h-4 w-4"/>
           </Link>
-          <Image src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`} alt="Logo ABVC" width={120} height={38} className="h-8 w-auto object-contain" priority/>
-          <div className="h-7 w-px bg-slate-200"/>
-          <div>
-            <span className="block text-sm font-extrabold tracking-wider text-[#0060A9]">
-              {t('tv.title')}
+          <button
+            type="button"
+            onClick={() => setHeaderExpanded((v) => !v)}
+            className="flex items-center gap-1.5 rounded-xl p-1 transition hover:bg-blue-50"
+            title={headerExpanded ? "Tutup Info Dashboard" : "Buka Info Dashboard"}
+          >
+            <Image src={`${PUBLIC_BASE_PATH}/abvc-logo.webp`} alt="Logo ABVC" width={80} height={26} className="h-6 w-auto object-contain" priority/>
+            <span className={`text-[#0060A9] transition-transform duration-200 ${headerExpanded ? "rotate-180" : ""}`}>
+              <ChevronDown className="h-3.5 w-3.5" />
             </span>
-            <span className="hidden max-w-[480px] truncate text-[10px] font-semibold text-slate-600 sm:block">
-              {t('tv.subtitle')}
-            </span>
-          </div>
-          <div className="hidden items-center gap-2 border-l border-slate-200 pl-3 xl:flex">
-            <span className="rounded-xl border border-blue-300 bg-blue-50 px-2.5 py-0.5 text-xs font-black text-[#0060A9]">
-              {t('tv.surveillanceAsean', { count: data?.kpis.locations ?? 0 })}
-            </span>
-          </div>
+          </button>
+          {headerExpanded && (
+            <div className="flex items-center gap-3 border-l border-slate-200 pl-3 pr-2 animate-feed-in">
+              <div>
+                <span className="block text-xs font-black tracking-wider text-[#0060A9]">
+                  {t('tv.title')}
+                </span>
+                <span className="hidden max-w-[360px] truncate text-[9.5px] font-semibold text-slate-600 sm:block">
+                  {t('tv.subtitle')}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
 
@@ -157,7 +172,9 @@ export default function TvPage() {
                     <span className="text-[9px] font-bold text-slate-500">{label===t('tv.deaths')?'Jiwa':'Data'}</span>
                   </div>
                   <div className="mt-1 border-t border-slate-100 pt-1 text-[9px] font-bold text-slate-500">
-                    Snapshot NLP multilingual
+                    {data?.trends?.current_month
+                      ? t('tv.currentPeriod', { period: data.trends.current_month })
+                      : 'Snapshot NLP multilingual'}
                   </div>
                 </div>
               ))}

@@ -20,9 +20,10 @@ import type { FeatureLike } from "ol/Feature";
 import { fromLonLat } from "ol/proj";
 import { unByKey } from "ol/Observable";
 import { defaults as defaultControls } from "ol/control";
-import { X, MapPin, RotateCcw } from "lucide-react";
+import { X, MapPin, RotateCcw, Navigation, Activity, Skull, AlertTriangle } from "lucide-react";
 import type { AnalyzeResponse, OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
+import CountryFlag from "@/components/CountryFlag";
 
 import { ASEAN_GEOJSON } from "@/data/asean-countries";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
@@ -95,6 +96,11 @@ export default function AseanMap({
     totalCases: number;
     locations: { name: string; cases: number }[];
   } | null>(null);
+
+  const latestPropsRef = useRef({ countryData, outbreakLocations, locationsData });
+  useEffect(() => {
+    latestPropsRef.current = { countryData, outbreakLocations, locationsData };
+  }, [countryData, outbreakLocations, locationsData]);
 
   useEffect(() => {
     if (!el.current || mapRef.current) return;
@@ -230,12 +236,27 @@ export default function AseanMap({
       }
 
       const name = hits[0].get("name") as string;
-      const item = countryData?.find((d) => d.name === name);
-      const locs = locationsData?.filter((l) => l.country === name) ?? [];
+      const { countryData: curCountryData, outbreakLocations: curOutbreaks, locationsData: curLocs } = latestPropsRef.current;
+      const item = curCountryData?.find((d) => d.name?.toLowerCase() === name.toLowerCase());
+      
+      const matchingOutbreaks = curOutbreaks?.filter(
+        (l) => l.country?.toLowerCase() === name.toLowerCase()
+      ) ?? [];
+
+      const locs = (curLocs && curLocs.length > 0)
+        ? curLocs.filter((l) => l.country?.toLowerCase() === name.toLowerCase())
+        : matchingOutbreaks.map((l) => ({
+            name: l.location_name || l.disease || "Monitored Outbreak",
+            cases: l.cases || 1,
+          }));
+
+      const totalCases = (item && item.cases > 0)
+        ? item.cases
+        : matchingOutbreaks.reduce((sum, cur) => sum + (cur.cases || 1), 0);
 
       setSelected({
         name,
-        totalCases: item?.cases ?? 0,
+        totalCases,
         locations: locs.sort((a, b) => b.cases - a.cases),
       });
 
@@ -526,6 +547,45 @@ export default function AseanMap({
     if (v) v.animate({ zoom: (v.getZoom() ?? 4) + d, duration: 250 });
   };
 
+  const countryOutbreaks = outbreakLocations?.filter(
+    (x) => x.country?.toLowerCase() === selected?.name.toLowerCase()
+  ) ?? [];
+
+  const countryItem = countryData?.find(
+    (d) => d.name?.toLowerCase() === selected?.name.toLowerCase()
+  );
+
+  const calculatedCases = (countryItem && countryItem.cases > 0)
+    ? countryItem.cases
+    : (selected?.totalCases && selected.totalCases > 0)
+      ? selected.totalCases
+      : countryOutbreaks.reduce((acc, c) => acc + (c.cases || 0), 0);
+
+  const displayTotalCases = calculatedCases > 0
+    ? calculatedCases
+    : countryOutbreaks.length;
+
+  const totalDeaths = countryOutbreaks.reduce((acc, curr) => acc + (curr.deaths || 0), 0);
+  const alertCount = countryOutbreaks.filter((x) => x.has_alert || x.severity === "AWAS").length;
+  const uniqueDiseases = Array.from(
+    new Set(
+      countryOutbreaks
+        .map((x) => x.disease)
+        .filter((d): d is string => Boolean(d && d !== "UNKNOWN"))
+    )
+  ).slice(0, 4);
+
+  const displayLocations = (selected?.locations && selected.locations.length > 0)
+    ? selected.locations
+    : (locationsData && locationsData.length > 0)
+      ? locationsData.filter((l) => l.country?.toLowerCase() === selected?.name.toLowerCase())
+      : countryOutbreaks.map((l) => ({
+          name: l.location_name || l.disease || "Monitored Location",
+          cases: l.cases || 1,
+        }));
+
+  const locationsCount = displayLocations.length || countryOutbreaks.length || (selected?.locations.length ?? 0);
+
   return (
     <div
       className={
@@ -596,54 +656,110 @@ export default function AseanMap({
 
       {selected && (
         <div
-          className="absolute right-3 top-14 w-[min(296px,calc(100%-24px))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.18)]"
-          style={{ animation: "fadeSlideIn 180ms ease" }}
+          className="absolute bottom-16 left-1/2 z-30 w-[min(410px,calc(100%-32px))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5"
+          style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
-          <div className="flex items-center justify-between gap-2 bg-[#0060A9] px-4 py-3">
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 shrink-0 text-white/80" />
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-white/80">
-                  {t("map.selectedCountry")}
-                </p>
-                <h4 className="text-sm font-extrabold leading-tight text-white">
-                  {selected.name}
-                </h4>
-              </div>
+          {/* Close Button - Clean top-right positioning without badge */}
+          <button
+            type="button"
+            onClick={resetView}
+            className="absolute top-3.5 right-3.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+
+          {/* Country Flag & Title */}
+          <div className="flex items-center gap-3 pr-8">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-[#0060A9] ring-1 ring-blue-200/80 shadow-xs overflow-hidden">
+              <CountryFlag countryName={selected.name} shape="circle" size="md" />
             </div>
-            <button
-              type="button"
-              onClick={resetView}
-              className="rounded-lg p-1 text-white/70 transition hover:bg-white/20 hover:text-white"
-              aria-label={t("common.close")}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="border-b border-slate-100 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-              {t("dashboard.totalCases")}
-            </p>
-            <p className="text-2xl font-extrabold leading-none text-slate-900">
-              {selected.totalCases.toLocaleString()}
-            </p>
-          </div>
-
-          {selected.locations.length > 0 && (
-            <div className="px-4 py-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                {t("dashboard.perLocation")}
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-base font-black uppercase tracking-tight text-slate-900">
+                {selected.name}
+              </h3>
+              <p className="truncate text-[11px] font-semibold text-slate-500">
+                {locationsCount > 0
+                  ? `${locationsCount} Locations Monitored • ASEAN Region`
+                  : "Monitored Region • ASEAN Region"}
               </p>
-              <div className="max-h-[160px] space-y-1 overflow-y-auto">
-                {selected.locations.map((loc) => (
+            </div>
+          </div>
+
+          {/* 4 Real Surveillance Metric Boxes in English (ABVC Theme Consistent) */}
+          <div className="mt-3.5 grid grid-cols-4 gap-2">
+            {/* Total Cases */}
+            <div className="rounded-xl border border-blue-200/80 bg-blue-50/70 p-2 text-center">
+              <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-[#0060A9]">
+                <Activity className="h-3 w-3" />
+                <span>Cases</span>
+              </div>
+              <p className="mt-0.5 text-sm font-black text-[#0060A9]">
+                {displayTotalCases > 9999
+                  ? `${(displayTotalCases / 1000).toFixed(1)}k`
+                  : displayTotalCases.toLocaleString()}
+              </p>
+            </div>
+
+            {/* Deaths */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-center">
+              <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-slate-600">
+                <Skull className="h-3 w-3 text-slate-500" />
+                <span>Deaths</span>
+              </div>
+              <p className="mt-0.5 text-sm font-black text-slate-800">
+                {totalDeaths.toLocaleString()}
+              </p>
+            </div>
+
+            {/* Alerts */}
+            <div className="rounded-xl border border-rose-200/80 bg-rose-50/70 p-2 text-center">
+              <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-[#ED2939]">
+                <AlertTriangle className="h-3 w-3" />
+                <span>Alerts</span>
+              </div>
+              <p className="mt-0.5 text-sm font-black text-[#ED2939]">{alertCount}</p>
+            </div>
+
+            {/* Monitored Locations */}
+            <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 p-2 text-center">
+              <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-[#B49B58]">
+                <MapPin className="h-3 w-3" />
+                <span>Locations</span>
+              </div>
+              <p className="mt-0.5 text-sm font-black text-[#B49B58]">
+                {locationsCount}
+              </p>
+            </div>
+          </div>
+
+          {/* Detected Diseases */}
+          {uniqueDiseases.length > 0 && (
+            <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+              <span className="text-[9.5px] font-bold text-slate-400">Diseases:</span>
+              {uniqueDiseases.map((dis) => (
+                <span key={dis} className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#0060A9] ring-1 ring-blue-200/60">
+                  {dis}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Location Breakdown if available */}
+          {displayLocations.length > 0 && (
+            <div className="mt-2.5 border-t border-slate-100 pt-2">
+              <p className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                Top Locations
+              </p>
+              <div className="max-h-[80px] space-y-1 overflow-y-auto pr-1">
+                {displayLocations.slice(0, 5).map((loc) => (
                   <div
                     key={loc.name}
                     className="flex items-center justify-between text-xs"
                   >
                     <span className="truncate text-slate-700">{loc.name}</span>
-                    <span className="ml-2 shrink-0 font-semibold text-slate-900">
-                      {loc.cases.toLocaleString()}
+                    <span className="ml-2 shrink-0 font-bold text-slate-900">
+                      {loc.cases.toLocaleString()} cases
                     </span>
                   </div>
                 ))}
@@ -651,15 +767,30 @@ export default function AseanMap({
             </div>
           )}
 
-          {selected.locations.length === 0 && (
-            <div className="px-4 py-6 text-center">
-              <p className="text-xs text-slate-400">
-                {t("dashboard.noLocationData")}
-              </p>
-            </div>
-          )}
+          {/* Tactical Action Button in English */}
+          <button
+            type="button"
+            onClick={() => {
+              const geom = (vectorRef.current?.getSource()?.getFeatures() || []).find(
+                (f) => (f.get("name") as string).toLowerCase() === selected.name.toLowerCase()
+              )?.getGeometry();
+              if (geom) {
+                mapRef.current?.getView().fit(geom.getExtent(), {
+                  duration: 500,
+                  padding: [60, 60, 220, 60],
+                  maxZoom: 7,
+                });
+              }
+            }}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#0060A9] py-2.5 text-xs font-black text-white shadow-md transition hover:bg-[#004d88] active:scale-[0.98]"
+          >
+            <Navigation className="h-3.5 w-3.5" />
+            <span>Focus Map on {selected.name}</span>
+          </button>
         </div>
       )}
+
+
 
       <div className="absolute bottom-3 right-3 flex flex-col gap-1">
         <button
@@ -698,3 +829,4 @@ export default function AseanMap({
     </div>
   );
 }
+

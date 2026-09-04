@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from "react";
 import { sidebarMenu, consoleMenu } from "@/lib/menu";
@@ -11,9 +11,13 @@ import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 const guestMenu = [
   {
-    title: "PEMANTAUAN",
+    title: "SURVEILLANCE",
     titleKey: "sidebar.sections.monitoring",
-    items: [{ label: "Home", labelKey: "sidebar.items.home", icon: undefined, href: "/" }],
+    items: [
+      { label: "Home", labelKey: "sidebar.items.home", icon: undefined, href: "/" },
+      { label: "TV Mode", labelKey: "header.tvMode", icon: undefined, href: "/tv" },
+      { label: "Reports", labelKey: "header.reports", icon: undefined, href: "/reports" },
+    ],
   },
 ];
 

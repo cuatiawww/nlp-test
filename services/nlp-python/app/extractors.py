@@ -748,7 +748,3 @@ def is_content_too_short_or_noisy(text: str, has_health_indicators: bool = False
         return True
 
     return False
-
-
-def is_outbreak_content(text: str) -> bool:
-    return is_explicit_outbreak_report(text)

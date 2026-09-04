@@ -14,6 +14,7 @@ logger = logging.getLogger("worker")
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/%2f")
 RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "disease.raw")
+RABBITMQ_SOCIAL_QUEUE = os.getenv("RABBITMQ_SOCIAL_QUEUE", "disease.social")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
 CURRENT_YEAR_ONLY = os.getenv("CURRENT_YEAR_ONLY", "true").lower() in {"1", "true", "yes", "on"}
@@ -149,6 +150,62 @@ def callback(ch, method, properties, body):
                     "UPDATE raw_reports SET processing_status='PROCESSED' WHERE id=%s",
                     (raw_id,),
                 )
+            elif source_type == "social_media" and msg.get("url"):
+                # CSV social feeds are intentionally replayed in a loop. Reuse
+                # the latest report for the URL so each replay refreshes its
+                # NLP result instead of inflating raw_reports/disease_events.
+                # The transaction-scoped advisory lock also protects against
+                # duplicate URL messages if more than one worker is running.
+                conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    (msg.get("url"),),
+                )
+                existing = conn.execute(
+                    """SELECT id FROM raw_reports
+                       WHERE url=%s
+                       ORDER BY created_at DESC
+                       LIMIT 1
+                       FOR UPDATE""",
+                    (msg.get("url"),),
+                ).fetchone()
+                if existing:
+                    raw_id = existing["id"]
+                    conn.execute(
+                        "DELETE FROM disease_events WHERE raw_report_id=%s",
+                        (raw_id,),
+                    )
+                    conn.execute(
+                        """UPDATE raw_reports
+                           SET source_type=%s, source_name=%s,
+                               published_at=COALESCE(%s, published_at),
+                               original_text=%s, object_path=%s,
+                               processing_status='PROCESSED'
+                           WHERE id=%s""",
+                        (
+                            msg.get("source_type"),
+                            msg.get("source_name"),
+                            parse_date(msg.get("published_at")),
+                            msg.get("text"),
+                            msg.get("object_path"),
+                            raw_id,
+                        ),
+                    )
+                else:
+                    cur = conn.execute(
+                        """INSERT INTO raw_reports
+                           (source_type, source_name, published_at, original_text, url, object_path, processing_status)
+                           VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSED')
+                           RETURNING id""",
+                        (
+                            msg.get("source_type"),
+                            msg.get("source_name"),
+                            parse_date(msg.get("published_at")),
+                            msg.get("text"),
+                            msg.get("url"),
+                            msg.get("object_path"),
+                        ),
+                    )
+                    raw_id = cur.fetchone()["id"]
             else:
                 # Collector message — insert raw_reports now
                 cur = conn.execute(
@@ -278,9 +335,15 @@ def main():
             conn = pika.BlockingConnection(params)
             channel = conn.channel()
             channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
+            if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
+                channel.queue_declare(queue=RABBITMQ_SOCIAL_QUEUE, durable=True)
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
-            logger.info("Worker listening on %s", RABBITMQ_QUEUE)
+            if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
+                channel.basic_consume(queue=RABBITMQ_SOCIAL_QUEUE, on_message_callback=callback)
+                logger.info("Worker listening on %s and %s", RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE)
+            else:
+                logger.info("Worker listening on %s", RABBITMQ_QUEUE)
             channel.start_consuming()
         except Exception as e:
             logger.error("Connection error: %s — retrying in 5s", e)

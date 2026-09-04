@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useCrawlingFeed } from "@/hooks/useCrawlingFeed";
 import { relativeTime, type CrawlingFeedItem, type FeedChannel } from "@/lib/crawling-feed";
+import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 import CountryFlag from "@/components/CountryFlag";
 import SocialMediaIcon from "@/components/SocialMediaIcon";
 
@@ -36,6 +37,14 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
   const [now, setNow] = useState(() => Date.now());
   const feedRef = useRef<HTMLDivElement>(null);
   const previousRects = useRef<Map<string, DOMRect>>(new Map());
+
+  const hasRecentActivity = useMemo(
+    () => items.some((item) => {
+      const timestamp = Date.parse(item.detectedAt);
+      return Number.isFinite(timestamp) && now - timestamp <= 15 * 60 * 1_000;
+    }),
+    [items, now],
+  );
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -190,8 +199,14 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
               {t("tv.liveCrawlingFeedTitle") || "LIVE ASEAN CRAWLING WEB & SOCIAL MEDIA"}
             </h3>
             <p className="mt-0.5 flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
-              <span className={connected ? "live-dot" : "h-1.5 w-1.5 rounded-full bg-slate-300"} />
-              <span>{connected ? t("tv.liveCrawlingStatus") || "Real-time ASEAN Surveillance Active" : t("tv.collectorReconnecting") || "Connecting..."}</span>
+              <span className={connected && hasRecentActivity ? "live-dot" : connected ? "h-1.5 w-1.5 rounded-full bg-amber-400" : "h-1.5 w-1.5 rounded-full bg-slate-300"} />
+              <span>
+                {!connected
+                  ? t("tv.collectorReconnecting") || "Connecting..."
+                  : hasRecentActivity
+                    ? t("tv.liveCrawlingStatus") || "Real-time ASEAN Surveillance Active"
+                    : t("tv.liveCrawlingWaiting") || "Backend connected; waiting for new crawl"}
+              </span>
             </p>
           </div>
         </div>
@@ -473,7 +488,13 @@ function CrawlingFeedCard({
   );
 
   return item.sourceUrl ? (
-    <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="block">
+    <a
+      href={`${PUBLIC_BASE_PATH}/analyze?url=${encodeURIComponent(item.sourceUrl)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block"
+      title="Open URL in the NLP analyzer"
+    >
       {content}
     </a>
   ) : (
