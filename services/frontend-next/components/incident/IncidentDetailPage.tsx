@@ -91,6 +91,10 @@ const SpatialOutbreakMap = dynamic(() => import('../SpatialOutbreakMap'), {
   ssr: false,
 })
 
+const IndonesiaDetailMap = dynamic(() => import('../IndonesiaDetailMap'), {
+  ssr: false,
+})
+
 interface IncidentDetailPageProps {
   selectedEvent: any
   onBack: () => void
@@ -5687,11 +5691,15 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           </p>
 
           <div className="h-[540px] sm:h-[580px] lg:h-[620px] rounded-xl overflow-hidden border border-slate-200 shadow-inner mt-2">
-            <SpatialOutbreakMap
-              countries={regionalMapCountries}
-              locations={regionalMapLocations}
-              highlightCountry="Indonesia"
-            />
+            {isRegionalTemplate ? (
+              <IndonesiaDetailMap countries={regionalMapCountries} locations={regionalMapLocations} />
+            ) : (
+              <SpatialOutbreakMap
+                countries={regionalMapCountries}
+                locations={regionalMapLocations}
+                highlightCountry="Indonesia"
+              />
+            )}
           </div>
         </div>
       </article>

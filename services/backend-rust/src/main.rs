@@ -1160,8 +1160,7 @@ async fn analyze_url(
             "INSERT INTO disease_events (
                 raw_report_id, source_type, source_name, original_text, language,
                 location_name, geom, symptoms, disease_extracted, disease_classification,
-                case_count, death_count, confidence, outbreak_alert,
-                disease_mentions,
+                case_count, death_count, confidence, outbreak_alert, disease_mentions,
                 sentiment, needs_review, event_type, event_confidence,
                 relevance_score, relevance_confidence, source_credibility,
                 source_credibility_label, is_health_related
@@ -1171,11 +1170,12 @@ async fn analyze_url(
                 CASE WHEN $7::float8 IS NULL OR $8::float8 IS NULL THEN NULL
                      ELSE ST_SetSRID(ST_MakePoint($8, $7), 4326)
                 END,
-                 $9::jsonb, $10::jsonb, $11::jsonb, $12,
-                 $13, $14, $15, $16,
-                  $17, $18, $19, $20::float8,
-                  $21, $22::float8, $23::float8,
-                  $24, $25
+                 $9::jsonb, $10::jsonb, $11,
+                 $12, $13, $14, $15,
+                 $16::jsonb,
+                 $17, $18, $19, $20::float8,
+                 $21, $22::float8, $23::float8,
+                 $24, $25
              ) RETURNING id",
             &[
                 &raw_id,
@@ -1188,12 +1188,12 @@ async fn analyze_url(
                 &nlp.longitude,
                 &json!(nlp.symptoms),
                 &json!(nlp.disease_extracted),
-                &json!(nlp.disease_mentions),
                 &nlp.disease_classification,
                 &nlp.case_count,
                 &nlp.death_count,
                 &nlp.confidence,
                 &nlp.outbreak_alert,
+                &json!(nlp.disease_mentions),
                 &nlp.sentiment,
                 &nlp.needs_review.unwrap_or(false),
                 &nlp.event_type,
@@ -1234,8 +1234,7 @@ async fn analyze_url(
                 "INSERT INTO disease_events (
                     raw_report_id, source_type, source_name, original_text, language,
                     location_name, geom, symptoms, disease_extracted, disease_classification,
-                    case_count, death_count, confidence, outbreak_alert,
-                    disease_mentions,
+                    case_count, death_count, confidence, outbreak_alert, disease_mentions,
                     sentiment, needs_review, event_type, event_confidence,
                     relevance_score, relevance_confidence, source_credibility,
                     source_credibility_label, is_health_related
@@ -1245,8 +1244,9 @@ async fn analyze_url(
                     CASE WHEN $7::float8 IS NULL OR $8::float8 IS NULL THEN NULL
                          ELSE ST_SetSRID(ST_MakePoint($8, $7), 4326)
                     END,
-                     $9::jsonb, $10::jsonb, $11::jsonb, $12,
-                     $13, $14, $15, $16,
+                     $9::jsonb, $10::jsonb, $11,
+                     $12, $13, $14, $15,
+                     $16::jsonb,
                      $17, $18, $19, $20::float8,
                      $21, $22::float8, $23::float8,
                      $24, $25
@@ -1262,12 +1262,12 @@ async fn analyze_url(
                     &loc.longitude,
                     &json!(nlp.symptoms),
                     &json!(nlp.disease_extracted),
-                    &json!(nlp.disease_mentions),
                     &nlp.disease_classification,
                     &nlp.case_count,
                     &nlp.death_count,
                     &nlp.confidence,
                     &nlp.outbreak_alert,
+                    &json!(nlp.disease_mentions),
                     &nlp.sentiment,
                     &nlp.needs_review.unwrap_or(false),
                     &nlp.event_type,
