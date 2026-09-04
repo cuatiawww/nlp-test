@@ -23,11 +23,24 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function formatApiError(res: Response, json?: any): string {
+  if (json?.error && typeof json.error === "string") return json.error;
+  if (json?.detail && typeof json.detail === "string") return json.detail;
+  if (res.status === 504) {
+    return "Gateway Timeout (504): Server atau website sumber artikel membutuhkan waktu terlalu lama untuk merespons. Silakan periksa apakah tautan dapat diakses dan coba beberapa saat lagi.";
+  }
+  if (res.status === 502) {
+    return "Bad Gateway (502): Layanan backend sedang tidak dapat dihubungi atau sedang restart. Silakan coba kembali.";
+  }
+  const text = res.statusText ? `: ${res.statusText}` : "";
+  return `API ${res.status}${text || " (Terjadi kesalahan pada server)"}`;
+}
+
 export async function fetchFrom<T>(path: string): Promise<T> {
   const res = await fetch(`${baseURL()}${path}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  const json = await res.json();
-  return json.data as T;
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(formatApiError(res, json));
+  return (json?.data ?? json) as T;
 }
 
 export async function postTo<T>(path: string, body?: unknown): Promise<T> {
@@ -39,8 +52,7 @@ export async function postTo<T>(path: string, body?: unknown): Promise<T> {
 
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    const errorMsg = json?.error || json?.detail || `API ${res.status}: ${res.statusText}`;
-    throw new Error(errorMsg);
+    throw new Error(formatApiError(res, json));
   }
 
   return (json?.data ?? json) as T;
@@ -53,15 +65,18 @@ export async function putTo<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(formatApiError(res, json));
 
-  const json = await res.json();
-  return json.data as T;
+  return (json?.data ?? json) as T;
 }
 
 export async function delFrom(path: string): Promise<void> {
   const res = await fetch(`${baseURL()}${path}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new Error(formatApiError(res, json));
+  }
 }
 
 // ── Auth-aware internal helpers ────────────────────

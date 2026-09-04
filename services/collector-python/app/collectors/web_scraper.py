@@ -351,6 +351,32 @@ def _extract_published_at(html: str, url: str = "", text: str = "") -> str:
 
 
 class WebScraperCollector(BaseCollector):
+    async def _fetch_direct_http(self, url: str, timeout_seconds: int = 12) -> FetchOutcome:
+        """Fast direct HTTP fetch with standard browser headers and TLS/SSL fallback."""
+        import requests
+        from scrapling.parser import Adaptor
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
+            "Accept-Encoding": "gzip, deflate",
+        }
+
+        def _get():
+            session = requests.Session()
+            session.trust_env = False
+            resp = session.get(url, headers=headers, timeout=timeout_seconds, allow_redirects=True, verify=False)
+            return resp.text, int(resp.status_code)
+
+        html, status = await asyncio.to_thread(_get)
+        page = Adaptor(html)
+        return FetchOutcome(page, html, status, "direct_http")
+
     async def extract_url(self, url: str) -> dict:
         """Fetch one URL for interactive analysis without publishing it."""
         fetch_mode = str(self.config.get("fetch_mode", "auto")).lower()
@@ -358,17 +384,38 @@ class WebScraperCollector(BaseCollector):
             raise ValueError(f"Invalid fetch_mode: {fetch_mode}")
 
         outcome = None
-        async with AsyncExitStack() as stack:
+
+        if fetch_mode == "http":
             try:
-                outcome, _ = await self._fetch(url, fetch_mode, "body", None, stack)
-            except Exception as exc:
-                logger.warning("Primary fetch failed for %s (%s), trying direct http fallback", url, exc)
+                outcome = await self._fetch_direct_http(url, timeout_seconds=12)
+            except Exception as direct_exc:
+                logger.warning("Direct HTTP failed for %s (%s), trying Scrapling HTTP", url, direct_exc)
+                outcome = await self._fetch_http(url)
+        else:
+            async with AsyncExitStack() as stack:
                 try:
-                    outcome = await self._fetch_http(url)
-                except Exception as fallback_exc:
-                    logger.error("HTTP fallback also failed for %s: %s", url, fallback_exc)
-                    if outcome is None:
-                        raise
+                    outcome, _ = await self._fetch(url, fetch_mode, "body", None, stack)
+                except Exception as exc:
+                    logger.warning("Primary fetch failed for %s (%s), trying fast direct http fallback", url, exc)
+                    try:
+                        outcome = await self._fetch_direct_http(url, timeout_seconds=12)
+                    except Exception as fallback_exc:
+                        logger.error("Direct HTTP fallback also failed for %s: %s", url, fallback_exc)
+                        if outcome is None:
+                            raise
+
+        # If primary returned empty or error status, try direct HTTP before giving up
+        if outcome is None or not outcome.html or len(outcome.html) < 200 or outcome.status != 200:
+            try:
+                logger.info("Attempting direct HTTP fallback for %s", url)
+                direct_outcome = await self._fetch_direct_http(url, timeout_seconds=12)
+                if direct_outcome.status == 200 and len(direct_outcome.html) > 200:
+                    outcome = direct_outcome
+            except Exception as e:
+                logger.debug("Direct HTTP secondary fallback failed: %s", e)
+
+        if outcome is None:
+            raise RuntimeError(f"Gagal mengambil konten dari URL: {url}")
 
         try:
             title, content = _extract_main_content(outcome.html)
@@ -476,7 +523,7 @@ class WebScraperCollector(BaseCollector):
 
     async def _fetch_http(self, url: str) -> FetchOutcome:
         from scrapling.fetchers import AsyncFetcher
-        timeout_seconds = max(1, int(self.config.get("timeout_ms", 30_000)) // 1000)
+        timeout_seconds = max(1, min(int(self.config.get("timeout_ms", 15_000)) // 1000, 15))
         kwargs = {
             "timeout": timeout_seconds,
             "retries": int(self.config.get("max_retries", 2)),

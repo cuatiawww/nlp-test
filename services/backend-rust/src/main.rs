@@ -1006,21 +1006,32 @@ async fn analyze_url(
     let resp = state
         .http
         .post(&collector_endpoint)
-        .json(&json!({ "url": url, "fetch_mode": "auto" }))
-        .timeout(std::time::Duration::from_secs(130))
+        .json(&json!({ "url": url, "fetch_mode": "auto", "timeout_ms": 18000 }))
+        .timeout(std::time::Duration::from_secs(25))
         .send()
         .await
         .map_err(|e| {
+            let err_str = e.to_string();
+            let is_timeout = e.is_timeout() || err_str.contains("timed out") || err_str.contains("timeout");
+            let msg = if is_timeout {
+                "Waktu ekstraksi URL habis (timeout). Website sumber artikel mungkin lambat atau memblokir crawler.".to_string()
+            } else {
+                format!("Collector tidak dapat mengambil URL: {}", e)
+            };
             (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({ "success": false, "error": format!("Collector tidak dapat mengambil URL: {}", e) })),
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(json!({ "success": false, "error": msg })),
             )
         })?;
     if !resp.status().is_success() {
         let status = resp.status();
         let detail = resp.text().await.unwrap_or_default();
+        let parsed_error = serde_json::from_str::<serde_json::Value>(&detail)
+            .ok()
+            .and_then(|v| v.get("detail").or_else(|| v.get("error")).and_then(|d| d.as_str()).map(String::from))
+            .unwrap_or(detail);
         return Err((StatusCode::BAD_REQUEST, Json(json!({
-            "success": false, "error": format!("Gagal mengambil URL ({}): {}", status, detail)
+            "success": false, "error": format!("Gagal mengambil URL: {}", parsed_error)
         }))));
     }
     let extracted: CollectorExtractResponse = resp.json().await.map_err(|_| (
@@ -1072,12 +1083,20 @@ async fn analyze_url(
             "source_country": source_country,
             "published_at": published_at,
         }))
+        .timeout(std::time::Duration::from_secs(30))
         .send()
         .await
-        .map_err(|_| {
+        .map_err(|e| {
+            let err_str = e.to_string();
+            let is_timeout = e.is_timeout() || err_str.contains("timed out") || err_str.contains("timeout");
+            let msg = if is_timeout {
+                "Proses analisis NLP melebihi batas waktu (timeout).".to_string()
+            } else {
+                "NLP service tidak dapat dijangkau".to_string()
+            };
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "NLP service tidak dapat dijangkau" })),
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(json!({ "success": false, "error": msg })),
             )
         })?
         .json()

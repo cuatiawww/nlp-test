@@ -19,8 +19,8 @@ _extract_semaphore = None
 class ExtractUrlRequest(BaseModel):
     url: str
     fetch_mode: str = "auto"
-    timeout_ms: int = 60_000
-    max_retries: int = 2
+    timeout_ms: int = 15_000
+    max_retries: int = 0
 
 
 def _get_extract_semaphore():
@@ -51,6 +51,7 @@ def health():
 
 @app.post("/extract-url")
 async def extract_url(payload: ExtractUrlRequest):
+    import asyncio
     url = payload.url.strip()
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -58,12 +59,13 @@ async def extract_url(payload: ExtractUrlRequest):
     if payload.fetch_mode not in {"auto", "http", "stealth"}:
         raise HTTPException(status_code=400, detail="fetch_mode tidak valid")
 
+    timeout_ms = min(max(payload.timeout_ms, 1_000), 20_000)
     collector = WebScraperCollector({
         "id": "interactive-analyzer",
         "name": "URL Analyzer",
         "config": {
             "fetch_mode": payload.fetch_mode,
-            "timeout_ms": min(max(payload.timeout_ms, 1_000), 120_000),
+            "timeout_ms": timeout_ms,
             "max_retries": 0,
             "solve_cloudflare": False,
             "max_pages": 1,
@@ -71,17 +73,30 @@ async def extract_url(payload: ExtractUrlRequest):
     })
     try:
         async with _get_extract_semaphore():
-            data = await collector.extract_url(url)
+            # Hard timeout on extraction so interactive analysis never exceeds 20s
+            data = await asyncio.wait_for(collector.extract_url(url), timeout=(timeout_ms / 1000.0) + 2.0)
         if not data.get("content") and not data.get("title"):
             raise HTTPException(
                 status_code=404,
                 detail="Halaman tidak memiliki teks artikel atau tidak ditemukan (404 Not Found)."
             )
         return {"success": True, "data": data}
+    except asyncio.TimeoutError:
+        logger.warning("Interactive extraction timed out for %s", url)
+        raise HTTPException(
+            status_code=408,
+            detail="Waktu ekstraksi URL habis (timeout). Website sumber artikel lambat atau memblokir akses crawler."
+        )
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Interactive extraction failed for %s", url)
+        err_msg = str(exc)
+        if "timed out" in err_msg.lower() or "timeout" in err_msg.lower():
+            raise HTTPException(
+                status_code=408,
+                detail="Waktu ekstraksi URL habis (timeout). Website sumber artikel lambat atau memblokir akses crawler."
+            )
         raise HTTPException(
             status_code=422,
             detail=f"Tidak dapat mengekstrak teks artikel dari URL ({exc})"
