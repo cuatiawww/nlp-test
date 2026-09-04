@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import React, { useState, useEffect, useMemo } from 'react'
 import { formatDisasterName } from '@/lib/utils/disasterUtils'
 import {
@@ -60,10 +61,11 @@ import {
   FileSpreadsheet,
   Layers
 } from 'lucide-react'
-import IncidentMap from './IncidentMap'
 import TimelineCalendarModal from './TimelineCalendarModal'
 import VolunteerMobilizationTab from './VolunteerMobilizationTab'
 import { useAuthStore } from '@/lib/authStore'
+import { fetchPublicDashboard } from '@/lib/api'
+import type { OutbreakLocation, PublicDashboard } from '@/types'
 import {
   ResponsiveContainer,
   LineChart,
@@ -80,6 +82,10 @@ import {
   Pie,
   Cell
 } from 'recharts'
+
+const SpatialOutbreakMap = dynamic(() => import('../SpatialOutbreakMap'), {
+  ssr: false,
+})
 
 interface IncidentDetailPageProps {
   selectedEvent: any
@@ -486,8 +492,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     return isGempa && isNtt
   }, [selectedEvent, detail])
 
+  const isRegionalTemplate = useMemo(
+    () => selectedEvent?.kode_trans === 'REGION-DETAIL-TEMPLATE-001',
+    [selectedEvent?.kode_trans]
+  )
+
   // ── Konfigurasi Flag Distribusi Kasus Penyakit (Tampil di Vercel/Staging Dev, Hidden di Server Atas/Production) ──
   const showPenyakitSection = useMemo(() => {
+    if (isRegionalTemplate) return true
     if (process.env.NEXT_PUBLIC_ENABLE_SURVEILANS_PENYAKIT === 'true') return true
     if (process.env.NEXT_PUBLIC_ENABLE_SURVEILANS_PENYAKIT === 'false') return false
 
@@ -508,7 +520,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
     // Default di Server Atas (Production GitLab): Hidden sementara
     return false
-  }, [])
+  }, [isRegionalTemplate])
 
   // Fetch Live Data Faskes Terdampak & Penyakit dari Endpoint /api/faskes-terdampak (Google Sheets)
   useEffect(() => {
@@ -630,6 +642,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   const [nttSipkkReports, setNttSipkkReports] = useState<any[]>([])
   const [loadingNtt, setLoadingNtt] = useState<boolean>(true)
   const [livePenyakitSurveilans, setLivePenyakitSurveilans] = useState<any>(null)
+  const [regionalSkdrData, setRegionalSkdrData] = useState<PublicDashboard | null>(null)
+  const [loadingRegionalSkdr, setLoadingRegionalSkdr] = useState(false)
   const [upayaSelectedSubKlaster, setUpayaSelectedSubKlaster] = useState<string>('all')
   const [upayaSelectedKabupaten, setUpayaSelectedKabupaten] = useState<string>('all')
   const [upayaSearchQuery, setUpayaSearchQuery] = useState<string>('')
@@ -786,6 +800,37 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       clearInterval(intervalId)
     }
   }, [isNttEvent])
+
+  // Regional detail uses the production dashboard aggregation, restricted to
+  // SKDR IBS records so RSS and social-media events do not contaminate the
+  // regional surveillance view.
+  useEffect(() => {
+    if (!isRegionalTemplate) return
+
+    let active = true
+    const loadRegionalSkdr = async () => {
+      try {
+        setLoadingRegionalSkdr(true)
+        const data = await fetchPublicDashboard({
+          country: 'Indonesia',
+          year: new Date().getFullYear(),
+          source: 'ibs',
+        })
+        if (active) setRegionalSkdrData(data)
+      } catch (error) {
+        if (active) console.warn('[Regional SKDR IBS Fetch Error]', error)
+      } finally {
+        if (active) setLoadingRegionalSkdr(false)
+      }
+    }
+
+    loadRegionalSkdr()
+    const intervalId = window.setInterval(loadRegionalSkdr, 60 * 1000)
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
+  }, [isRegionalTemplate])
 
   // Fetch timeline logs when selectedEvent changes
   useEffect(() => {
@@ -1739,8 +1784,6 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   // This generic detail page is not tied to a province or district boundary.
   // Leaving the scope unset also prevents the copied map from requesting the
   // legacy wilayah GeoJSON endpoint that is not part of this application.
-  const mapUserScope = undefined;
-
   // Mapping nama provinsi → kode_prop TCK Kemkes
   const PROV_CODE_MAP: Record<string, string> = {
     'ACEH': '11', 'SUMATERA UTARA': '12', 'SUMUT': '12',
@@ -3205,13 +3248,26 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       return list
     }
 
+    // Dashboard aggregation restricted to SKDR IBS for the Indonesia region.
+    if (regionalSkdrData?.by_disease?.length) {
+      return regionalSkdrData.by_disease.map((item, index) => ({
+        id_penyakit: `ibs-${index}`,
+        jenis_penyakit: item.name,
+        jumlah_kasus: item.cases,
+        jumlah_kematian: item.deaths,
+        event_count: item.events,
+        kabupaten: 'Indonesia',
+        posko: 'Unit pelapor SKDR IBS',
+      }))
+    }
+
     // 2. Database input jika tersedia
     if (Array.isArray(eventData.penyakit_input) && eventData.penyakit_input.length > 0) {
       return eventData.penyakit_input
     }
 
     return []
-  }, [livePenyakitSurveilans, eventData.penyakit_input]);
+  }, [livePenyakitSurveilans, eventData.penyakit_input, regionalSkdrData]);
 
   const penyakitTotalData: Array<{ name: string; total: number; baru?: number }> = useMemo(() => {
     // 1. Live Summary Ranking Chart dari Scraper / API Surveilans (Looker Studio)
@@ -4207,6 +4263,96 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     }
     return selectedEvent ? [selectedEvent] : []
   }, [selectedEvent, detail, isNttEvent])
+
+  // Adapt the detail event markers to the same data contract used by the
+  // dashboard map. The map engine and all of its controls are therefore
+  // shared, while this page can continue using its existing static detail
+  // payload until the regional data source is wired in.
+  const regionalMapLocations = useMemo<OutbreakLocation[]>(() => {
+    if (regionalSkdrData?.locations?.length) {
+      return regionalSkdrData.locations
+    }
+
+    return mapMarkers.flatMap((marker: any, index: number) => {
+      const latitude = Number(marker.lat ?? marker.latitude)
+      const longitude = Number(marker.lng ?? marker.longitude)
+
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return []
+      }
+
+      const confidence = Number(marker.confidence)
+      return [{
+        location_name: marker.kabupaten || marker.kecamatan || marker.nama || `Regional point ${index + 1}`,
+        disease: marker.jenis_bencana || marker.nama_bencana || eventData.jenis_bencana || 'Regional incident',
+        country: marker.provinsi || eventData.provinsi || 'Indonesia',
+        latitude,
+        longitude,
+        cases: safeParseInt(marker.total_korban ?? marker.case_count ?? marker.kasus),
+        deaths: safeParseInt(marker.meninggal ?? marker.death_count),
+        event_count: 1,
+        confidence: Number.isFinite(confidence) ? confidence : null,
+        threshold: 0,
+        severity: 'NORMAL' as const,
+        has_alert: false,
+        latest_date: marker.tgl_kejadian || eventData.tgl_kejadian || '',
+        detail: {
+          source_type: 'regional_detail_template',
+          source_name: 'Regional detail template',
+        },
+      }]
+    })
+  }, [eventData.jenis_bencana, eventData.provinsi, eventData.tgl_kejadian, mapMarkers, regionalSkdrData])
+
+  const regionalMapCountries = useMemo(() => {
+    const indonesia = regionalSkdrData?.by_country?.find(
+      (country) => country.name.toLowerCase() === 'indonesia'
+    )
+
+    return [{
+      name: 'Indonesia',
+      cases: indonesia?.cases ?? regionalMapLocations.reduce((total, location) => total + location.cases, 0),
+    }]
+  }, [regionalMapLocations, regionalSkdrData])
+
+  const regionalSkdrMatrix = useMemo(() => {
+    const severityRank: Record<OutbreakLocation['severity'], number> = {
+      NORMAL: 0,
+      WASPADA: 1,
+      SIAGA: 2,
+      AWAS: 3,
+    }
+    const grouped = new globalThis.Map<string, {
+      name: string
+      cases: number
+      deaths: number
+      events: number
+      alerts: number
+      severity: OutbreakLocation['severity']
+    }>()
+
+    regionalSkdrData?.locations?.forEach((location) => {
+      const key = location.location_name || 'Wilayah tidak diketahui'
+      const current = grouped.get(key) || {
+        name: key,
+        cases: 0,
+        deaths: 0,
+        events: 0,
+        alerts: 0,
+        severity: 'NORMAL' as const,
+      }
+      current.cases += safeParseInt(location.cases)
+      current.deaths += safeParseInt(location.deaths)
+      current.events += safeParseInt(location.event_count)
+      current.alerts += location.has_alert ? 1 : 0
+      if (severityRank[location.severity] > severityRank[current.severity]) {
+        current.severity = location.severity
+      }
+      grouped.set(key, current)
+    })
+
+    return Array.from(grouped.values()).sort((a, b) => b.cases - a.cases)
+  }, [regionalSkdrData])
 
   const kabupatenMatrixData = useMemo(() => {
     // 1. Prioritas NTT: Data riil dari API collector (/api/ntt-data)
@@ -5234,27 +5380,132 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           </p>
 
           <div className="h-[540px] sm:h-[580px] lg:h-[620px] rounded-xl overflow-hidden border border-slate-200 shadow-inner mt-2">
-            <IncidentMap
-              markers={mapMarkers}
-              userScope={mapUserScope}
-              isGuest={false}
-              isFloodEocMode={false}
-              selectedRouteTarget={selectedRouteTarget}
-              routeCoords={routeCoords}
-              routeInfo={routeInfo}
-              faskesList={effectiveFaskesList}
-              poskoList={detail?.pos_pengungsi}
-              tckList={tckRelawan}
-              faskesRusakList={faskesTerdampakList.length > 0 ? faskesTerdampakList : detail?.faskes_terdampak}
-              onSelectRouteTarget={handleSelectTarget}
-              disasterType={eventData.jenis_bencana}
-              selectedRouteSource={selectedRouteSource}
-              onSelectRouteSource={setSelectedRouteSource}
-              earthquakePoints={earthquakePoints}
+            <SpatialOutbreakMap
+              countries={regionalMapCountries}
+              locations={regionalMapLocations}
+              highlightCountry="Indonesia"
             />
           </div>
         </div>
       </article>
+
+      {isRegionalTemplate && (
+        <section className="space-y-5" aria-labelledby="regional-skdr-title">
+          <div className="rounded-2xl border border-[#cfe0f1] bg-white p-5 sm:p-6 shadow-[0_6px_18px_rgba(0,96,169,.06)]">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-[#0060A9]">
+                    SKDR IBS
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    {loadingRegionalSkdr ? 'Memperbarui...' : 'Data tervalidasi dashboard NLP'}
+                  </span>
+                </div>
+                <h3 id="regional-skdr-title" className="mt-2 text-xl sm:text-2xl font-black text-slate-900">
+                  Ringkasan Surveilans Kesehatan Indonesia
+                </h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Rekap kasus, kematian, penyakit, dan wilayah pelapor dari sumber IBS. Angka faskes tidak dicampur karena IBS tidak menyediakan status operasional fasilitas.
+                </p>
+              </div>
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-600">
+                <Clock className="h-3.5 w-3.5 text-[#0060A9]" />
+                {regionalSkdrData?.updated_at ? new Date(regionalSkdrData.updated_at).toLocaleString('id-ID') : 'Menunggu data'}
+              </span>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-blue-700">Total Kasus IBS</span>
+                <div className="mt-1 text-2xl font-black text-blue-950">{(regionalSkdrData?.kpis.cases || 0).toLocaleString('id-ID')}</div>
+              </div>
+              <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-rose-700">Kematian</span>
+                <div className="mt-1 text-2xl font-black text-rose-950">{(regionalSkdrData?.kpis.deaths || 0).toLocaleString('id-ID')}</div>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-700">Wilayah Pelapor</span>
+                <div className="mt-1 text-2xl font-black text-amber-950">{(regionalSkdrData?.kpis.locations || 0).toLocaleString('id-ID')}</div>
+              </div>
+              <div className="rounded-xl border border-red-200 bg-red-50/70 p-3.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-red-700">Alert Aktif</span>
+                <div className="mt-1 text-2xl font-black text-red-950">{(regionalSkdrData?.kpis.active_alerts || 0).toLocaleString('id-ID')}</div>
+              </div>
+            </div>
+          </div>
+
+          {regionalSkdrData?.locations?.length ? (
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs xl:col-span-3">
+                <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-lg font-black text-slate-900">Distribusi Penyakit IBS</h4>
+                    <p className="text-xs text-slate-500">Top penyakit berdasarkan kasus teragregasi.</p>
+                  </div>
+                  <Table2 className="h-5 w-5 text-[#0060A9]" />
+                </div>
+                <div className="h-[300px] w-full text-xs font-semibold">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                    <BarChart data={(regionalSkdrData.by_disease || []).slice(0, 8)} margin={{ top: 10, right: 12, left: -12, bottom: 45 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="name" interval={0} angle={-25} textAnchor="end" height={60} tick={{ fontSize: 10, fontWeight: 700 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 10, fontWeight: 700 }} />
+                      <Tooltip formatter={(value: any) => [`${Number(value || 0).toLocaleString('id-ID')} kasus`, 'Kasus']} />
+                      <Bar dataKey="cases" fill="#0060A9" radius={[6, 6, 0, 0]} maxBarSize={42} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </article>
+
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs xl:col-span-2">
+                <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-lg font-black text-slate-900">Matriks Wilayah IBS</h4>
+                    <p className="text-xs text-slate-500">Klik baris untuk membaca prioritas wilayah.</p>
+                  </div>
+                  <MapPin className="h-5 w-5 text-[#0060A9]" />
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[430px] text-left text-xs">
+                    <thead className="border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-500">
+                      <tr>
+                        <th className="px-2 py-2">Wilayah</th>
+                        <th className="px-2 py-2 text-right">Kasus</th>
+                        <th className="px-2 py-2 text-right">Meninggal</th>
+                        <th className="px-2 py-2 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {regionalSkdrMatrix.slice(0, 8).map((row) => (
+                        <tr key={row.name} className="border-b border-slate-100 last:border-0 hover:bg-blue-50/50">
+                          <td className="max-w-[180px] truncate px-2 py-2.5 font-bold text-slate-800" title={row.name}>{row.name}</td>
+                          <td className="px-2 py-2.5 text-right font-black text-[#0060A9]">{row.cases.toLocaleString('id-ID')}</td>
+                          <td className="px-2 py-2.5 text-right font-bold text-rose-700">{row.deaths.toLocaleString('id-ID')}</td>
+                          <td className="px-2 py-2.5 text-center">
+                            <span className={`rounded-full px-2 py-1 text-[9px] font-black ${row.severity === 'AWAS' ? 'bg-red-100 text-red-700' : row.severity === 'SIAGA' ? 'bg-amber-100 text-amber-800' : row.severity === 'WASPADA' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-50 text-blue-700'}`}>
+                              {row.severity}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {regionalSkdrMatrix.length > 8 && (
+                  <p className="mt-3 text-[11px] font-semibold text-slate-500">Menampilkan 8 wilayah dengan kasus tertinggi dari {regionalSkdrMatrix.length} wilayah pelapor.</p>
+                )}
+              </article>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
+              <AlertTriangle className="mx-auto h-8 w-8 text-slate-400" />
+              <h4 className="mt-2 text-sm font-black text-slate-700">Belum ada data IBS yang sudah diproses NLP</h4>
+              <p className="mx-auto mt-1 max-w-xl text-xs text-slate-500">Pastikan collector SKDR IBS aktif dan hasilnya sudah masuk ke disease_events sebelum dashboard dapat membuat grafik dan matriks.</p>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Main Content: Full Width */}
       <div className="space-y-5">
@@ -6084,18 +6335,22 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               </button>
             )}
 
-            {!isNttEvent && (
-              <button
-                type="button"
-                onClick={() => setMatrixTab('status_faskes')}
-                className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border duration-200 ${matrixTab === 'status_faskes'
-                  ? 'bg-rose-50 text-rose-800 border-rose-300 shadow-sm font-black'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-              >
-                Status Fasilitas Kesehatan
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setMatrixTab('relawan_mobilisasi')}
+              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border duration-200 flex items-center gap-1.5 ${matrixTab === 'relawan_mobilisasi'
+                ? 'bg-cyan-50 text-cyan-900 border-cyan-400 shadow-sm font-black'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+            >
+              <Users className="h-4 w-4 text-cyan-600" />
+              Mobilisasi &amp; Relawan
+              {relawanBadgeCount > 0 ? (
+                <span className="ml-1 px-2 py-0.5 rounded-full bg-cyan-700 text-white text-[10px] font-black">{relawanBadgeCount.toLocaleString('id-ID')}</span>
+              ) : (
+                <span className="ml-1 px-2 py-0.5 rounded-full bg-cyan-700 text-white text-[10px] font-black">Live</span>
+              )}
+            </button>
 
             {/* Tab Sumber Daya Kesehatan, Sanitasi Kesling, dan Logistik Kesehatan - Hidden as requested */}
             {/* 
@@ -7069,293 +7324,6 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               </div>
             )}
 
-            {matrixTab === 'status_faskes' && (
-              <div className="space-y-6">
-                {/* Grid 5 Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                  {/* Rumah Sakit Card */}
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_4px_12px_rgba(15,118,110,0.03)] hover:shadow-md transition-shadow duration-200 space-y-4">
-                    <div className="flex justify-between items-start">
-                      <span className="text-[12px] font-black text-slate-800 uppercase tracking-wider">Rumah Sakit</span>
-                      <HeartPulse className="h-4.5 w-4.5 text-teal-655" />
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-slate-900 tracking-tight">{faskesStatusSummary.rs.terdampak}</span>
-                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100 uppercase tracking-wider">Terdampak</span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 space-y-2 text-[12px] font-semibold text-slate-500">
-                      <div className="flex justify-between">
-                        <span>Berfungsi (Normal)</span>
-                        <span className="text-emerald-700 font-extrabold">{faskesStatusSummary.rs.berfungsi}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Tidak Operasional</span>
-                        <span className="text-rose-700 font-extrabold">{faskesStatusSummary.rs.tidakBerfungsi}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] text-slate-400 font-normal pl-2 border-l border-slate-150">
-                        <span>R. Berat / Sedang / Ringan</span>
-                        <span className="font-bold text-slate-655">{faskesStatusSummary.rs.rusakBerat}/{faskesStatusSummary.rs.rusakSedang}/{faskesStatusSummary.rs.rusakRingan}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Puskesmas Card */}
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_4px_12px_rgba(15,118,110,0.03)] hover:shadow-md transition-shadow duration-200 space-y-4">
-                    <div className="flex justify-between items-start">
-                      <span className="text-[12px] font-black text-slate-800 uppercase tracking-wider">Puskesmas</span>
-                      <Home className="h-4.5 w-4.5 text-teal-655" />
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-slate-900 tracking-tight">{faskesStatusSummary.pkm.terdampak}</span>
-                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100 uppercase tracking-wider">Terdampak</span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 space-y-2 text-[12px] font-semibold text-slate-500">
-                      <div className="flex justify-between">
-                        <span>Berfungsi (Normal)</span>
-                        <span className="text-emerald-700 font-extrabold">{faskesStatusSummary.pkm.berfungsi}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Tidak Operasional</span>
-                        <span className="text-rose-700 font-extrabold">{faskesStatusSummary.pkm.tidakBerfungsi}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] text-slate-400 font-normal pl-2 border-l border-slate-150">
-                        <span>R. Berat / Sedang / Ringan</span>
-                        <span className="font-bold text-slate-655">{faskesStatusSummary.pkm.rusakBerat}/{faskesStatusSummary.pkm.rusakSedang}/{faskesStatusSummary.pkm.rusakRingan}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Pustu Card */}
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_4px_12px_rgba(15,118,110,0.03)] hover:shadow-md transition-shadow duration-200 space-y-4">
-                    <div className="flex justify-between items-start">
-                      <span className="text-[12px] font-black text-slate-800 uppercase tracking-wider">Pustu</span>
-                      <Compass className="h-4.5 w-4.5 text-teal-655" />
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-slate-900 tracking-tight">{faskesStatusSummary.pustu.terdampak}</span>
-                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100 uppercase tracking-wider">Terdampak</span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 space-y-2 text-[12px] font-semibold text-slate-500">
-                      <div className="flex justify-between">
-                        <span>Berfungsi (Normal)</span>
-                        <span className="text-emerald-700 font-extrabold">{faskesStatusSummary.pustu.berfungsi}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Tidak Operasional</span>
-                        <span className="text-rose-700 font-extrabold">{faskesStatusSummary.pustu.tidakBerfungsi}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] text-slate-400 font-normal pl-2 border-l border-slate-150">
-                        <span>R. Berat / Sedang / Ringan</span>
-                        <span className="font-bold text-slate-655">{faskesStatusSummary.pustu.rusakBerat}/{faskesStatusSummary.pustu.rusakSedang}/{faskesStatusSummary.pustu.rusakRingan}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Klinik Card */}
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_4px_12px_rgba(15,118,110,0.03)] hover:shadow-md transition-shadow duration-200 space-y-4">
-                    <div className="flex justify-between items-start">
-                      <span className="text-[12px] font-black text-slate-800 uppercase tracking-wider">Klinik / Poskes</span>
-                      <Activity className="h-4.5 w-4.5 text-teal-655" />
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-slate-900 tracking-tight">{faskesStatusSummary.klinik.terdampak}</span>
-                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100 uppercase tracking-wider">Terdampak</span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 space-y-2 text-[12px] font-semibold text-slate-500">
-                      <div className="flex justify-between">
-                        <span>Berfungsi (Normal)</span>
-                        <span className="text-emerald-700 font-extrabold">{faskesStatusSummary.klinik.berfungsi}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Tidak Operasional</span>
-                        <span className="text-rose-700 font-extrabold">{faskesStatusSummary.klinik.tidakBerfungsi}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] text-slate-400 font-normal pl-2 border-l border-slate-150">
-                        <span>R. Berat / Sedang / Ringan</span>
-                        <span className="font-bold text-slate-655">{faskesStatusSummary.klinik.rusakBerat}/{faskesStatusSummary.klinik.rusakSedang}/{faskesStatusSummary.klinik.rusakRingan}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Posyandu Card */}
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_4px_12px_rgba(15,118,110,0.03)] hover:shadow-md transition-shadow duration-200 space-y-4">
-                    <div className="flex justify-between items-start">
-                      <span className="text-[12px] font-black text-slate-800 uppercase tracking-wider">Posyandu</span>
-                      <Users className="h-4.5 w-4.5 text-teal-655" />
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-slate-900 tracking-tight">{faskesStatusSummary.posyandu.terdampak}</span>
-                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100 uppercase tracking-wider">Terdampak</span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 space-y-2 text-[12px] font-semibold text-slate-500">
-                      <div className="flex justify-between">
-                        <span>Aktif (Normal)</span>
-                        <span className="text-emerald-700 font-extrabold">{faskesStatusSummary.posyandu.berfungsi}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Tidak Aktif</span>
-                        <span className="text-rose-700 font-extrabold">{faskesStatusSummary.posyandu.tidakBerfungsi}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] text-slate-400 font-normal pl-2 border-l border-slate-150">
-                        <span>R. Berat / Sedang / Ringan</span>
-                        <span className="font-bold text-slate-655">{faskesStatusSummary.posyandu.rusakBerat}/{faskesStatusSummary.posyandu.rusakSedang}/{faskesStatusSummary.posyandu.rusakRingan}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Detailed Affected Facilities Table with Pagination */}
-                <div className="space-y-3 pt-2">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-100 pb-2 gap-2">
-                    <h5 className="text-[13px] font-black uppercase tracking-wider text-slate-850 m-0">
-                      Daftar Detail Fasilitas Kesehatan Terdampak Bencana
-                    </h5>
-                    {faskesTerdampakList.length > 0 && (
-                      <span className="text-xs font-bold text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-full">
-                        Total {faskesTerdampakList.length} Faskes Terdata
-                      </span>
-                    )}
-                  </div>
-
-                  {faskesTerdampakList.length > 0 ? (
-                    <div className="space-y-3">
-                      <div className="border border-slate-100 rounded-xl overflow-hidden shadow-sm">
-                        <table className="w-full text-left border-collapse text-[13px]">
-                          <thead>
-                            <tr className="border-b border-slate-150 bg-slate-50 text-slate-500 font-bold">
-                              <th className="py-3 px-3">Nama Fasilitas Kesehatan</th>
-                              <th className="py-3 px-3">Jenis</th>
-                              <th className="py-3 px-3 text-center">Status</th>
-                              <th className="py-3 px-3 text-center">Kondisi Kerusakan</th>
-                              <th className="py-3 px-3 text-center">Fungsi Pelayanan</th>
-                              <th className="py-3 px-3 text-center">Google Maps</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {faskesTerdampakList
-                              .slice((statusFaskesPage - 1) * statusFaskesPerPage, statusFaskesPage * statusFaskesPerPage)
-                              .map((f: any, idx: number) => {
-                                const cond = getFaskesCondition(f.nama_faskes || f.nama || '');
-                                return (
-                                  <tr key={idx} className={`border-b border-slate-100 hover:bg-teal-50/20 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
-                                    <td className="py-3 px-3 font-bold text-slate-900">{f.nama_faskes || f.nama || '-'}</td>
-                                    <td className="py-3 px-3 font-semibold text-slate-650">{f.jenis || '-'}</td>
-                                    <td className="py-3 px-3 text-center">
-                                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${cond.color}`}>
-                                        {f.status || cond.label}
-                                      </span>
-                                    </td>
-                                    <td className="py-3 px-3 text-center">
-                                      {safeParseInt(f.rusak_berat) > 0 ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black border bg-rose-50 text-rose-700 border-rose-250 uppercase">
-                                          R. Berat
-                                        </span>
-                                      ) : safeParseInt(f.rusak_sedang) > 0 ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black border bg-amber-50 text-amber-700 border-amber-250 uppercase">
-                                          R. Sedang
-                                        </span>
-                                      ) : safeParseInt(f.rusak_ringan) > 0 ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black border bg-blue-50 text-blue-700 border-blue-250 uppercase">
-                                          R. Ringan
-                                        </span>
-                                      ) : (
-                                        <span className="text-slate-500 font-semibold text-xs">-</span>
-                                      )}
-                                    </td>
-                                    <td className="py-3 px-3 text-center font-bold text-slate-700">{f.fungsi || '-'}</td>
-                                    <td className="py-3 px-3 text-center">
-                                      <a
-                                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((f.nama_faskes || f.nama || '') + ' ' + (eventData.kabupaten || ''))}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center justify-center px-2 py-1 rounded bg-teal-50 hover:bg-teal-100 text-teal-800 font-extrabold border border-teal-200 transition-colors cursor-pointer"
-                                      >
-                                        Buka Maps
-                                      </a>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Pagination Controls */}
-                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-                        <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-                          <span>
-                            Menampilkan <strong className="text-slate-900">{(statusFaskesPage - 1) * statusFaskesPerPage + 1}</strong> s/d{' '}
-                            <strong className="text-slate-900">{Math.min(statusFaskesPage * statusFaskesPerPage, faskesTerdampakList.length)}</strong> dari{' '}
-                            <strong className="text-teal-900">{faskesTerdampakList.length}</strong> faskes
-                          </span>
-                          <select
-                            value={statusFaskesPerPage}
-                            onChange={(e) => {
-                              setStatusFaskesPerPage(Number(e.target.value))
-                              setStatusFaskesPage(1)
-                            }}
-                            className="px-2 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700 cursor-pointer shadow-2xs"
-                          >
-                            <option value={10}>10 / hal</option>
-                            <option value={25}>25 / hal</option>
-                            <option value={50}>50 / hal</option>
-                          </select>
-                        </div>
-
-                        {Math.ceil(faskesTerdampakList.length / statusFaskesPerPage) > 1 && (
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => setStatusFaskesPage(p => Math.max(1, p - 1))}
-                              disabled={statusFaskesPage === 1}
-                              className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition shadow-2xs"
-                            >
-                              &larr; Prev
-                            </button>
-                            {Array.from({ length: Math.min(5, Math.ceil(faskesTerdampakList.length / statusFaskesPerPage)) }, (_, i) => {
-                              const totalP = Math.ceil(faskesTerdampakList.length / statusFaskesPerPage)
-                              let pageNum = i + 1
-                              if (totalP > 5) {
-                                if (statusFaskesPage > 3) {
-                                  pageNum = statusFaskesPage - 2 + i
-                                  if (pageNum > totalP) pageNum = totalP - (4 - i)
-                                }
-                              }
-                              return (
-                                <button
-                                  key={pageNum}
-                                  type="button"
-                                  onClick={() => setStatusFaskesPage(pageNum)}
-                                  className={`w-7 h-7 rounded-lg text-xs font-bold transition ${statusFaskesPage === pageNum
-                                    ? 'bg-teal-700 text-white shadow-2xs'
-                                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                                    }`}
-                                >
-                                  {pageNum}
-                                </button>
-                              )
-                            })}
-                            <button
-                              type="button"
-                              onClick={() => setStatusFaskesPage(p => Math.min(Math.ceil(faskesTerdampakList.length / statusFaskesPerPage), p + 1))}
-                              disabled={statusFaskesPage === Math.ceil(faskesTerdampakList.length / statusFaskesPerPage)}
-                              className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition shadow-2xs"
-                            >
-                              Next &rarr;
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-10 text-slate-400 bg-slate-50/50 rounded-xl border border-slate-100 border-dashed">
-                      <AlertTriangle className="h-6 w-6 mb-2 text-slate-300 animate-bounce" />
-                      <p className="text-[12px] font-semibold">Tidak ada data faskes terdampak yang diinput untuk kejadian krisis ini.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
 
             {matrixTab === 'sumber_daya' && (
               <div>
@@ -7817,6 +7785,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               </div>
             )}
 
+
+            {matrixTab === 'relawan_mobilisasi' && (
+              <VolunteerMobilizationTab isNttEvent={isNttEvent} />
+            )}
           </div>
         </article>
 
