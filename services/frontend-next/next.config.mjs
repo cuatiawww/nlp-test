@@ -14,6 +14,7 @@ const cspDirectives = [
 ].join('; ');
 
 const nextConfig = {
+  z
   output: 'standalone',
   basePath: '/nlp',
   images: {
