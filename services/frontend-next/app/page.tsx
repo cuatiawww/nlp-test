@@ -88,6 +88,33 @@ function cleanArticleContent(value?: string | null, fallback = "Source content i
     .trim();
 }
 
+function formatPublishDate(dateStr?: string | null, numLocale = "id-ID") {
+  if (!dateStr) return "-";
+  try {
+    const match = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const [, y, m, d] = match;
+      const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
+      return dateObj.toLocaleDateString(numLocale, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString(numLocale, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    }
+    return dateStr.slice(0, 10);
+  } catch {
+    return dateStr.slice(0, 10);
+  }
+}
+
 function Kpi({
   label,
   value,
@@ -395,7 +422,7 @@ export default function DashboardPage() {
                       </div>
                       <p className="mt-2 text-xs text-slate-600">
                         <b>{a.cases.toLocaleString(numLocale)}</b> {t("dashboard.casesUnit")} •{" "}
-                        <b>{a.deaths}</b> {t("dashboard.deathsUnit")} • {t("dashboard.thresholdUnit")} {a.threshold}
+                        <b>{a.deaths}</b> {t("dashboard.deathsUnit")} • {t("dashboard.publishDateUnit")}: {formatPublishDate(a.latest_date || a.detail?.published_at, numLocale)}
                       </p>
                     </button>
                   ))
@@ -597,7 +624,7 @@ export default function DashboardPage() {
                     {selected.detail?.source_name ||
                       selected.detail?.source_type ||
                       t("dashboard.modalCollectedSource")}{" "}
-                    • {selected.latest_date}
+                    • {formatPublishDate(selected.latest_date || selected.detail?.published_at, numLocale)}
                   </p>
                 </div>
               </div>

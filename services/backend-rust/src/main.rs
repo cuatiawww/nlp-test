@@ -1704,16 +1704,16 @@ async fn public_dashboard(
         "SELECT DISTINCT EXTRACT(YEAR FROM published_at)::int AS year
          FROM disease_events
          WHERE published_at IS NOT NULL
-         AND is_health_related = TRUE
+          AND (is_health_related = TRUE OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
            AND disease_classification IS NOT NULL
            AND UPPER(disease_classification) <> 'UNKNOWN'
            AND UPPER(disease_classification) NOT LIKE 'NEGATIVE%'
-           AND COALESCE(confidence, 0) >= 0.15
-           AND ($1::text IS NULL OR EXISTS (
-             SELECT 1 FROM skdr_reports sr
-             WHERE sr.raw_report_id = disease_events.raw_report_id
-               AND ($1::text = 'skdr' OR sr.endpoint_name = $1::text)
-           ))
+            AND (COALESCE(confidence, 0) >= 0.15 OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
+            AND ($1::text IS NULL OR EXISTS (
+              SELECT 1 FROM skdr_reports sr
+              WHERE sr.raw_report_id = disease_events.raw_report_id
+                AND ($1::text = 'skdr' OR sr.endpoint_name = $1::text)
+            ) OR ($1::text = 'skdr' AND LOWER(COALESCE(disease_events.source_type, '')) IN ('skdr', 'skdr_api')))
          ORDER BY year DESC",
         &[&selected_source],
     ).await.map_err(internal_error)?
@@ -1722,11 +1722,11 @@ async fn public_dashboard(
     let rows = client.query(
         "SELECT COALESCE(e.location_name, 'Unknown') AS location_name,
                 e.disease_classification,
-                COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+                CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
                     WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
                     WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
                       THEN INITCAP(LOWER(e.location_name))
-                    ELSE 'OUTSIDE ASEAN' END) AS country,
+                    ELSE 'OUTSIDE ASEAN' END) END AS country,
                 COALESCE(ST_Y(ST_Centroid(ST_Collect(e.geom))), l.latitude) AS latitude,
                 COALESCE(ST_X(ST_Centroid(ST_Collect(e.geom))), l.longitude) AS longitude,
                 SUM(GREATEST(COALESCE(e.case_count, 0), 0)) AS cases,
@@ -1757,19 +1757,19 @@ async fn public_dashboard(
                      ) AS dedup_rank
               FROM disease_events e0
               LEFT JOIN raw_reports rr ON rr.id = e0.raw_report_id
-              WHERE e0.is_health_related = TRUE
+               WHERE (e0.is_health_related = TRUE OR LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))
                 AND e0.disease_classification IS NOT NULL
                 AND UPPER(e0.disease_classification) <> 'UNKNOWN'
                 AND UPPER(e0.disease_classification) NOT LIKE 'NEGATIVE%'
-                AND e0.confidence >= 0.15
+                 AND (e0.confidence >= 0.15 OR LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))
                 AND e0.published_at IS NOT NULL
                 AND e0.published_at >= make_date($1, 1, 1)
                 AND e0.published_at < make_date($1 + 1, 1, 1)
-                AND ($3::text IS NULL OR EXISTS (
-                  SELECT 1 FROM skdr_reports sr
-                  WHERE sr.raw_report_id = e0.raw_report_id
-                    AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
-                ))
+                 AND ($3::text IS NULL OR EXISTS (
+                   SELECT 1 FROM skdr_reports sr
+                   WHERE sr.raw_report_id = e0.raw_report_id
+                     AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
+                 ) OR ($3::text = 'skdr' AND LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api')))
             ) e
          LEFT JOIN LATERAL (
            SELECT l0.* FROM locations l0
@@ -1779,25 +1779,25 @@ async fn public_dashboard(
          ) l ON TRUE
          LEFT JOIN disease_outbreak_rules r
            ON LOWER(r.disease_name) = LOWER(e.disease_classification) AND r.is_active = TRUE
-         WHERE e.is_health_related = TRUE
+          WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
            AND e.disease_classification IS NOT NULL
            AND UPPER(e.disease_classification) <> 'UNKNOWN'
            AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-            AND e.confidence >= 0.15
+             AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
            AND e.dedup_rank = 1
            AND e.published_at IS NOT NULL
             AND e.published_at >= make_date($1, 1, 1)
             AND e.published_at < make_date($1 + 1, 1, 1)
-           AND ($2::text IS NULL OR LOWER(COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-             WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-             WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-               THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) = LOWER($2))
+            AND ($2::text IS NULL OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+              WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+              WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) = LOWER($2))
          GROUP BY COALESCE(e.location_name, 'Unknown'), e.disease_classification,
-                  COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                    WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                    WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                      THEN INITCAP(LOWER(e.location_name))
-                    ELSE 'OUTSIDE ASEAN' END), l.latitude, l.longitude
+                   CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+                     WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+                     WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                       THEN INITCAP(LOWER(e.location_name))
+                     ELSE 'OUTSIDE ASEAN' END) END, l.latitude, l.longitude
          ORDER BY cases DESC, latest_date DESC
          LIMIT 100",
         &[&selected_year, &selected_country, &selected_source],
@@ -1812,25 +1812,25 @@ async fn public_dashboard(
                    ) AS dedup_rank
             FROM disease_events e
             LEFT JOIN raw_reports rr ON rr.id = e.raw_report_id
-            WHERE e.is_health_related = TRUE
+            WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
               AND e.disease_classification IS NOT NULL
               AND UPPER(e.disease_classification) <> 'UNKNOWN'
               AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-              AND e.confidence >= 0.15
+                AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
               AND e.published_at IS NOT NULL
               AND e.published_at >= make_date($1, 1, 1)
               AND e.published_at < make_date($1 + 1, 1, 1)
-              AND ($3::text IS NULL OR EXISTS (
-                SELECT 1 FROM skdr_reports sr
-                WHERE sr.raw_report_id = e.raw_report_id
-                  AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
-              ))
+               AND ($3::text IS NULL OR EXISTS (
+                 SELECT 1 FROM skdr_reports sr
+                 WHERE sr.raw_report_id = e.raw_report_id
+                   AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
+               ) OR ($3::text = 'skdr' AND LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api')))
           ), valid AS (
             SELECT ranked.*, l.latitude AS resolved_latitude, l.longitude AS resolved_longitude,
-                   COALESCE(CASE WHEN LOWER(ranked.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-              WHEN LOWER(ranked.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-              WHEN LOWER(ranked.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                THEN INITCAP(LOWER(ranked.location_name)) ELSE 'OUTSIDE ASEAN' END) AS resolved_country
+                    CASE WHEN LOWER(COALESCE(ranked.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(ranked.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+               WHEN LOWER(ranked.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+               WHEN LOWER(ranked.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                THEN INITCAP(LOWER(ranked.location_name)) ELSE 'OUTSIDE ASEAN' END) END AS resolved_country
             FROM ranked
             LEFT JOIN LATERAL (
               SELECT l0.* FROM locations l0
@@ -1880,26 +1880,27 @@ async fn public_dashboard(
                     COALESCE(SUM(GREATEST(COALESCE(e.death_count, 0), 0)), 0)::bigint AS deaths,
                     COUNT(*)::bigint AS events
              FROM disease_events e
-             JOIN skdr_reports sr ON sr.raw_report_id = e.raw_report_id
+             LEFT JOIN skdr_reports sr ON sr.raw_report_id = e.raw_report_id
              LEFT JOIN LATERAL (
                SELECT l0.* FROM locations l0
                WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
                ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
                LIMIT 1
              ) l ON TRUE
-             WHERE e.is_health_related = TRUE
+             WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
                AND e.disease_classification IS NOT NULL
                AND UPPER(e.disease_classification) <> 'UNKNOWN'
                AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-               AND e.confidence >= 0.15
+               AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
                AND e.published_at IS NOT NULL
                AND e.published_at >= make_date($1, 1, 1)
                AND e.published_at < make_date($1 + 1, 1, 1)
-               AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
-               AND ($2::text IS NULL OR LOWER(COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                 WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                 WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                   THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) = LOWER($2))
+                AND (($3::text = 'skdr' AND (sr.id IS NOT NULL OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api')))
+                     OR ($3::text IN ('ibs', 'ebs') AND LOWER(COALESCE(sr.endpoint_name, '')) = $3::text))
+                AND ($2::text IS NULL OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+                  WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+                  WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) END) = LOWER($2))
              GROUP BY COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int)
              ORDER BY epidemiological_week",
             &[&selected_year, &selected_country, &selected_source],

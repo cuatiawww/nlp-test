@@ -29,13 +29,11 @@ export default function SpatialOutbreakMap({
   countries,
   locations,
   highlightCountry,
-  surveillanceOnly = false,
 }: {
   countries: { name: string; cases: number }[];
   locations: OutbreakLocation[];
   embedded?: boolean;
   highlightCountry?: string;
-  surveillanceOnly?: boolean;
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState(false),
@@ -45,7 +43,7 @@ export default function SpatialOutbreakMap({
     [markers, setMarkers] = useState(true),
     [admin, setAdmin] = useState(true),
     [choropleth, setChoropleth] = useState(true),
-    [wind, setWind] = useState(!surveillanceOnly),
+    [wind, setWind] = useState(true),
     [radius, setRadius] = useState<number | null>(null),
     [bnpb, setBnpb] = useState({
       flood: false,
@@ -61,7 +59,7 @@ export default function SpatialOutbreakMap({
     setMarkers(true);
     setAdmin(true);
     setChoropleth(true);
-    setWind(!surveillanceOnly);
+    setWind(true);
     setWindLegend(true);
     setRadius(null);
     setBnpb({
@@ -84,8 +82,8 @@ export default function SpatialOutbreakMap({
         showAdmin={admin}
         countryData={choropleth ? countries : undefined}
         outbreakLocations={locations}
-        bnpbLayers={surveillanceOnly ? undefined : bnpb}
-        showWind={surveillanceOnly ? false : wind}
+        bnpbLayers={bnpb}
+        showWind={wind}
         ewsRadiusKm={radius}
         highlightCountry={highlightCountry}
         hideLegend
@@ -102,7 +100,7 @@ export default function SpatialOutbreakMap({
         </button>
       </div>
 
-      {(legend || (!surveillanceOnly && windLegend && wind)) && (
+      {(legend || (windLegend && wind)) && (
         <div className="absolute bottom-4 left-4 z-10 max-w-[320px] space-y-3 rounded-2xl border border-blue-200/90 bg-white/95 p-3.5 shadow-[0_8px_30px_rgba(0,96,169,.12)] backdrop-blur-md">
           <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
             <div className="flex items-center gap-1.5">
@@ -150,7 +148,7 @@ export default function SpatialOutbreakMap({
               {t("map.activeEwsRadius")} {radius} km
             </div>
           )}
-          {!surveillanceOnly && windLegend && wind && (
+          {windLegend && wind && (
             <div className="space-y-1.5 border-t border-slate-100 pt-2">
               <p className="flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#0060A9]">
                 <Wind className="h-3 w-3" />
@@ -221,24 +219,20 @@ export default function SpatialOutbreakMap({
                   value={legend}
                   set={setLegend}
                 />
-                {!surveillanceOnly && (
-                  <>
-                    <Row
-                      icon={<Wind className="h-4 w-4" />}
-                      title={t("map.windFlow")}
-                      sub={t("map.windFlowSub")}
-                      value={wind}
-                      set={setWind}
-                    />
-                    <Row
-                      icon={<Wind className="h-4 w-4" />}
-                      title={t("map.windFlow")}
-                      sub={t("map.windSpeedSub")}
-                      value={windLegend}
-                      set={setWindLegend}
-                    />
-                  </>
-                )}
+                <Row
+                  icon={<Wind className="h-4 w-4" />}
+                  title={t("map.windFlow")}
+                  sub={t("map.windFlowSub")}
+                  value={wind}
+                  set={setWind}
+                />
+                <Row
+                  icon={<Wind className="h-4 w-4" />}
+                  title={t("map.windFlow")}
+                  sub={t("map.windSpeedSub")}
+                  value={windLegend}
+                  set={setWindLegend}
+                />
               </Group>
 
               <Group title={t("map.baseMap")}>
@@ -257,7 +251,7 @@ export default function SpatialOutbreakMap({
                 </div>
               </Group>
 
-              {!surveillanceOnly && <Group title={t("map.bnpbInarisk")}>
+              <Group title={t("map.bnpbInarisk")}>
                 {(
                   [
                     ["flood", t("map.hazardFlood")],
@@ -277,9 +271,9 @@ export default function SpatialOutbreakMap({
                     set={(v) => setBnpb((p) => ({ ...p, [k]: v }))}
                   />
                 ))}
-              </Group>}
+               </Group>
 
-              {!surveillanceOnly && <Group title={t("map.activeEwsRadius")}>
+              <Group title={t("map.activeEwsRadius")}>
                 <Row
                   icon={<MapPin className="h-4 w-4" />}
                   title={t("map.activeEwsRadius")}
@@ -304,7 +298,7 @@ export default function SpatialOutbreakMap({
                     />
                   </div>
                 )}
-              </Group>}
+               </Group>
             </div>
             <div className="border-t border-slate-100 p-3">
               <button

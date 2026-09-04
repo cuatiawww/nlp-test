@@ -208,7 +208,8 @@
     "noSourceContent": "Konten sumber tidak tersedia.",
     "perLocation": "Per Lokasi",
     "noLocationData": "Belum ada data lokasi untuk negara ini",
-    "totalCases": "Total Kasus"
+    "totalCases": "Total Kasus",
+    "publishDateUnit": "Rilis"
   },
   "ews": {
     "title": "Aktifkan Layanan Peringatan Dini (EWS)",

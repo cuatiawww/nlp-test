@@ -208,7 +208,8 @@
     "noSourceContent": "Source content is not available.",
     "perLocation": "By Location",
     "noLocationData": "No location data for this country yet",
-    "totalCases": "Total Cases"
+    "totalCases": "Total Cases",
+    "publishDateUnit": "Published"
   },
   "ews": {
     "title": "Enable Early Warning Service (EWS)",
