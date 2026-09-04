@@ -4456,7 +4456,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         // Ambil snapshot kumulatif dari tanggal laporan terakhir yang tersedia (karena setiap row timeline sudah berupa akumulasi kumulatif berjalan)
         const availableDates = Array.from(new Set(nttSitu.map((r: any) => r.tanggal).filter(Boolean))).sort()
         const latestDate = availableDates[availableDates.length - 1] || modalAvailableDates[modalAvailableDates.length - 1] || nttApiData?.tanggal || ''
-        const rowsToUse = nttSitu.filter((r: any) => r.tanggal === latestDate)
+        const filtered = latestDate ? nttSitu.filter((r: any) => r.tanggal === latestDate) : []; const rowsToUse = filtered.length > 0 ? filtered : nttSitu
 
         return rowsToUse.map((item: any) => {
           const meninggal = safeParseInt(item.meninggal || item.korban_meninggal)
@@ -4500,7 +4500,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       }
 
       // Filter tanggal spesifik
-      const rowsToUse = nttSitu.filter((r: any) => r.tanggal === activeModalDate)
+      const filtered = nttSitu.filter((r: any) => r.tanggal === activeModalDate); const rowsToUse = filtered.length > 0 ? filtered : nttSitu
 
       return rowsToUse.map((item: any) => {
         const meninggal = safeParseInt(item.meninggal || item.korban_meninggal)
@@ -5008,7 +5008,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       {(isNttEvent && loadingNtt && !nttApiData.summary_korban && (!detail || Number(detail.meninggal || 0) === 0)) ? (
         <div className="flex flex-col 2xl:flex-row gap-4 items-stretch animate-pulse">
           {/* Skeleton Card 1 & 5 */}
-          <div className="w-full 2xl:w-[62%] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between min-h-[220px]">
+          <div className="w-full 2xl:w-1/2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between min-h-[220px]">
             <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-12 gap-4 flex-1">
               <div className="col-span-1 md:col-span-1 2xl:col-span-3 space-y-3 pr-0 md:pr-2 border-b md:border-b-0 md:border-r border-slate-100 pb-3 md:pb-0">
                 <div className="flex items-center gap-3">
@@ -5047,7 +5047,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           </div>
 
           {/* Skeleton Cards 2, 3, 4 */}
-          <div className="w-full 2xl:w-[38%] grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 items-stretch">
+          <div className="w-full 2xl:w-1/2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 items-stretch">
             {[1, 2, 3].map(i => (
               <div key={i} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm flex flex-col justify-between min-h-[220px]">
                 <div className="space-y-2 text-center flex flex-col items-center justify-center flex-1">
@@ -5067,86 +5067,72 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         <div className="flex flex-col 2xl:flex-row gap-4 items-stretch animate-in fade-in slide-in-from-top-3 duration-300">
 
           {/* Card 1 & 5 Merged: Disaster Header & Characteristics Bulletin (Full width on laptop/tablet, ~62% on ultra-wide) */}
-          <div className={`w-full 2xl:w-[62%] rounded-2xl border bg-white p-4 shadow-[0_4px_12px_rgba(0,0,0,0.02)] flex flex-col justify-between transition hover:shadow-md ${disasterTheme.bg}`}>
+          <div className={`w-full 2xl:w-1/2 rounded-2xl border bg-white p-4 shadow-[0_4px_12px_rgba(0,0,0,0.02)] flex flex-col justify-between transition hover:shadow-md ${disasterTheme.bg}`}>
             {/* Integrated Header for Regional Surveillance */}
             {isRegionalTemplate && (
-              <div className="mb-4 pb-3 border-b border-teal-200/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-md bg-teal-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-teal-800">
-                      SURVEILLANCE INTELLIGENCE
-                    </span>
-                    <span className="text-[11px] font-bold text-teal-700">
-                      SKDR IBS &amp; EBS Data Integration
-                    </span>
-                  </div>
-                  <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900 mt-1">
-                    KEY SURVEILLANCE FINDINGS
-                  </h2>
-                  <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed mt-0.5">
-                    National surveillance signals, epidemiological trends, and alert coverage from SKDR IBS and EBS.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-black text-emerald-800">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    LIVE SURVEILLANCE
-                  </span>
-                </div>
+              <div className="mb-3.5 pb-2.5 border-b border-teal-200/60">
+                <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900">
+                  KEY SURVEILLANCE FINDINGS
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed mt-0.5">
+                  National surveillance signals, epidemiological trends, and alert coverage from SKDR IBS and EBS.
+                </p>
               </div>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-12 gap-4 flex-1 min-h-0">
 
-              {/* Col 1: Disaster Identity */}
-              <div className="col-span-1 md:col-span-1 2xl:col-span-3 flex flex-col justify-between pr-0 md:pr-3 border-b md:border-b-0 md:border-r border-slate-250/60 pb-3 md:pb-0 min-w-0">
-                <div className="flex items-center gap-3">
-                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm border border-slate-200 ${disasterTheme.iconColor}`}>
-                    {(() => {
-                      const IconComp = disasterTheme.cardHeaderIcon || CloudRain
-                      return <IconComp className="h-6.5 w-6.5" />
-                    })()}
+              {/* Col 1: Disaster Identity (Only for non-regional disaster events) */}
+              {!isRegionalTemplate && (
+                <div className="col-span-1 md:col-span-1 2xl:col-span-3 flex flex-col justify-between pr-0 md:pr-3 border-b md:border-b-0 md:border-r border-slate-250/60 pb-3 md:pb-0 min-w-0">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm border border-slate-200 ${disasterTheme.iconColor}`}>
+                      {(() => {
+                        const IconComp = disasterTheme.cardHeaderIcon || CloudRain
+                        return <IconComp className="h-6.5 w-6.5" />
+                      })()}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-black text-slate-500 uppercase tracking-wider block leading-none">
+                        DISASTER TYPE
+                      </span>
+                      <span className="text-2xl sm:text-3xl font-black text-slate-900 block leading-tight mt-1 uppercase tracking-tight truncate">
+                        {eventData.jenis_bencana}
+                      </span>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <span className="text-xs font-black text-slate-500 uppercase tracking-wider block leading-none">
-                      {isRegionalTemplate ? 'SURVEILLANCE DOMAIN' : 'DISASTER TYPE'}
-                    </span>
-                    <span className="text-2xl sm:text-3xl font-black text-slate-900 block leading-tight mt-1 uppercase tracking-tight truncate">
-                      {isRegionalTemplate ? 'SKDR IBS & EBS' : eventData.jenis_bencana}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="mt-3.5 md:mt-auto space-y-1.5 min-w-0">
-                  <p className="text-sm sm:text-base font-black text-slate-900 leading-snug line-clamp-2" title={locationFull}>
-                    {locationFull}
-                  </p>
-                  <div className="space-y-1">
-                    {disasterTheme.type === 'gempa' && bmkgWaktuDisplay && bmkgWaktuDisplay !== '-' ? (
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                        <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-black shrink-0">Waktu Gempa (BMKG)</span>
-                        <span className="truncate max-w-full" title={bmkgWaktuDisplay}>{bmkgWaktuDisplay}</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                        <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-black shrink-0">
-                          {isRegionalTemplate ? 'REPORTING PERIOD' : 'EVENT TIME'}
-                        </span>
-                        <span className="truncate max-w-full" title={eventData.tgl_kejadian || formattedDate || '-'}>{eventData.tgl_kejadian || formattedDate || '-'}</span>
-                      </div>
-                    )}
-                    {formattedDate && (
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-slate-500">
-                        <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold shrink-0">Tgl Laporan</span>
-                        <span className="truncate max-w-full" title={formattedDate}>{formattedDate}</span>
-                      </div>
-                    )}
+                  <div className="mt-3.5 md:mt-auto space-y-1.5 min-w-0">
+                    <p className="text-sm sm:text-base font-black text-slate-900 leading-snug line-clamp-2" title={locationFull}>
+                      {locationFull}
+                    </p>
+                    <div className="space-y-1">
+                      {disasterTheme.type === 'gempa' && bmkgWaktuDisplay && bmkgWaktuDisplay !== '-' ? (
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-slate-700">
+                          <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-black shrink-0">Waktu Gempa (BMKG)</span>
+                          <span className="truncate max-w-full" title={bmkgWaktuDisplay}>{bmkgWaktuDisplay}</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-slate-700">
+                          <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-black shrink-0">
+                            EVENT TIME
+                          </span>
+                          <span className="truncate max-w-full" title={eventData.tgl_kejadian || formattedDate || '-'}>{eventData.tgl_kejadian || formattedDate || '-'}</span>
+                        </div>
+                      )}
+                      {formattedDate && (
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-slate-500">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold shrink-0">Tgl Laporan</span>
+                          <span className="truncate max-w-full" title={formattedDate}>{formattedDate}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Col 2: Disaster-specific parameters or surveillance indicators */}
-              <div className="col-span-1 md:col-span-1 2xl:col-span-4 flex flex-col justify-center gap-3 px-0 md:px-2 border-b md:border-b-0 2xl:border-r border-slate-250/60 pb-3 md:pb-0 min-w-0">
+              <div className={`col-span-1 md:col-span-1 ${isRegionalTemplate ? '2xl:col-span-5 pr-0 md:pr-3 border-b md:border-b-0 md:border-r border-slate-250/60 pb-3 md:pb-0' : '2xl:col-span-4 px-0 md:px-2 border-b md:border-b-0 2xl:border-r border-slate-250/60 pb-3 md:pb-0'} flex flex-col justify-center gap-3 min-w-0`}>
                 {dynamicCharacteristics.map((item, idx) => {
                   const IconComp = item.icon
                   return (
@@ -5166,7 +5152,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               </div>
 
               {/* Col 3: Surveillance trend or disaster-specific timeline */}
-              <div className="col-span-1 md:col-span-2 2xl:col-span-5 flex flex-col justify-between pl-0 2xl:pl-2 min-w-0">
+              <div className={`col-span-1 ${isRegionalTemplate ? "md:col-span-1 2xl:col-span-7 pl-0 md:pl-3" : "md:col-span-2 2xl:col-span-5 pl-0 2xl:pl-2"} flex flex-col justify-between min-w-0`}>
                 {isRegionalTemplate ? (
                   <div className="flex h-full flex-col justify-between">
                     <div className="mb-2 flex items-center justify-between">
@@ -5315,7 +5301,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           </div>
 
           {/* ── 3 Cards Surveilans Penyakit (Gambar 2 - English Version) ── */}
-          <div className="w-full 2xl:w-[38%] grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 items-stretch min-w-0">
+          <div className="w-full 2xl:w-1/2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 items-stretch min-w-0">
             {/* Card 1: INFLUENZA */}
             <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-[#fffdfa] via-white to-[#fff9f0] p-4 shadow-[0_4px_12px_rgba(245,158,11,0.04)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-md hover:border-amber-300 group">
               <div>
@@ -8368,6 +8354,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             )}
           </div>
         </article>
+        </>
+        )}
 
         {/* ── Section 3: Ringkasan Insight, Tren Tahunan & Rekomendasi Tindakan Surveilans (3 Cards) ── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -8916,8 +8904,6 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             </div>
           </div>
         </section>
-        </>
-        )}
       </div>
       {/* ==================== MATRIKS KORBAN & FASKES PER KABUPATEN POPUP MODAL ==================== */}
       {showKabupatenMatrixModal && (
