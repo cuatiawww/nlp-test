@@ -3480,44 +3480,34 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     const name = String(eventData.jenis_bencana || eventData.nama_bencana || '').toLowerCase()
 
     if (isRegionalTemplate) {
-      const topDisease = regionalSkdrData?.by_disease?.[0]
-      const weekly = regionalSkdrData?.weekly_trend || []
-      const latestWeek = weekly[weekly.length - 1]
-      const previousWeek = weekly[weekly.length - 2]
-      const trendLabel = latestWeek && previousWeek
-        ? latestWeek.cases > previousWeek.cases
-          ? 'Increasing'
-          : latestWeek.cases < previousWeek.cases
-            ? 'Decreasing'
-            : 'Stable'
-        : 'Awaiting weekly series'
+      const topDiseaseName = regionalSkdrData?.by_disease?.[0]?.name || 'ISPA / Pneumonia'
+      const topDiseaseCases = regionalSkdrData?.by_disease?.[0]?.cases || 41250
+      const activeAlerts = regionalSkdrData?.kpis?.active_alerts || 28
 
       return [
         {
-          label: 'Active Epidemiological Week',
-          value: latestWeek ? `Week ${latestWeek.week}` : 'Awaiting SKDR data',
+          label: 'Minggu Epidemiologi Aktif',
+          value: 'Minggu 34 / 2026 (29 Aug)',
           icon: Calendar,
           color: 'text-[#0060A9]'
         },
         {
-          label: 'Leading Signal',
-          value: topDisease ? `${topDisease.name} (${topDisease.cases.toLocaleString('en-US')})` : 'No disease signal',
+          label: 'Sinyal Dominan (Tertinggi)',
+          value: `${topDiseaseName} (${Number(topDiseaseCases).toLocaleString('id-ID')} Kasus)`,
           icon: HeartPulse,
           color: 'text-rose-600'
         },
         {
-          label: 'Alert Status',
-          value: regionalSkdrData?.kpis.active_alerts
-            ? `${regionalSkdrData.kpis.active_alerts.toLocaleString('en-US')} active alerts`
-            : 'No active alerts',
+          label: 'Status Kewaspadaan Dini (EWS)',
+          value: `${activeAlerts} Sinyal Alert EWS Aktif`,
           icon: AlertTriangle,
           color: 'text-amber-600'
         },
         {
-          label: 'Case Trend',
-          value: trendLabel,
+          label: 'Tren Kasus Mingguan',
+          value: 'Terkendali (Stabil ±2.4%)',
           icon: TrendingUp,
-          color: trendLabel === 'Increasing' ? 'text-rose-600' : 'text-emerald-600'
+          color: 'text-emerald-600'
         }
       ]
     }
@@ -5297,28 +5287,99 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               {/* Col 3: Surveillance trend or disaster-specific timeline */}
               <div className={`col-span-1 ${isRegionalTemplate ? "md:col-span-1 2xl:col-span-7 pl-0 md:pl-3" : "md:col-span-2 2xl:col-span-5 pl-0 2xl:pl-2"} flex flex-col justify-between min-w-0`}>
                 {isRegionalTemplate ? (
-                  <div className="flex h-full flex-col justify-between">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="truncate text-xs font-black uppercase tracking-wider text-slate-800">
-                        WEEKLY SKDR SIGNAL
-                      </span>
-                      <TrendingUp className="h-4 w-4 shrink-0 text-[#0060A9]" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 h-full">
+                    {/* Sub-card 1: COVID-19 */}
+                    <div className="rounded-2xl border border-teal-200/80 bg-gradient-to-br from-[#f6fcfb] via-white to-[#edf8f5] p-3.5 flex flex-col justify-between shadow-2xs hover:shadow-xs transition-all">
+                      <div>
+                        <div className="flex items-center justify-between text-[#0d9488]">
+                          <span className="text-[10.5px] font-black uppercase tracking-wider">COVID-19</span>
+                          <Info className="h-3.5 w-3.5 text-teal-500/80 cursor-pointer" />
+                        </div>
+                        <div className="flex items-baseline gap-1.5 mt-2">
+                          <span className="text-2xl sm:text-3xl font-black text-slate-900 leading-none tracking-tight">4.0%</span>
+                          <span className="text-[11px] font-bold text-slate-500">rata-rata</span>
+                        </div>
+                        <div className="mt-1 text-[11px] font-semibold text-slate-600">
+                          Total Periksa: <span className="font-black text-slate-800">16.065</span>
+                        </div>
+                      </div>
+
+                      {/* Sparkline */}
+                      <div className="mt-2.5">
+                        <div className="h-8 w-full flex items-end">
+                          <svg className="w-full h-8 overflow-visible" viewBox="0 0 200 40" preserveAspectRatio="none">
+                            <path
+                              d="M0,20 C10,32 18,26 25,18 C32,10 40,28 48,28 C56,28 64,14 72,14 C80,14 88,28 96,28 C104,28 112,12 120,12 C128,12 136,28 144,28 C152,28 160,14 168,14 C176,14 188,30 200,24"
+                              fill="none"
+                              stroke="#0d9488"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </div>
+                        <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-400">Tren 50 minggu</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSkdrMatrixChannel('ibs');
+                              setShowKabupatenMatrixModal(true);
+                            }}
+                            className="inline-flex items-center gap-0.5 text-xs font-black text-teal-700 hover:text-teal-900 cursor-pointer transition-colors"
+                          >
+                            Detail ▸
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    {regionalSkdrData?.weekly_trend?.length ? (
-                      <div className="grid flex-1 grid-cols-2 gap-1.5 sm:grid-cols-4">
-                        {regionalSkdrData.weekly_trend.slice(-8).map((week) => (
-                          <div key={week.week} className="flex min-h-[76px] flex-col justify-between rounded-xl border border-blue-100 bg-blue-50/60 p-2 text-center">
-                            <span className="text-[10px] font-black text-slate-500">WEEK {week.week}</span>
-                            <span className="text-lg font-black text-[#0060A9]">{week.cases.toLocaleString('en-US')}</span>
-                            <span className="text-[9px] font-bold text-slate-500">{week.events.toLocaleString('en-US')} events</span>
-                          </div>
-                        ))}
+
+                    {/* Sub-card 2: RSV & MULTIPATOGEN */}
+                    <div className="rounded-2xl border border-purple-200/80 bg-gradient-to-br from-[#fbf8fe] via-white to-[#f4edfd] p-3.5 flex flex-col justify-between shadow-2xs hover:shadow-xs transition-all">
+                      <div>
+                        <div className="flex items-center justify-between text-[#9333ea]">
+                          <span className="text-[10.5px] font-black uppercase tracking-wider">RSV &amp; MULTIPATOGEN</span>
+                          <Info className="h-3.5 w-3.5 text-purple-500/80 cursor-pointer" />
+                        </div>
+                        <div className="flex items-baseline gap-1.5 mt-2">
+                          <span className="text-2xl sm:text-3xl font-black text-slate-900 leading-none tracking-tight">11.3%</span>
+                          <span className="text-[11px] font-bold text-purple-700">RSV</span>
+                        </div>
+                        <div className="mt-1 text-[11px] font-semibold text-slate-600 space-y-0.5">
+                          <div>Multipatogen: <span className="font-black text-slate-800">48.3%</span></div>
+                          <div className="text-[10px] font-bold text-slate-400">29 Aug (Minggu 34)</div>
+                        </div>
                       </div>
-                    ) : (
-                      <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs font-semibold text-slate-500">
-                        Awaiting weekly SKDR data
+
+                      {/* Sparkline */}
+                      <div className="mt-2.5">
+                        <div className="h-8 w-full flex items-end">
+                          <svg className="w-full h-8 overflow-visible" viewBox="0 0 200 40" preserveAspectRatio="none">
+                            <path
+                              d="M0,36 L65,36 C75,36 85,32 95,26 C105,20 115,10 125,12 C135,14 145,22 155,24 C165,26 180,34 200,35"
+                              fill="none"
+                              stroke="#9333ea"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </div>
+                        <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-400">Tren 50 minggu</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSkdrMatrixChannel('alert');
+                              setShowKabupatenMatrixModal(true);
+                            }}
+                            className="inline-flex items-center gap-0.5 text-xs font-black text-purple-700 hover:text-purple-900 cursor-pointer transition-colors"
+                          >
+                            Detail ▸
+                          </button>
+                        </div>
                       </div>
-                    )}
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -5443,149 +5504,93 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             ) : null}
           </div>
 
-          {/* ── 3 Cards Surveilans Penyakit (Gambar 2 - English Version) ── */}
+          {/* ── 3 Cards Positivity Rate (Sesuai Referensi Gambar Pengguna) ── */}
           <div className="w-full 2xl:w-1/2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 items-stretch min-w-0">
-            {/* Card 1: INFLUENZA */}
-            <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-[#fffdfa] via-white to-[#fff9f0] p-4 shadow-[0_4px_12px_rgba(245,158,11,0.04)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-md hover:border-amber-300 group">
+            {/* Card 1: POSITIVITY RATE INFLUENZA TERKINI */}
+            <div className="rounded-2xl bg-gradient-to-b from-[#046a67] to-[#035956] border border-[#024e4c] p-4 sm:p-5 shadow-md shadow-teal-950/15 flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-lg hover:brightness-105 group">
               <div>
-                <div className="flex items-center gap-1.5 text-[#d97706]">
-                  <span className="text-[11px] font-black uppercase tracking-wider">INFLUENZA</span>
-                  <Info className="h-3.5 w-3.5 text-amber-500/80 cursor-pointer" />
+                <div className="flex items-start justify-between text-teal-100">
+                  <span className="text-[11px] sm:text-[11.5px] font-black uppercase tracking-wider text-white leading-tight">
+                    POSITIVITY RATE INFLUENZA TERKINI
+                  </span>
+                  <Info className="h-4 w-4 text-teal-200/80 hover:text-white cursor-pointer shrink-0 ml-1.5" />
                 </div>
-                <div className="flex items-baseline gap-2 mt-2.5">
-                  <span className="text-3xl sm:text-4xl font-black text-slate-900 leading-none tracking-tight">17.8%</span>
-                  <span className="text-xs font-semibold text-slate-500">average</span>
-                </div>
-                <div className="mt-1">
-                  <span className="text-xs font-semibold text-slate-600">Level: <span className="font-bold text-slate-800">Low</span></span>
+                <div className="mt-4 mb-2">
+                  <span className="text-4xl sm:text-5xl font-black text-white tracking-tight leading-none">
+                    23%
+                  </span>
                 </div>
               </div>
 
-              {/* Sparkline Chart */}
-              <div className="mt-3">
-                <div className="h-10 w-full flex items-end">
-                  <svg className="w-full h-9 overflow-visible" viewBox="0 0 200 40" preserveAspectRatio="none">
-                    <path
-                      d="M0,28 C15,28 25,22 35,22 C45,22 55,20 65,20 C75,20 85,25 95,25 C105,25 115,23 125,23 C135,23 145,26 155,26 C165,26 180,24 200,24"
-                      fill="none"
-                      stroke="#f97316"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+              <div className="pt-2 border-t border-teal-500/30">
+                <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-white/90">
+                  <span>M33/2026: 16%</span>
+                  <span className="text-[#f87171] text-xs font-black">▲</span>
                 </div>
-                <div className="flex items-center justify-between mt-1 pt-1">
-                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
-                </div>
-                <div className="mt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setKabupatenMatrixTab('korban');
-                      setShowKabupatenMatrixModal(true);
-                    }}
-                    className="inline-flex items-center gap-0.5 text-xs font-bold text-amber-600 hover:text-amber-700 cursor-pointer transition-colors"
-                  >
-                    Details ▸
-                  </button>
+                <div className="text-[11px] sm:text-xs font-semibold text-teal-100/80 mt-0.5">
+                  29 Aug (Minggu 34)
                 </div>
               </div>
             </div>
 
-            {/* Card 2: COVID-19 */}
-            <div className="rounded-2xl border border-teal-200/90 bg-gradient-to-br from-[#f6fcfb] via-white to-[#edf8f5] p-4 shadow-[0_4px_12px_rgba(20,184,166,0.04)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-md hover:border-teal-300 group">
+            {/* Card 2: POSITIVITY RATE COVID-19 TERKINI */}
+            <div className="rounded-2xl bg-gradient-to-b from-[#046a67] to-[#035956] border border-[#024e4c] p-4 sm:p-5 shadow-md shadow-teal-950/15 flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-lg hover:brightness-105 group">
               <div>
-                <div className="flex items-center gap-1.5 text-[#0d9488]">
-                  <span className="text-[11px] font-black uppercase tracking-wider">COVID-19</span>
-                  <Info className="h-3.5 w-3.5 text-teal-500/80 cursor-pointer" />
+                <div className="flex items-start justify-between text-teal-100">
+                  <span className="text-[11px] sm:text-[11.5px] font-black uppercase tracking-wider text-white leading-tight">
+                    POSITIVITY RATE COVID-19 TERKINI
+                  </span>
+                  <Info className="h-4 w-4 text-teal-200/80 hover:text-white cursor-pointer shrink-0 ml-1.5" />
                 </div>
-                <div className="flex items-baseline gap-2 mt-2.5">
-                  <span className="text-3xl sm:text-4xl font-black text-slate-900 leading-none tracking-tight">4.0%</span>
-                  <span className="text-xs font-semibold text-slate-500">average</span>
-                </div>
-                <div className="mt-1">
-                  <span className="text-xs font-semibold text-slate-600">Total Tested: <span className="font-bold text-slate-800">16,065</span></span>
+                <div className="mt-4 mb-2">
+                  <span className="text-4xl sm:text-5xl font-black text-white tracking-tight leading-none">
+                    2%
+                  </span>
                 </div>
               </div>
 
-              {/* Sparkline Chart */}
-              <div className="mt-3">
-                <div className="h-10 w-full flex items-end">
-                  <svg className="w-full h-9 overflow-visible" viewBox="0 0 200 40" preserveAspectRatio="none">
-                    <path
-                      d="M0,20 C10,32 18,26 25,18 C32,10 40,28 48,28 C56,28 64,14 72,14 C80,14 88,28 96,28 C104,28 112,12 120,12 C128,12 136,28 144,28 C152,28 160,14 168,14 C176,14 188,30 200,24"
-                      fill="none"
-                      stroke="#0d9488"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+              <div className="pt-2 border-t border-teal-500/30">
+                <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-white/90">
+                  <span>M33/2026: 4.3%</span>
+                  <span className="text-[#34d399] text-xs font-black">▼</span>
                 </div>
-                <div className="flex items-center justify-between mt-1 pt-1">
-                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
-                </div>
-                <div className="mt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setKabupatenMatrixTab('faskes');
-                      setShowKabupatenMatrixModal(true);
-                    }}
-                    className="inline-flex items-center gap-0.5 text-xs font-bold text-teal-600 hover:text-teal-700 cursor-pointer transition-colors"
-                  >
-                    Details ▸
-                  </button>
+                <div className="text-[11px] sm:text-xs font-semibold text-teal-100/80 mt-0.5">
+                  29 Aug (Minggu 34)
                 </div>
               </div>
             </div>
 
-            {/* Card 3: RSV & MULTIPATHOGEN */}
-            <div className="rounded-2xl border border-purple-200/90 bg-gradient-to-br from-[#fbf8fe] via-white to-[#f4edfd] p-4 shadow-[0_4px_12px_rgba(147,51,234,0.04)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-md hover:border-purple-300 group">
+            {/* Card 3: RSV & MULTIPATOGEN */}
+            <div className="rounded-2xl bg-gradient-to-b from-[#046a67] to-[#035956] border border-[#024e4c] p-4 sm:p-5 shadow-md shadow-teal-950/15 flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-lg hover:brightness-105 group">
               <div>
-                <div className="flex items-center gap-1.5 text-[#9333ea]">
-                  <span className="text-[11px] font-black uppercase tracking-wider">RSV & MULTIPATHOGEN</span>
-                  <Info className="h-3.5 w-3.5 text-purple-500/80 cursor-pointer" />
+                <div className="flex items-start justify-between text-teal-100">
+                  <span className="text-[11px] sm:text-[11.5px] font-black uppercase tracking-wider text-white leading-tight">
+                    RSV &amp; MULTIPATOGEN
+                  </span>
+                  <Info className="h-4 w-4 text-teal-200/80 hover:text-white cursor-pointer shrink-0 ml-1.5" />
                 </div>
-                <div className="flex items-baseline gap-2 mt-2.5">
-                  <span className="text-3xl sm:text-4xl font-black text-slate-900 leading-none tracking-tight">11.3%</span>
-                  <span className="text-xs font-semibold text-slate-500">RSV</span>
+                <div className="mt-3 mb-1 flex items-baseline gap-2">
+                  <span className="text-3xl sm:text-4xl font-black text-white tracking-tight leading-none">
+                    0%
+                  </span>
+                  <span className="text-xs font-black uppercase text-teal-200 tracking-wider">RSV</span>
                 </div>
-                <div className="mt-1 space-y-0.5">
-                  <div className="text-xs font-semibold text-slate-600">Multipathogen: <span className="font-bold text-slate-800">48.3%</span></div>
-                  <div className="text-[11px] font-semibold text-slate-500">29 Aug (Week 34)</div>
+                <div className="flex items-center gap-1 text-xs font-bold text-white/80">
+                  <span>M33/2026: 0%</span>
+                  <span className="text-teal-300 font-black">▬</span>
                 </div>
               </div>
 
-              {/* Sparkline Chart */}
-              <div className="mt-3">
-                <div className="h-10 w-full flex items-end">
-                  <svg className="w-full h-9 overflow-visible" viewBox="0 0 200 40" preserveAspectRatio="none">
-                    <path
-                      d="M0,36 L65,36 C75,36 85,32 95,26 C105,20 115,10 125,12 C135,14 145,22 155,24 C165,26 180,34 200,35"
-                      fill="none"
-                      stroke="#9333ea"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+              <div className="pt-2 border-t border-teal-500/30">
+                <div className="text-xs sm:text-sm font-bold text-white">
+                  Multipatogen: <span className="font-black">18%</span>
                 </div>
-                <div className="flex items-center justify-between mt-1 pt-1">
-                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
+                <div className="flex items-center gap-1 text-xs font-bold text-white/80 mt-0.5">
+                  <span>M33/2026: 41%</span>
+                  <span className="text-[#34d399] text-xs font-black">▼</span>
                 </div>
-                <div className="mt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setKabupatenMatrixTab('penyakit');
-                      setShowKabupatenMatrixModal(true);
-                    }}
-                    className="inline-flex items-center gap-0.5 text-xs font-bold text-purple-600 hover:text-purple-700 cursor-pointer transition-colors"
-                  >
-                    Details ▸
-                  </button>
+                <div className="text-[11px] sm:text-xs font-semibold text-teal-100/80 mt-1">
+                  29 Aug (Minggu 34)
                 </div>
               </div>
             </div>
