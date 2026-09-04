@@ -4693,8 +4693,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
   return (
     <div className="w-full max-w-full overflow-x-hidden space-y-5 px-3 py-4 sm:px-6 lg:px-8 bg-[#fbffff] animate-in fade-in duration-200">
-      {/* Back navigation & Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3.5 min-w-0">
+      {/* Top Navigation Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3 min-w-0">
         <div className="flex items-center gap-3 min-w-0">
           {!hideBack && (
           <button
@@ -4707,13 +4707,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             </svg>
           </button>
           )}
-          <div className="min-w-0">
-            <h2 className="text-[18px] sm:text-[20px] font-black text-slate-900 uppercase tracking-wide truncate">
-              RINGKASAN SITUASI - {eventData.jenis_bencana}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">
-              Pemantauan rincian spasial faskes, logistik darurat, dan dampak korban krisis kesehatan.
-            </p>
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+            <span>Dashboard Surveilans</span>
+            <span>/</span>
+            <span className="font-bold text-teal-800">Detail Region (Indonesia)</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 sm:justify-end shrink-0">
@@ -4763,6 +4760,48 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             {shareCopied ? 'Tersalin' : 'Share'}
           </button>
 
+        </div>
+      </div>
+
+      {/* ── Banner Temuan Utama Surveilans (Gambar 1 - Bahasa Indonesia) ── */}
+      <div className="relative overflow-hidden rounded-2xl border border-teal-200/80 bg-gradient-to-r from-[#eef9f8] via-[#f3faf9] to-[#e8f7f5] p-5 sm:p-6 shadow-[0_2px_12px_rgba(13,148,136,0.05)]">
+        <div className="relative z-10 max-w-2xl">
+          <h1 className="text-xl sm:text-2xl font-black uppercase tracking-wide text-slate-900 leading-tight">
+            TEMUAN UTAMA SURVEILANS
+          </h1>
+          <p className="mt-1.5 text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+            Ringkasan insight, minggu signifikan, dan proyeksi tren untuk pemantauan kasus Influenza dan COVID-19.
+          </p>
+        </div>
+        {/* Decorative Clinic & Healthcare Line Art */}
+        <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 opacity-25 hidden md:block">
+          <svg className="h-20 w-80 text-teal-800" viewBox="0 0 320 80" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M10 70 H310" strokeWidth="1" strokeDasharray="3 3" />
+            <path d="M25 70 V45 M15 45 C15 35 25 30 25 30 C25 30 35 35 35 45 Z" />
+            <rect x="45" y="30" width="30" height="40" rx="3" strokeWidth="1.2" />
+            <line x1="45" y1="43" x2="75" y2="43" strokeWidth="1" />
+            <line x1="45" y1="56" x2="75" y2="56" strokeWidth="1" />
+            <rect x="50" y="34" width="5" height="7" rx="1" strokeWidth="1" />
+            <rect x="62" y="34" width="7" height="7" rx="1" strokeWidth="1" />
+            <rect x="52" y="47" width="6" height="7" rx="1" strokeWidth="1" />
+            <circle cx="105" cy="38" r="6" strokeWidth="1.2" />
+            <path d="M105 32 L101 28 H109 Z" strokeWidth="1" />
+            <path d="M98 70 V52 C98 47 112 47 112 52 V70" strokeWidth="1.2" />
+            <circle cx="125" cy="48" r="5" strokeWidth="1.2" />
+            <path d="M120 70 V58 C120 55 130 55 130 58 V70" strokeWidth="1.2" />
+            <circle cx="145" cy="40" r="6" strokeWidth="1.2" />
+            <path d="M138 70 V54 C138 49 152 49 152 54 V70" strokeWidth="1.2" />
+            <path d="M180 70 V35 C170 25 190 25 180 35" strokeWidth="1" />
+            <circle cx="180" cy="28" r="14" strokeWidth="1.2" />
+            <rect x="210" y="35" width="24" height="18" rx="2" strokeWidth="1.2" />
+            <path d="M214 44 Q222 38 230 44" strokeWidth="1" />
+            <line x1="222" y1="53" x2="222" y2="60" strokeWidth="1.2" />
+            <line x1="216" y1="60" x2="228" y2="60" strokeWidth="1.2" />
+            <circle cx="260" cy="36" r="6" strokeWidth="1.2" />
+            <path d="M252 70 V50 C252 45 268 45 268 50 V70" strokeWidth="1.2" />
+            <path d="M295 70 V40" strokeWidth="1.2" />
+            <path d="M285 40 C285 20 305 20 305 40 Z" strokeWidth="1.2" />
+          </svg>
         </div>
       </div>
 
@@ -5001,136 +5040,151 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             ) : null}
           </div>
 
-          {/* Cards 2, 3, 4 Container (Responsive auto-layout: 3 cols row on laptop/tablet, ~38% on ultra-wide) */}
+          {/* ── 3 Cards Surveilans Penyakit (Gambar 2 - English Version) ── */}
           <div className="w-full 2xl:w-[38%] grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 items-stretch min-w-0">
-            {/* Card 2: Total Korban */}
-            <div
-              onClick={() => {
-                setKabupatenMatrixTab('korban')
-                setShowKabupatenMatrixModal(true)
-              }}
-              title="Klik untuk melihat Matriks Korban per Kabupaten"
-              className={`rounded-2xl border p-3.5 shadow-[0_4px_12px_rgba(0,0,0,0.02)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-lg hover:scale-[1.015] cursor-pointer group relative overflow-hidden ${disasterTheme.bg}`}
-            >
-              <div className="absolute top-2 right-2.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-slate-900/5 text-slate-600 group-hover:bg-teal-700 group-hover:text-white transition-colors flex items-center gap-0.5">
-                  Matriks ↗
-                </span>
-              </div>
-              <div className="text-center flex-1 flex flex-col justify-center items-center">
-                <span className="text-[11px] sm:text-xs font-black text-slate-600 uppercase tracking-wider block">TOTAL KORBAN</span>
-                <span className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 block leading-none mt-2 group-hover:text-teal-800 transition-colors">{totalKorbanReal.toLocaleString('id-ID')}</span>
-                {!isNttEvent && (
-                  <span className={`text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-full border inline-flex items-center justify-center gap-1 mt-2.5 max-w-full text-center leading-tight ${korbanTrendInfo.badgeClass}`}>
-                    {korbanTrendInfo.label}
-                  </span>
-                )}
-              </div>
-              <div className={`border-t border-slate-300/40 pt-2.5 mt-auto grid ${isNttEvent ? 'grid-cols-2' : 'grid-cols-3'} gap-1 text-center shrink-0`}>
-                <div>
-                  <span className="text-base sm:text-lg font-black text-slate-900 block leading-none">{breakdown.meninggal}</span>
-                  <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">Meninggal</span>
+            {/* Card 1: INFLUENZA */}
+            <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-[#fffdfa] via-white to-[#fff9f0] p-4 shadow-[0_4px_12px_rgba(245,158,11,0.04)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-md hover:border-amber-300 group">
+              <div>
+                <div className="flex items-center gap-1.5 text-[#d97706]">
+                  <span className="text-[11px] font-black uppercase tracking-wider">INFLUENZA</span>
+                  <Info className="h-3.5 w-3.5 text-amber-500/80 cursor-pointer" />
                 </div>
-                <div className={`${isNttEvent ? 'border-l' : 'border-x'} border-slate-300/40 px-0.5`}>
-                  <span className="text-base sm:text-lg font-black text-amber-600 block leading-none">{breakdown.luka}</span>
-                  <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">Luka</span>
+                <div className="flex items-baseline gap-2 mt-2.5">
+                  <span className="text-3xl sm:text-4xl font-black text-slate-900 leading-none tracking-tight">17.8%</span>
+                  <span className="text-xs font-semibold text-slate-500">average</span>
                 </div>
-                {!isNttEvent && (
-                  <div>
-                    <span className="text-base sm:text-lg font-black text-slate-600 block leading-none">{breakdown.hilang}</span>
-                    <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">Hilang</span>
-                  </div>
-                )}
+                <div className="mt-1">
+                  <span className="text-xs font-semibold text-slate-600">Level: <span className="font-bold text-slate-800">Low</span></span>
+                </div>
+              </div>
+
+              {/* Sparkline Chart */}
+              <div className="mt-3">
+                <div className="h-10 w-full flex items-end">
+                  <svg className="w-full h-9 overflow-visible" viewBox="0 0 200 40" preserveAspectRatio="none">
+                    <path
+                      d="M0,28 C15,28 25,22 35,22 C45,22 55,20 65,20 C75,20 85,25 95,25 C105,25 115,23 125,23 C135,23 145,26 155,26 C165,26 180,24 200,24"
+                      fill="none"
+                      stroke="#f97316"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+                <div className="flex items-center justify-between mt-1 pt-1">
+                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
+                </div>
+                <div className="mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKabupatenMatrixTab('korban');
+                      setShowKabupatenMatrixModal(true);
+                    }}
+                    className="inline-flex items-center gap-0.5 text-xs font-bold text-amber-600 hover:text-amber-700 cursor-pointer transition-colors"
+                  >
+                    Details ▸
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Card 3: Faskes Di Area */}
-            <div
-              onClick={() => {
-                setKabupatenMatrixTab('faskes')
-                setShowKabupatenMatrixModal(true)
-              }}
-              title="Klik untuk melihat Matriks Faskes Terdampak per Kabupaten"
-              className={`rounded-2xl border p-3.5 shadow-[0_4px_12px_rgba(0,0,0,0.02)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-lg hover:scale-[1.015] cursor-pointer group relative overflow-hidden ${disasterTheme.bg}`}
-            >
-              <div className="absolute top-2 right-2.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-slate-900/5 text-slate-600 group-hover:bg-teal-700 group-hover:text-white transition-colors flex items-center gap-0.5">
-                  Matriks ↗
-                </span>
-              </div>
-              <div className="text-center flex-1 flex flex-col justify-center items-center">
-                <span className="text-[11px] sm:text-xs font-black text-slate-600 uppercase tracking-wider block">FASKES DI AREA</span>
-                <span className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 block leading-none mt-2 group-hover:text-teal-800 transition-colors">
-                  {totalFaskes.toLocaleString('id-ID')}
-                </span>
-                {!isNttEvent && (
-                  <span className={`text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-full border inline-flex items-center justify-center gap-1 mt-2.5 max-w-full text-center leading-tight ${faskesTrendInfo.badgeClass}`}>
-                    {faskesTrendInfo.label}
-                  </span>
-                )}
-              </div>
-              {isNttEvent ? (
-                <div className="border-t border-slate-300/40 pt-2.5 mt-auto text-center shrink-0">
-                  <span className="text-base sm:text-lg font-black text-slate-900 block leading-none">{totalFaskes.toLocaleString('id-ID')}</span>
-                  <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">DISIAGAKAN</span>
+            {/* Card 2: COVID-19 */}
+            <div className="rounded-2xl border border-teal-200/90 bg-gradient-to-br from-[#f6fcfb] via-white to-[#edf8f5] p-4 shadow-[0_4px_12px_rgba(20,184,166,0.04)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-md hover:border-teal-300 group">
+              <div>
+                <div className="flex items-center gap-1.5 text-[#0d9488]">
+                  <span className="text-[11px] font-black uppercase tracking-wider">COVID-19</span>
+                  <Info className="h-3.5 w-3.5 text-teal-500/80 cursor-pointer" />
                 </div>
-              ) : (
-                <div className="border-t border-slate-300/40 pt-2.5 mt-auto grid grid-cols-2 gap-1 text-center shrink-0">
-                  <div className="border-r border-slate-300/40 px-0.5">
-                    <span className="text-base sm:text-lg font-black text-slate-900 block leading-none">
-                      {operasionalFaskes}
-                    </span>
-                    <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">OPERASIONAL</span>
-                  </div>
-                  <div className="px-0.5">
-                    <span className="text-base sm:text-lg font-black text-rose-600 block leading-none">
-                      {terdampakFaskes}
-                    </span>
-                    <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">TERDAMPAK</span>
-                  </div>
+                <div className="flex items-baseline gap-2 mt-2.5">
+                  <span className="text-3xl sm:text-4xl font-black text-slate-900 leading-none tracking-tight">4.0%</span>
+                  <span className="text-xs font-semibold text-slate-500">average</span>
                 </div>
-              )}
+                <div className="mt-1">
+                  <span className="text-xs font-semibold text-slate-600">Total Tested: <span className="font-bold text-slate-800">16,065</span></span>
+                </div>
+              </div>
+
+              {/* Sparkline Chart */}
+              <div className="mt-3">
+                <div className="h-10 w-full flex items-end">
+                  <svg className="w-full h-9 overflow-visible" viewBox="0 0 200 40" preserveAspectRatio="none">
+                    <path
+                      d="M0,20 C10,32 18,26 25,18 C32,10 40,28 48,28 C56,28 64,14 72,14 C80,14 88,28 96,28 C104,28 112,12 120,12 C128,12 136,28 144,28 C152,28 160,14 168,14 C176,14 188,30 200,24"
+                      fill="none"
+                      stroke="#0d9488"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+                <div className="flex items-center justify-between mt-1 pt-1">
+                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
+                </div>
+                <div className="mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKabupatenMatrixTab('faskes');
+                      setShowKabupatenMatrixModal(true);
+                    }}
+                    className="inline-flex items-center gap-0.5 text-xs font-bold text-teal-600 hover:text-teal-700 cursor-pointer transition-colors"
+                  >
+                    Details ▸
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Card 4: Penduduk Terdampak */}
-            <div
-              className={`rounded-2xl border p-3.5 shadow-[0_4px_12px_rgba(0,0,0,0.02)] flex flex-col justify-between min-h-[220px] transition-all duration-200 ${disasterTheme.bg}`}
-            >
-              <div className="text-center flex-1 flex flex-col justify-center items-center">
-                <span className="text-[11px] sm:text-xs font-black text-slate-600 uppercase tracking-wider block">PENDUDUK TERDAMPAK</span>
-                <div className="flex items-baseline justify-center gap-1 mt-2 min-w-0">
-                  <span className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 leading-none group-hover:text-teal-800 transition-colors truncate">
-                    {pendudukTerdampakDisplay}
-                  </span>
-                  {pendudukTerdampakDisplay !== 'NA' && <span className="text-xs font-bold text-slate-500">Jiwa</span>}
+            {/* Card 3: RSV & MULTIPATHOGEN */}
+            <div className="rounded-2xl border border-purple-200/90 bg-gradient-to-br from-[#fbf8fe] via-white to-[#f4edfd] p-4 shadow-[0_4px_12px_rgba(147,51,234,0.04)] flex flex-col justify-between min-h-[220px] transition-all duration-200 hover:shadow-md hover:border-purple-300 group">
+              <div>
+                <div className="flex items-center gap-1.5 text-[#9333ea]">
+                  <span className="text-[11px] font-black uppercase tracking-wider">RSV & MULTIPATHOGEN</span>
+                  <Info className="h-3.5 w-3.5 text-purple-500/80 cursor-pointer" />
                 </div>
-                {!isNttEvent && (
-                  <span className={`text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-full border inline-flex items-center justify-center gap-1 mt-2.5 max-w-full text-center leading-tight ${terdampakTrendInfo.badgeClass}`}>
-                    {terdampakTrendInfo.label}
-                  </span>
-                )}
+                <div className="flex items-baseline gap-2 mt-2.5">
+                  <span className="text-3xl sm:text-4xl font-black text-slate-900 leading-none tracking-tight">11.3%</span>
+                  <span className="text-xs font-semibold text-slate-500">RSV</span>
+                </div>
+                <div className="mt-1 space-y-0.5">
+                  <div className="text-xs font-semibold text-slate-600">Multipathogen: <span className="font-bold text-slate-800">48.3%</span></div>
+                  <div className="text-[11px] font-semibold text-slate-500">29 Aug (Week 34)</div>
+                </div>
               </div>
-              {isNttEvent ? (
-                <div className="border-t border-slate-300/40 pt-2.5 mt-auto text-center shrink-0">
-                  <span className="text-base sm:text-lg font-black text-blue-900 block leading-none">{(breakdown.pengungsi || 95871).toLocaleString('id-ID')}</span>
-                  <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">PENGUNGSI TERDATA</span>
+
+              {/* Sparkline Chart */}
+              <div className="mt-3">
+                <div className="h-10 w-full flex items-end">
+                  <svg className="w-full h-9 overflow-visible" viewBox="0 0 200 40" preserveAspectRatio="none">
+                    <path
+                      d="M0,36 L65,36 C75,36 85,32 95,26 C105,20 115,10 125,12 C135,14 145,22 155,24 C165,26 180,34 200,35"
+                      fill="none"
+                      stroke="#9333ea"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </div>
-              ) : (
-                <div className="border-t border-slate-300/40 pt-2.5 mt-auto grid grid-cols-3 gap-1 text-center shrink-0">
-                  <div className="min-w-0 px-0.5">
-                    <span className="text-sm sm:text-base font-black text-slate-900 block leading-none truncate" title={balitaDisplay}>{balitaDisplay}</span>
-                    <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">Balita</span>
-                  </div>
-                  <div className="border-x border-slate-300/40 min-w-0 px-0.5">
-                    <span className="text-sm sm:text-base font-black text-slate-900 block leading-none truncate" title={lansiaDisplay}>{lansiaDisplay}</span>
-                    <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">Lansia</span>
-                  </div>
-                  <div className="min-w-0 px-0.5">
-                    <span className="text-sm sm:text-base font-black text-slate-900 block leading-none truncate" title={bumilDisplay}>{bumilDisplay}</span>
-                    <span className="text-[10px] font-black text-slate-600 block mt-1 leading-tight uppercase">Bumil</span>
-                  </div>
+                <div className="flex items-center justify-between mt-1 pt-1">
+                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
                 </div>
-              )}
+                <div className="mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKabupatenMatrixTab('tck');
+                      setShowKabupatenMatrixModal(true);
+                    }}
+                    className="inline-flex items-center gap-0.5 text-xs font-bold text-purple-600 hover:text-purple-700 cursor-pointer transition-colors"
+                  >
+                    Details ▸
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
