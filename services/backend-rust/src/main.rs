@@ -1806,7 +1806,7 @@ async fn public_dashboard(
                 AND ($2::text IS NULL OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
                   WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
                   WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) = LOWER($2))
+                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) = LOWER($2))
              GROUP BY COALESCE(e.location_name, 'Unknown'), e.disease_classification,
                        CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
                          WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
@@ -1885,7 +1885,7 @@ async fn public_dashboard(
                 AND ($2::text IS NULL OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
                   WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
                   WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) = LOWER($2))
+                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) = LOWER($2))
              GROUP BY COALESCE(e.location_name, 'Unknown'), e.disease_classification,
                        CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
                          WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
@@ -2056,7 +2056,7 @@ async fn public_dashboard(
                 AND ($2::text IS NULL OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
                   WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
                   WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END)) END) = LOWER($2))
+                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) = LOWER($2))
              GROUP BY COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int)
              ORDER BY epidemiological_week",
             &[&selected_year, &selected_country, &selected_source],
