@@ -872,29 +872,29 @@ export default function ReportsPage() {
     switch (sev) {
       case 'AWAS':
         return (
-          <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-[10px] font-extrabold text-rose-700 border border-rose-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-600 animate-pulse" />
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1 text-xs md:text-sm font-extrabold text-rose-700 border border-rose-200 shadow-2xs">
+            <span className="h-2 w-2 rounded-full bg-rose-600 animate-pulse" />
             CRITICAL
           </span>
         )
       case 'SIAGA':
         return (
-          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold text-amber-700 border border-amber-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-xs md:text-sm font-extrabold text-amber-700 border border-amber-200 shadow-2xs">
+            <span className="h-2 w-2 rounded-full bg-amber-600" />
             HIGH
           </span>
         )
       case 'WASPADA':
         return (
-          <span className="inline-flex items-center gap-1 rounded-md bg-yellow-50 px-2 py-0.5 text-[10px] font-extrabold text-yellow-700 border border-yellow-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-yellow-50 px-2.5 py-1 text-xs md:text-sm font-extrabold text-yellow-800 border border-yellow-200 shadow-2xs">
+            <span className="h-2 w-2 rounded-full bg-yellow-500" />
             WARNING
           </span>
         )
       default:
         return (
-          <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 border border-emerald-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs md:text-sm font-extrabold text-emerald-700 border border-emerald-200 shadow-2xs">
+            <span className="h-2 w-2 rounded-full bg-emerald-600" />
             NORMAL
           </span>
         )
@@ -932,26 +932,26 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+      <div className="w-full px-2 sm:px-4 lg:px-6 pt-2 space-y-5">
         {/* ==================== 4 TOP KPI STAT CARDS ==================== */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 print:grid-cols-4">
           {/* Card 1: Filtered Reports */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <p className="text-xs md:text-sm font-black uppercase tracking-wider text-slate-500">
                   Filtered Events
                 </p>
-                <h3 className="mt-1 text-2xl font-extrabold text-slate-900">
+                <h3 className="mt-1.5 text-3xl lg:text-4xl font-black text-slate-900 tracking-tight">
                   {loading ? '...' : metrics.totalReports.toLocaleString()}{' '}
-                  <span className="text-xs font-semibold text-slate-500">Events</span>
+                  <span className="text-sm lg:text-base font-bold text-slate-500">Events</span>
                 </h3>
               </div>
-              <div className="grid h-11 w-11 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100">
-                <FileSpreadsheet className="h-5 w-5" />
+              <div className="grid h-12 w-12 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100 shadow-2xs">
+                <FileSpreadsheet className="h-6 w-6" />
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">
+            <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
               {activeFilterCount > 0
                 ? `${activeFilterCount} active filter criteria`
                 : `Live NLP dataset (${dataList.length} total records)`}
@@ -959,86 +959,86 @@ export default function ReportsPage() {
           </div>
 
           {/* Card 2: Total Cases */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <p className="text-xs md:text-sm font-black uppercase tracking-wider text-slate-500">
                   Total Cases Detected
                 </p>
-                <h3 className="mt-1 text-2xl font-extrabold text-slate-900">
+                <h3 className="mt-1.5 text-3xl lg:text-4xl font-black text-slate-900 tracking-tight">
                   {loading ? '...' : metrics.totalCases.toLocaleString()}{' '}
-                  <span className="text-xs font-semibold text-slate-500">Cases</span>
+                  <span className="text-sm lg:text-base font-bold text-slate-500">Cases</span>
                 </h3>
               </div>
-              <div className="grid h-11 w-11 place-items-center rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
-                <Users className="h-5 w-5" />
+              <div className="grid h-12 w-12 place-items-center rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 shadow-2xs">
+                <Users className="h-6 w-6" />
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">
+            <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
               Across {metrics.affectedCountries} monitored jurisdictions
             </p>
           </div>
 
           {/* Card 3: Deaths & CFR */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <p className="text-xs md:text-sm font-black uppercase tracking-wider text-slate-500">
                   Deaths & CFR
                 </p>
-                <h3 className="mt-1 text-2xl font-extrabold text-rose-600">
+                <h3 className="mt-1.5 text-3xl lg:text-4xl font-black text-rose-600 tracking-tight">
                   {loading ? '...' : metrics.totalDeaths.toLocaleString()}{' '}
-                  <span className="text-xs font-semibold text-slate-500">
+                  <span className="text-sm lg:text-base font-bold text-slate-500">
                     ({metrics.avgCfr}% CFR)
                   </span>
                 </h3>
               </div>
-              <div className="grid h-11 w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 border border-rose-100">
-                <ShieldAlert className="h-5 w-5" />
+              <div className="grid h-12 w-12 place-items-center rounded-xl bg-rose-50 text-rose-600 border border-rose-100 shadow-2xs">
+                <ShieldAlert className="h-6 w-6" />
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">
+            <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
               Epidemiological Case Fatality Rate
             </p>
           </div>
 
           {/* Card 4: Active Alerts */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <p className="text-xs md:text-sm font-black uppercase tracking-wider text-slate-500">
                   Outbreak Alerts
                 </p>
-                <h3 className="mt-1 text-2xl font-extrabold text-amber-600">
+                <h3 className="mt-1.5 text-3xl lg:text-4xl font-black text-amber-600 tracking-tight">
                   {loading ? '...' : metrics.totalAlerts}{' '}
-                  <span className="text-xs font-semibold text-slate-500">
+                  <span className="text-sm lg:text-base font-bold text-slate-500">
                     Active Signals
                   </span>
                 </h3>
               </div>
-              <div className="grid h-11 w-11 place-items-center rounded-xl bg-amber-50 text-amber-600 border border-amber-100">
-                <AlertTriangle className="h-5 w-5" />
+              <div className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-amber-600 border border-amber-100 shadow-2xs">
+                <AlertTriangle className="h-6 w-6" />
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">
+            <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
               Critical &amp; High outbreak triggers
             </p>
           </div>
         </div>
 
         {/* ==================== MAIN EQUAL-HEIGHT LAYOUT: FILTER SIDEBAR + DATA MATRIX ==================== */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch lg:min-h-[760px]">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 items-stretch lg:min-h-[760px]">
           {/* ==================== LEFT MULTI FILTER SIDEBAR (PRINT HIDDEN) ==================== */}
           <aside className="lg:col-span-3 xl:col-span-3 flex flex-col h-full rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden print:hidden">
             {/* Filter Header */}
             <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50/70 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <SlidersHorizontal className="h-4 w-4 text-[#0060A9]" />
-                <h2 className="text-xs font-extrabold tracking-wider text-slate-800 uppercase">
+              <div className="flex items-center gap-2.5">
+                <SlidersHorizontal className="h-5 w-5 text-[#0060A9]" />
+                <h2 className="text-sm md:text-base font-black tracking-wider text-slate-900 uppercase">
                   Matrix Filters
                 </h2>
                 {activeFilterCount > 0 && (
-                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-[#0060A9]">
+                  <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-black text-[#0060A9]">
                     {activeFilterCount}
                   </span>
                 )}
@@ -1047,10 +1047,10 @@ export default function ReportsPage() {
                 <button
                   type="button"
                   onClick={handleResetFilters}
-                  className="flex items-center gap-1 text-[11px] font-bold text-rose-600 hover:text-rose-700 transition cursor-pointer"
+                  className="flex items-center gap-1.5 text-xs md:text-sm font-black text-rose-600 hover:text-rose-700 transition cursor-pointer"
                   title="Reset All Filters"
                 >
-                  <RotateCcw className="h-3 w-3" />
+                  <RotateCcw className="h-3.5 w-3.5" />
                   Clear All
                 </button>
               )}
@@ -1064,31 +1064,31 @@ export default function ReportsPage() {
                   className="flex items-center justify-between cursor-pointer select-none py-1"
                   onClick={() => toggleSection('countries')}
                 >
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Globe className="h-3.5 w-3.5 text-[#0060A9]" />
+                  <span className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <Globe className="h-4 w-4 text-[#0060A9]" />
                     Country / Member State ({availableCountries.length})
                   </span>
                   {expandedSections.countries ? (
-                    <ChevronUp className="h-4 w-4 text-slate-400" />
+                    <ChevronUp className="h-4.5 w-4.5 text-slate-400" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                    <ChevronDown className="h-4.5 w-4.5 text-slate-400" />
                   )}
                 </div>
 
                 {expandedSections.countries && (
-                  <div className="space-y-2 pt-1">
+                  <div className="space-y-2.5 pt-1">
                     <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                       <input
                         type="text"
                         value={countrySearch}
                         onChange={(e) => setCountrySearch(e.target.value)}
                         placeholder="Search country..."
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-8 pr-3 py-1.5 text-xs text-slate-700 focus:border-[#0060A9] focus:outline-none focus:ring-1 focus:ring-[#0060A9]"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-9 pr-3 py-2 text-sm text-slate-800 font-medium placeholder:text-slate-400 focus:border-[#0060A9] focus:outline-none focus:ring-1 focus:ring-[#0060A9]"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between px-1 text-[10px] text-[#0060A9] font-bold">
+                    <div className="flex items-center justify-between px-1 text-xs text-[#0060A9] font-black">
                       <button
                         type="button"
                         onClick={handleSelectAllCountries}
@@ -1097,11 +1097,11 @@ export default function ReportsPage() {
                         {selectedCountries.length === availableCountries.length ? 'Clear All' : 'Select All'}
                       </button>
                       {selectedCountries.length > 0 && (
-                        <span className="text-slate-400">{selectedCountries.length} selected</span>
+                        <span className="text-slate-500 font-bold">{selectedCountries.length} selected</span>
                       )}
                     </div>
 
-                    <div className="max-h-40 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                    <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                       {availableCountries
                         .filter((c) => c.toLowerCase().includes(countrySearch.toLowerCase()))
                         .map((ctr) => {
@@ -1109,21 +1109,21 @@ export default function ReportsPage() {
                           return (
                             <label
                               key={ctr}
-                              className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs transition cursor-pointer ${
+                              className={`flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-sm transition cursor-pointer ${
                                 isChecked
-                                  ? 'bg-blue-50 text-[#0060A9] font-bold'
-                                  : 'hover:bg-slate-50 text-slate-600'
+                                  ? 'bg-blue-50 text-[#0060A9] font-bold shadow-2xs'
+                                  : 'hover:bg-slate-50 text-slate-700'
                               }`}
                             >
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2.5">
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
                                   onChange={() => handleToggleCountry(ctr)}
-                                  className="h-3.5 w-3.5 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
+                                  className="h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
                                 />
-                                <CountryFlag countryName={ctr} shape="rounded" size="xs" />
-                                <span className="truncate">{ctr}</span>
+                                <CountryFlag countryName={ctr} shape="rounded" size="sm" />
+                                <span className="truncate font-semibold">{ctr}</span>
                               </div>
                             </label>
                           )
@@ -1134,36 +1134,36 @@ export default function ReportsPage() {
               </div>
 
               {/* SECTION 2: FILTER DISEASES (Extracted Dynamically from NLP Data) */}
-              <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="space-y-3 pt-2.5 border-t border-slate-100">
                 <div
                   className="flex items-center justify-between cursor-pointer select-none py-1"
                   onClick={() => toggleSection('diseases')}
                 >
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Activity className="h-3.5 w-3.5 text-rose-500" />
+                  <span className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-rose-500" />
                     Target Disease ({availableDiseases.length})
                   </span>
                   {expandedSections.diseases ? (
-                    <ChevronUp className="h-4 w-4 text-slate-400" />
+                    <ChevronUp className="h-4.5 w-4.5 text-slate-400" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                    <ChevronDown className="h-4.5 w-4.5 text-slate-400" />
                   )}
                 </div>
 
                 {expandedSections.diseases && (
-                  <div className="space-y-2 pt-1">
+                  <div className="space-y-2.5 pt-1">
                     <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                       <input
                         type="text"
                         value={diseaseSearch}
                         onChange={(e) => setDiseaseSearch(e.target.value)}
                         placeholder="Search disease..."
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-8 pr-3 py-1.5 text-xs text-slate-700 focus:border-[#0060A9] focus:outline-none focus:ring-1 focus:ring-[#0060A9]"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-9 pr-3 py-2 text-sm text-slate-800 font-medium placeholder:text-slate-400 focus:border-[#0060A9] focus:outline-none focus:ring-1 focus:ring-[#0060A9]"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between px-1 text-[10px] text-[#0060A9] font-bold">
+                    <div className="flex items-center justify-between px-1 text-xs text-[#0060A9] font-black">
                       <button
                         type="button"
                         onClick={handleSelectAllDiseases}
@@ -1172,11 +1172,11 @@ export default function ReportsPage() {
                         {selectedDiseases.length === availableDiseases.length ? 'Clear All' : 'Select All'}
                       </button>
                       {selectedDiseases.length > 0 && (
-                        <span className="text-slate-400">{selectedDiseases.length} selected</span>
+                        <span className="text-slate-500 font-bold">{selectedDiseases.length} selected</span>
                       )}
                     </div>
 
-                    <div className="max-h-40 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                    <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                       {availableDiseases
                         .filter((d) => d.toLowerCase().includes(diseaseSearch.toLowerCase()))
                         .map((dis) => {
@@ -1184,19 +1184,19 @@ export default function ReportsPage() {
                           return (
                             <label
                               key={dis}
-                              className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition cursor-pointer ${
+                              className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm transition cursor-pointer ${
                                 isChecked
-                                  ? 'bg-rose-50 text-rose-700 font-bold'
-                                  : 'hover:bg-slate-50 text-slate-600'
+                                  ? 'bg-rose-50 text-rose-800 font-bold shadow-2xs'
+                                  : 'hover:bg-slate-50 text-slate-700'
                               }`}
                             >
                               <input
                                 type="checkbox"
                                 checked={isChecked}
                                 onChange={() => handleToggleDisease(dis)}
-                                className="h-3.5 w-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                               />
-                              <span className="truncate">{dis}</span>
+                              <span className="truncate font-semibold">{dis}</span>
                             </label>
                           )
                         })}
@@ -1206,25 +1206,25 @@ export default function ReportsPage() {
               </div>
 
               {/* SECTION 3: DATE RANGE */}
-              <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="space-y-3 pt-2.5 border-t border-slate-100">
                 <div
                   className="flex items-center justify-between cursor-pointer select-none py-1"
                   onClick={() => toggleSection('dates')}
                 >
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Calendar className="h-3.5 w-3.5 text-indigo-500" />
+                  <span className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-indigo-500" />
                     Date Range
                   </span>
                   {expandedSections.dates ? (
-                    <ChevronUp className="h-4 w-4 text-slate-400" />
+                    <ChevronUp className="h-4.5 w-4.5 text-slate-400" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                    <ChevronDown className="h-4.5 w-4.5 text-slate-400" />
                   )}
                 </div>
 
                 {expandedSections.dates && (
-                  <div className="space-y-2 pt-1">
-                    <div className="grid grid-cols-2 gap-1.5">
+                  <div className="space-y-2.5 pt-1">
+                    <div className="grid grid-cols-2 gap-2">
                       {[
                         { id: '24h', label: '24 Hours' },
                         { id: '7days', label: 'Last 7 Days' },
@@ -1238,10 +1238,10 @@ export default function ReportsPage() {
                           key={preset.id}
                           type="button"
                           onClick={() => setSelectedDatePreset(preset.id)}
-                          className={`rounded-lg py-1 px-2 text-[11px] font-semibold transition border text-center cursor-pointer ${
+                          className={`rounded-xl py-2 px-2.5 text-xs font-bold transition border text-center cursor-pointer ${
                             selectedDatePreset === preset.id
-                              ? 'border-[#0060A9] bg-[#0060A9] text-white font-bold'
-                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              ? 'border-[#0060A9] bg-[#0060A9] text-white shadow-xs font-black'
+                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                           }`}
                         >
                           {preset.label}
@@ -1250,27 +1250,27 @@ export default function ReportsPage() {
                     </div>
 
                     {selectedDatePreset === 'custom' && (
-                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="space-y-2.5 pt-2 border-t border-slate-100">
                         <div>
-                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                          <label className="text-xs font-black text-slate-600 uppercase block mb-1">
                             From Date
                           </label>
                           <input
                             type="date"
                             value={customStartDate}
                             onChange={(e) => setCustomStartDate(e.target.value)}
-                            className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1 text-xs text-slate-700"
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-800 font-medium"
                           />
                         </div>
                         <div>
-                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                          <label className="text-xs font-black text-slate-600 uppercase block mb-1">
                             To Date
                           </label>
                           <input
                             type="date"
                             value={customEndDate}
                             onChange={(e) => setCustomEndDate(e.target.value)}
-                            className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1 text-xs text-slate-700"
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-800 font-medium"
                           />
                         </div>
                       </div>
@@ -1280,45 +1280,45 @@ export default function ReportsPage() {
               </div>
 
               {/* SECTION 4: ALERT SEVERITY */}
-              <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="space-y-3 pt-2.5 border-t border-slate-100">
                 <div
                   className="flex items-center justify-between cursor-pointer select-none py-1"
                   onClick={() => toggleSection('severity')}
                 >
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
+                  <span className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 text-amber-500" />
                     Alert Severity
                   </span>
                   {expandedSections.severity ? (
-                    <ChevronUp className="h-4 w-4 text-slate-400" />
+                    <ChevronUp className="h-4.5 w-4.5 text-slate-400" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                    <ChevronDown className="h-4.5 w-4.5 text-slate-400" />
                   )}
                 </div>
 
                 {expandedSections.severity && (
-                  <div className="space-y-1.5 pt-1">
+                  <div className="space-y-2 pt-1">
                     {[
                       { id: 'AWAS', label: 'CRITICAL', color: 'text-rose-700 bg-rose-50 border-rose-200' },
                       { id: 'SIAGA', label: 'HIGH', color: 'text-amber-700 bg-amber-50 border-amber-200' },
-                      { id: 'WASPADA', label: 'WARNING', color: 'text-yellow-700 bg-yellow-50 border-yellow-200' },
+                      { id: 'WASPADA', label: 'WARNING', color: 'text-yellow-800 bg-yellow-50 border-yellow-200' },
                       { id: 'NORMAL', label: 'NORMAL', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
                     ].map((sev) => {
                       const isChecked = selectedSeverities.includes(sev.id)
                       return (
                         <label
                           key={sev.id}
-                          className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition border cursor-pointer ${
+                          className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition border cursor-pointer ${
                             isChecked
-                              ? `${sev.color} font-bold shadow-xs`
-                              : 'border-slate-100 hover:bg-slate-50 text-slate-600'
+                              ? `${sev.color} font-black shadow-xs`
+                              : 'border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold'
                           }`}
                         >
                           <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => handleToggleSeverity(sev.id)}
-                            className="h-3.5 w-3.5 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
+                            className="h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
                           />
                           <span>{sev.label}</span>
                         </label>
@@ -1329,24 +1329,24 @@ export default function ReportsPage() {
               </div>
 
               {/* SECTION 5: PLATFORM SOURCES */}
-              <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="space-y-3 pt-2.5 border-t border-slate-100">
                 <div
                   className="flex items-center justify-between cursor-pointer select-none py-1"
                   onClick={() => toggleSection('sources')}
                 >
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers className="h-3.5 w-3.5 text-cyan-600" />
+                  <span className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <Layers className="h-4 w-4 text-cyan-600" />
                     Data Sources
                   </span>
                   {expandedSections.sources ? (
-                    <ChevronUp className="h-4 w-4 text-slate-400" />
+                    <ChevronUp className="h-4.5 w-4.5 text-slate-400" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                    <ChevronDown className="h-4.5 w-4.5 text-slate-400" />
                   )}
                 </div>
 
                 {expandedSections.sources && (
-                  <div className="space-y-1 pt-1">
+                  <div className="space-y-1.5 pt-1">
                     {[
                       { id: 'news', label: 'News Media & Press' },
                       { id: 'rss', label: 'RSS News Feeds' },
@@ -1362,20 +1362,20 @@ export default function ReportsPage() {
                       return (
                         <label
                           key={src.id}
-                          className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition cursor-pointer ${
+                          className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm transition cursor-pointer ${
                             isChecked
-                              ? 'bg-blue-50 text-[#0060A9] font-bold'
-                              : 'hover:bg-slate-50 text-slate-600'
+                              ? 'bg-blue-50 text-[#0060A9] font-bold shadow-2xs'
+                              : 'hover:bg-slate-50 text-slate-700'
                           }`}
                         >
                           <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => handleToggleSource(src.id)}
-                            className="h-3.5 w-3.5 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
+                            className="h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
                           />
-                          <SocialMediaIcon platform={src.id} size="xs" />
-                          <span className="truncate">{src.label}</span>
+                          <SocialMediaIcon platform={src.id} size="sm" />
+                          <span className="truncate font-semibold">{src.label}</span>
                         </label>
                       )
                     })}
@@ -1384,25 +1384,25 @@ export default function ReportsPage() {
               </div>
 
               {/* SECTION 6: SPECIFIC IMPACT CRITERIA */}
-              <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="space-y-3 pt-2.5 border-t border-slate-100">
                 <div
                   className="flex items-center justify-between cursor-pointer select-none py-1"
                   onClick={() => toggleSection('specific')}
                 >
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+                  <span className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-purple-600" />
                     Specific Criteria
                   </span>
                   {expandedSections.specific ? (
-                    <ChevronUp className="h-4 w-4 text-slate-400" />
+                    <ChevronUp className="h-4.5 w-4.5 text-slate-400" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                    <ChevronDown className="h-4.5 w-4.5 text-slate-400" />
                   )}
                 </div>
 
                 {expandedSections.specific && (
-                  <div className="space-y-1.5 pt-1 text-xs text-slate-700">
-                    <label className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 transition cursor-pointer">
+                  <div className="space-y-2 pt-1 text-sm text-slate-800 font-semibold">
+                    <label className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 hover:bg-slate-50 transition cursor-pointer">
                       <input
                         type="checkbox"
                         checked={filterCasesOnly}
@@ -1410,12 +1410,12 @@ export default function ReportsPage() {
                           setFilterCasesOnly(e.target.checked)
                           setCurrentPage(1)
                         }}
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
+                        className="h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
                       />
                       <span>Has Cases (&gt; 0)</span>
                     </label>
 
-                    <label className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 transition cursor-pointer">
+                    <label className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 hover:bg-slate-50 transition cursor-pointer">
                       <input
                         type="checkbox"
                         checked={filterDeathsOnly}
@@ -1423,12 +1423,12 @@ export default function ReportsPage() {
                           setFilterDeathsOnly(e.target.checked)
                           setCurrentPage(1)
                         }}
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
+                        className="h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
                       />
                       <span>Has Deaths (&gt; 0)</span>
                     </label>
 
-                    <label className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 transition cursor-pointer">
+                    <label className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 hover:bg-slate-50 transition cursor-pointer">
                       <input
                         type="checkbox"
                         checked={filterAlertOnly}
@@ -1436,7 +1436,7 @@ export default function ReportsPage() {
                           setFilterAlertOnly(e.target.checked)
                           setCurrentPage(1)
                         }}
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
+                        className="h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
                       />
                       <span>Active Alerts Only</span>
                     </label>
@@ -1446,11 +1446,11 @@ export default function ReportsPage() {
             </div>
 
             {/* Filter Footer */}
-            <div className="p-3.5 border-t border-slate-100 bg-slate-50/70 flex-shrink-0">
+            <div className="p-4 border-t border-slate-100 bg-slate-50/70 flex-shrink-0">
               <button
                 type="button"
                 onClick={handleResetFilters}
-                className="w-full py-2 px-3 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 font-extrabold text-xs uppercase tracking-wider transition text-center cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 font-black text-sm uppercase tracking-wider transition text-center cursor-pointer shadow-2xs"
               >
                 Clear All Filters
               </button>
@@ -1459,63 +1459,63 @@ export default function ReportsPage() {
 
           {/* ==================== RIGHT MAIN DATA MATRIX (EQUAL HEIGHT) ==================== */}
           <main className="lg:col-span-9 xl:col-span-9 flex flex-col h-full">
-            <div className="flex-1 flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm h-full">
+            <div className="flex-1 flex flex-col rounded-2xl border border-slate-200 bg-white p-4 lg:p-6 shadow-sm h-full">
               {/* Header Title & Subtitle + Export Actions */}
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-4 border-b border-slate-100 flex-shrink-0">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h1 className="text-lg font-black text-slate-900 uppercase tracking-tight">
+                  <div className="flex items-center gap-2.5">
+                    <h1 className="text-xl md:text-2xl font-black text-slate-900 uppercase tracking-tight">
                       DISEASE OUTBREAK SURVEILLANCE REPORT MATRIX
                     </h1>
-                    <span className="hidden sm:inline-flex items-center rounded-md bg-[#0060A9]/10 px-2 py-0.5 text-[10px] font-bold text-[#0060A9] border border-[#0060A9]/20">
+                    <span className="hidden sm:inline-flex items-center rounded-lg bg-[#0060A9]/10 px-2.5 py-1 text-xs font-black text-[#0060A9] border border-[#0060A9]/20">
                       LIVE NLP DATA
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-sm text-slate-600 mt-1 leading-relaxed">
                     Real-time cross-tabulation and event logs extracted directly from social media, news feeds, and official disease surveillance databases.
                   </p>
                 </div>
 
                 {/* Export Action Buttons */}
-                <div className="flex flex-wrap items-center gap-2 print:hidden flex-shrink-0">
+                <div className="flex flex-wrap items-center gap-2.5 print:hidden flex-shrink-0">
                   <button
                     type="button"
                     onClick={loadRealSurveillanceData}
                     disabled={loading}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-xs cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition shadow-xs cursor-pointer disabled:opacity-50"
                     title="Reload live data from NLP pipeline"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-4 w-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
                     <span>Refresh</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleExportExcel}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-xs cursor-pointer"
                     title="Export to Excel (.CSV with UTF-8 BOM)"
                   >
-                    <FileSpreadsheet className="h-4 w-4 text-emerald-700" />
+                    <FileSpreadsheet className="h-4.5 w-4.5 text-emerald-700" />
                     <span>Export Excel (.CSV)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handlePrint}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 transition shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition shadow-xs cursor-pointer"
                     title="Print official report or save to PDF"
                   >
-                    <Printer className="h-4 w-4 text-slate-600" />
+                    <Printer className="h-4.5 w-4.5 text-slate-600" />
                     <span>Print / PDF</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleCopySummary}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-[#0060A9] hover:bg-blue-100 transition shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-[#0060A9] hover:bg-blue-100 transition shadow-xs cursor-pointer"
                     title="Copy summary to clipboard"
                   >
-                    <Copy className="h-4 w-4" />
+                    <Copy className="h-4.5 w-4.5" />
                     <span className="hidden sm:inline">Copy Summary</span>
                   </button>
                 </div>
@@ -1523,54 +1523,54 @@ export default function ReportsPage() {
 
               {/* View Tabs & Metric Switcher */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-3 flex-shrink-0">
-                <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100/80 p-1 text-xs font-bold">
+                <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100/80 p-1 text-sm font-bold">
                   <button
                     type="button"
                     onClick={() => setActiveTab('cross_matrix')}
-                    className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 transition cursor-pointer ${
+                    className={`flex items-center gap-2 rounded-lg px-4 py-2.5 transition cursor-pointer ${
                       activeTab === 'cross_matrix'
                         ? 'bg-[#0060A9] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <TableIcon className="h-3.5 w-3.5" />
+                    <TableIcon className="h-4 w-4" />
                     <span>Cross-Tabulation Matrix (Disease × Country)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setActiveTab('event_log')}
-                    className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 transition cursor-pointer ${
+                    className={`flex items-center gap-2 rounded-lg px-4 py-2.5 transition cursor-pointer ${
                       activeTab === 'event_log'
                         ? 'bg-[#0060A9] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <FileText className="h-3.5 w-3.5" />
+                    <FileText className="h-4 w-4" />
                     <span>Surveillance Events Ledger (Detailed Log)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setActiveTab('time_distribution')}
-                    className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 transition cursor-pointer ${
+                    className={`flex items-center gap-2 rounded-lg px-4 py-2.5 transition cursor-pointer ${
                       activeTab === 'time_distribution'
                         ? 'bg-[#0060A9] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <CalendarDays className="h-3.5 w-3.5" />
+                    <CalendarDays className="h-4 w-4" />
                     <span>Monthly Temporal Distribution (Seasonality)</span>
                   </button>
                 </div>
 
                 {/* Sub-Metric Switcher for Cross-Matrix */}
                 {activeTab === 'cross_matrix' && (
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+                    <span className="text-xs md:text-sm font-black text-slate-600 uppercase tracking-wider">
                       Metric:
                     </span>
-                    <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                    <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
                       {[
                         { id: 'both', label: 'Cases & Deaths' },
                         { id: 'cases', label: 'Cases Only' },
@@ -1581,7 +1581,7 @@ export default function ReportsPage() {
                           key={m.id}
                           type="button"
                           onClick={() => setMatrixMetric(m.id as any)}
-                          className={`rounded-md px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
+                          className={`rounded-lg px-3 py-1.5 text-xs md:text-sm font-black transition cursor-pointer ${
                             matrixMetric === m.id
                               ? 'bg-white text-[#0060A9] shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
@@ -1597,18 +1597,18 @@ export default function ReportsPage() {
 
               {/* Active Filter Tags */}
               {activeFilterCount > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 pb-3 flex-shrink-0">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase mr-1">
+                <div className="flex flex-wrap items-center gap-2 pb-3.5 flex-shrink-0">
+                  <span className="text-xs font-black text-slate-500 uppercase mr-1">
                     Active Filters:
                   </span>
                   {selectedCountries.map((c) => (
                     <span
                       key={c}
-                      className="inline-flex items-center gap-1 rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-semibold text-[#0060A9]"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-1 text-xs font-bold text-[#0060A9]"
                     >
                       Country: {c}
                       <X
-                        className="h-3 w-3 cursor-pointer hover:text-blue-900"
+                        className="h-3.5 w-3.5 cursor-pointer hover:text-blue-900"
                         onClick={() => handleToggleCountry(c)}
                       />
                     </span>
@@ -1616,11 +1616,11 @@ export default function ReportsPage() {
                   {selectedDiseases.map((d) => (
                     <span
                       key={d}
-                      className="inline-flex items-center gap-1 rounded-md bg-rose-50 border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 border border-rose-200 px-2.5 py-1 text-xs font-bold text-rose-700"
                     >
                       Disease: {d}
                       <X
-                        className="h-3 w-3 cursor-pointer hover:text-rose-900"
+                        className="h-3.5 w-3.5 cursor-pointer hover:text-rose-900"
                         onClick={() => handleToggleDisease(d)}
                       />
                     </span>
@@ -1628,11 +1628,11 @@ export default function ReportsPage() {
                   {selectedSeverities.map((s) => (
                     <span
                       key={s}
-                      className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs font-bold text-amber-700"
                     >
                       Alert: {s}
                       <X
-                        className="h-3 w-3 cursor-pointer hover:text-amber-900"
+                        className="h-3.5 w-3.5 cursor-pointer hover:text-amber-900"
                         onClick={() => handleToggleSeverity(s)}
                       />
                     </span>
@@ -1640,20 +1640,20 @@ export default function ReportsPage() {
                   {selectedSources.map((src) => (
                     <span
                       key={src}
-                      className="inline-flex items-center gap-1 rounded-md bg-cyan-50 border border-cyan-200 px-2 py-0.5 text-[11px] font-semibold text-cyan-800"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-50 border border-cyan-200 px-2.5 py-1 text-xs font-bold text-cyan-800"
                     >
                       Source: {src}
                       <X
-                        className="h-3 w-3 cursor-pointer hover:text-cyan-900"
+                        className="h-3.5 w-3.5 cursor-pointer hover:text-cyan-900"
                         onClick={() => handleToggleSource(src)}
                       />
                     </span>
                   ))}
                   {searchQuery && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-300 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 border border-slate-300 px-2.5 py-1 text-xs font-bold text-slate-700">
                       Search: &quot;{searchQuery}&quot;
                       <X
-                        className="h-3 w-3 cursor-pointer hover:text-slate-900"
+                        className="h-3.5 w-3.5 cursor-pointer hover:text-slate-900"
                         onClick={() => setSearchQuery('')}
                       />
                     </span>
@@ -1661,7 +1661,7 @@ export default function ReportsPage() {
                   <button
                     type="button"
                     onClick={handleResetFilters}
-                    className="text-[11px] font-bold text-rose-600 hover:underline ml-1 cursor-pointer"
+                    className="text-xs font-black text-rose-600 hover:underline ml-1 cursor-pointer"
                   >
                     Reset All
                   </button>
@@ -1672,33 +1672,33 @@ export default function ReportsPage() {
               {loading ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-24 space-y-4">
                   <div className="relative">
-                    <div className="h-12 w-12 rounded-full border-4 border-slate-200 border-t-[#0060A9] animate-spin" />
-                    <Activity className="h-5 w-5 text-[#0060A9] absolute inset-0 m-auto" />
+                    <div className="h-14 w-14 rounded-full border-4 border-slate-200 border-t-[#0060A9] animate-spin" />
+                    <Activity className="h-6 w-6 text-[#0060A9] absolute inset-0 m-auto" />
                   </div>
                   <div className="text-center">
-                    <p className="text-sm font-bold text-slate-800">
+                    <p className="text-base font-bold text-slate-800">
                       Connecting to NLP Intelligence Pipeline...
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-sm text-slate-500 mt-1">
                       Retrieving real surveillance events, morbidities, and outbreak triggers from database.
                     </p>
                   </div>
                 </div>
               ) : dataList.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-20 space-y-3 text-center">
-                  <div className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 text-amber-600 border border-amber-200">
-                    <AlertTriangle className="h-6 w-6" />
+                  <div className="grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-amber-600 border border-amber-200">
+                    <AlertTriangle className="h-7 w-7" />
                   </div>
-                  <h3 className="text-base font-extrabold text-slate-800">No NLP Surveillance Events Found</h3>
-                  <p className="text-xs text-slate-500 max-w-md leading-relaxed">
+                  <h3 className="text-lg font-extrabold text-slate-800">No NLP Surveillance Events Found</h3>
+                  <p className="text-sm text-slate-500 max-w-md leading-relaxed">
                     There are currently no processed disease records in the database. When the crawling feeds and NLP workers process incoming news and social posts, reports will populate here automatically.
                   </p>
                   <button
                     type="button"
                     onClick={loadRealSurveillanceData}
-                    className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold text-white hover:bg-[#004b85] transition"
+                    className="mt-2 inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#004b85] transition shadow-xs"
                   >
-                    <RefreshCw className="h-3.5 w-3.5" />
+                    <RefreshCw className="h-4 w-4" />
                     <span>Check Again</span>
                   </button>
                 </div>
@@ -1708,30 +1708,30 @@ export default function ReportsPage() {
                   {activeTab === 'cross_matrix' && (
                     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                       <div className="flex-1 overflow-auto rounded-xl border border-slate-200 custom-scrollbar">
-                        <table className="w-full border-collapse text-left text-xs">
+                        <table className="w-full border-collapse text-left text-sm">
                           <thead className="sticky top-0 z-10 bg-[#0060A9] text-white">
                             <tr>
-                              <th className="py-3 px-3.5 font-bold uppercase tracking-wider border-r border-[#004b85] whitespace-nowrap bg-[#0060A9]">
+                              <th className="py-3.5 px-4 font-black uppercase tracking-wider border-r border-[#004b85] whitespace-nowrap bg-[#0060A9] text-xs md:text-sm">
                                 DISEASE CLASSIFICATION
                               </th>
                               {crossTabMatrix.countries.map((ctr) => (
                                 <th
                                   key={ctr}
-                                  className="py-3 px-3 font-bold text-center border-r border-[#004b85] whitespace-nowrap bg-[#0060A9]"
+                                  className="py-3 px-3.5 font-bold text-center border-r border-[#004b85] whitespace-nowrap bg-[#0060A9]"
                                 >
-                                  <div className="flex flex-col items-center gap-1">
-                                    <CountryFlag countryName={ctr} shape="rounded" size="xs" />
-                                    <span className="text-[11px] font-semibold">{ctr}</span>
+                                  <div className="flex flex-col items-center gap-1.5">
+                                    <CountryFlag countryName={ctr} shape="rounded" size="sm" />
+                                    <span className="text-xs md:text-sm font-bold tracking-wide">{ctr}</span>
                                   </div>
                                 </th>
                               ))}
-                              <th className="py-3 px-3.5 font-extrabold text-center border-r border-[#004b85] whitespace-nowrap bg-[#004b85]">
+                              <th className="py-3.5 px-4 font-black text-center border-r border-[#004b85] whitespace-nowrap bg-[#004b85] text-xs md:text-sm">
                                 TOTAL CASES
                               </th>
-                              <th className="py-3 px-3 font-extrabold text-center border-r border-[#004b85] whitespace-nowrap bg-[#004b85]">
+                              <th className="py-3.5 px-4 font-black text-center border-r border-[#004b85] whitespace-nowrap bg-[#004b85] text-xs md:text-sm">
                                 TOTAL DEATHS
                               </th>
-                              <th className="py-3 px-3 font-extrabold text-center whitespace-nowrap bg-[#004b85]">
+                              <th className="py-3.5 px-4 font-black text-center whitespace-nowrap bg-[#004b85] text-xs md:text-sm">
                                 REGIONAL CFR
                               </th>
                             </tr>
@@ -1741,7 +1741,7 @@ export default function ReportsPage() {
                               <tr>
                                 <td
                                   colSpan={crossTabMatrix.countries.length + 4}
-                                  className="py-12 text-center text-slate-400 font-semibold text-xs"
+                                  className="py-14 text-center text-slate-400 font-bold text-sm"
                                 >
                                   No surveillance records matched the active filter criteria.
                                 </td>
@@ -1756,9 +1756,9 @@ export default function ReportsPage() {
                                       rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
                                     } hover:bg-blue-50/40`}
                                   >
-                                    <td className="py-2.5 px-3.5 font-bold text-slate-900 border-r border-slate-200 whitespace-nowrap sticky left-0 bg-inherit">
-                                      <div className="flex items-center gap-2">
-                                        <span className="h-2 w-2 rounded-full bg-[#0060A9]" />
+                                    <td className="py-3 px-4 font-black text-slate-900 border-r border-slate-200 whitespace-nowrap sticky left-0 bg-inherit text-sm md:text-base">
+                                      <div className="flex items-center gap-2.5">
+                                        <span className="h-2.5 w-2.5 rounded-full bg-[#0060A9]" />
                                         <span>{dis}</span>
                                       </div>
                                     </td>
@@ -1779,28 +1779,28 @@ export default function ReportsPage() {
                                       return (
                                         <td
                                           key={ctr}
-                                          className="py-2.5 px-2 text-center border-r border-slate-200 whitespace-nowrap font-mono text-[11px]"
+                                          className="py-3 px-2.5 text-center border-r border-slate-200 whitespace-nowrap font-mono text-sm md:text-base"
                                         >
                                           {cell.cases === 0 && cell.deaths === 0 ? (
                                             <span className="text-slate-300 font-normal">-</span>
                                           ) : matrixMetric === 'both' ? (
                                             <div className="inline-flex flex-col items-center">
-                                              <span className="font-extrabold text-slate-800">
+                                              <span className="font-black text-slate-900 text-sm md:text-base">
                                                 {cell.cases.toLocaleString()}
                                               </span>
                                               {cell.deaths > 0 && (
-                                                <span className="text-[10px] font-bold text-rose-600">
+                                                <span className="text-xs md:text-sm font-black text-rose-600">
                                                   +{cell.deaths} dth
                                                 </span>
                                               )}
                                             </div>
                                           ) : matrixMetric === 'cases' ? (
-                                            <span className="font-extrabold text-blue-950">
+                                            <span className="font-black text-blue-950 text-sm md:text-base">
                                               {cell.cases.toLocaleString()}
                                             </span>
                                           ) : matrixMetric === 'deaths' ? (
                                             <span
-                                              className={`font-bold ${
+                                              className={`font-black text-sm md:text-base ${
                                                 cell.deaths > 0 ? 'text-rose-600' : 'text-slate-300'
                                               }`}
                                             >
@@ -1815,13 +1815,13 @@ export default function ReportsPage() {
                                       )
                                     })}
 
-                                    <td className="py-2.5 px-3 text-center font-extrabold text-slate-900 border-r border-slate-200 bg-slate-50/70 font-mono">
+                                    <td className="py-3 px-3.5 text-center font-black text-slate-900 border-r border-slate-200 bg-slate-50/70 font-mono text-sm md:text-base">
                                       {rowTotals?.cases.toLocaleString() || 0}
                                     </td>
-                                    <td className="py-2.5 px-3 text-center font-bold text-rose-600 border-r border-slate-200 bg-rose-50/30 font-mono">
+                                    <td className="py-3 px-3.5 text-center font-bold text-rose-600 border-r border-slate-200 bg-rose-50/30 font-mono text-sm md:text-base">
                                       {rowTotals?.deaths.toLocaleString() || 0}
                                     </td>
-                                    <td className="py-2.5 px-3 text-center font-extrabold text-amber-700 bg-amber-50/30 font-mono">
+                                    <td className="py-3 px-3.5 text-center font-black text-amber-700 bg-amber-50/30 font-mono text-sm md:text-base">
                                       {rowTotals?.cfr || 0}%
                                     </td>
                                   </tr>
@@ -1831,7 +1831,7 @@ export default function ReportsPage() {
                           </tbody>
                           <tfoot className="border-t-2 border-slate-300 bg-slate-100 font-bold text-slate-900">
                             <tr>
-                              <td className="py-3 px-3.5 uppercase tracking-wider border-r border-slate-200">
+                              <td className="py-3.5 px-4 uppercase tracking-wider border-r border-slate-200 text-sm md:text-base font-black">
                                 REGIONAL TOTAL
                               </td>
                               {crossTabMatrix.countries.map((ctr) => {
@@ -1839,15 +1839,15 @@ export default function ReportsPage() {
                                 return (
                                   <td
                                     key={ctr}
-                                    className="py-3 px-2 text-center border-r border-slate-200 font-mono text-[11px]"
+                                    className="py-3 px-2 text-center border-r border-slate-200 font-mono text-sm md:text-base"
                                   >
                                     {ct?.cases ? (
                                       <div className="flex flex-col items-center">
-                                        <span className="text-blue-900 font-extrabold">
+                                        <span className="text-blue-950 font-black text-sm md:text-base">
                                           {ct.cases.toLocaleString()}
                                         </span>
                                         {ct.deaths > 0 && (
-                                          <span className="text-[10px] text-rose-600 font-bold">
+                                          <span className="text-xs md:text-sm text-rose-600 font-black">
                                             +{ct.deaths}
                                           </span>
                                         )}
@@ -1858,13 +1858,13 @@ export default function ReportsPage() {
                                   </td>
                                 )
                               })}
-                              <td className="py-3 px-3 text-center font-extrabold text-[#0060A9] border-r border-slate-200 bg-blue-50 font-mono">
+                              <td className="py-3.5 px-3.5 text-center font-black text-[#0060A9] border-r border-slate-200 bg-blue-50 font-mono text-sm md:text-base">
                                 {crossTabMatrix.grandCases.toLocaleString()} Cases
                               </td>
-                              <td className="py-3 px-3 text-center font-extrabold text-rose-700 border-r border-slate-200 bg-rose-50 font-mono">
+                              <td className="py-3.5 px-3.5 text-center font-black text-rose-700 border-r border-slate-200 bg-rose-50 font-mono text-sm md:text-base">
                                 {crossTabMatrix.grandDeaths.toLocaleString()}
                               </td>
-                              <td className="py-3 px-3 text-center font-black text-amber-800 bg-amber-50 font-mono">
+                              <td className="py-3.5 px-3.5 text-center font-black text-amber-800 bg-amber-50 font-mono text-sm md:text-base">
                                 {crossTabMatrix.grandCfr}%
                               </td>
                             </tr>
@@ -1876,11 +1876,11 @@ export default function ReportsPage() {
 
                   {/* ==================== TAB 2: DETAILED EVENT SURVEILLANCE LOG ==================== */}
                   {activeTab === 'event_log' && (
-                    <div className="flex-1 flex flex-col min-h-0 space-y-3">
+                    <div className="flex-1 flex flex-col min-h-0 space-y-3.5">
                       {/* Table Search Toolbar */}
                       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0">
-                        <div className="relative w-full sm:w-80">
-                          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                        <div className="relative w-full sm:w-96">
+                          <Search className="absolute left-3.5 top-3 h-4.5 w-4.5 text-slate-400" />
                           <input
                             type="text"
                             value={searchQuery}
@@ -1889,11 +1889,11 @@ export default function ReportsPage() {
                               setCurrentPage(1)
                             }}
                             placeholder="Search location, event ID, intelligence text..."
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-9 pr-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-[#0060A9] focus:outline-none focus:ring-1 focus:ring-[#0060A9]"
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#0060A9] focus:outline-none focus:ring-1 focus:ring-[#0060A9]"
                           />
                         </div>
 
-                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <div className="flex items-center gap-2 text-sm text-slate-600 font-medium">
                           <span>Per page</span>
                           <select
                             value={itemsPerPage}
@@ -1901,7 +1901,7 @@ export default function ReportsPage() {
                               setItemsPerPage(Number(e.target.value))
                               setCurrentPage(1)
                             }}
-                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700 focus:border-[#0060A9]"
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 focus:border-[#0060A9]"
                           >
                             <option value={10}>10</option>
                             <option value={25}>25</option>
@@ -1913,11 +1913,11 @@ export default function ReportsPage() {
 
                       {/* Table Viewport */}
                       <div className="flex-1 overflow-auto rounded-xl border border-slate-200 custom-scrollbar">
-                        <table className="w-full border-collapse text-left text-xs">
+                        <table className="w-full border-collapse text-left text-sm">
                           <thead className="sticky top-0 z-10 bg-[#0060A9] text-white">
                             <tr>
                               <th
-                                className="py-3 px-3.5 font-bold cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap"
+                                className="py-3.5 px-4 font-black cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm"
                                 onClick={() => {
                                   if (sortField === 'date') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
                                   else {
@@ -1926,13 +1926,13 @@ export default function ReportsPage() {
                                   }
                                 }}
                               >
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
                                   <span>ID &amp; DATE</span>
-                                  <ArrowUpDown className="h-3 w-3" />
+                                  <ArrowUpDown className="h-3.5 w-3.5" />
                                 </div>
                               </th>
                               <th
-                                className="py-3 px-3 font-bold cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap"
+                                className="py-3.5 px-3.5 font-black cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm"
                                 onClick={() => {
                                   if (sortField === 'country') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
                                   else {
@@ -1941,13 +1941,13 @@ export default function ReportsPage() {
                                   }
                                 }}
                               >
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
                                   <span>COUNTRY &amp; REGION</span>
-                                  <ArrowUpDown className="h-3 w-3" />
+                                  <ArrowUpDown className="h-3.5 w-3.5" />
                                 </div>
                               </th>
                               <th
-                                className="py-3 px-3 font-bold cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap"
+                                className="py-3.5 px-3.5 font-black cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm"
                                 onClick={() => {
                                   if (sortField === 'disease') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
                                   else {
@@ -1956,13 +1956,13 @@ export default function ReportsPage() {
                                   }
                                 }}
                               >
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
                                   <span>DISEASE</span>
-                                  <ArrowUpDown className="h-3 w-3" />
+                                  <ArrowUpDown className="h-3.5 w-3.5" />
                                 </div>
                               </th>
                               <th
-                                className="py-3 px-3 font-bold text-center cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap"
+                                className="py-3.5 px-3.5 font-black text-center cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm"
                                 onClick={() => {
                                   if (sortField === 'cases') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
                                   else {
@@ -1971,13 +1971,13 @@ export default function ReportsPage() {
                                   }
                                 }}
                               >
-                                <div className="flex items-center justify-center gap-1">
+                                <div className="flex items-center justify-center gap-1.5">
                                   <span>CASES</span>
-                                  <ArrowUpDown className="h-3 w-3" />
+                                  <ArrowUpDown className="h-3.5 w-3.5" />
                                 </div>
                               </th>
                               <th
-                                className="py-3 px-3 font-bold text-center cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap"
+                                className="py-3.5 px-3.5 font-black text-center cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm"
                                 onClick={() => {
                                   if (sortField === 'deaths') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
                                   else {
@@ -1986,13 +1986,13 @@ export default function ReportsPage() {
                                   }
                                 }}
                               >
-                                <div className="flex items-center justify-center gap-1">
+                                <div className="flex items-center justify-center gap-1.5">
                                   <span>DEATHS</span>
-                                  <ArrowUpDown className="h-3 w-3" />
+                                  <ArrowUpDown className="h-3.5 w-3.5" />
                                 </div>
                               </th>
                               <th
-                                className="py-3 px-3 font-bold text-center cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap"
+                                className="py-3.5 px-3.5 font-black text-center cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm"
                                 onClick={() => {
                                   if (sortField === 'cfr') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
                                   else {
@@ -2001,27 +2001,27 @@ export default function ReportsPage() {
                                   }
                                 }}
                               >
-                                <div className="flex items-center justify-center gap-1">
-                                  <span>CFR</span>
-                                  <ArrowUpDown className="h-3 w-3" />
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <span>CFR (%)</span>
+                                  <ArrowUpDown className="h-3.5 w-3.5" />
                                 </div>
                               </th>
-                              <th className="py-3 px-3 font-bold text-center border-b border-[#004b85] whitespace-nowrap">
-                                <span>ALERT LEVEL</span>
+                              <th className="py-3.5 px-3.5 font-black text-center border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm">
+                                STATUS
                               </th>
-                              <th className="py-3 px-3 border-b border-[#004b85] whitespace-nowrap">
-                                <span>SOURCE PLATFORM</span>
+                              <th className="py-3.5 px-3.5 font-black border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm">
+                                SOURCE
                               </th>
-                              <th className="py-3 px-3 font-bold text-center border-b border-[#004b85] whitespace-nowrap">
-                                <span>ACTION</span>
+                              <th className="py-3.5 px-3.5 font-black text-center border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm">
+                                ACTIONS
                               </th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100 bg-white">
+                          <tbody className="divide-y divide-slate-200 bg-white">
                             {paginatedData.length === 0 ? (
                               <tr>
-                                <td colSpan={9} className="py-12 text-center text-slate-400 font-semibold text-xs">
-                                  No surveillance records match the active filter criteria.
+                                <td colSpan={9} className="py-14 text-center text-slate-400 font-bold text-sm">
+                                  No records found matching query &quot;{searchQuery}&quot;
                                 </td>
                               </tr>
                             ) : (
@@ -2032,55 +2032,55 @@ export default function ReportsPage() {
                                     idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
                                   } hover:bg-blue-50/50`}
                                 >
-                                  <td className="py-2.5 px-3.5 whitespace-nowrap font-mono">
-                                    <div className="font-bold text-slate-800 text-[11px] truncate max-w-[130px]" title={item.id}>
+                                  <td className="py-3 px-4 whitespace-nowrap font-mono">
+                                    <div className="font-black text-slate-900 text-xs md:text-sm truncate max-w-[130px]" title={item.id}>
                                       {item.id.slice(0, 16)}...
                                     </div>
-                                    <div className="text-[10px] text-slate-400">{item.dateFormatted}</div>
+                                    <div className="text-xs text-slate-500 font-medium">{item.dateFormatted}</div>
                                   </td>
 
-                                  <td className="py-2.5 px-3 whitespace-nowrap">
-                                    <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                                      <CountryFlag countryName={item.country} shape="rounded" size="xs" />
+                                  <td className="py-3 px-3.5 whitespace-nowrap">
+                                    <div className="flex items-center gap-2 font-black text-slate-900 text-sm md:text-base">
+                                      <CountryFlag countryName={item.country} shape="rounded" size="sm" />
                                       <span>{item.country}</span>
                                     </div>
-                                    <div className="text-[10px] text-slate-500 truncate max-w-[140px]">{item.locationName}</div>
+                                    <div className="text-xs text-slate-500 truncate max-w-[150px] font-medium">{item.locationName}</div>
                                   </td>
 
-                                  <td className="py-2.5 px-3 whitespace-nowrap">
-                                    <span className="font-extrabold text-slate-900">{item.disease}</span>
+                                  <td className="py-3 px-3.5 whitespace-nowrap">
+                                    <span className="font-black text-slate-900 text-sm md:text-base">{item.disease}</span>
                                   </td>
 
-                                  <td className="py-2.5 px-3 text-center font-mono font-extrabold text-slate-900 whitespace-nowrap">
+                                  <td className="py-3 px-3.5 text-center font-mono font-black text-slate-900 text-sm md:text-base whitespace-nowrap">
                                     {item.cases.toLocaleString()}
                                   </td>
 
-                                  <td className="py-2.5 px-3 text-center font-mono font-bold text-rose-600 whitespace-nowrap">
+                                  <td className="py-3 px-3.5 text-center font-mono font-black text-rose-600 text-sm md:text-base whitespace-nowrap">
                                     {item.deaths.toLocaleString()}
                                   </td>
 
-                                  <td className="py-2.5 px-3 text-center font-mono font-bold text-amber-700 whitespace-nowrap">
+                                  <td className="py-3 px-3.5 text-center font-mono font-black text-amber-700 text-sm md:text-base whitespace-nowrap">
                                     {item.cfr}%
                                   </td>
 
-                                  <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                  <td className="py-3 px-3.5 text-center whitespace-nowrap">
                                     {getSeverityBadge(item.severity)}
                                   </td>
 
-                                  <td className="py-2.5 px-3 whitespace-nowrap">
-                                    <div className="flex items-center gap-1.5 text-[11px] text-slate-700 font-medium">
-                                      <SocialMediaIcon platform={item.sourceType} size="xs" />
-                                      <span className="truncate max-w-[120px]">{item.sourceName}</span>
+                                  <td className="py-3 px-3.5 whitespace-nowrap">
+                                    <div className="flex items-center gap-2 text-xs md:text-sm text-slate-800 font-semibold">
+                                      <SocialMediaIcon platform={item.sourceType} size="sm" />
+                                      <span className="truncate max-w-[130px]">{item.sourceName}</span>
                                     </div>
                                   </td>
 
-                                  <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                  <td className="py-3 px-3.5 text-center whitespace-nowrap">
                                     <button
                                       type="button"
                                       onClick={() => setSelectedDetailItem(item)}
-                                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-[#0060A9] hover:bg-blue-50 hover:border-blue-200 transition cursor-pointer"
+                                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs md:text-sm font-black text-[#0060A9] hover:bg-blue-50 hover:border-blue-200 transition cursor-pointer shadow-2xs"
                                     >
-                                      <Eye className="h-3 w-3" />
+                                      <Eye className="h-3.5 w-3.5" />
                                       <span>Details</span>
                                     </button>
                                   </td>
@@ -2092,30 +2092,30 @@ export default function ReportsPage() {
                       </div>
 
                       {/* Pagination Toolbar */}
-                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 text-xs text-slate-500 flex-shrink-0">
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 text-sm text-slate-600 font-medium flex-shrink-0">
                         <div>
                           Showing{' '}
-                          <span className="font-bold text-slate-800">
+                          <span className="font-black text-slate-900">
                             {sortedData.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}
                           </span>{' '}
                           to{' '}
-                          <span className="font-bold text-slate-800">
+                          <span className="font-black text-slate-900">
                             {Math.min(currentPage * itemsPerPage, sortedData.length)}
                           </span>{' '}
-                          of <span className="font-bold text-slate-800">{sortedData.length}</span> total events
+                          of <span className="font-black text-slate-900">{sortedData.length}</span> total events
                         </div>
 
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                             disabled={currentPage === 1}
-                            className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
                           >
-                            <ChevronLeft className="h-4 w-4" />
+                            <ChevronLeft className="h-4.5 w-4.5" />
                           </button>
 
-                          <span className="px-2 font-bold text-slate-700">
+                          <span className="px-3 font-black text-slate-800">
                             Page {currentPage} of {totalPages}
                           </span>
 
@@ -2123,9 +2123,9 @@ export default function ReportsPage() {
                             type="button"
                             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                             disabled={currentPage === totalPages}
-                            className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
                           >
-                            <ChevronRight className="h-4 w-4" />
+                            <ChevronRight className="h-4.5 w-4.5" />
                           </button>
                         </div>
                       </div>
@@ -2136,29 +2136,29 @@ export default function ReportsPage() {
                   {activeTab === 'time_distribution' && (
                     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                       <div className="flex-1 overflow-auto rounded-xl border border-slate-200 custom-scrollbar">
-                        <table className="w-full border-collapse text-left text-xs">
+                        <table className="w-full border-collapse text-left text-sm">
                           <thead className="sticky top-0 z-10 bg-[#0060A9] text-white">
                             <tr>
-                              <th className="py-3 px-3.5 font-bold uppercase tracking-wider border-r border-[#004b85] whitespace-nowrap bg-[#0060A9]">
+                              <th className="py-3.5 px-4 font-black uppercase tracking-wider border-r border-[#004b85] whitespace-nowrap bg-[#0060A9] text-xs md:text-sm">
                                 DISEASE CLASSIFICATION
                               </th>
                               {temporalDistribution.months.map((m) => (
                                 <th
                                   key={m.key}
-                                  className="py-3 px-2 text-center font-bold border-r border-[#004b85] whitespace-nowrap bg-[#0060A9]"
+                                  className="py-3.5 px-2.5 text-center font-black border-r border-[#004b85] whitespace-nowrap bg-[#0060A9] text-xs md:text-sm"
                                 >
                                   {m.label}
                                 </th>
                               ))}
-                              <th className="py-3 px-3.5 text-center font-extrabold whitespace-nowrap bg-[#004b85]">
+                              <th className="py-3.5 px-4 text-center font-black whitespace-nowrap bg-[#004b85] text-xs md:text-sm">
                                 ANNUAL TOTAL
                               </th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200 bg-white font-mono text-[11px]">
+                          <tbody className="divide-y divide-slate-200 bg-white font-mono text-xs md:text-sm">
                             {crossTabMatrix.diseases.length === 0 ? (
                               <tr>
-                                <td colSpan={14} className="py-12 text-center text-slate-400 font-semibold text-xs font-sans">
+                                <td colSpan={14} className="py-14 text-center text-slate-400 font-bold text-sm font-sans">
                                   No surveillance records in the selected time range.
                                 </td>
                               </tr>
@@ -2173,22 +2173,22 @@ export default function ReportsPage() {
                                       idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
                                     } hover:bg-blue-50/40`}
                                   >
-                                    <td className="py-2.5 px-3.5 font-sans font-bold text-slate-900 border-r border-slate-200 whitespace-nowrap sticky left-0 bg-inherit">
+                                    <td className="py-3 px-4 font-sans font-black text-slate-900 border-r border-slate-200 whitespace-nowrap sticky left-0 bg-inherit text-sm md:text-base">
                                       {dis}
                                     </td>
                                     {monthData.map((val, mIdx) => (
                                       <td
                                         key={mIdx}
-                                        className="py-2.5 px-2 text-center border-r border-slate-200 whitespace-nowrap"
+                                        className="py-3 px-2.5 text-center border-r border-slate-200 whitespace-nowrap font-mono text-sm md:text-base"
                                       >
                                         {val > 0 ? (
                                           <span
-                                            className={`font-extrabold ${
+                                            className={`font-black ${
                                               val > 100
-                                                ? 'text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded'
+                                                ? 'text-rose-700 bg-rose-50 px-2 py-0.5 rounded-lg font-mono'
                                                 : val > 30
-                                                ? 'text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded'
-                                                : 'text-slate-800'
+                                                ? 'text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg font-mono'
+                                                : 'text-slate-900 font-mono'
                                             }`}
                                           >
                                             {val.toLocaleString()}
@@ -2198,7 +2198,7 @@ export default function ReportsPage() {
                                         )}
                                       </td>
                                     ))}
-                                    <td className="py-2.5 px-3.5 text-center font-extrabold text-[#0060A9] bg-blue-50/40">
+                                    <td className="py-3 px-4 text-center font-black text-[#0060A9] bg-blue-50/40 font-mono text-sm md:text-base">
                                       {diseaseAnnual.toLocaleString()}
                                     </td>
                                   </tr>
@@ -2206,19 +2206,19 @@ export default function ReportsPage() {
                               })
                             )}
                           </tbody>
-                          <tfoot className="border-t-2 border-slate-300 bg-slate-100 font-bold text-slate-900 font-mono text-[11px]">
+                          <tfoot className="border-t-2 border-slate-300 bg-slate-100 font-bold text-slate-900 font-mono text-xs md:text-sm">
                             <tr>
-                              <td className="py-3 px-3.5 font-sans uppercase tracking-wider border-r border-slate-200">
+                              <td className="py-3.5 px-4 font-sans uppercase tracking-wider border-r border-slate-200 text-sm md:text-base font-black">
                                 MONTHLY TOTAL CASES
                               </td>
                               {temporalDistribution.monthlyTotals.map((tot, mIdx) => (
-                                <td key={mIdx} className="py-3 px-2 text-center border-r border-slate-200">
-                                  <span className="text-blue-900 font-extrabold">
+                                <td key={mIdx} className="py-3.5 px-2.5 text-center border-r border-slate-200 text-sm md:text-base">
+                                  <span className="text-blue-950 font-black">
                                     {tot > 0 ? tot.toLocaleString() : '-'}
                                   </span>
                                 </td>
                               ))}
-                              <td className="py-3 px-3.5 text-center font-black text-[#0060A9] bg-blue-100">
+                              <td className="py-3.5 px-4 text-center font-black text-[#0060A9] bg-blue-100 text-sm md:text-base">
                                 {temporalDistribution.monthlyTotals
                                   .reduce((a, b) => a + b, 0)
                                   .toLocaleString()}
@@ -2242,8 +2242,8 @@ export default function ReportsPage() {
           <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto custom-scrollbar">
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-[#0060A9]">
+              <div className="flex items-center gap-2.5">
+                <span className="text-sm font-mono font-black text-[#0060A9]">
                   {selectedDetailItem.id.slice(0, 18)}...
                 </span>
                 {getSeverityBadge(selectedDetailItem.severity)}
@@ -2251,73 +2251,73 @@ export default function ReportsPage() {
               <button
                 type="button"
                 onClick={() => setSelectedDetailItem(null)}
-                className="grid h-8 w-8 place-items-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer"
+                className="grid h-9 w-9 place-items-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4.5 w-4.5" />
               </button>
             </div>
 
             {/* Modal Title */}
             <div>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-lg md:text-xl font-black text-slate-900">
                 {selectedDetailItem.disease} — {selectedDetailItem.locationName}
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-sm text-slate-500 mt-0.5">
                 Surveillance Intelligence Record Details (NLP Processed)
               </p>
             </div>
 
             {/* Modal Key Metrics Bar */}
-            <div className="grid grid-cols-4 gap-2 rounded-xl bg-slate-50 p-3 border border-slate-200 text-center">
+            <div className="grid grid-cols-4 gap-2.5 rounded-xl bg-slate-50 p-3.5 border border-slate-200 text-center">
               <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase">Cases</p>
-                <p className="text-xl font-extrabold text-slate-900 mt-0.5">
+                <p className="text-xs font-black text-slate-500 uppercase">Cases</p>
+                <p className="text-xl md:text-2xl font-black text-slate-900 mt-1">
                   {selectedDetailItem.cases.toLocaleString()}
                 </p>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase">Deaths</p>
-                <p className="text-xl font-extrabold text-rose-600 mt-0.5">
+                <p className="text-xs font-black text-slate-500 uppercase">Deaths</p>
+                <p className="text-xl md:text-2xl font-black text-rose-600 mt-1">
                   {selectedDetailItem.deaths.toLocaleString()}
                 </p>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase">CFR Rate</p>
-                <p className="text-xl font-extrabold text-amber-700 mt-0.5">
+                <p className="text-xs font-black text-slate-500 uppercase">CFR Rate</p>
+                <p className="text-xl md:text-2xl font-black text-amber-700 mt-1">
                   {selectedDetailItem.cfr}%
                 </p>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase">NLP Confidence</p>
-                <p className="text-xl font-extrabold text-[#0060A9] mt-0.5">
+                <p className="text-xs font-black text-slate-500 uppercase">NLP Conf.</p>
+                <p className="text-xl md:text-2xl font-black text-[#0060A9] mt-1">
                   {Math.round(selectedDetailItem.confidence * 100)}%
                 </p>
               </div>
             </div>
 
             {/* Modal Details Grid */}
-            <div className="space-y-2 text-xs text-slate-600">
-              <div className="flex justify-between py-1 border-b border-slate-100">
+            <div className="space-y-2.5 text-sm text-slate-700">
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="font-semibold text-slate-500">Country &amp; Region:</span>
-                <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                  <CountryFlag countryName={selectedDetailItem.country} shape="rounded" size="xs" />
+                <div className="flex items-center gap-2 font-black text-slate-900">
+                  <CountryFlag countryName={selectedDetailItem.country} shape="rounded" size="sm" />
                   <span>
                     {selectedDetailItem.locationName}, {selectedDetailItem.country}
                   </span>
                 </div>
               </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="font-semibold text-slate-500">Detection / Report Date:</span>
-                <span className="font-bold text-slate-800">{selectedDetailItem.dateFormatted}</span>
+                <span className="font-black text-slate-900">{selectedDetailItem.dateFormatted}</span>
               </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="font-semibold text-slate-500">Raw NLP Label:</span>
-                <span className="font-mono font-bold text-slate-800">{selectedDetailItem.rawDisease}</span>
+                <span className="font-mono font-black text-slate-900">{selectedDetailItem.rawDisease}</span>
               </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="font-semibold text-slate-500">Information Source:</span>
-                <div className="flex items-center gap-1 font-bold text-slate-800">
-                  <SocialMediaIcon platform={selectedDetailItem.sourceType} size="xs" />
+                <div className="flex items-center gap-1.5 font-black text-slate-900">
+                  <SocialMediaIcon platform={selectedDetailItem.sourceType} size="sm" />
                   <span>{selectedDetailItem.sourceName}</span>
                 </div>
               </div>
@@ -2326,14 +2326,14 @@ export default function ReportsPage() {
             {/* Symptoms Tags */}
             {selectedDetailItem.symptoms && selectedDetailItem.symptoms.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">
                   Detected Clinical Symptoms:
                 </p>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5">
                   {selectedDetailItem.symptoms.map((sym, i) => (
                     <span
                       key={i}
-                      className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 capitalize"
+                      className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-800 capitalize border border-slate-200"
                     >
                       {sym}
                     </span>
@@ -2345,32 +2345,32 @@ export default function ReportsPage() {
             {/* Content / Narrative snippet */}
             {selectedDetailItem.content && (
               <div>
-                <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                <p className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2">
                   Intelligence Narrative Summary (Extracted by NLP):
                 </p>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700 leading-relaxed font-sans max-h-48 overflow-y-auto whitespace-pre-wrap">
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-sm text-slate-800 leading-relaxed font-sans max-h-48 overflow-y-auto whitespace-pre-wrap">
                   {selectedDetailItem.content}
                 </div>
               </div>
             )}
 
             {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
               {selectedDetailItem.url && (
                 <a
                   href={selectedDetailItem.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-bold text-[#0060A9] hover:bg-blue-100 transition cursor-pointer"
+                  className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-[#0060A9] hover:bg-blue-100 transition cursor-pointer"
                 >
-                  <ExternalLink className="h-3.5 w-3.5" />
+                  <ExternalLink className="h-4 w-4" />
                   <span>Open Source Link</span>
                 </a>
               )}
               <button
                 type="button"
                 onClick={() => setSelectedDetailItem(null)}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 transition cursor-pointer"
+                className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-800 transition cursor-pointer"
               >
                 Close
               </button>
