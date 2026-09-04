@@ -671,3 +671,69 @@ docker compose logs worker-python --tail 20
 
 ### Port bentrok
 Ubah port di docker-compose.yml, update .env sesuai.
+
+## SKDR EBS dan IBS
+
+Collector SKDR EBS dan IBS berjalan otomatis setiap hari pukul 00:00 WIB.
+IBS adalah label aplikasi untuk endpoint teknis `/api/Alert`. Credential API
+harus disimpan hanya di `.env` lokal pada host/container collector:
+
+```env
+SKDR_USER_KEY=isi_user_key_lokal
+SKDR_FETCH_TIME=00:00
+COLLECTOR_TIMEZONE=Asia/Jakarta
+```
+
+Jam dapat diubah tanpa mengubah database, misalnya `SKDR_FETCH_TIME=23:30`.
+Setelah mengubah `.env`, recreate collector agar scheduler membaca konfigurasi
+baru:
+
+```bash
+docker compose up -d --force-recreate disease-collector-python
+```
+
+Dengan `SKDR_RUN_ON_START=true`, collector menjalankan sinkronisasi SKDR
+sekali setelah startup. Jika endpoint belum memiliki data, Alert melakukan
+backfill minggu pertama sampai minggu terakhir; restart berikutnya hanya
+menjalankan sinkronisasi minggu terbaru sesuai konfigurasi.
+
+Aktifkan dua source SKDR setelah key terisi agar scheduler tengah malam
+menjalankannya:
+
+```bash
+docker exec db-postgres psql -U postgres -d disease_ai -c \
+  "UPDATE collector_sources SET enabled=TRUE, updated_at=NOW() WHERE source_type='skdr_api';"
+```
+
+Jalankan sinkronisasi manual dari container collector:
+
+```bash
+docker exec disease-collector-python \
+  python -m app.skdr_sync \
+  --endpoint all \
+  --year 2026
+```
+
+Backfill Alert dari minggu pertama sampai minggu terakhir:
+
+```bash
+docker exec disease-collector-python \
+  python -m app.skdr_sync \
+  --endpoint ibs \
+  --year 2026 \
+  --from-week 1 \
+  --to-week latest
+```
+
+Simulasi tanpa insert database atau publish RabbitMQ:
+
+```bash
+docker exec disease-collector-python \
+  python -m app.skdr_sync \
+  --endpoint all \
+  --year 2026 \
+  --dry-run
+```
+
+Collector menggunakan request berurutan, jeda, retry exponential backoff,
+dukungan `Retry-After`, dan deduplikasi lintas endpoint EBS/Alert.

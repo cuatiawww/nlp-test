@@ -15,6 +15,7 @@ logger = logging.getLogger("worker")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/%2f")
 RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "disease.raw")
 RABBITMQ_SOCIAL_QUEUE = os.getenv("RABBITMQ_SOCIAL_QUEUE", "disease.social")
+RABBITMQ_SKDR_QUEUE = os.getenv("RABBITMQ_SKDR_QUEUE", "disease.skdr")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
 CURRENT_YEAR_ONLY = os.getenv("CURRENT_YEAR_ONLY", "true").lower() in {"1", "true", "yes", "on"}
@@ -144,7 +145,48 @@ def callback(ch, method, properties, body):
         with get_db() as conn:
             # Handle both pre-inserted raw_report_id (Rust backend) and collector messages
             raw_id = msg.get("raw_report_id")
-            if raw_id:
+            if source_type == "skdr_api" and msg.get("skdr_report_id"):
+                # SKDR records have no URL and can be replayed after retries.
+                # Resolve the single raw_report row through skdr_reports and
+                # replace its event instead of inserting a duplicate.
+                skdr_row = conn.execute(
+                    """SELECT raw_report_id FROM skdr_reports
+                       WHERE id=%s FOR UPDATE""",
+                    (msg.get("skdr_report_id"),),
+                ).fetchone()
+                if not skdr_row:
+                    raise RuntimeError("SKDR report reference not found")
+                raw_id = skdr_row["raw_report_id"]
+                if raw_id:
+                    conn.execute("DELETE FROM disease_events WHERE raw_report_id=%s", (raw_id,))
+                    conn.execute(
+                        """UPDATE raw_reports
+                           SET source_type=%s, source_name=%s,
+                               published_at=%s, original_text=%s,
+                               processing_status='PROCESSED'
+                           WHERE id=%s""",
+                        (
+                            msg.get("source_type"), msg.get("source_name"),
+                            parse_date(msg.get("published_at")), msg.get("text"), raw_id,
+                        ),
+                    )
+                else:
+                    cur = conn.execute(
+                        """INSERT INTO raw_reports
+                           (source_type, source_name, published_at, original_text, url, object_path, processing_status)
+                           VALUES (%s, %s, %s, %s, NULL, NULL, 'PROCESSED')
+                           RETURNING id""",
+                        (
+                            msg.get("source_type"), msg.get("source_name"),
+                            parse_date(msg.get("published_at")), msg.get("text"),
+                        ),
+                    )
+                    raw_id = cur.fetchone()["id"]
+                    conn.execute(
+                        "UPDATE skdr_reports SET raw_report_id=%s, updated_at=NOW() WHERE id=%s",
+                        (raw_id, msg.get("skdr_report_id")),
+                    )
+            elif raw_id:
                 # Rust backend already inserted raw_reports — update status
                 conn.execute(
                     "UPDATE raw_reports SET processing_status='PROCESSED' WHERE id=%s",
@@ -338,11 +380,20 @@ def main():
             channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
             if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
                 channel.queue_declare(queue=RABBITMQ_SOCIAL_QUEUE, durable=True)
+            if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
+                channel.queue_declare(queue=RABBITMQ_SKDR_QUEUE, durable=True)
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
             if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
                 channel.basic_consume(queue=RABBITMQ_SOCIAL_QUEUE, on_message_callback=callback)
-                logger.info("Worker listening on %s and %s", RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE)
+            if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
+                channel.basic_consume(queue=RABBITMQ_SKDR_QUEUE, on_message_callback=callback)
+            queues = [RABBITMQ_QUEUE]
+            for queue in (RABBITMQ_SOCIAL_QUEUE, RABBITMQ_SKDR_QUEUE):
+                if queue not in queues:
+                    queues.append(queue)
+            if len(queues) > 1:
+                logger.info("Worker listening on %s", ", ".join(queues))
             else:
                 logger.info("Worker listening on %s", RABBITMQ_QUEUE)
             channel.start_consuming()

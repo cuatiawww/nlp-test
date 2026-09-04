@@ -16,10 +16,12 @@ def _get_channel():
         _channel = _connection.channel()
         _channel.queue_declare(queue=config.RABBITMQ_QUEUE, durable=True)
         _channel.queue_declare(queue=config.RABBITMQ_SOCIAL_QUEUE, durable=True)
+        _channel.queue_declare(queue=config.RABBITMQ_SKDR_QUEUE, durable=True)
     elif _channel is None or _channel.is_closed:
         _channel = _connection.channel()
         _channel.queue_declare(queue=config.RABBITMQ_QUEUE, durable=True)
         _channel.queue_declare(queue=config.RABBITMQ_SOCIAL_QUEUE, durable=True)
+        _channel.queue_declare(queue=config.RABBITMQ_SKDR_QUEUE, durable=True)
     return _channel
 
 
@@ -36,6 +38,8 @@ def publish(message: dict):
                 routing_queue = (
                     config.RABBITMQ_SOCIAL_QUEUE
                     if message.get("source_type") == "social_media"
+                    else config.RABBITMQ_SKDR_QUEUE
+                    if message.get("source_type") == "skdr_api"
                     else config.RABBITMQ_QUEUE
                 )
                 channel.basic_publish(
