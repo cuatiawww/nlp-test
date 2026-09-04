@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import os
 import feedparser
 from .base import BaseCollector, CollectResult
@@ -62,7 +63,12 @@ class RSSNewsCollector(BaseCollector):
                 continue
 
             body = text.encode("utf-8")
-            obj_path = f"rss/{self.source['id']}/{published}.html"
+            # A feed usually contains many entries with the same publication
+            # date. Using only the date made MinIO overwrite the previous
+            # article on every run.
+            entry_key = link or f"{title}\n{published}\n{summary}"
+            entry_hash = hashlib.sha256(entry_key.encode("utf-8")).hexdigest()[:32]
+            obj_path = f"rss/{self.source['id']}/{entry_hash}.html"
             upload_file(obj_path, body, "text/html; charset=utf-8")
 
             rabbitmq.publish({

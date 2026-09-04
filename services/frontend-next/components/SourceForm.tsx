@@ -25,7 +25,7 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
       setName(source.name || '')
       setSourceType(source.source_type || 'rss')
       const cfg = source.config || {}
-      setUrl(cfg.url || cfg.urls?.[0] || JSON.stringify(cfg))
+      setUrl(cfg.url || cfg.rss_url || cfg.urls?.[0] || JSON.stringify(cfg))
       setSchedule(source.schedule || '')
       setEnabled(source.enabled !== false)
     } else {
@@ -41,6 +41,10 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
       let config: any = {}
       if (sourceType === 'web') {
         try { config = JSON.parse(url) } catch { config = { url } }
+      } else if (sourceType === 'social_media') {
+        // Keep both keys for compatibility with old and new social RSS
+        // collector configurations.
+        config = { url, rss_url: url }
       } else {
         config = { url }
       }

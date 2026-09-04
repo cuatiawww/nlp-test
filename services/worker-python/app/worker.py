@@ -150,12 +150,13 @@ def callback(ch, method, properties, body):
                     "UPDATE raw_reports SET processing_status='PROCESSED' WHERE id=%s",
                     (raw_id,),
                 )
-            elif source_type == "social_media" and msg.get("url"):
-                # CSV social feeds are intentionally replayed in a loop. Reuse
-                # the latest report for the URL so each replay refreshes its
-                # NLP result instead of inflating raw_reports/disease_events.
-                # The transaction-scoped advisory lock also protects against
-                # duplicate URL messages if more than one worker is running.
+            elif msg.get("url"):
+                # RSS and social feeds are replayed on every scheduled run.
+                # Reuse the latest report for the URL so repeated collection
+                # refreshes the NLP result instead of inflating
+                # raw_reports/disease_events. The transaction-scoped lock
+                # also protects against duplicate URL messages with multiple
+                # workers.
                 conn.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s))",
                     (msg.get("url"),),

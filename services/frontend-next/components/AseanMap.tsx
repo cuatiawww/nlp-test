@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import "ol/ol.css";
 import Map from "ol/Map";
 import View from "ol/View";
@@ -20,7 +21,7 @@ import type { FeatureLike } from "ol/Feature";
 import { fromLonLat } from "ol/proj";
 import { unByKey } from "ol/Observable";
 import { defaults as defaultControls } from "ol/control";
-import { X, MapPin, RotateCcw, Navigation, Activity, Skull, AlertTriangle } from "lucide-react";
+import { X, MapPin, RotateCcw, Navigation, Activity, Skull, AlertTriangle, ChevronRight } from "lucide-react";
 import type { AnalyzeResponse, OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 import CountryFlag from "@/components/CountryFlag";
@@ -787,7 +788,15 @@ export default function AseanMap({
             <Navigation className="h-3.5 w-3.5" />
             <span>Focus Map on {selected.name}</span>
           </button>
-        </div>
+
+          <Link
+            href={`/detail-region?country=${encodeURIComponent(selected.name)}`}
+            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#0060A9] to-[#004d88] py-2.5 text-xs font-black text-white shadow-[0_4px_14px_rgba(0,96,169,0.28)] transition hover:brightness-110 active:scale-[0.98]"
+          >
+            <Activity className="h-3.5 w-3.5" />
+            <span>Lihat Detail Region {selected.name.toLowerCase() === 'indonesia' ? '(Indonesia)' : `(${selected.name})`}</span>
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Link></div>
       )}
 
 

@@ -35,6 +35,8 @@ GENERIC_SHORT_NOISE = {
 }
 
 _COLLECTION_LOCK = threading.Lock()
+DEFAULT_SOCIAL_CSV_BATCH_SIZE: Optional[int] = None
+SOCIAL_CSV_LOOP_MODE = True
 
 
 def detect_platform_from_url(url: str, filename: str = "") -> str:
@@ -111,9 +113,7 @@ class SocialCSVIngestCollector:
         self.data_dir = data_dir or os.getenv("SOCIAL_MEDIA_CSV_DIR", "/app/data/social_media")
         self.checkpoint_file = os.path.join(self.data_dir, ".state_checkpoints.json")
         self._og_cache: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
-        self.loop_mode = os.getenv("SOCIAL_MEDIA_CSV_LOOP", "true").lower() in {
-            "1", "true", "yes", "on"
-        }
+        self.loop_mode = SOCIAL_CSV_LOOP_MODE
 
     def _load_checkpoints(self) -> set:
         if os.path.exists(self.checkpoint_file):
@@ -152,10 +152,7 @@ class SocialCSVIngestCollector:
             return {"success": False, "error": f"Directory not found: {self.data_dir}"}
 
         if max_posts is None:
-            try:
-                max_posts = max(1, int(os.getenv("SOCIAL_MEDIA_CSV_BATCH_SIZE", "25")))
-            except ValueError:
-                max_posts = 25
+            max_posts = DEFAULT_SOCIAL_CSV_BATCH_SIZE
 
         csv_files = glob.glob(os.path.join(self.data_dir, "*.csv"))
         if not csv_files:
@@ -221,7 +218,7 @@ class SocialCSVIngestCollector:
                 # preserving its already-processed status.
                 checkpoints.add(checkpoint_key)
                 continue
-            if total_ingested >= max_posts:
+            if max_posts is not None and total_ingested >= max_posts:
                 break
 
             platform = detect_platform_from_url(post["url"], filename)

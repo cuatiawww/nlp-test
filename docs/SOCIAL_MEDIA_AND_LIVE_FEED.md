@@ -12,25 +12,27 @@ Modul ini mengimpor dan memproses data postingan/komentar media sosial (Instagra
 - **Direktori Data**: `/app/data/social_media/` (dimount dari `./data/social_media/`)
 - **Checkpoint Tracking**: `.state_checkpoints.json` (mencegah duplikasi data yang sudah pernah di-ingest)
 
-### Konfigurasi `.env`:
+### Konfigurasi path:
 ```env
 SOCIAL_MEDIA_CSV_DIR=/app/data/social_media
-SOCIAL_MEDIA_CSV_INTERVAL_MINUTES=5
-SOCIAL_MEDIA_CSV_LOOP=true
-SOCIAL_MEDIA_CSV_BATCH_SIZE=25
 ```
 
+Interval watcher, mode loop, batas entri RSS, dan batas interval crawler ditetapkan
+langsung sebagai konstanta di kode agar perilakunya konsisten antar environment.
+
 ### Endpoint Manual & Scheduler:
-- **Scheduler**: Berjalan otomatis setiap `SOCIAL_MEDIA_CSV_INTERVAL_MINUTES` menit.
-- **Loop mode**: Jika `SOCIAL_MEDIA_CSV_LOOP=true`, semua post unik dalam CSV diproses
-  per batch lalu diulang dari awal setelah satu siklus selesai. Checkpoint tetap dipakai
+- **Scheduler**: Berjalan otomatis setiap 5 menit.
+- **Loop mode**: Semua post unik dalam CSV diproses lalu diulang dari awal setelah satu
+  siklus selesai. Checkpoint tetap dipakai
   sebagai cursor siklus, bukan sebagai daftar permanen yang menghentikan crawler.
 - **Deduplikasi**: Re-play URL sosial memperbarui analisis URL yang sama di worker,
   sehingga tidak membuat `raw_reports`/`disease_events` baru pada setiap siklus.
 - **Manual Trigger**:
   ```bash
-  curl -X POST http://localhost:8002/collect/social-media-csv
+  docker exec disease-collector-python python -c "import requests; print(requests.post('http://localhost:8002/collect/social-media-csv').json())"
   ```
+  Port collector tidak dipublish ke host pada `docker-compose.yml`, sehingga
+  `curl http://localhost:8002/...` dari host tidak dapat digunakan langsung.
 
 ---
 

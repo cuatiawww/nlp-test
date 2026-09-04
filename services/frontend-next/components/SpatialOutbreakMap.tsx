@@ -31,6 +31,7 @@ export default function SpatialOutbreakMap({
 }: {
   countries: { name: string; cases: number }[];
   locations: OutbreakLocation[];
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState(false),

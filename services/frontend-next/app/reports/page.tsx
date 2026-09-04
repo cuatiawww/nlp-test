@@ -130,7 +130,7 @@ function formatDiseaseName(raw?: string | null): string {
 }
 
 // Smart country resolver from geographic text and NLP metadata
-function resolveCountry(country?: string | null, locationName?: string | null): { country: string; code: string } {
+function resolveCountry(country?: string | null, locationName?: string | null): { name: string; code: string } {
   const c = (country || '').trim()
   const l = (locationName || '').trim()
   const target = `${c} ${l}`.toLowerCase()
@@ -868,7 +868,7 @@ export default function ReportsPage() {
   }
 
   // Severity Badge Component
-  const getSeverityBadge = (sev: 'AWAS' | 'SIAGA' | 'WASPADA' | 'NORMAL') => {
+  const getSeverityBadge = (sev: string) => {
     switch (sev) {
       case 'AWAS':
         return (

@@ -1,3 +1,5 @@
+import hashlib
+
 import feedparser
 import requests
 
@@ -5,13 +7,18 @@ from .base import BaseCollector, CollectResult
 from .. import rabbitmq
 from ..minio_client import upload_file
 
+SOCIAL_RSS_MAX_ENTRIES = 100
+
 
 class SocialMediaCollector(BaseCollector):
     def collect(self) -> CollectResult:
         result = CollectResult()
         platform = self.config.get("platform", "twitter")
         keywords = self.config.get("keywords", [])
-        rss_url = self.config.get("rss_url", "")
+        # SourceForm and older database rows store the feed as `url`, while
+        # the original social-media collector expected `rss_url`. Accept both
+        # shapes so a Social Media source created from the UI actually runs.
+        rss_url = self.config.get("rss_url") or self.config.get("url", "")
 
         # RSS-based mode (no API key required)
         if platform == "twitter_rss" or rss_url:
@@ -65,7 +72,9 @@ class SocialMediaCollector(BaseCollector):
                 result.error_message = f"RSS parse error: {feed.bozo_exception}"
                 return result
 
-            for entry in feed.entries[:20]:
+            max_entries = SOCIAL_RSS_MAX_ENTRIES
+
+            for entry in feed.entries[:max_entries]:
                 result.records_found += 1
                 title = entry.get("title", "")
                 summary = entry.get("summary", "")
@@ -83,7 +92,12 @@ class SocialMediaCollector(BaseCollector):
                 except Exception:
                     published = ""
 
-                obj_path = f"social/rss/{self.source['id']}/{hash(link)}.json"
+                # Python's built-in hash() is randomized per process. A
+                # stable digest keeps the object path deterministic after a
+                # restart and avoids overwriting unrelated entries.
+                entry_key = link or f"{title}\n{published}\n{summary}"
+                entry_hash = hashlib.sha256(entry_key.encode("utf-8")).hexdigest()[:32]
+                obj_path = f"social/rss/{self.source['id']}/{entry_hash}.json"
                 upload_file(obj_path, text.encode("utf-8"), "application/json")
 
                 rabbitmq.publish({

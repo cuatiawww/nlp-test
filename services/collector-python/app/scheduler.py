@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from . import db
@@ -11,6 +10,9 @@ from .collectors.social_media import SocialMediaCollector
 from .collectors.social_csv_ingest import SocialCSVIngestCollector
 
 logger = logging.getLogger(__name__)
+
+CSV_WATCHER_INTERVAL_MINUTES = 5
+CRAWLER_MAX_INTERVAL_MINUTES = 180
 
 COLLECTOR_MAP = {
     "rss": RSSNewsCollector,
@@ -74,10 +76,7 @@ async def run_social_media_csv_job():
 def register_scheduled_jobs(scheduler: AsyncIOScheduler):
     # Register the file watcher first. It does not need the source registry or
     # the database and must remain available during a DB restart.
-    try:
-        csv_interval = max(1, int(os.getenv("SOCIAL_MEDIA_CSV_INTERVAL_MINUTES", "5")))
-    except ValueError:
-        csv_interval = 5
+    csv_interval = CSV_WATCHER_INTERVAL_MINUTES
     social_start = datetime.now(timezone.utc) + timedelta(seconds=15)
     scheduler.add_job(
         run_social_media_csv_job,
@@ -116,8 +115,11 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
         logger.info("Scheduled %s: every %d min (first run in %ds)", source["name"], interval_minutes, idx * 2)
 
 def _parse_interval(schedule: str) -> int:
-    max_interval = int(os.getenv("CRAWLER_MAX_INTERVAL_MINUTES", "10"))
-    min_interval = int(os.getenv("CRAWLER_MIN_INTERVAL_MINUTES", "3"))
+    # Seeded feeds use intervals between 60 and 180 minutes. A 10-minute
+    # default silently ignored those values and caused unnecessary load and
+    # repeated RSS deliveries.
+    max_interval = CRAWLER_MAX_INTERVAL_MINUTES
+    min_interval = 3
     if schedule.startswith("interval:"):
         try:
             val = int(schedule.replace("interval:", ""))
