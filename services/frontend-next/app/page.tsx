@@ -681,12 +681,12 @@ export default function DashboardPage() {
           infoModal={{
             title: "Active EWS Alerts",
             description:
-              "Number of locations currently under an Early Warning System (EWS) alert. An alert is triggered when: (1) the NLP model flags an article as an outbreak event, (2) the reported case count meets or exceeds the disease-specific threshold, and (3) the system confidence is ≥ 35% with a valid mapped location. Alert levels: WASPADA (watch), SIAGA (alert), AWAS (danger).",
+              "Number of locations currently under an Early Warning System (EWS) alert. An alert is triggered when: (1) the NLP model flags an article as an outbreak event, (2) the reported case count meets or exceeds the disease-specific threshold, and (3) the system confidence is ≥ 35% with a valid mapped location. Alert levels: WARNING, HIGH, and CRITICAL.",
             matrixTitle: "Breakdown by Severity Level",
             matrix: (["AWAS", "SIAGA", "WASPADA"] as const).map((sev) => ({
-              label: sev,
+              label: translateSeverity(sev),
               value: (data?.alerts ?? []).filter((a) => a.severity === sev).length,
-              sub: sev === "AWAS" ? "Danger" : sev === "SIAGA" ? "Alert" : "Watch",
+              sub: sev === "AWAS" ? "Critical" : sev === "SIAGA" ? "High" : "Warning",
             })),
           }}
         />
