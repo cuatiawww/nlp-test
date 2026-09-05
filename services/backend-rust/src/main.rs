@@ -2893,12 +2893,12 @@ async fn public_dashboard(
     let top_alert = alerts.first();
     let summary_text = match top_alert {
         Some(a) => format!(
-            "There are {} active alert(s). Current priority is {} in {} with {} cases and status {}. Verify source and coordinate local epidemiological response.",
+            "There are {} active surveillance signal(s). Current priority is {} in {} with {} cases and status {}. Verify the source and coordinate the appropriate response.",
             active_alerts, a["disease"].as_str().unwrap_or("disease"),
             a["location_name"].as_str().unwrap_or("detected location"),
             a["cases"].as_i64().unwrap_or(0), a["severity"].as_str().unwrap_or("SIAGA")
         ),
-        None => "No active outbreak alerts from validated data. ASEAN regional monitoring remains active.".to_string(),
+        None => "No active surveillance signals from validated data. ASEAN regional monitoring remains active.".to_string(),
     };
 
     Ok(Json(json!({"success": true, "data": {

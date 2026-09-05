@@ -43,7 +43,20 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data?.config_data) {
-          setSettings({ ...DEFAULT_SETTINGS, ...json.data.config_data });
+          const config = json.data.config_data;
+          setSettings({
+            ...DEFAULT_SETTINGS,
+            ...config,
+            app_name: config.app_name === 'ASEAN Disease Outbreak Surveillance AI'
+              ? DEFAULT_SETTINGS.app_name
+              : config.app_name,
+            app_tagline: config.app_tagline === 'Real-time Multilingual Disease Monitoring'
+              ? DEFAULT_SETTINGS.app_tagline
+              : config.app_tagline,
+            footer_text: config.footer_text === 'Disease Surveillance AI'
+              ? DEFAULT_SETTINGS.footer_text
+              : config.footer_text,
+          });
         }
       }
     } catch {
