@@ -40,6 +40,7 @@ ResponsiveContainer,
   YAxis,
 } from "recharts";
 import { fetchPublicDashboard, fetchCrawlingStats } from "@/lib/api";
+import CrawlingEnginePerformance from "@/components/CrawlingEnginePerformance";
 import type { OutbreakLocation, PublicDashboard } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
@@ -723,6 +724,24 @@ export default function DashboardPage() {
         </article>
       </div>
 
+      {/* ── AI Summary Section (moved above map section) ── */}
+      <section className="mt-4 rounded-2xl border border-[#0060A9]/20 bg-gradient-to-r from-blue-50 via-sky-50 to-[#fdfbf5] p-5 shadow-sm">
+        <div className="flex gap-3">
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#0060A9]" />
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-[#0060A9]">
+              {t("dashboard.aiSummaryTitle")}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              {data?.ai_summary.text}
+            </p>
+            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">
+              {t("dashboard.aiSummarySub")}
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section className="w-full bg-[#f8fafc] pb-5">
         <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[381px_minmax(0,1fr)] xl:items-stretch">
           <section
@@ -813,22 +832,8 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="mt-4 rounded-2xl border border-[#0060A9]/20 bg-gradient-to-r from-blue-50 via-sky-50 to-[#fdfbf5] p-5 shadow-sm">
-        <div className="flex gap-3">
-          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#0060A9]" />
-          <div>
-            <p className="text-xs font-black uppercase tracking-widest text-[#0060A9]">
-              {t("dashboard.aiSummaryTitle")}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              {data?.ai_summary.text}
-            </p>
-            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">
-              {t("dashboard.aiSummarySub")}
-            </p>
-          </div>
-        </div>
-      </section>
+      {/* ── Data Crawling Engine Performance Section (below map) ── */}
+      <CrawlingEnginePerformance crawlingStats={crawlingStats} />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

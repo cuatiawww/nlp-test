@@ -203,16 +203,18 @@ export const deleteCredibility = (id: string) =>
 
 
 // ── Crawling Stats ─────────────────────────────────────
+export interface CrawlingStats {
+  total: number;
+  this_month: number;
+  last_month: number;
+  total_processed: number;
+  current_month: string;
+  previous_month: string;
+  by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
+}
+
 export const fetchCrawlingStats = () =>
-  fetchFrom<{
-    total: number;
-    this_month: number;
-    last_month: number;
-    total_processed: number;
-    current_month: string;
-    previous_month: string;
-    by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
-  }>("/api/v1/crawling-stats");
+  fetchFrom<CrawlingStats>("/api/v1/crawling-stats");
 
 // ── Events ────────────────────────────────────────
 
