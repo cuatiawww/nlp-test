@@ -7,6 +7,7 @@ import type { OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 type Base = "osm" | "terrain" | "satellite" | "light" | "dark";
+type MarkerLookbackDays = 7 | 14 | 30 | 90;
 
 const Toggle = ({
   value,
@@ -40,6 +41,7 @@ export default function SpatialOutbreakMap({
     [windLegend, setWindLegend] = useState(true),
     [base, setBase] = useState<Base>("osm"),
     [markers, setMarkers] = useState(true),
+    [markerLookbackDays, setMarkerLookbackDays] = useState<MarkerLookbackDays>(30),
     [admin, setAdmin] = useState(true),
     [choropleth, setChoropleth] = useState(true),
     [wind, setWind] = useState(true),
@@ -55,6 +57,7 @@ export default function SpatialOutbreakMap({
   const reset = () => {
     setBase("osm");
     setMarkers(true);
+    setMarkerLookbackDays(30);
     setAdmin(true);
     setChoropleth(true);
     setWind(true);
@@ -78,6 +81,7 @@ export default function SpatialOutbreakMap({
         showAdmin={admin}
         countryData={choropleth ? countries : undefined}
         outbreakLocations={locations}
+        markerLookbackDays={markerLookbackDays}
         bnpbLayers={bnpb}
         showWind={wind}
         highlightCountry={highlightCountry}
@@ -157,6 +161,21 @@ export default function SpatialOutbreakMap({
                   value={markers}
                   set={setMarkers}
                 />
+                <div className="ml-10 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Marker time range</p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    {([7, 14, 30, 90] as const).map((days) => (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => setMarkerLookbackDays(days)}
+                        className={`rounded-lg border px-2 py-1.5 text-[10px] font-bold transition ${markerLookbackDays === days ? "border-[#0060A9] bg-blue-50 text-[#0060A9]" : "border-slate-200 bg-white text-slate-500 hover:border-blue-200"}`}
+                      >
+                        {days === 90 ? "3 Months" : `${days} Days`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Row
                   icon={<Layers className="h-4 w-4" />}
                   title={t("map.adminBoundaries")}

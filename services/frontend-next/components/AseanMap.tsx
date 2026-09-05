@@ -50,6 +50,7 @@ type Props = {
   };
   showWind?: boolean;
   ewsRadiusKm?: number | null;
+  markerLookbackDays?: 7 | 14 | 30 | 90;
   embedded?: boolean;
   highlightCountry?: string;
 };
@@ -107,11 +108,11 @@ function normalizedCountry(value?: string | null): string {
   return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function isWithinRecentWindow(value?: string | null): boolean {
+function isWithinRecentWindowForDays(value: string | null | undefined, days: 7 | 14 | 30 | 90): boolean {
   if (!value) return false;
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return false;
-  return timestamp >= Date.now() - 7 * 24 * 60 * 60 * 1000;
+  return timestamp >= Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
 export default function AseanMap({
@@ -128,6 +129,7 @@ export default function AseanMap({
   bnpbLayers,
   showWind,
   ewsRadiusKm,
+  markerLookbackDays = 30,
   embedded,
   highlightCountry,
   hideLegend = false,
@@ -661,8 +663,7 @@ export default function AseanMap({
       // Public pins are intentionally limited to the rolling recent window
       // calculated by the backend. Historical aggregates remain available to
       // the choropleth and dashboard totals, but do not become live markers.
-      const isRecent = item.is_recent === true
-        || (item.is_recent == null && isWithinRecentWindow(item.latest_date));
+      const isRecent = isWithinRecentWindowForDays(item.latest_date, markerLookbackDays);
       if (!isRecent || item.latitude == null || item.longitude == null) return;
       const feature = new GeoJSON().readFeature(
         {
@@ -768,7 +769,7 @@ export default function AseanMap({
         ?.getView()
         .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 500 });
     }
-  }, [countryData, result, outbreakLocations, highlightCountry]);
+  }, [countryData, result, outbreakLocations, highlightCountry, markerLookbackDays]);
 
   // Load regional boundaries only after a country is selected. Indonesia uses
   // the project's own wilayah-data route; other ASEAN countries use the free

@@ -17,6 +17,7 @@ import CountryFlag from '@/components/CountryFlag'
 
 const AseanMap = dynamic(() => import('@/components/AseanMap'), { ssr: false })
 type BaseMap = 'osm'|'terrain'|'satellite'|'light'|'dark'
+type MarkerLookbackDays = 7 | 14 | 30 | 90
 function Toggle({checked,onChange}:{checked:boolean;onChange:(v:boolean)=>void}) {
   return (
     <button
@@ -34,7 +35,7 @@ export default function TvPage() {
 
   const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
   const [drawer,setDrawer]=useState(false), [sound,setSound]=useState(false), [fullscreen,setFullscreen]=useState(false), [kpiHidden,setKpiHidden]=useState(false), [leftHidden,setLeftHidden]=useState(false), [rightHidden,setRightHidden]=useState(false)
-  const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
+  const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [markerLookbackDays,setMarkerLookbackDays]=useState<MarkerLookbackDays>(30), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
   const [bnpb,setBnpb]=useState({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false}), [wind,setWind]=useState(false)
   const [clock,setClock]=useState({wib:'',wita:'',wit:'',date:''})
 
@@ -118,6 +119,7 @@ export default function TvPage() {
           baseMap={baseMap}
           showAdmin={admin}
           showMarkers={markers}
+          markerLookbackDays={markerLookbackDays}
           countryData={choropleth?data?.by_country:undefined}
           outbreakLocations={data?.locations}
           locationsData={data?.locations?.map((l) => ({
@@ -342,6 +344,16 @@ export default function TvPage() {
           <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50/50 p-3.5">
             <LayerToggle icon={<Globe2 className="h-4 w-4"/>} title={t('map.adminBoundaries')} sub={t('map.adminBoundariesSub')} value={admin} set={setAdmin}/>
             <LayerToggle icon={<MapPin className="h-4 w-4"/>} title={t('map.outbreakMarkers')} sub={t('map.outbreakMarkersSub')} value={markers} set={setMarkers}/>
+            <div className="ml-10 rounded-xl border border-slate-200 bg-white/80 p-2.5">
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Marker time range</p>
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {([7, 14, 30, 90] as const).map((days) => (
+                  <button key={days} type="button" onClick={() => setMarkerLookbackDays(days)} className={`rounded-lg border px-2 py-1.5 text-[10px] font-bold transition ${markerLookbackDays === days ? 'border-[#0060A9] bg-blue-50 text-[#0060A9]' : 'border-slate-200 bg-white text-slate-500 hover:border-blue-200'}`}>
+                    {days === 90 ? '3 Months' : `${days} Days`}
+                  </button>
+                ))}
+              </div>
+            </div>
             <LayerToggle icon={<Layers className="h-4 w-4"/>} title={t('map.casesChoropleth')} sub={t('map.casesChoroplethSub')} value={choropleth} set={setChoropleth}/>
             <LayerToggle icon={<Activity className="h-4 w-4"/>} title={t('map.windFlow')} sub={t('map.windFlowSub')} value={wind} set={setWind}/>
             <div>
@@ -362,7 +374,7 @@ export default function TvPage() {
                 ))}
               </div>
             </div>
-            <button onClick={()=>{setBaseMap('osm');setAdmin(true);setMarkers(true);setChoropleth(true);setWind(false);setBnpb({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false})}} className="w-full rounded-xl border border-blue-300 bg-blue-50 py-2 text-xs font-black text-[#0060A9]">
+            <button onClick={()=>{setBaseMap('osm');setAdmin(true);setMarkers(true);setMarkerLookbackDays(30);setChoropleth(true);setWind(false);setBnpb({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false})}} className="w-full rounded-xl border border-blue-300 bg-blue-50 py-2 text-xs font-black text-[#0060A9]">
               {t('map.resetLayers')}
             </button>
           </div>

@@ -809,6 +809,10 @@ export default function DashboardPage() {
     by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
   } | null>(null);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const refreshCrawlingStats = useCallback(async () => {
     const crawlData = await fetchCrawlingStats().catch(() => null);
     if (crawlData) setCrawlingStats(crawlData);

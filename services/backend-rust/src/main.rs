@@ -3164,7 +3164,8 @@ async fn public_dashboard(
         let is_recent = recent_event_count > 0;
         let has_case_surge = recent_cases >= 2
             && (previous_period_cases == 0 || recent_cases * 2 >= previous_period_cases * 3);
-        let is_hot = is_recent && (has_case_surge || recent_source_count >= 2);
+        let high_case_volume = recent_cases >= threshold_i64.saturating_mul(2);
+        let is_hot = is_recent && (has_case_surge || high_case_volume);
 
         total_cases += cases;
         total_deaths += deaths;
