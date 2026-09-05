@@ -210,6 +210,11 @@ export interface CrawlingStats {
   total_processed: number;
   current_month: string;
   previous_month: string;
+  live_crawled: number;
+  active_run_count: number;
+  active_since: string | null;
+  collector_status: "RUNNING" | "IDLE" | string;
+  last_report_at: string | null;
   by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
 }
 
@@ -315,3 +320,131 @@ export async function fetchPaginated<T>(
     totalPages: (json.total_pages as number) || 1,
   };
 }
+
+// ── Spatial Heatmap ──────────────────────────────
+
+export interface HeatmapMonthData {
+  month_num: number;
+  month_name: string;
+  cases: number;
+  deaths: number;
+  events: number;
+  alerts: number;
+}
+
+export interface HeatmapCountryData {
+  country: string;
+  iso: string;
+  total_cases: number;
+  total_deaths: number;
+  total_events: number;
+  months: HeatmapMonthData[];
+}
+
+export interface SpatialHeatmapResponse {
+  year: number;
+  countries: HeatmapCountryData[];
+  summary: {
+    total_countries: number;
+    total_cases: number;
+    total_deaths: number;
+    total_events: number;
+  };
+}
+
+export const fetchSpatialHeatmap = (year?: number) => {
+  const query = year ? `?year=${year}` : '';
+  return fetchFrom<SpatialHeatmapResponse>(`/api/v1/spatial-heatmap${query}`);
+};
+
+// ?? Disease Trend Overview ????????????????????????
+
+export interface DiseaseCountryBreakdown {
+  country: string;
+  iso: string;
+  cases: number;
+  deaths: number;
+  events: number;
+  alerts: number;
+}
+
+export interface PriorityDiseaseAlert {
+  disease: string;
+  top_country: string;
+  top_country_iso: string;
+  top_country_cases: number;
+  total_asean_cases: number;
+  total_deaths: number;
+  event_count: number;
+  alert_count: number;
+  latest_published: string;
+  latest_published_label: string;
+  severity: "TINGGI" | "SEDANG" | "RENDAH";
+  country_breakdown: DiseaseCountryBreakdown[];
+}
+
+export interface DiseaseDailyTrend {
+  date: string;
+  date_label: string;
+  dbd: number;
+  campak: number;
+  covid: number;
+  rabies: number;
+  hfmd: number;
+}
+
+export interface DiseaseTrendOverviewData {
+  summary: {
+    total_diseases: number;
+    top_burden_disease: string;
+    top_burden_country: string;
+    total_cases_tracked: number;
+    trend_days: number;
+  };
+  priority_alerts: PriorityDiseaseAlert[];
+  daily_trends: DiseaseDailyTrend[];
+}
+
+export const fetchDiseaseTrendOverview = (days?: number) => {
+  const query = days ? `?days=${days}` : '';
+  return fetchFrom<DiseaseTrendOverviewData>(`/api/v1/disease-trend-overview${query}`);
+};
+
+// ?? Morbidity & Mortality ?????????????????????????
+
+export interface WeeklyMorbidityMortality {
+  year: number;
+  week: number;
+  week_label: string;
+  morbidity: number;
+  mortality: number;
+  cfr_pct: number;
+}
+
+export interface DiseaseMorbidityMortality {
+  disease: string;
+  total_cases: number;
+  total_deaths: number;
+  cfr_pct: number;
+  event_count: number;
+}
+
+export interface MorbidityMortalityResponse {
+  summary: {
+    total_morbidity: number;
+    total_mortality: number;
+    cfr_pct: number;
+    selected_disease: string;
+    weeks: number;
+  };
+  weekly_trends: WeeklyMorbidityMortality[];
+  top_diseases: DiseaseMorbidityMortality[];
+}
+
+export const fetchMorbidityMortality = (params?: { disease?: string; weeks?: number }) => {
+  const q = new URLSearchParams();
+  if (params?.disease && params.disease !== 'all') q.set('disease', params.disease);
+  if (params?.weeks) q.set('weeks', String(params.weeks));
+  const queryStr = q.toString();
+  return fetchFrom<MorbidityMortalityResponse>(`/api/v1/morbidity-mortality${queryStr ? `?${queryStr}` : ''}`);
+};

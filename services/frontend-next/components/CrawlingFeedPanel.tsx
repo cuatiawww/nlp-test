@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { useCrawlingFeed } from "@/hooks/useCrawlingFeed";
 import { relativeTime, type CrawlingFeedItem, type FeedChannel } from "@/lib/crawling-feed";
-import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 import CountryFlag from "@/components/CountryFlag";
 import SocialMediaIcon from "@/components/SocialMediaIcon";
 
@@ -489,11 +488,11 @@ function CrawlingFeedCard({
 
   return item.sourceUrl ? (
     <a
-      href={`${PUBLIC_BASE_PATH}/analyze?url=${encodeURIComponent(item.sourceUrl)}`}
+      href={item.sourceUrl}
       target="_blank"
       rel="noopener noreferrer"
       className="block"
-      title="Open URL in the NLP analyzer"
+      title="Open original source"
     >
       {content}
     </a>

@@ -218,3 +218,64 @@ Jadi, titik EWS tidak otomatis berarti titik IBS. Sebaliknya, data IBS dapat men
 5. Panel EWS dan marker EWS harus memakai sumber data dan filter yang sama.
 6. EWS harus selalu dijelaskan sebagai sinyal peringatan dini, bukan konfirmasi wabah.
 
+## 13. Matriks checklist severity EWS
+
+Gunakan matriks ini untuk memahami apakah sebuah event boleh menjadi marker EWS. `T` berarti threshold penyakit yang aktif pada database.
+
+### Syarat dasar agar event bisa menjadi alert
+
+| Syarat | Harus terpenuhi? | Keterangan |
+|---|---:|---|
+| Penyakit terdeteksi | ✓ | Penyakit tidak boleh `UNKNOWN` untuk aturan penyakit tertentu |
+| `outbreak_alert = true` | ✓ | NLP atau sumber surveilans menandai event sebagai sinyal outbreak |
+| Lokasi valid | ✓ | Nama lokasi tersedia dan cocok dengan master lokasi |
+| Koordinat valid | ✓ | Latitude dan longitude tersedia untuk marker peta |
+| Confidence ≥ 0,35 | ✓ | Confidence minimum untuk validasi EWS pada dashboard |
+| Threshold penyakit tersedia | ✓ | Diambil dari `disease_outbreak_rules.min_case_count` |
+
+Jika salah satu syarat validasi lokasi atau confidence tidak terpenuhi, status akhir dipaksa menjadi `NORMAL` dan tidak masuk daftar alert aktif.
+
+### Matriks level alert
+
+| Level tampilan | Kode internal | `outbreak_alert` | Kasus | Kematian | Lokasi & koordinat | Confidence | Hasil |
+|---|---|---:|---|---:|---:|---:|---|
+| `CRITICAL` | `AWAS` | ✓ | `cases ≥ 2T` | 0 atau lebih | ✓ | ≥ 0,35 | Alert tertinggi |
+| `CRITICAL` | `AWAS` | ✓ | Kasus berapa pun | `deaths > 0` | ✓ | ≥ 0,35 | Dinaikkan karena ada kematian |
+| `HIGH` | `SIAGA` | ✓ | `T ≤ cases < 2T`* | 0 | ✓ | ≥ 0,35 | Alert tinggi |
+| `WARNING` | `WASPADA` | ✓ | `0,75T ≤ cases < T` | 0 | ✓ | ≥ 0,35 | Aturan target; belum konsisten aktif di kode saat ini |
+| `NORMAL` | `NORMAL` | ✗ | Berapa pun | Berapa pun | ✓ atau ✗ | Berapa pun | Bukan alert EWS |
+| `NORMAL` | `NORMAL` | ✓ | Berapa pun | Berapa pun | ✗ | < 0,35 | Tidak lolos validasi EWS |
+
+\* Ini adalah aturan bisnis yang direkomendasikan. Secara literal, backend saat ini memiliki kondisi `cases >= threshold OR model_alert`. Karena itu, `model_alert = true` dapat membuat status menjadi `HIGH` walaupun jumlah kasus masih di bawah `T`. Jika threshold ingin menjadi syarat wajib, kondisi tersebut perlu diubah menjadi aturan target pada matriks ini.
+
+### Contoh: DBD di Indonesia
+
+Threshold DBD saat ini adalah `T = 10` kasus per lokasi dan penyakit.
+
+| Kasus DBD pada lokasi yang sama | Kematian | `outbreak_alert` | Status yang diharapkan |
+|---:|---:|---:|---|
+| 0–9 | 0 | ✗ | `NORMAL` |
+| 0–9 | 0 | ✓ | Target: `NORMAL`; backend saat ini dapat menghasilkan `HIGH` jika `model_alert` sudah true |
+| 10–19 | 0 | ✓ | `HIGH` |
+| 20 atau lebih | 0 | ✓ | `CRITICAL` |
+| Berapa pun | 1 atau lebih | ✓ | `CRITICAL` |
+| 10 atau lebih | Berapa pun | ✗ | `NORMAL`, karena threshold saja belum cukup |
+
+Perhitungan dilakukan per kombinasi **lokasi + penyakit**. Contohnya, Jakarta 6 kasus dan Bandung 4 kasus tidak otomatis menjadi 10 kasus pada satu lokasi. Keduanya dibandingkan terhadap threshold masing-masing lokasi.
+
+### Checklist sebelum marker CRITICAL ditampilkan
+
+```text
+[✓] Penyakit sudah dikenali
+[✓] outbreak_alert = true
+[✓] Lokasi valid
+[✓] Latitude dan longitude tersedia
+[✓] Confidence NLP ≥ 0,35
+[✓] Kasus ≥ 2 × threshold ATAU ada kematian
+        ↓
+    Tampilkan marker merah CRITICAL
+```
+
+### Catatan implementasi
+
+Pada kode saat ini, `WASPADA` memiliki cabang aturan tetapi kondisi `model_alert` dapat langsung menaikkan event ke `SIAGA`. Karena itu, matriks `WARNING` di atas adalah aturan target yang lebih mudah dipahami; implementasi backend perlu dirapikan jika level WARNING ingin digunakan secara konsisten.

@@ -372,10 +372,10 @@ export default function CrawlingEnginePerformance({
             <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
             <div className="leading-tight">
               <p className="font-black text-slate-900">
-                Live Engine Pipeline: {runningTotalCrawled.toLocaleString()} raw data
+                Live Collector Run: {(crawlingStats?.live_crawled ?? 0).toLocaleString()} crawled
               </p>
               <p className="text-[10.5px] text-slate-500 mt-0.5">
-                {(crawlingStats?.total_processed ?? 2280).toLocaleString()} terproses NLP ({(((crawlingStats?.total_processed ?? 2280) / (runningTotalCrawled || 1)) * 100).toFixed(1)}% throughput) • Sinkron 100% dengan KPI
+                {crawlingStats?.collector_status === "RUNNING" ? "Collector running" : "Collector idle"} • {(crawlingStats?.total ?? 0).toLocaleString()} stored in DB • {(crawlingStats?.total_processed ?? 0).toLocaleString()} processed by NLP
               </p>
             </div>
           </div>

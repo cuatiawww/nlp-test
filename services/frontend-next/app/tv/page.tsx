@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe2, Layers, MapPin, Maximize, Minimize, RefreshCw, Settings, ShieldAlert, Skull, Sparkles, Volume2, VolumeX, X } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronUp, Globe2, Layers, MapPin, Maximize, Minimize, Radio, RefreshCw, Settings, ShieldAlert, Skull, Volume2, VolumeX, X } from 'lucide-react'
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { fetchPublicDashboard } from '@/lib/api'
+import { fetchCrawlingStats, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
 import type { PublicDashboard } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
@@ -32,14 +32,32 @@ export default function TvPage() {
   const { t, locale, translateDisease, translateSeverity } = useTranslation()
   const numLocale = locale === 'en' ? 'en-US' : 'id-ID'
 
-  const [data,setData]=useState<PublicDashboard|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
+  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
   const [drawer,setDrawer]=useState(false), [sound,setSound]=useState(false), [fullscreen,setFullscreen]=useState(false), [kpiHidden,setKpiHidden]=useState(false), [leftHidden,setLeftHidden]=useState(false), [rightHidden,setRightHidden]=useState(false)
   const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
   const [bnpb,setBnpb]=useState({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false}), [wind,setWind]=useState(false), [ewsRadius,setEwsRadius]=useState<number|null>(null)
   const [clock,setClock]=useState({wib:'',wita:'',wit:'',date:''})
-  const load=useCallback(async()=>{try{setData(await fetchPublicDashboard());setCountdown(60)}finally{setLoading(false)}},[])
+  const load=useCallback(async()=>{
+    try {
+      const [dashboardData, crawlData] = await Promise.all([
+        fetchPublicDashboard(),
+        fetchCrawlingStats().catch(() => null),
+      ])
+      setData(dashboardData)
+      if (crawlData) setCrawlingStats(crawlData)
+      setCountdown(60)
+    } finally {
+      setLoading(false)
+    }
+  },[])
+
+  const refreshCrawlingStats=useCallback(async()=>{
+    const crawlData=await fetchCrawlingStats().catch(()=>null)
+    if(crawlData)setCrawlingStats(crawlData)
+  },[])
 
   useEffect(()=>{load();const i=setInterval(load,60000);return()=>clearInterval(i)},[load])
+  useEffect(()=>{const i=setInterval(refreshCrawlingStats,5000);return()=>clearInterval(i)},[refreshCrawlingStats])
   useEffect(()=>{const i=setInterval(()=>setCountdown(c=>c<=1?60:c-1),1000);return()=>clearInterval(i)},[])
   useEffect(()=>{
     const tick=()=>{
@@ -72,12 +90,10 @@ export default function TvPage() {
   const playSound=()=>{setSound(v=>!v);if(!sound){const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);g.gain.value=.04;o.start();o.stop(c.currentTime+.25)}}
 
   const cards=[
-    // Keep TV KPI semantics identical to the public dashboard: current month.
-    // The API's kpis fields are year-to-date totals and are used by the map.
-    [t('tv.casesDetected'),data?.trends?.cases.current??data?.kpis.cases??0,Bug,'text-[#0060A9]','bg-blue-50 text-[#0060A9] border-blue-200'],
-    [t('tv.deaths'),data?.trends?.deaths.current??data?.kpis.deaths??0,Skull,'text-[#ED2939]','bg-red-50 text-[#ED2939] border-red-200'],
-    [t('tv.eventsVerified'),data?.trends?.events.current??data?.kpis.events??0,Activity,'text-sky-600','bg-sky-50 text-sky-600 border-sky-200'],
-    [t('tv.activeAlerts'),data?.trends?.alerts.current??data?.kpis.active_alerts??0,ShieldAlert,'text-[#B49B58]','bg-[#fbf8ee] text-[#B49B58] border-[#e9dfc4]']
+    // Keep TV KPI semantics identical to the NLP dashboard: current period.
+    [t('dashboard.kpiDetectedCases'),data?.trends?.cases.current??data?.kpis.cases??0,Bug,'text-[#0060A9]','bg-blue-50 text-[#0060A9] border-blue-200'],
+    [t('dashboard.kpiDeaths'),data?.trends?.deaths.current??data?.kpis.deaths??0,Skull,'text-[#ED2939]','bg-red-50 text-[#ED2939] border-red-200'],
+    [t('dashboard.kpiLocations'),data?.trends?.locations.current??data?.kpis.locations??0,MapPin,'text-sky-600','bg-sky-50 text-sky-600 border-sky-200']
   ] as const
 
   return (
@@ -161,6 +177,32 @@ export default function TvPage() {
           </button>
           {!kpiHidden && (
             <div className="pointer-events-auto grid w-full grid-cols-2 gap-2 lg:grid-cols-4">
+              <div className="rounded-xl border border-emerald-200 bg-white/95 p-2.5 shadow-[0_4px_14px_rgba(5,150,105,.08)] backdrop-blur-xl lg:col-span-1">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-1 text-emerald-600"><Radio className="h-3.5 w-3.5"/></div>
+                    <span className="text-[9.5px] font-black tracking-wider text-slate-600">LIVE CRAWLED</span>
+                  </div>
+                  <span className={`inline-flex items-center gap-1 text-[8px] font-black uppercase ${crawlingStats?.collector_status === 'RUNNING' ? 'text-emerald-600' : 'text-slate-400'}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${crawlingStats?.collector_status === 'RUNNING' ? 'animate-pulse bg-emerald-500' : 'bg-slate-300'}`}/>
+                    {crawlingStats?.collector_status === 'RUNNING' ? 'Running' : 'Idle'}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <b className="font-mono text-xl text-emerald-600">{loading && !crawlingStats ? '...' : (crawlingStats?.live_crawled ?? 0).toLocaleString(numLocale)}</b>
+                  <span className="text-[9px] font-bold text-slate-500">Current run</span>
+                </div>
+                <div className="mt-1.5 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-1.5">
+                  <div className="rounded-md bg-slate-50 px-1.5 py-1">
+                    <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">Stored in DB</p>
+                    <p className="text-xs font-black text-slate-700">{(crawlingStats?.total ?? 0).toLocaleString(numLocale)}</p>
+                  </div>
+                  <div className="rounded-md bg-blue-50 px-1.5 py-1">
+                    <p className="text-[7px] font-black uppercase tracking-wide text-blue-500">Processed NLP</p>
+                    <p className="text-xs font-black text-[#0060A9]">{(crawlingStats?.total_processed ?? 0).toLocaleString(numLocale)}</p>
+                  </div>
+                </div>
+              </div>
               {cards.map(([label,value,Icon,color,bg])=>(
                 <div key={label} className="rounded-xl border border-[#cfe0f1] bg-white/95 p-2.5 shadow-[0_4px_14px_rgba(0,96,169,.06)] backdrop-blur-xl">
                   <div className="flex items-center gap-2">
@@ -169,7 +211,7 @@ export default function TvPage() {
                   </div>
                   <div className="mt-1 flex items-baseline justify-between">
                     <b className={`font-mono text-xl ${color}`}>{loading?'...':Number(value).toLocaleString(numLocale)}</b>
-                    <span className="text-[9px] font-bold text-slate-500">{label===t('tv.deaths')?'Jiwa':'Data'}</span>
+                    <span className="text-[9px] font-bold text-slate-500">{label===t('dashboard.kpiDeaths')?'Deaths':'Data'}</span>
                   </div>
                   <div className="mt-1 border-t border-slate-100 pt-1 text-[9px] font-bold text-slate-500">
                     {data?.trends?.current_month

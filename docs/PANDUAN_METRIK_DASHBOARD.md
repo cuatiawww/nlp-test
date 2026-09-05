@@ -366,8 +366,24 @@ WHERE source_type = 'skdr_api';
 8. Apakah angka sudah dibandingkan dengan sumber resmi?
 ```
 
+## 17. Morbidity & Mortality (Morbiditas, Mortalitas, & CFR)
+
+Bagian ini menyajikan analisis keparahan dampak penyakit berdasarkan:
+1. **Total Morbidity (Kasus Sakit)**: Total akumulasi penderita sakit (`case_count`) yang diekstrak oleh model NLP dari artikel berita, RSS, dan sinyal kesehatan ter-crawl.
+2. **Total Mortality (Kasus Kematian)**: Total kematian (`death_count`) yang tervalidasi pada record kejadian penyakit.
+3. **Case Fatality Rate (CFR %)**: Rasio persentase fatalitas dihitung secara dinamis:
+   $$\text{CFR (\%)} = \frac{\text{Total Mortality}}{\text{Total Morbidity}} \times 100\%$$
+4. **Weekly Trend of Morbidity & Mortality**: Dual Y-axis chart menunjukkan tren mingguan Morbidity (Area biru di sumbu kiri) dan Mortality (Garis merah di sumbu kanan) sepanjang 8-16 minggu.
+5. **Top Diseases by Total Cases & Deaths**: Perbandingan butterfly horizontal bar chart untuk penyakit-penyakit prioritas (DBD, Campak, COVID-19, Influenza, dsb.) beserta indikator badge CFR spesifik tiap penyakit. Klik penyakit langsung memfilter tren mingguan.
+
+Detail skema database dan formula SQL lengkap dapat dibaca pada [Morbidity & Mortality Data Dictionary](MORBIDITY_MORTALITY_DATA_DICTIONARY.md).
+
 ## Referensi implementasi
 
+- [Morbidity & Mortality Data Dictionary](MORBIDITY_MORTALITY_DATA_DICTIONARY.md)
+
+- [Disease Trend Overview Data Dictionary](DISEASE_TREND_OVERVIEW_DATA_DICTIONARY.md)
+- [Case Location Heatmap Data Dictionary](CASE_LOCATION_HEATMAP_DATA_DICTIONARY.md)
 - [SKDR IBS/EBS Data Matrix](SKDR_IBS_EBS_DATA_MATRIX.md)
 - [ICD-11 Agent Walkthrough](ICD11_AGENT_WALKTHROUGH.md)
 - `services/backend-rust/src/main.rs` — endpoint dan agregasi dashboard

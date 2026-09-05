@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  Activity,
   AlertTriangle,
   Bug,
   CheckCircle2,
@@ -19,7 +18,8 @@ import {
   Info,
   MapPin,
   RefreshCw,
-Skull,
+  Radio,
+  Skull,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -42,6 +42,9 @@ ResponsiveContainer,
 } from "recharts";
 import { fetchPublicDashboard, fetchCrawlingStats } from "@/lib/api";
 import CrawlingEnginePerformance from "@/components/CrawlingEnginePerformance";
+import CaseLocationHeatmap from "@/components/CaseLocationHeatmap";
+import DiseaseTrendOverview from "@/components/DiseaseTrendOverview";
+import MorbidityMortalitySection from "@/components/MorbidityMortalitySection";
 import type { OutbreakLocation, PublicDashboard } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
@@ -768,8 +771,18 @@ export default function DashboardPage() {
     total_processed: number;
     current_month: string;
     previous_month: string;
+    live_crawled: number;
+    active_run_count: number;
+    active_since: string | null;
+    collector_status: "RUNNING" | "IDLE" | string;
+    last_report_at: string | null;
     by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
   } | null>(null);
+
+  const refreshCrawlingStats = useCallback(async () => {
+    const crawlData = await fetchCrawlingStats().catch(() => null);
+    if (crawlData) setCrawlingStats(crawlData);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -792,6 +805,13 @@ export default function DashboardPage() {
     const id = window.setInterval(load, 60_000);
     return () => window.clearInterval(id);
   }, [load]);
+
+  // Keep the collector KPI live without reloading the heavier dashboard payload.
+  useEffect(() => {
+    void refreshCrawlingStats();
+    const id = window.setInterval(() => void refreshCrawlingStats(), 5_000);
+    return () => window.clearInterval(id);
+  }, [refreshCrawlingStats]);
 
   useEffect(() => {
     const available = data?.available_years;
@@ -907,7 +927,46 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {/* Live crawling pipeline KPI. */}
+        <article
+          className="relative min-h-[158px] border border-emerald-200 bg-white px-4 py-3 shadow-[0_6px_18px_rgba(5,150,105,.08)] transition hover:-translate-y-0.5 hover:border-emerald-400"
+          style={{ borderRadius: "17px 17px 22px 17px" }}
+        >
+          <CrawlingInfoModal crawlingStats={crawlingStats} />
+          <div className="flex items-start gap-3">
+            <div className="flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+              <Radio className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2 pr-7">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
+                  Live Crawled
+                </p>
+                <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide ${crawlingStats?.collector_status === "RUNNING" ? "text-emerald-600" : "text-slate-400"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${crawlingStats?.collector_status === "RUNNING" ? "animate-pulse bg-emerald-500" : "bg-slate-300"}`} />
+                  {crawlingStats?.collector_status === "RUNNING" ? "Running" : "Idle"}
+                </span>
+              </div>
+              <p className="mt-1 truncate text-[30px] font-bold leading-none text-emerald-600">
+                {(crawlingStats?.live_crawled ?? 0).toLocaleString()}
+              </p>
+              <p className="mt-1 text-[9px] font-semibold text-slate-400">
+                Current active collector run
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
+                  <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">Stored in DB</p>
+                  <p className="mt-0.5 text-sm font-black text-slate-700">{(crawlingStats?.total ?? 0).toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-2 py-1.5">
+                  <p className="text-[8px] font-black uppercase tracking-wide text-blue-500">Processed by NLP</p>
+                  <p className="mt-0.5 text-sm font-black text-[#0060A9]">{(crawlingStats?.total_processed ?? 0).toLocaleString()}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
         <Kpi
           label={t("dashboard.kpiDetectedCases")}
           value={data?.trends?.cases.current ?? data?.kpis.cases ?? 0}
@@ -953,30 +1012,6 @@ export default function DashboardPage() {
           }}
         />
         <Kpi
-          label={t("dashboard.kpiValidatedEvents")}
-          value={data?.trends?.events.current ?? data?.kpis.events ?? 0}
-          icon={<Activity className="h-5 w-5" />}
-          tone="blue"
-          trend={data?.trends?.events}
-          previousMonth={data?.trends?.previous_month}
-          infoModal={{
-            title: "Laporan Tervalidasi (Validated Events)",
-            explanation: {
-              meaning: "Jumlah dokumen laporan atau berita unik yang telah lolos pengujian AI dan relevan dengan surveilans kesehatan masyarakat.",
-              calculation: "Sistem menyaring spam, menghapus artikel duplikat (URL & teks serupa), dan memvalidasi keaslian laporan sebelum dihitung sebagai event resmi."
-            },
-            matrixTitle: "Distribusi Laporan per Wilayah (100% Klop)",
-            matrix: (data?.locations ?? [])
-              .reduce<{ label: string; value: number }[]>((acc, loc) => {
-                const existing = acc.find((x) => x.label === loc.country);
-                if (existing) { existing.value += loc.event_count; } else { acc.push({ label: loc.country, value: loc.event_count }); }
-                return acc;
-              }, [])
-              .filter((x) => x.value > 0)
-              .sort((a, b) => b.value - a.value),
-          }}
-        />
-        <Kpi
           label={t("dashboard.kpiLocations")}
           value={data?.trends?.locations.current ?? data?.kpis.locations ?? 0}
           icon={<MapPin className="h-5 w-5" />}
@@ -1000,59 +1035,6 @@ export default function DashboardPage() {
               .sort((a, b) => b.value - a.value),
           }}
         />
-        <Kpi
-          label={t("dashboard.kpiActiveAlerts")}
-          value={data?.trends?.alerts.current ?? data?.kpis.active_alerts ?? 0}
-          icon={<AlertTriangle className="h-5 w-5" />}
-          tone="gold"
-          trend={data?.trends?.alerts}
-          previousMonth={data?.trends?.previous_month}
-          infoModal={{
-            title: "Peringatan Dini Aktif (Active EWS Alerts)",
-            explanation: {
-              meaning: "Jumlah lokasi yang saat ini menyalakan sinyal peringatan dini (EWS) akibat indikasi lonjakan kasus atau potensi Kejadian Luar Biasa (KLB).",
-              calculation: "Dipicu saat laporan memenuhi 3 syarat: berstatus wabah, jumlah kasus melampaui ambang batas (threshold), dan tingkat keyakinan AI minimal 35%."
-            },
-            matrixTitle: "Klasifikasi Tingkat Keparahan (100% Klop)",
-            matrix: (["AWAS", "SIAGA", "WASPADA"] as const).map((sev) => ({
-              label: translateSeverity(sev),
-              value: (data?.alerts ?? []).filter((a) => a.severity === sev).length || (sev === "AWAS" ? 1 : 0),
-              sub: sev === "AWAS" ? "Critical Alert" : sev === "SIAGA" ? "High Alert" : "Warning Alert",
-            })),
-          }}
-        />
-        {/* ── Total Crawling Card ── */}
-        <article
-          className="relative flex min-h-[128px] items-center gap-3 border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
-          style={{ borderRadius: "17px 17px 22px 17px" }}
-        >
-          <CrawlingInfoModal crawlingStats={crawlingStats} />
-          <div className="flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full text-emerald-600 bg-emerald-50/80">
-            <Database className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
-              Total Crawled
-            </p>
-            <p className="mt-2 truncate text-[30px] font-bold leading-none text-emerald-600">
-              {(crawlingStats?.total ?? 0).toLocaleString()}
-            </p>
-            <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
-              <p className="uppercase">
-                {crawlingStats?.previous_month
-                  ? new Intl.DateTimeFormat("en-US", { month: "long" }).format(
-                      new Date(`${crawlingStats.previous_month}-01T00:00:00Z`),
-                    )
-                  : "Last month"}{" "}
-                ({(crawlingStats?.last_month ?? 0).toLocaleString()})
-              </p>
-              <p className="mt-1 flex items-center gap-0.5 text-slate-400">
-                <Info className="h-3 w-3" />
-                {(crawlingStats?.this_month ?? 0).toLocaleString()} this month
-              </p>
-            </div>
-          </div>
-        </article>
       </div>
 
       {/* ── AI Summary Section (moved above map section) ── */}
@@ -1165,6 +1147,15 @@ export default function DashboardPage() {
 
       {/* ── Data Crawling Engine Performance Section (below map) ── */}
       <CrawlingEnginePerformance crawlingStats={crawlingStats} />
+
+      {/* ?? Case Location Summary Heatmap Section (Spatial-Temporal Matrix) ?? */}
+      <CaseLocationHeatmap />
+
+      {/* ?? Disease Trend Overview (Peringatan Prioritas & Multi-Day Trend) ?? */}
+      <DiseaseTrendOverview />
+
+      {/* ?? Morbidity & Mortality Section (Weekly Trend & Cases vs Deaths) ?? */}
+      <MorbidityMortalitySection />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
