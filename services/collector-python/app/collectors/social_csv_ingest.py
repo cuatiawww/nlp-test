@@ -35,8 +35,8 @@ GENERIC_SHORT_NOISE = {
 }
 
 _COLLECTION_LOCK = threading.Lock()
-DEFAULT_SOCIAL_CSV_BATCH_SIZE: Optional[int] = None
-SOCIAL_CSV_LOOP_MODE = True
+DEFAULT_SOCIAL_CSV_BATCH_SIZE: Optional[int] = int(os.getenv("SOCIAL_CSV_BATCH_SIZE", "20"))
+SOCIAL_CSV_LOOP_MODE = os.getenv("SOCIAL_CSV_LOOP_MODE", "false").lower() in {"1", "true", "yes", "on"}
 
 
 def detect_platform_from_url(url: str, filename: str = "") -> str:

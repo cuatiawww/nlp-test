@@ -207,12 +207,22 @@ export const fetchEvents = (params?: {
   page?: number;
   per_page?: number;
   q?: string;
+  disease?: string;
+  source_type?: string;
+  outbreak_alert?: boolean;
+  date_from?: string;
+  date_to?: string;
   is_health_related?: boolean;
 }) => {
   const query = new URLSearchParams();
   if (params?.page) query.set("page", String(params.page));
   if (params?.per_page) query.set("per_page", String(params.per_page));
   if (params?.q) query.set("q", params.q);
+  if (params?.disease) query.set("disease", params.disease);
+  if (params?.source_type) query.set("source_type", params.source_type);
+  if (params?.outbreak_alert !== undefined) query.set("outbreak_alert", String(params.outbreak_alert));
+  if (params?.date_from) query.set("date_from", params.date_from);
+  if (params?.date_to) query.set("date_to", params.date_to);
   if (params?.is_health_related !== undefined) query.set("is_health_related", String(params.is_health_related));
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return fetchFrom<DiseaseEvent[]>(`/api/v1/events${suffix}`);

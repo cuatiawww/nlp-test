@@ -2050,7 +2050,8 @@ async fn public_dashboard(
             "SELECT COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int) AS epidemiological_week,
                     COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)), 0)::bigint AS cases,
                     COALESCE(SUM(GREATEST(COALESCE(e.death_count, 0), 0)), 0)::bigint AS deaths,
-                    COUNT(*)::bigint AS events
+                    COUNT(*)::bigint AS events,
+                    COUNT(*) FILTER (WHERE e.outbreak_alert = TRUE)::bigint AS alerts
              FROM disease_events e
              LEFT JOIN skdr_reports sr ON sr.raw_report_id = e.raw_report_id
              LEFT JOIN LATERAL (
@@ -2083,6 +2084,7 @@ async fn public_dashboard(
             "cases": row.get::<_, i64>(1),
             "deaths": row.get::<_, i64>(2),
             "events": row.get::<_, i64>(3),
+            "alerts": row.get::<_, i64>(4),
         }))
         .collect::<Vec<_>>()
     } else {

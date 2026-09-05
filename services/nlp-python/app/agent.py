@@ -15,7 +15,10 @@ from typing import Any
 
 from . import config
 
+import time
+
 logger = logging.getLogger(__name__)
+_PROVIDER_FAILURES: dict[str, float] = {}
 
 
 def _json_response(value: str) -> dict[str, Any]:
@@ -57,7 +60,10 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> di
         "temperature": 0,
         "response_format": {"type": "json_object"},
     }
+    now = time.time()
     for provider, api_key, base_url, model in _providers():
+        if provider in _PROVIDER_FAILURES and now < _PROVIDER_FAILURES[provider]:
+            continue
         url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
         body = {**body_base, "model": model}
         # DeepSeek's OpenAI-compatible endpoint accepts the legacy field;
@@ -83,5 +89,6 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> di
                 return result
             logger.warning("Agent %s returned invalid/empty JSON", provider)
         except Exception as exc:
-            logger.warning("Agent %s failed; trying next provider: %s", provider, exc)
+            _PROVIDER_FAILURES[provider] = time.time() + 120
+            logger.warning("Agent %s failed; pausing for 120s: %s", provider, exc)
     return {}

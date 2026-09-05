@@ -61,6 +61,10 @@ Walkthrough implementasi agent WHO ICD-11, fallback DeepSeek/OpenAI, disease
 mentions, dan verifikasi hasil tersedia di
 [`docs/ICD11_AGENT_WALKTHROUGH.md`](docs/ICD11_AGENT_WALKTHROUGH.md).
 
+Panduan lengkap sumber data, definisi KPI, EWS, NLP fields, SKDR IBS/EBS,
+dan batasan fallback dashboard tersedia di
+[`docs/PANDUAN_METRIK_DASHBOARD.md`](docs/PANDUAN_METRIK_DASHBOARD.md).
+
 ## Frontend Pages
 
 Semua halaman diakses via prefix **`/nlp/`** (Next.js basePath).

@@ -20,7 +20,22 @@ export function useCrawlingFeed() {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const events = await fetchEvents({ per_page: MAX_ITEMS });
+      // Concurrently query web/RSS and social channels to guarantee both sections
+      // remain populated in the TV crawling feed without one starving the other.
+      const [rssEvents, webEvents, socialEvents] = await Promise.all([
+        fetchEvents({ source_type: "rss", per_page: 50 }).catch(() => []),
+        fetchEvents({ source_type: "web", per_page: 25 }).catch(() => []),
+        fetchEvents({ source_type: "social_media", per_page: 50 }).catch(() => []),
+      ]);
+
+      const eventMap = new Map();
+      for (const ev of [...rssEvents, ...webEvents, ...socialEvents]) {
+        if (ev && ev.id) eventMap.set(ev.id, ev);
+      }
+      let events = Array.from(eventMap.values());
+      if (events.length === 0) {
+        events = await fetchEvents({ per_page: MAX_ITEMS }).catch(() => []);
+      }
       if (!mounted.current) return;
       const nextItems = events
         .map(toCrawlingFeedItem)

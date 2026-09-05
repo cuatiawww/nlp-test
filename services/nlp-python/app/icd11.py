@@ -65,7 +65,7 @@ def who_token() -> str | None:
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         token = data.get("access_token")
         expires_in = int(data.get("expires_in", 3600))
@@ -75,6 +75,9 @@ def who_token() -> str | None:
             return token
     except Exception as e:
         logger.warning("Failed to acquire WHO ICD-11 access token: %s", e)
+        # Negative cache for 120s so we do not block every article on network/bad credentials
+        _TOKEN_CACHE["token"] = None
+        _TOKEN_CACHE["expires_at"] = now + 120
     return None
 
 
@@ -139,7 +142,7 @@ def who_search(term: str, token: str | None = None) -> dict[str, Any] | None:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return _parse_who_search_response(term, data)
     except Exception as e:

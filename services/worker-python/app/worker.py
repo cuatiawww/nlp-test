@@ -34,6 +34,7 @@ def env_year(name: str = "CURRENT_YEAR") -> int:
 
 
 CURRENT_YEAR = env_year()
+_DELIVERY_ATTEMPTS: dict[str, int] = {}
 HISTORICAL_FAST_NON_HEALTH = os.getenv("HISTORICAL_FAST_NON_HEALTH", "false").lower() in {"1", "true", "yes", "on"}
 HEALTH_HINTS = (
     "health", "disease", "illness", "hospital", "patient", "virus", "fever", "dengue",
@@ -106,7 +107,7 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
             "source_country": source_country,
             "historical_fast": HISTORICAL_FAST_NON_HEALTH,
         },
-        timeout=60,
+        timeout=120,
     )
     resp.raise_for_status()
     return resp.json()
@@ -357,14 +358,24 @@ def callback(ch, method, properties, body):
             conn.commit()
 
         logger.info("Processed successfully: raw_id=%s", raw_id)
+        msg_key = str(msg.get("raw_report_id") or msg.get("url") or hash(msg.get("text", "")[:120]))
+        _DELIVERY_ATTEMPTS.pop(msg_key, None)
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except json.JSONDecodeError as e:
         logger.error("Invalid JSON message: %s", e)
         ch.basic_ack(delivery_tag=method.delivery_tag)
     except requests.RequestException as e:
-        logger.error("NLP service error: %s — requeueing", e)
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        logger.error("NLP service error: %s", e)
+        msg_key = str(msg.get("raw_report_id") or msg.get("url") or hash(msg.get("text", "")[:120])) if 'msg' in locals() else str(method.delivery_tag)
+        attempts = _DELIVERY_ATTEMPTS.get(msg_key, 0) + 1
+        _DELIVERY_ATTEMPTS[msg_key] = attempts
+        if attempts >= 3:
+            logger.error("Message %s failed %d times with NLP error, dropping poison pill: %s", msg_key, attempts, e)
+            _DELIVERY_ATTEMPTS.pop(msg_key, None)
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+        else:
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
     except psycopg.Error as e:
         logger.error("Database error: %s — requeueing", e)
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)

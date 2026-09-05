@@ -134,7 +134,7 @@ export type PublicDashboard = {
     locations: { current: number; previous: number };
     alerts: { current: number; previous: number };
   };
-  weekly_trend?: { week: number; cases: number; deaths: number; events: number }[];
+  weekly_trend?: { week: number; cases: number; deaths: number; events: number; alerts?: number }[];
 };
 
 export type AnalyzeResponse = {

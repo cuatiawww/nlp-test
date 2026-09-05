@@ -96,16 +96,15 @@ def _local(text: str, lang: str):
     with _translation_lock:
         tokenizer, model = _local_model()
         tokenizer.src_lang = codes[lang]
-        # Translate opening informative content (max 1800 chars / ~2 chunks) for fast low-latency inference
-        max_chars = int(os.getenv("TRANSLATION_MAX_CHARS", "1800"))
-        lead_text = text[:max_chars]
-        chunks = [lead_text[i:i + 900] for i in range(0, len(lead_text), 900)]
-        translated = []
-        for chunk in chunks:
-            inputs = tokenizer(chunk, return_tensors="pt", truncation=True, max_length=256)
-            output = model.generate(**inputs, forced_bos_token_id=tokenizer.convert_tokens_to_ids("eng_Latn"), max_new_tokens=256)
-            translated.append(tokenizer.batch_decode(output, skip_special_tokens=True)[0])
-    return {"translated_text": " ".join(translated)}
+        # Translate opening informative content (max 500 chars) for fast low-latency inference on CPU
+        max_chars = min(int(os.getenv("TRANSLATION_MAX_CHARS", "500")), 500)
+        lead_text = text[:max_chars].strip()
+        if not lead_text:
+            return {"translated_text": ""}
+        inputs = tokenizer(lead_text, return_tensors="pt", truncation=True, max_length=128)
+        output = model.generate(**inputs, forced_bos_token_id=tokenizer.convert_tokens_to_ids("eng_Latn"), max_new_tokens=128)
+        translated_str = tokenizer.batch_decode(output, skip_special_tokens=True)[0]
+    return {"translated_text": translated_str}
 
 
 def translate_and_extract(text: str, lang: str) -> dict[str, Any]:
