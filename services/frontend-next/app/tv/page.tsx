@@ -216,7 +216,7 @@ export default function TvPage() {
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-1 text-emerald-600">
                     <Radio className="h-3.5 w-3.5" />
                   </div>
-                  <span className="text-[9.5px] font-black tracking-wider text-slate-600">LIVE CRAWLED</span>
+                  <span className="text-[9.5px] font-black tracking-wider text-slate-600">TOTAL CRAWLED (ALL-TIME)</span>
                 </div>
                 <span
                   className={`inline-flex items-center gap-1 text-[8px] font-black uppercase ${
@@ -237,21 +237,30 @@ export default function TvPage() {
                 <b className="font-mono text-xl text-emerald-600">
                   {loading && !crawlingStats
                     ? '...'
-                    : (crawlingStats?.current_live_crawl ?? crawlingStats?.live_crawled ?? 0).toLocaleString(numLocale)}
+                    : (crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 0).toLocaleString(numLocale)}
                 </b>
-                <span className="text-[9px] font-bold text-slate-500">Current run</span>
+                <span className="text-[9px] font-bold text-slate-500">All-time total</span>
               </div>
-              <div className="mt-1.5 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-1.5">
+              <p className="mt-1 text-[8px] font-semibold text-slate-400">
+                Cumulative collector total, updated while crawling is live
+              </p>
+              <div className="mt-1.5 grid grid-cols-3 gap-1.5 border-t border-slate-100 pt-1.5">
                 <div className="rounded-md bg-slate-50 px-1.5 py-1">
-                  <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">Stored in DB</p>
+                  <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">Current Live Crawl</p>
                   <p className="text-xs font-black text-slate-700">
-                    {(crawlingStats?.stored_in_db ?? crawlingStats?.total_processed ?? 0).toLocaleString(numLocale)}
+                    {(crawlingStats?.current_live_crawl ?? crawlingStats?.live_crawled ?? 0).toLocaleString(numLocale)}
                   </p>
                 </div>
                 <div className="rounded-md bg-blue-50 px-1.5 py-1">
-                  <p className="text-[7px] font-black uppercase tracking-wide text-blue-500">Processed NLP</p>
+                  <p className="text-[7px] font-black uppercase tracking-wide text-blue-500">NLP Processing</p>
                   <p className="text-xs font-black text-[#0060A9]">
                     {(crawlingStats?.nlp_processing ?? 0).toLocaleString(numLocale)}
+                  </p>
+                </div>
+                <div className="rounded-md bg-violet-50 px-1.5 py-1">
+                  <p className="text-[7px] font-black uppercase tracking-wide text-violet-500">Stored in DB</p>
+                  <p className="text-xs font-black text-violet-700">
+                    {(crawlingStats?.stored_in_db ?? crawlingStats?.total_processed ?? 0).toLocaleString(numLocale)}
                   </p>
                 </div>
               </div>

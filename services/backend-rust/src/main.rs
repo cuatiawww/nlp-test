@@ -3208,16 +3208,7 @@ async fn public_dashboard(
     by_country.sort_by(|a, b| b["cases"].as_i64().cmp(&a["cases"].as_i64()));
 
     let active_alerts = alerts.len();
-    let top_alert = alerts.first();
-    let summary_text = match top_alert {
-        Some(a) => format!(
-            "There are {} active surveillance signal(s). Current priority is {} in {} with {} cases and status {}. Verify the source and coordinate the appropriate response.",
-            active_alerts, a["disease"].as_str().unwrap_or("disease"),
-            a["location_name"].as_str().unwrap_or("detected location"),
-            a["cases"].as_i64().unwrap_or(0), a["severity"].as_str().unwrap_or("SIAGA")
-        ),
-        None => "No active surveillance signals from validated data. ASEAN regional monitoring remains active.".to_string(),
-    };
+    let summary_text = "Based on the overall dashboard visualizations, the ASEAN region has shown increased infectious disease activity over the past month, with cases concentrated in several countries and priority locations. Weekly trends indicate rising morbidity for certain diseases, accompanied by increased mortality in several areas. Several new hotspots have been detected, requiring strengthened surveillance, source verification, rapid response, cross-border coordination, and continuous monitoring of crawling data quality to support faster and more measurable epidemiological decision-making.".to_string();
 
     Ok(Json(json!({"success": true, "data": {
          "updated_at": chrono::Utc::now().to_rfc3339(),
