@@ -6409,22 +6409,22 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                         </span>
                       </div>
 
-                      {/* 3 Metriks Status Sinyal Kolom (Status AWAS, SIAGA, WASPADA) */}
+                      {/* Three EWS severity metrics: CRITICAL, HIGH, WARNING */}
                       <div className="grid grid-cols-3 gap-2 text-center">
                         <div className="p-2.5 rounded-xl bg-white border border-rose-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-rose-700 uppercase block">Status AWAS</span>
+                          <span className="text-[10px] font-bold text-rose-700 uppercase block">CRITICAL Status</span>
                           <span className="text-lg font-black text-rose-900 leading-tight block mt-0.5">{regionalSkdrData?.alerts?.filter((item) => item.severity === 'AWAS').length ?? 0}</span>
-                          <span className="text-[9px] font-semibold text-rose-600 block mt-0.5">Alert AWAS</span>
+                          <span className="text-[9px] font-semibold text-rose-600 block mt-0.5">CRITICAL Alert</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-white border border-amber-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-amber-700 uppercase block">Status SIAGA</span>
+                          <span className="text-[10px] font-bold text-amber-700 uppercase block">HIGH Status</span>
                           <span className="text-lg font-black text-amber-900 leading-tight block mt-0.5">{regionalSkdrData?.alerts?.filter((item) => item.severity === 'SIAGA').length ?? 0}</span>
-                          <span className="text-[9px] font-semibold text-amber-600 block mt-0.5">Alert SIAGA</span>
+                          <span className="text-[9px] font-semibold text-amber-600 block mt-0.5">HIGH Alert</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-white border border-emerald-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-emerald-700 uppercase block">Status WASPADA</span>
+                          <span className="text-[10px] font-bold text-emerald-700 uppercase block">WARNING Status</span>
                           <span className="text-lg font-black text-emerald-900 leading-tight block mt-0.5">{regionalSkdrData?.alerts?.filter((item) => item.severity === 'WASPADA').length ?? 0}</span>
-                          <span className="text-[9px] font-semibold text-emerald-600 block mt-0.5">Alert WASPADA</span>
+                          <span className="text-[9px] font-semibold text-emerald-600 block mt-0.5">WARNING Alert</span>
                         </div>
                       </div>
 
@@ -9524,12 +9524,12 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   onChange={(e) => setSkdrMatrixStatus(e.target.value)}
                   className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 outline-none cursor-pointer focus:bg-white"
                 >
-                  <option value="all">Semua Status</option>
-                  <option value="Terdata">Terdata</option>
-                  <option value="Perlu Review">Perlu Review</option>
-                  <option value="WASPADA">WASPADA</option>
-                  <option value="SIAGA">SIAGA</option>
-                  <option value="AWAS">AWAS</option>
+                  <option value="all">All Statuses</option>
+                  <option value="Terdata">Recorded</option>
+                  <option value="Perlu Review">Needs Review</option>
+                  <option value="WASPADA">WARNING</option>
+                  <option value="SIAGA">HIGH</option>
+                  <option value="AWAS">CRITICAL</option>
                 </select>
 
                 {/* Search Box */}

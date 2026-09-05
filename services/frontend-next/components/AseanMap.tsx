@@ -84,7 +84,7 @@ export default function AseanMap({
   embedded,
   highlightCountry,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, translateSeverity } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorRef = useRef<VectorLayer<VectorSource> | null>(null);
@@ -710,7 +710,7 @@ export default function AseanMap({
             </div>
             <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 p-2 text-center">
               <span className="text-[9px] font-bold text-amber-700">Status</span>
-              <p className="mt-0.5 text-[10px] font-black text-amber-800">{selectedLocation.severity}</p>
+              <p className="mt-0.5 text-[10px] font-black text-amber-800">{translateSeverity(selectedLocation.severity)}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-center">
               <span className="text-[9px] font-bold text-slate-600">Events</span>
@@ -719,8 +719,8 @@ export default function AseanMap({
           </div>
           <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-500">
             <div className="flex items-center justify-between gap-3">
-              <span>Sumber: {selectedLocation.detail?.source_name || "SKDR IBS"}</span>
-              <span>{selectedLocation.latest_date ? new Date(selectedLocation.latest_date).toLocaleDateString("id-ID") : "-"}</span>
+              <span>Source: {selectedLocation.detail?.source_name || "SKDR IBS"}</span>
+              <span>{selectedLocation.latest_date ? new Date(selectedLocation.latest_date).toLocaleDateString("en-US") : "-"}</span>
             </div>
           </div>
         </div>

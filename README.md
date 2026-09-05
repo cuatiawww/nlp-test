@@ -65,6 +65,10 @@ Panduan lengkap sumber data, definisi KPI, EWS, NLP fields, SKDR IBS/EBS,
 dan batasan fallback dashboard tersedia di
 [`docs/PANDUAN_METRIK_DASHBOARD.md`](docs/PANDUAN_METRIK_DASHBOARD.md).
 
+Panduan proses bisnis end-to-end berstandar stakeholder dan alur intelijen
+epidemiologi tersedia di
+[docs/PROSES_BISNIS.md](docs/PROSES_BISNIS.md).
+
 ## Frontend Pages
 
 Semua halaman diakses via prefix **`/nlp/`** (Next.js basePath).
