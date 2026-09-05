@@ -20,8 +20,8 @@ const roboto = localFont({
 })
 
 export const metadata: Metadata = {
-  title: "Disease Surveillance AI",
-  description: "Multilingual NLP Disease Monitoring Dashboard",
+  title: "ASEAN Real-time AI Surveillance Data",
+  description: "Real-time multilingual surveillance data dashboard",
 }
 
 export default function RootLayout({

@@ -40,11 +40,11 @@ export default function DashboardHeader({
   
   const appTitle = consoleMode
     ? "SYSTEM MANAGEMENT CONSOLE"
-    : (settings.app_name || "DISEASE SURVEILLANCE AI");
+    : (settings.app_name || "ASEAN REAL-TIME AI SURVEILLANCE DATA");
     
   const appSubtitle = consoleMode
     ? "Centralized System Management, Branding & Configuration Portal"
-    : (settings.app_tagline || "Spatial outbreak analysis and early health warning system in Southeast Asia.");
+    : (settings.app_tagline || "Real-time multilingual data monitoring");
 
   return (
     <header className="w-full border-b-2 border-[#0060A9]/20 bg-white">
