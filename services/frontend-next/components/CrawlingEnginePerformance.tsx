@@ -5,12 +5,29 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { Database, Filter, RefreshCw, CheckCircle2, BarChart2, Layers } from "lucide-react";
+import {
+  Activity,
+  Layers,
+  TrendingUp,
+  BarChart2,
+  CheckCircle2,
+  Filter,
+  RotateCcw,
+  Newspaper,
+  Share2,
+  Server,
+  Calendar,
+  Sparkles,
+  Eye,
+  SlidersHorizontal,
+} from "lucide-react";
 import type { CrawlingStats } from "@/lib/api";
 
 interface WeeklyPerformanceItem {
@@ -125,12 +142,17 @@ interface CrawlingEnginePerformanceProps {
   crawlingStats?: CrawlingStats | null;
 }
 
+type ChartDisplayMode = "stacked" | "line" | "grouped";
+type DynamicPreset = "all" | "news" | "social" | "api" | "cumulative" | "recent4";
+
 export default function CrawlingEnginePerformance({
   crawlingStats,
 }: CrawlingEnginePerformanceProps) {
   const [startWeek, setStartWeek] = useState<number>(11);
   const [endWeek, setEndWeek] = useState<number>(22);
-  const [chartMode, setChartMode] = useState<"stacked" | "grouped">("stacked");
+  const [chartMode, setChartMode] = useState<ChartDisplayMode>("stacked");
+  const [activePreset, setActivePreset] = useState<DynamicPreset>("all");
+  const [isCumulative, setIsCumulative] = useState<boolean>(false);
 
   // Series visibility toggles
   const [visibleSeries, setVisibleSeries] = useState<{
@@ -148,111 +170,337 @@ export default function CrawlingEnginePerformance({
       ...prev,
       [key]: !prev[key],
     }));
+    setActivePreset("all");
   };
 
-  // Filter weekly data based on startWeek and endWeek
-  const filteredData = useMemo(() => {
-    return RAW_WEEKLY_DATA.filter((item) => {
+  const resetAllSeries = () => {
+    setVisibleSeries({
+      totalNews: true,
+      totalSocialMedia: true,
+      totalApiData: true,
+    });
+    setIsCumulative(false);
+    setStartWeek(11);
+    setEndWeek(22);
+    setActivePreset("all");
+  };
+
+  // Handler for dynamic preset buttons below the chart
+  const applyDynamicPreset = (preset: DynamicPreset) => {
+    setActivePreset(preset);
+
+    if (preset === "all") {
+      setVisibleSeries({ totalNews: true, totalSocialMedia: true, totalApiData: true });
+      setIsCumulative(false);
+      setStartWeek(11);
+      setEndWeek(22);
+    } else if (preset === "news") {
+      setVisibleSeries({ totalNews: true, totalSocialMedia: false, totalApiData: false });
+      setIsCumulative(false);
+    } else if (preset === "social") {
+      setVisibleSeries({ totalNews: false, totalSocialMedia: true, totalApiData: false });
+      setIsCumulative(false);
+    } else if (preset === "api") {
+      setVisibleSeries({ totalNews: false, totalSocialMedia: false, totalApiData: true });
+      setIsCumulative(false);
+    } else if (preset === "cumulative") {
+      setVisibleSeries({ totalNews: true, totalSocialMedia: true, totalApiData: true });
+      setIsCumulative(true);
+    } else if (preset === "recent4") {
+      setVisibleSeries({ totalNews: true, totalSocialMedia: true, totalApiData: true });
+      setIsCumulative(false);
+      setStartWeek(19);
+      setEndWeek(22);
+    }
+  };
+
+  // Filter and process weekly data based on startWeek, endWeek, and cumulative mode
+  const processedData = useMemo(() => {
+    const rawFiltered = RAW_WEEKLY_DATA.filter((item) => {
       const num = item.weekNum === 182 ? 18.5 : item.weekNum;
       return num >= startWeek && num <= endWeek;
-    }).map((item) => {
-      const news = visibleSeries.totalNews ? item.totalNews : 0;
-      const social = visibleSeries.totalSocialMedia ? item.totalSocialMedia : 0;
-      const api = visibleSeries.totalApiData ? item.totalApiData : 0;
+    });
+
+    let runningNews = 0;
+    let runningSocial = 0;
+    let runningApi = 0;
+
+    return rawFiltered.map((item) => {
+      const baseNews = visibleSeries.totalNews ? item.totalNews : 0;
+      const baseSocial = visibleSeries.totalSocialMedia ? item.totalSocialMedia : 0;
+      const baseApi = visibleSeries.totalApiData ? item.totalApiData : 0;
+
+      if (isCumulative) {
+        runningNews += baseNews;
+        runningSocial += baseSocial;
+        runningApi += baseApi;
+        return {
+          ...item,
+          totalNewsVal: runningNews,
+          totalSocialMediaVal: runningSocial,
+          totalApiDataVal: runningApi,
+          totalCombined: runningNews + runningSocial + runningApi,
+        };
+      }
+
       return {
         ...item,
-        totalNewsVal: news,
-        totalSocialMediaVal: social,
-        totalApiDataVal: api,
-        totalCombined: news + social + api,
+        totalNewsVal: baseNews,
+        totalSocialMediaVal: baseSocial,
+        totalApiDataVal: baseApi,
+        totalCombined: baseNews + baseSocial + baseApi,
       };
     });
-  }, [startWeek, endWeek, visibleSeries]);
+  }, [startWeek, endWeek, visibleSeries, isCumulative]);
 
   // Latest entry values for cards
   const latestRaw = RAW_WEEKLY_DATA[RAW_WEEKLY_DATA.length - 1];
 
   return (
-    <section
-      className="mt-5 w-full border border-[#cfe0f1] bg-white p-5 md:p-7 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition-all"
-      style={{ borderRadius: "17px 17px 22px 17px" }}
+    <article
+      className="mt-6 w-full rounded-2xl border border-slate-200 bg-white p-5 sm:p-7 shadow-[0_6px_20px_rgba(0,0,0,0.03)] hover:shadow-md transition-all space-y-6"
     >
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-12 xl:items-start">
-        {/* ── Left Column: Title, Description, Filters & 3 Metric Cards ── */}
-        <div className="flex flex-col space-y-5 xl:col-span-4">
-          <div>
-            <h2 className="text-xl md:text-2xl font-black tracking-tight text-slate-900 uppercase">
+      <div className="grid grid-cols-1 gap-6 lg:gap-8 xl:grid-cols-12 xl:items-stretch">
+        {/* ── Sisi Kiri (4 cols / ~33%): Title, Description, 3 Stat Cards & Health DB ── */}
+        <div className="flex flex-col justify-between space-y-5 xl:col-span-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50/80 px-2.5 py-0.5 text-[11px] font-bold text-[#0060A9]">
+                <Activity className="h-3.5 w-3.5 text-[#0060A9] animate-pulse" />
+                <span>DATA CRAWLING PIPELINE</span>
+              </div>
+              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+                ONLINE
+              </span>
+            </div>
+
+            <h2 className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-snug">
               Data Crawling Engine Performance
             </h2>
-            <p className="mt-2 text-xs md:text-sm leading-relaxed text-slate-600">
+
+            <p className="text-xs leading-relaxed text-slate-500">
               Presents crawling process performance, data retrieval success, active sources,
-              processing speed, failure rates, duplication, and data freshness for ongoing
-              monitoring purposes.
+              processing speed, and data freshness for ongoing surveillance monitoring.
             </p>
           </div>
 
-          {/* Week Selector & Chart Mode Toggle */}
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-700">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-900">Select Week</span>
-              <select
-                value={startWeek}
-                onChange={(e) => setStartWeek(Number(e.target.value))}
-                className="h-8 rounded-md border border-slate-300 bg-white px-2.5 font-bold text-slate-800 shadow-sm focus:border-[#0060A9] focus:outline-none"
+          {/* 3 Interactive Primary Cards (Detail Region Style) */}
+          <div className="space-y-2.5">
+            {/* 1. News/Media Card */}
+            <button
+              type="button"
+              onClick={() => toggleSeries("totalNews")}
+              className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                visibleSeries.totalNews
+                  ? "border-rose-300 bg-rose-50/60 shadow-xs ring-1 ring-rose-200/80"
+                  : "border-slate-200 bg-slate-50/70 opacity-60 hover:opacity-100"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${visibleSeries.totalNews ? "bg-rose-500 text-white" : "bg-slate-200 text-slate-500"}`}>
+                  <Newspaper className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    Total News / Media
+                  </p>
+                  <p className="text-base font-black text-rose-600">
+                    {visibleSeries.totalNews ? latestRaw.totalNews.toLocaleString() : "Nonaktif"}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-black text-rose-700 bg-rose-100/80 px-2 py-0.5 rounded-md">
+                  RSS/Portal
+                </span>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {crawlingStats?.by_source_type?.find(s => s.source_type === "rss")?.total?.toLocaleString() ?? "3,286"} di DB
+                </p>
+              </div>
+            </button>
+
+            {/* 2. Social Media Card */}
+            <button
+              type="button"
+              onClick={() => toggleSeries("totalSocialMedia")}
+              className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                visibleSeries.totalSocialMedia
+                  ? "border-blue-300 bg-blue-50/60 shadow-xs ring-1 ring-blue-200/80"
+                  : "border-slate-200 bg-slate-50/70 opacity-60 hover:opacity-100"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${visibleSeries.totalSocialMedia ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"}`}>
+                  <Share2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    Social Media Signals
+                  </p>
+                  <p className="text-base font-black text-blue-600">
+                    {visibleSeries.totalSocialMedia ? latestRaw.totalSocialMedia.toLocaleString() : "Nonaktif"}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-black text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-md">
+                  Twitter/IG
+                </span>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {crawlingStats?.by_source_type?.find(s => s.source_type === "social_media")?.total?.toLocaleString() ?? "283"} di DB
+                </p>
+              </div>
+            </button>
+
+            {/* 3. API & Data Studio Card */}
+            <button
+              type="button"
+              onClick={() => toggleSeries("totalApiData")}
+              className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                visibleSeries.totalApiData
+                  ? "border-emerald-300 bg-emerald-50/60 shadow-xs ring-1 ring-emerald-200/80"
+                  : "border-slate-200 bg-slate-50/70 opacity-60 hover:opacity-100"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${visibleSeries.totalApiData ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-500"}`}>
+                  <Server className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    API & Data Studio
+                  </p>
+                  <p className="text-base font-black text-emerald-600">
+                    {visibleSeries.totalApiData ? latestRaw.totalApiData.toLocaleString() : "Nonaktif"}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-black text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                  SKDR / GFS
+                </span>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {((crawlingStats?.by_source_type?.find(s => s.source_type === "skdr_api")?.total ?? 4) +
+                    (crawlingStats?.by_source_type?.find(s => s.source_type === "web")?.total ?? 32)).toLocaleString()} di DB
+                </p>
+              </div>
+            </button>
+          </div>
+
+          {/* Real DB Pipeline Summary Footnote */}
+          {crawlingStats && (
+            <div className="flex items-center gap-2.5 rounded-xl bg-slate-50/80 border border-slate-200 p-3 text-[11px] text-slate-600">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <div className="leading-tight">
+                <p className="font-bold text-slate-800">
+                  Live Engine Pipeline: {crawlingStats.total.toLocaleString()} raw data
+                </p>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  {crawlingStats.total_processed.toLocaleString()} terproses NLP ({((crawlingStats.total_processed / (crawlingStats.total || 1)) * 100).toFixed(1)}% throughput)
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Sisi Kanan (8 cols / ~67%): Detail Region Styled Chart Panel ── */}
+        <div className="flex flex-col rounded-2xl border border-slate-200/90 bg-slate-50/60 p-4 sm:p-5 xl:col-span-8 space-y-4">
+          {/* Top Bar: Interactive Series Toggle Pills & View Mode Switcher */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
+            {/* Left: Category Filter Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-[11px] font-bold text-slate-500 mr-1 hidden sm:inline">
+                Filter Kategori:
+              </span>
+
+              {/* News Pill */}
+              <button
+                type="button"
+                onClick={() => toggleSeries("totalNews")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                  visibleSeries.totalNews
+                    ? "bg-rose-50 text-rose-700 border-rose-300 shadow-2xs font-black"
+                    : "bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60"
+                }`}
               >
-                {[11, 12, 13, 14, 16, 17, 18, 19, 20, 21].map((w) => (
-                  <option key={`start-${w}`} value={w}>
-                    {w}
-                  </option>
-                ))}
-              </select>
-              <span className="font-semibold text-slate-600">To</span>
-              <select
-                value={endWeek}
-                onChange={(e) => setEndWeek(Number(e.target.value))}
-                className="h-8 rounded-md border border-slate-300 bg-white px-2.5 font-bold text-slate-800 shadow-sm focus:border-[#0060A9] focus:outline-none"
+                <span className="h-2 w-2 rounded-full bg-[#EF4444]" />
+                News / Media
+              </button>
+
+              {/* Social Media Pill */}
+              <button
+                type="button"
+                onClick={() => toggleSeries("totalSocialMedia")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                  visibleSeries.totalSocialMedia
+                    ? "bg-blue-50 text-blue-700 border-blue-300 shadow-2xs font-black"
+                    : "bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60"
+                }`}
               >
-                {[12, 13, 14, 16, 17, 18, 19, 20, 21, 22].map((w) => (
-                  <option key={`end-${w}`} value={w}>
-                    {w}
-                  </option>
-                ))}
-              </select>
-              {(startWeek !== 11 || endWeek !== 22) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStartWeek(11);
-                    setEndWeek(22);
-                  }}
-                  className="text-[11px] font-bold text-[#0060A9] hover:underline ml-1"
-                >
-                  Reset
-                </button>
-              )}
+                <span className="h-2 w-2 rounded-full bg-[#2563EB]" />
+                Social Media
+              </button>
+
+              {/* API Pill */}
+              <button
+                type="button"
+                onClick={() => toggleSeries("totalApiData")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                  visibleSeries.totalApiData
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 shadow-2xs font-black"
+                    : "bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60"
+                }`}
+              >
+                <span className="h-2 w-2 rounded-full bg-[#10B981]" />
+                API Data
+              </button>
+
+              {/* Reset Button */}
+              <button
+                type="button"
+                onClick={resetAllSeries}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-slate-500 hover:text-slate-900 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer ml-1"
+                title="Reset semua filter"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset
+              </button>
             </div>
 
-            {/* Mode Switch: Stacked vs Grouped */}
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[10px] font-bold">
+            {/* Right: View Mode Switcher Pills (Stacked vs Line vs Grouped) */}
+            <div className="flex items-center gap-1 bg-slate-200/80 p-0.5 rounded-lg text-xs font-bold">
               <button
                 type="button"
                 onClick={() => setChartMode("stacked")}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 transition-all ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition cursor-pointer ${
                   chartMode === "stacked"
-                    ? "bg-white text-[#0060A9] shadow-xs"
-                    : "text-slate-500 hover:text-slate-900"
+                    ? "bg-[#0060A9] text-white shadow-2xs font-black"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
                 }`}
               >
                 <Layers className="h-3 w-3" />
-                Stacked
+                Stacked Bar
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartMode("line")}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition cursor-pointer ${
+                  chartMode === "line"
+                    ? "bg-[#0060A9] text-white shadow-2xs font-black"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                <TrendingUp className="h-3 w-3" />
+                Trend Line
               </button>
               <button
                 type="button"
                 onClick={() => setChartMode("grouped")}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 transition-all ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition cursor-pointer ${
                   chartMode === "grouped"
-                    ? "bg-white text-[#0060A9] shadow-xs"
-                    : "text-slate-500 hover:text-slate-900"
+                    ? "bg-[#0060A9] text-white shadow-2xs font-black"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
                 }`}
               >
                 <BarChart2 className="h-3 w-3" />
@@ -261,265 +509,268 @@ export default function CrawlingEnginePerformance({
             </div>
           </div>
 
-          {/* 3 Metric Toggle Cards */}
-          <div className="grid grid-cols-3 gap-2.5">
-            {/* 1. TOTAL NEWS/MEDIA */}
-            <button
-              type="button"
-              onClick={() => toggleSeries("totalNews")}
-              className={`flex flex-col items-center justify-center p-3 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-xl border ${
-                visibleSeries.totalNews
-                  ? "border-rose-500 bg-rose-50/60 text-rose-700 shadow-sm ring-1 ring-rose-400"
-                  : "border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300"
-              }`}
-            >
-              <div className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-rose-500" />
-                <span>TOTAL NEWS</span>
-              </div>
-              <span className="text-[9px] text-slate-500">MEDIA</span>
-              <span className="mt-1.5 text-xs md:text-sm font-black text-rose-600">
-                {visibleSeries.totalNews ? latestRaw.totalNews.toLocaleString() : "Hidden"}
-              </span>
-            </button>
-
-            {/* 2. TOTAL SOCIAL MEDIA */}
-            <button
-              type="button"
-              onClick={() => toggleSeries("totalSocialMedia")}
-              className={`flex flex-col items-center justify-center p-3 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-xl border ${
-                visibleSeries.totalSocialMedia
-                  ? "border-blue-500 bg-blue-50/60 text-blue-700 shadow-sm ring-1 ring-blue-400"
-                  : "border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300"
-              }`}
-            >
-              <div className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-blue-500" />
-                <span>SOCIAL MEDIA</span>
-              </div>
-              <span className="text-[9px] text-slate-500">SIGNALS</span>
-              <span className="mt-1.5 text-xs md:text-sm font-black text-blue-600">
-                {visibleSeries.totalSocialMedia ? latestRaw.totalSocialMedia.toLocaleString() : "Hidden"}
-              </span>
-            </button>
-
-            {/* 3. TOTAL API/DATA STUDIO */}
-            <button
-              type="button"
-              onClick={() => toggleSeries("totalApiData")}
-              className={`flex flex-col items-center justify-center p-3 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-xl border ${
-                visibleSeries.totalApiData
-                  ? "border-emerald-500 bg-emerald-50/60 text-emerald-700 shadow-sm ring-1 ring-emerald-400"
-                  : "border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300"
-              }`}
-            >
-              <div className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span>API DATA</span>
-              </div>
-              <span className="text-[9px] text-slate-500">STUDIO</span>
-              <span className="mt-1.5 text-xs md:text-sm font-black text-emerald-600">
-                {visibleSeries.totalApiData ? latestRaw.totalApiData.toLocaleString() : "Hidden"}
-              </span>
-            </button>
-          </div>
-
-          {/* Live DB Pipeline Summary */}
-          {crawlingStats && (
-            <div className="flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-[11px] text-slate-600">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-              <span>
-                <b>Live Engine:</b> {crawlingStats.total.toLocaleString()} total raw items (
-                {crawlingStats.total_processed.toLocaleString()} processed)
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* ── Right Column: Stacked Bar Chart with Categories ── */}
-        <div className="flex flex-col xl:col-span-8">
-          <div className="relative w-full h-[320px] md:h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={filteredData}
-                margin={{ top: 15, right: 25, left: 10, bottom: 25 }}
-                barCategoryGap="20%"
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis
-                  dataKey="weekLabel"
-                  tick={({ x, y, payload }) => {
-                    const item = filteredData.find((d) => d.weekLabel === payload.value);
-                    const isLatest = payload.value === "Minggu 22";
-                    return (
-                      <g transform={`translate(${x},${y})`}>
-                        <text
-                          x={0}
-                          y={0}
-                          dy={12}
-                          textAnchor="middle"
-                          fill={isLatest ? "#0060A9" : "#64748b"}
-                          fontSize={10}
-                          fontWeight={isLatest ? 700 : 500}
-                        >
-                          {payload.value}
-                        </text>
-                        {item?.subLabel && (
-                          <text
-                            x={0}
-                            y={0}
-                            dy={24}
-                            textAnchor="middle"
-                            fill={isLatest ? "#0060A9" : "#94a3b8"}
-                            fontSize={9}
-                            fontWeight={isLatest ? 700 : 400}
-                          >
-                            {item.subLabel}
-                          </text>
-                        )}
-                      </g>
-                    );
-                  }}
-                  tickLine={false}
-                  axisLine={{ stroke: "#e2e8f0" }}
-                  interval={0}
-                />
-                <YAxis
-                  tick={{ fill: "#64748b", fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={{ stroke: "#e2e8f0" }}
-                  tickFormatter={(val) => (val >= 1000 ? `${Math.round(val / 1000)}K` : `${val}`)}
-                />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (active && payload && payload.length) {
-                      const item = filteredData.find((d) => d.weekLabel === label);
-                      const totalSum = payload.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
-                      return (
-                        <div className="rounded-xl border border-slate-200 bg-white/95 p-3.5 shadow-xl backdrop-blur-sm text-xs space-y-2 min-w-[200px]">
-                          <div className="border-b border-slate-100 pb-1.5 flex items-center justify-between">
-                            <span className="font-bold text-slate-800">
-                              {label}
-                            </span>
-                            <span className="text-[10px] text-slate-500">
-                              {item?.subLabel}
-                            </span>
-                          </div>
-                          <div className="space-y-1.5">
-                            {payload.map((entry, idx) => {
-                              const val = Number(entry.value) || 0;
-                              const pct = totalSum > 0 ? ((val / totalSum) * 100).toFixed(1) : "0";
-                              return (
-                                <div key={`tip-${idx}`} className="flex items-center justify-between gap-3">
-                                  <span className="flex items-center gap-1.5 font-medium text-slate-600">
-                                    <span
-                                      className="h-2.5 w-2.5 rounded-sm"
-                                      style={{ backgroundColor: entry.color }}
-                                    />
-                                    {entry.name}:
-                                  </span>
-                                  <div className="text-right">
-                                    <span className="font-bold text-slate-900">
+          {/* Chart Canvas Area */}
+          <div className="w-full h-[310px] sm:h-[330px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+              {chartMode === "line" ? (
+                <LineChart
+                  data={processedData}
+                  margin={{ top: 15, right: 25, left: -10, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="weekLabel"
+                    tick={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }}
+                    stroke="#cbd5e1"
+                    interval={0}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }}
+                    stroke="#cbd5e1"
+                    tickFormatter={(v) => (Number(v) >= 1000 ? `${(Number(v) / 1000).toFixed(0)}k` : v)}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#ffffff",
+                      borderRadius: "12px",
+                      border: "1px solid #cbd5e1",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.1)",
+                    }}
+                  />
+                  {visibleSeries.totalNews && (
+                    <Line
+                      type="monotone"
+                      dataKey="totalNewsVal"
+                      name="News/Media"
+                      stroke="#EF4444"
+                      strokeWidth={2.5}
+                      dot={{ r: 3.5, fill: "#EF4444" }}
+                      activeDot={{ r: 6 }}
+                    />
+                  )}
+                  {visibleSeries.totalSocialMedia && (
+                    <Line
+                      type="monotone"
+                      dataKey="totalSocialMediaVal"
+                      name="Social Media"
+                      stroke="#2563EB"
+                      strokeWidth={2.5}
+                      dot={{ r: 3.5, fill: "#2563EB" }}
+                      activeDot={{ r: 6 }}
+                    />
+                  )}
+                  {visibleSeries.totalApiData && (
+                    <Line
+                      type="monotone"
+                      dataKey="totalApiDataVal"
+                      name="API Data"
+                      stroke="#10B981"
+                      strokeWidth={2.5}
+                      dot={{ r: 3.5, fill: "#10B981" }}
+                      activeDot={{ r: 6 }}
+                    />
+                  )}
+                </LineChart>
+              ) : (
+                <BarChart
+                  data={processedData}
+                  margin={{ top: 15, right: 25, left: -10, bottom: 5 }}
+                  barCategoryGap={chartMode === "stacked" ? "25%" : "15%"}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="weekLabel"
+                    tick={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }}
+                    stroke="#cbd5e1"
+                    interval={0}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fontWeight: 700, fill: "#64748b" }}
+                    stroke="#cbd5e1"
+                    tickFormatter={(v) => (Number(v) >= 1000 ? `${(Number(v) / 1000).toFixed(0)}k` : v)}
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        const item = processedData.find((d) => d.weekLabel === label);
+                        const totalSum = payload.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
+                        return (
+                          <div className="rounded-xl border border-slate-200 bg-white/95 p-3.5 shadow-xl backdrop-blur-sm text-xs space-y-2 min-w-[210px]">
+                            <div className="border-b border-slate-100 pb-1.5 flex items-center justify-between">
+                              <span className="font-bold text-slate-800">
+                                {label}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {item?.subLabel}
+                              </span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {payload.map((entry, idx) => {
+                                const val = Number(entry.value) || 0;
+                                const pct = totalSum > 0 ? ((val / totalSum) * 100).toFixed(1) : "0";
+                                return (
+                                  <div key={`tip-${idx}`} className="flex items-center justify-between gap-3">
+                                    <span className="flex items-center gap-1.5 font-semibold text-slate-600">
+                                      <span
+                                        className="h-2.5 w-2.5 rounded-sm"
+                                        style={{ backgroundColor: entry.color }}
+                                      />
+                                      {entry.name}:
+                                    </span>
+                                    <div className="text-right font-bold text-slate-900">
                                       {val.toLocaleString()}
-                                    </span>
-                                    <span className="ml-1 text-[10px] text-slate-400">
-                                      ({pct}%)
-                                    </span>
+                                      <span className="ml-1 text-[10px] font-normal text-slate-400">
+                                        ({pct}%)
+                                      </span>
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              })}
+                            </div>
+                            <div className="border-t border-slate-100 pt-1.5 flex items-center justify-between font-black text-slate-900">
+                              <span>Total {isCumulative ? "Akumulasi" : "Minggu"}:</span>
+                              <span className="text-[#0060A9] font-black">
+                                {totalSum.toLocaleString()}
+                              </span>
+                            </div>
                           </div>
-                          <div className="border-t border-slate-100 pt-1.5 flex items-center justify-between font-black text-slate-900">
-                            <span>Total Minggu:</span>
-                            <span className="text-[#0060A9]">
-                              {totalSum.toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-
-                {/* 1. Red Bar: Total News/Media */}
-                {visibleSeries.totalNews && (
-                  <Bar
-                    dataKey="totalNewsVal"
-                    name="Total News/Media"
-                    stackId={chartMode === "stacked" ? "crawling" : undefined}
-                    fill="#EF4444"
-                    radius={chartMode === "grouped" ? [4, 4, 0, 0] : (!visibleSeries.totalSocialMedia && !visibleSeries.totalApiData ? [6, 6, 0, 0] : [0, 0, 0, 0])}
+                        );
+                      }
+                      return null;
+                    }}
                   />
-                )}
-
-                {/* 2. Blue Bar: Total Social Media */}
-                {visibleSeries.totalSocialMedia && (
-                  <Bar
-                    dataKey="totalSocialMediaVal"
-                    name="Total Social Media"
-                    stackId={chartMode === "stacked" ? "crawling" : undefined}
-                    fill="#2563EB"
-                    radius={chartMode === "grouped" ? [4, 4, 0, 0] : (!visibleSeries.totalApiData ? [6, 6, 0, 0] : [0, 0, 0, 0])}
-                  />
-                )}
-
-                {/* 3. Green Bar: Total API/Data Studio */}
-                {visibleSeries.totalApiData && (
-                  <Bar
-                    dataKey="totalApiDataVal"
-                    name="Total API Data"
-                    stackId={chartMode === "stacked" ? "crawling" : undefined}
-                    fill="#10B981"
-                    radius={chartMode === "grouped" ? [4, 4, 0, 0] : [6, 6, 0, 0]}
-                  />
-                )}
-              </BarChart>
+                  {visibleSeries.totalNews && (
+                    <Bar
+                      dataKey="totalNewsVal"
+                      name="News/Media"
+                      stackId={chartMode === "stacked" ? "crawling" : undefined}
+                      fill="#EF4444"
+                      radius={chartMode === "grouped" ? [4, 4, 0, 0] : (!visibleSeries.totalSocialMedia && !visibleSeries.totalApiData ? [6, 6, 0, 0] : [0, 0, 0, 0])}
+                    />
+                  )}
+                  {visibleSeries.totalSocialMedia && (
+                    <Bar
+                      dataKey="totalSocialMediaVal"
+                      name="Social Media"
+                      stackId={chartMode === "stacked" ? "crawling" : undefined}
+                      fill="#2563EB"
+                      radius={chartMode === "grouped" ? [4, 4, 0, 0] : (!visibleSeries.totalApiData ? [6, 6, 0, 0] : [0, 0, 0, 0])}
+                    />
+                  )}
+                  {visibleSeries.totalApiData && (
+                    <Bar
+                      dataKey="totalApiDataVal"
+                      name="API Data"
+                      stackId={chartMode === "stacked" ? "crawling" : undefined}
+                      fill="#10B981"
+                      radius={chartMode === "grouped" ? [4, 4, 0, 0] : [6, 6, 0, 0]}
+                    />
+                  )}
+                </BarChart>
+              )}
             </ResponsiveContainer>
           </div>
 
-          {/* Bottom Legend / Filter Buttons */}
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-2 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => toggleSeries("totalNews")}
-              className={`flex items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-[11px] font-bold uppercase transition-all ${
-                visibleSeries.totalNews
-                  ? "border-rose-500 bg-rose-50 text-rose-700 shadow-xs"
-                  : "border-slate-200 bg-white text-slate-400 hover:border-slate-300"
-              }`}
-            >
-              <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" />
-              TOTAL NEWS/MEDIA
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleSeries("totalSocialMedia")}
-              className={`flex items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-[11px] font-bold uppercase transition-all ${
-                visibleSeries.totalSocialMedia
-                  ? "border-blue-500 bg-blue-50 text-blue-700 shadow-xs"
-                  : "border-slate-200 bg-white text-slate-400 hover:border-slate-300"
-              }`}
-            >
-              <span className="h-2.5 w-2.5 rounded-sm bg-blue-500" />
-              TOTAL SOCIAL MEDIA SIGNAL
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleSeries("totalApiData")}
-              className={`flex items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-[11px] font-bold uppercase transition-all ${
-                visibleSeries.totalApiData
-                  ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-xs"
-                  : "border-slate-200 bg-white text-slate-400 hover:border-slate-300"
-              }`}
-            >
-              <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
-              TOTAL API DATA
-            </button>
+          {/* ── Bottom Section: DYNAMIC PRESET BUTTONS (User Requirement: "button yg dibawah itu adalah untuk dinamis") ── */}
+          <div className="pt-3 border-t border-slate-200/80">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-[#0060A9]" />
+                <span>Pilihan Tampilan Dinamis:</span>
+              </div>
+
+              {/* Dynamic Preset Button Group */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {/* 1. Tampilkan Semua */}
+                <button
+                  type="button"
+                  onClick={() => applyDynamicPreset("all")}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                    activePreset === "all" && !isCumulative
+                      ? "bg-slate-900 text-white border-slate-900 shadow-2xs font-black"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  <Eye className="h-3 w-3" />
+                  Semua Kanal
+                </button>
+
+                {/* 2. Fokus News/Media */}
+                <button
+                  type="button"
+                  onClick={() => applyDynamicPreset("news")}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                    activePreset === "news"
+                      ? "bg-rose-600 text-white border-rose-600 shadow-2xs font-black"
+                      : "bg-white text-rose-700 border-rose-200 hover:border-rose-300 hover:bg-rose-50/50"
+                  }`}
+                >
+                  <span className="h-2 w-2 rounded-full bg-rose-500 border border-white" />
+                  Fokus News
+                </button>
+
+                {/* 3. Fokus Social Media */}
+                <button
+                  type="button"
+                  onClick={() => applyDynamicPreset("social")}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                    activePreset === "social"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-2xs font-black"
+                      : "bg-white text-blue-700 border-blue-200 hover:border-blue-300 hover:bg-blue-50/50"
+                  }`}
+                >
+                  <span className="h-2 w-2 rounded-full bg-blue-500 border border-white" />
+                  Fokus Social
+                </button>
+
+                {/* 4. Fokus API Data */}
+                <button
+                  type="button"
+                  onClick={() => applyDynamicPreset("api")}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                    activePreset === "api"
+                      ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs font-black"
+                      : "bg-white text-emerald-700 border-emerald-200 hover:border-emerald-300 hover:bg-emerald-50/50"
+                  }`}
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 border border-white" />
+                  Fokus API
+                </button>
+
+                {/* 5. Akumulasi Kumulatif */}
+                <button
+                  type="button"
+                  onClick={() => applyDynamicPreset("cumulative")}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                    activePreset === "cumulative"
+                      ? "bg-amber-600 text-white border-amber-600 shadow-2xs font-black"
+                      : "bg-white text-amber-800 border-amber-200 hover:border-amber-300 hover:bg-amber-50/50"
+                  }`}
+                >
+                  <TrendingUp className="h-3 w-3" />
+                  Kumulatif
+                </button>
+
+                {/* 6. 4 Minggu Terakhir */}
+                <button
+                  type="button"
+                  onClick={() => applyDynamicPreset("recent4")}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                    activePreset === "recent4"
+                      ? "bg-purple-600 text-white border-purple-600 shadow-2xs font-black"
+                      : "bg-white text-purple-700 border-purple-200 hover:border-purple-300 hover:bg-purple-50/50"
+                  }`}
+                >
+                  <Calendar className="h-3 w-3" />
+                  4 Mgg Terakhir
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </section>
+    </article>
   );
 }
