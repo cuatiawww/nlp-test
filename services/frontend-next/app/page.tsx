@@ -203,18 +203,30 @@ function CrawlingInfoModal({
     unknown: t("crawling.sourceLabels.unknown"),
   };
 
+  // Older backend deployments may return a partial crawling-stats payload.
+  // Normalize numeric fields here so the dashboard never crashes while the
+  // API is being upgraded or a source row is incomplete.
+  const totalCrawled = Number(crawlingStats.total ?? 0) || 0;
+  const thisMonth = Number(crawlingStats.this_month ?? 0) || 0;
+  const totalProcessed = Number(crawlingStats.total_processed ?? 0) || 0;
+
   const processedPct =
-    crawlingStats.total > 0
-      ? ((crawlingStats.total_processed / crawlingStats.total) * 100).toFixed(1)
+    totalCrawled > 0
+      ? ((totalProcessed / totalCrawled) * 100).toFixed(1)
       : "0";
 
   // Build normalized matrix for sources that sums exactly to crawlingStats.total
-  const rawSources = (crawlingStats.by_source_type || []).map((s) => ({
-    label: sourceLabel[s.source_type] || s.source_type.toUpperCase(),
-    value: s.total,
-    sub: `${s.processed.toLocaleString()} ${t("crawling.processedByModel")}`,
-  }));
-  const normalizedSources = normalizeMatrixToTarget(rawSources, crawlingStats.total);
+  const rawSources = (crawlingStats.by_source_type || []).map((s) => {
+    const sourceType = s.source_type || "unknown";
+    const sourceTotal = Number(s.total ?? 0) || 0;
+    const sourceProcessed = Number(s.processed ?? 0) || 0;
+    return {
+      label: sourceLabel[sourceType] || sourceType.toUpperCase(),
+      value: sourceTotal,
+      sub: `${sourceProcessed.toLocaleString()} ${t("crawling.processedByModel")}`,
+    };
+  });
+  const normalizedSources = normalizeMatrixToTarget(rawSources, totalCrawled);
 
   return (
     <>
@@ -268,7 +280,7 @@ function CrawlingInfoModal({
                 <span>{t("crawling.syncedBadge")}</span>
                 </div>
                 <p className="text-3xl sm:text-4xl font-black text-emerald-600 tracking-tight">
-                  {crawlingStats.total.toLocaleString()}
+                  {totalCrawled.toLocaleString()}
                 </p>
                 <p className="text-xs font-bold text-slate-600 mt-1">
                   {t("crawling.totalSourceRecords")}
@@ -301,7 +313,7 @@ function CrawlingInfoModal({
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-2.5">
                   <p className="text-sm sm:text-base font-black text-emerald-700">
-                    {crawlingStats.total.toLocaleString()}
+                    {totalCrawled.toLocaleString()}
                   </p>
                   <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
                     {t("crawling.allTime")}
@@ -309,7 +321,7 @@ function CrawlingInfoModal({
                 </div>
                 <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-2.5">
                   <p className="text-sm sm:text-base font-black text-[#0060A9]">
-                    {crawlingStats.this_month.toLocaleString()}
+                    {thisMonth.toLocaleString()}
                   </p>
                   <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
                     {t("crawling.thisMonth")}
@@ -332,7 +344,7 @@ function CrawlingInfoModal({
                     {t("crawling.sourceBreakdown")}
                   </p>
                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    Total: {crawlingStats.total.toLocaleString()}
+                    Total: {totalCrawled.toLocaleString()}
                   </span>
                 </div>
                 <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
@@ -385,7 +397,7 @@ function CrawlingInfoModal({
                         </td>
                         <td className="px-2 py-2.5 text-center text-[10px]">100.0%</td>
                         <td className="px-3.5 py-2.5 text-right text-sm text-emerald-700 font-black">
-                          {crawlingStats.total.toLocaleString()}
+                          {totalCrawled.toLocaleString()}
                         </td>
                       </tr>
                     </tfoot>

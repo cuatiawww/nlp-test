@@ -6,7 +6,6 @@ import DashboardSidebar from "./DashboardSidebar";
 import DashboardHeader from "./DashboardHeader";
 import { isLoggedIn } from "@/lib/auth";
 import Footer from "./Footer";
-import EwsConsent from "./EwsConsent";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 const guestMenu = [
@@ -71,7 +70,6 @@ export default function AppShell({
       />
       <div className="w-full flex-1 py-3 md:py-5">{children}</div>
       <Footer />
-      <EwsConsent />
     </main>
   );
 }
