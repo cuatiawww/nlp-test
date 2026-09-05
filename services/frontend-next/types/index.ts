@@ -123,7 +123,7 @@ export type PublicDashboard = {
   alerts: OutbreakLocation[];
   locations: OutbreakLocation[];
   by_disease: { name: string; cases: number; deaths: number; events: number }[];
-  by_country: { name: string; cases: number }[];
+  by_country: { name: string; cases: number; deaths?: number }[];
   ai_summary: { text: string; provider: string; cached: boolean };
   trends: {
     current_month: string;

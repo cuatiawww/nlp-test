@@ -209,9 +209,13 @@ export interface CrawlingStats {
   this_month: number;
   last_month: number;
   total_processed: number;
+  stored_in_db?: number;
+  nlp_processing?: number;
   current_month: string;
   previous_month: string;
   live_crawled: number;
+  current_live_crawl?: number;
+  total_crawled_all_time?: number;
   active_run_count: number;
   active_since: string | null;
   collector_status: "RUNNING" | "IDLE" | string;

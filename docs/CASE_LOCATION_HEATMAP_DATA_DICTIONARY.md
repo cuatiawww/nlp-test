@@ -82,18 +82,32 @@ Dokumen ini menjelaskan secara rinci asal-usul data, definisi variabel, alur pem
 
 ---
 
-### D. Skala Gradasi Warna Termal Heatmap (Color Mapping)
+### D. Skala Gradasi Warna Termal Heatmap & Tombol Info Rumus
 
-Rasio intensitas dihitung dinamis dengan rumus:
-$$	ext{Ratio} = rac{	ext{Nilai Cell Bulan Ini}}{	ext{Nilai Tertinggi di Seluruh Matriks Tahun Tersebut}}$$
+Pada bagian legend bawah matriks (*Scale Legend*), kini terpasang tombol **Info `(i)`** interaktif di samping teks `Scale Intensity:`. Mengklik tombol ini memicu modal panduan komprehensif (*Scale Intensity & Calculation Formulas*) berformat *wide* (`max-w-3xl sm:max-w-4xl`) dengan *clean title* tanpa icon samping untuk memastikan tata letak rapi, proporsional, serta bebas dari kedipan/flicker (*blip-blip*).
 
-| Tingkat Keparahan (*Severity*) | Rentang Rasio | Kelas CSS Tailwind | Warna Visual |
-|---|---|---|---|
-| **Nol / Tidak Ada Data** | $	ext{Nilai} = 0$ | `bg-slate-100/70 border-slate-200/40 text-slate-400` | Abu-abu pudar netral |
-| **Rendah (*Low*)** | $0 < 	ext{Ratio} < 0.05$ | `bg-emerald-50 border-emerald-200/80 text-emerald-700` | Hijau Emerald lembut |
-| **Sedang (*Moderate*)** | $0.05 \le 	ext{Ratio} < 0.20$ | `bg-amber-100/80 border-amber-300 text-amber-800` | Kuning Amber |
-| **Tinggi (*High*)** | $0.20 \le 	ext{Ratio} < 0.55$ | `bg-orange-200/90 border-orange-400 text-orange-950` | Oranye terang |
-| **Kritis / Puncak (*Peak*)** | $	ext{Ratio} \ge 0.55$ | `bg-gradient-to-br from-rose-500 to-red-600 text-white` | Merah Crimson bersinar (*glow*) |
+#### 1. Rumus Normalisasi Relatif Dinamis
+Rasio intensitas ($R$) dihitung secara dinamis terhadap nilai bulanan tertinggi se-ASEAN pada tahun terpilih ($V_{\text{max}}$):
+$$\text{Intensity Ratio } (R) = \frac{\text{Monthly Value}}{\text{Peak Monthly Value in Selected Year } (V_{\text{max}})}$$
+
+*Alasan Metodologis*: Pendekatan normalisasi dinamis per tahun memastikan matriks heat map selalu sensitif mendeteksi anomali musiman tanpa terdistorsi oleh fluktuasi volume jangka panjang antar negara.
+
+#### 2. Klasifikasi 5 Tingkat Skala Intensitas
+
+| Tingkat Skala | Badge UI | Rentang Ambang Batas (*Threshold*) | Definisi & Interpretasi Epidemiologis |
+|---|:---:|---|---|
+| **Nol / No Data** | `0` | $\text{Value} = 0$ ($R = 0\%$) | **Nihil**: Tidak ada artikel berita atau laporan resmi yang memuat kasus/kematian di negara tersebut pada bulan publikasi bersangkutan. |
+| **Rendah (*Low*)** | `Low` | $0 < R < 5\%$ ($0 < R < 0.05$) | **Insidensi Dasar (*Sporadic Baseline*)**: Kasus terdeteksi sangat rendah dan sporadis; penularan terkendali di bawah ambang normal. |
+| **Sedang (*Medium*)** | `Med` | $5\% \le R < 20\%$ ($0.05 \le R < 0.20$) | **Transmisi Sedang (*Moderate Sustained*)**: Adanya kluster kasus berkelanjutan yang mulai stabil; sinyal kewaspadaan rutin diaktifkan. |
+| **Tinggi (*High*)** | `High` | $20\% \le R < 55\%$ ($0.20 \le R < 0.55$) | **Lonjakan Signifikan (*Significant Outbreak Elevation*)**: Volume kasus melonjak tajam melampaui rata-rata historis tahunan; menandakan eskalasi aktif yang memerlukan intervensi dini dan alokasi logistik kesehatan. |
+| **Kritis / Puncak (*Peak*)** | `Peak` | $R \ge 55\%$ ($R \ge 0.55$) | **Beban Puncak Epidemi (*Epidemic Peak / Critical Burden*)**: Beban transmisi penyakit berada di kuartil tertinggi tahun pantauan; menandakan status darurat epidemiologis. |
+
+#### 3. Rumus Metrik Tambahan
+- **Detected Cases**: $\sum \text{kasus tervalidasi NLP}$ dari artikel berita dan laporan kesehatan.
+- **Recorded Deaths**: $\sum \text{kematian}$ yang diekstraksi dari sumber terverifikasi.
+- **Case Fatality Rate (CFR %)**:
+  $$\text{CFR (\%)} = \left( \frac{\text{Recorded Deaths}}{\text{Detected Cases}} \right) \times 100\%$$
+  *Catatan*: Pada tab metrik CFR, intensitas dinormalisasi terhadap ambang batas kewaspadaan klinis $15\%$, di mana $\text{Ratio} = \min(\text{CFR} / 15, 1.0)$.
 
 ---
 

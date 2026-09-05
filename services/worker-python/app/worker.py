@@ -48,6 +48,117 @@ def get_db():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
+def mark_message_processing(msg: dict) -> None:
+    """Make the NLP queue visible to the dashboard while analysis is running.
+
+    Collector messages normally do not have a raw_report row until after NLP
+    finishes. Create/update a provisional row for URL-based messages so the
+    API can expose the in-flight NLP count without changing the final dedupe
+    behavior below.
+    """
+    raw_id = msg.get("raw_report_id")
+    url = msg.get("url")
+    skdr_report_id = msg.get("skdr_report_id")
+    if not raw_id and not url and not skdr_report_id:
+        return
+
+    with get_db() as conn:
+        if raw_id:
+            conn.execute(
+                "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
+                (raw_id,),
+            )
+        elif url:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (url,))
+            existing = conn.execute(
+                """SELECT id FROM raw_reports
+                   WHERE url=%s
+                   ORDER BY created_at DESC
+                   LIMIT 1
+                   FOR UPDATE""",
+                (url,),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
+                    (existing["id"],),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO raw_reports
+                       (source_type, source_name, published_at, original_text, url, object_path, processing_status)
+                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSING')""",
+                    (
+                        msg.get("source_type"),
+                        msg.get("source_name"),
+                        parse_date(msg.get("published_at")),
+                        msg.get("text", ""),
+                        url,
+                        msg.get("object_path"),
+                    ),
+                )
+        else:
+            skdr_row = conn.execute(
+                "SELECT raw_report_id FROM skdr_reports WHERE id=%s FOR UPDATE",
+                (skdr_report_id,),
+            ).fetchone()
+            if skdr_row and skdr_row["raw_report_id"]:
+                conn.execute(
+                    "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
+                    (skdr_row["raw_report_id"],),
+                )
+            elif skdr_row:
+                raw_row = conn.execute(
+                    """INSERT INTO raw_reports
+                       (source_type, source_name, published_at, original_text, url, object_path, processing_status)
+                       VALUES (%s, %s, %s, %s, NULL, NULL, 'PROCESSING')
+                       RETURNING id""",
+                    (
+                        msg.get("source_type"),
+                        msg.get("source_name"),
+                        parse_date(msg.get("published_at")),
+                        msg.get("text", ""),
+                    ),
+                ).fetchone()
+                conn.execute(
+                    "UPDATE skdr_reports SET raw_report_id=%s, updated_at=NOW() WHERE id=%s",
+                    (raw_row["id"], skdr_report_id),
+                )
+        conn.commit()
+
+
+def mark_message_failed(msg: dict) -> None:
+    """Remove a permanently failed message from the in-flight NLP count."""
+    raw_id = msg.get("raw_report_id")
+    url = msg.get("url")
+    skdr_report_id = msg.get("skdr_report_id")
+    if not raw_id and not url and not skdr_report_id:
+        return
+
+    try:
+        with get_db() as conn:
+            if raw_id:
+                conn.execute(
+                    "UPDATE raw_reports SET processing_status='FAILED' WHERE id=%s",
+                    (raw_id,),
+                )
+            elif url:
+                conn.execute(
+                    """UPDATE raw_reports SET processing_status='FAILED'
+                       WHERE id=(SELECT id FROM raw_reports WHERE url=%s ORDER BY created_at DESC LIMIT 1)""",
+                    (url,),
+                )
+            else:
+                conn.execute(
+                    """UPDATE raw_reports SET processing_status='FAILED'
+                       WHERE id=(SELECT raw_report_id FROM skdr_reports WHERE id=%s)""",
+                    (skdr_report_id,),
+                )
+            conn.commit()
+    except Exception:
+        logger.exception("Could not mark failed NLP message")
+
+
 def parse_date(val: str) -> str | None:
     if not val:
         return None
@@ -131,6 +242,8 @@ def callback(ch, method, properties, body):
             msg.get("source_type", ""),
             len(msg.get("text", "")),
         )
+
+        mark_message_processing(msg)
 
         nlp = fast_non_health_result(msg)
         if nlp is None:
@@ -372,6 +485,7 @@ def callback(ch, method, properties, body):
         _DELIVERY_ATTEMPTS[msg_key] = attempts
         if attempts >= 3:
             logger.error("Message %s failed %d times with NLP error, dropping poison pill: %s", msg_key, attempts, e)
+            mark_message_failed(msg)
             _DELIVERY_ATTEMPTS.pop(msg_key, None)
             ch.basic_ack(delivery_tag=method.delivery_tag)
         else:
@@ -417,4 +531,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

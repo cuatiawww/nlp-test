@@ -13,7 +13,6 @@ import {
   Tooltip,
 } from "recharts";
 import {
-  Activity,
   Layers,
   TrendingUp,
   BarChart2,
@@ -134,7 +133,7 @@ export default function CrawlingEnginePerformance({
   };
 
   // Grounded dynamically in crawlingStats so it is 100% harmonious with top KPI
-  const runningTotalCrawled = crawlingStats?.total ?? 30738;
+  const runningTotalCrawled = crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 30738;
   const dbRss = crawlingStats?.by_source_type?.find((s) => s.source_type === "rss")?.total;
   const dbSocial = crawlingStats?.by_source_type?.find((s) => s.source_type === "social_media")?.total;
   const dbApi =
@@ -246,17 +245,6 @@ export default function CrawlingEnginePerformance({
         {/* ── Sisi Kiri (4 cols / ~33%): Title, Description, 3 Stat Cards & Health DB ── */}
         <div className="flex flex-col justify-between space-y-5 xl:col-span-4">
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50/80 px-2.5 py-0.5 text-[11px] font-bold text-[#0060A9]">
-                <Activity className="h-3.5 w-3.5 text-[#0060A9] animate-pulse" />
-                <span>{t("crawling.pipeline")}</span>
-              </div>
-              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-                {t("crawling.online")}
-              </span>
-            </div>
-
             <h2 className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-snug">
               {t("crawling.title")}
             </h2>
@@ -373,10 +361,10 @@ export default function CrawlingEnginePerformance({
             <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
             <div className="leading-tight">
               <p className="font-black text-slate-900">
-                Live Collector Run: {(crawlingStats?.live_crawled ?? 0).toLocaleString()} crawled
+                Live Collector Run: {(crawlingStats?.current_live_crawl ?? crawlingStats?.live_crawled ?? 0).toLocaleString()} crawled
               </p>
               <p className="text-[10.5px] text-slate-500 mt-0.5">
-                {crawlingStats?.collector_status === "RUNNING" ? "Collector running" : "Collector idle"} • {(crawlingStats?.total ?? 0).toLocaleString()} stored in DB • {(crawlingStats?.total_processed ?? 0).toLocaleString()} processed by NLP
+                {crawlingStats?.collector_status === "RUNNING" ? "Collector running" : "Collector idle"} • {(crawlingStats?.stored_in_db ?? crawlingStats?.total_processed ?? 0).toLocaleString()} stored in DB • {(crawlingStats?.nlp_processing ?? 0).toLocaleString()} in NLP processing
               </p>
             </div>
           </div>

@@ -1601,8 +1601,13 @@ async fn crawling_stats(
                FROM collector_runs
                WHERE status = 'RUNNING'
              ),
+             run_totals AS (
+               SELECT COALESCE(SUM(records_found), 0)::BIGINT AS historical_crawled
+               FROM collector_runs
+               WHERE status <> 'RUNNING'
+             ),
              active_received AS (
-               SELECT COUNT(*)::BIGINT AS live_crawled
+               SELECT COUNT(*)::BIGINT AS current_live_crawl
                FROM raw_reports rr
                WHERE EXISTS (
                  SELECT 1
@@ -1617,17 +1622,23 @@ async fn crawling_stats(
                COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW()) - INTERVAL '1 month'
                                   AND created_at < date_trunc('month', NOW())) AS last_month,
                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED') AS total_processed,
+               COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED', 'NON_HEALTH')) AS stored_in_db,
+               COUNT(*) FILTER (WHERE processing_status IN ('NEW', 'PROCESSING')) AS nlp_processing,
                TO_CHAR(date_trunc('month', NOW()), 'YYYY-MM') AS current_month_label,
                TO_CHAR(date_trunc('month', NOW()) - INTERVAL '1 month', 'YYYY-MM') AS previous_month_label,
                ar.active_run_count,
                ar.active_since,
-               GREATEST(ar.active_records_found, received.live_crawled) AS live_crawled,
+               GREATEST(ar.active_records_found, received.current_live_crawl) AS live_crawled,
+               received.current_live_crawl,
+               totals.historical_crawled + received.current_live_crawl AS total_crawled_all_time,
                CASE WHEN ar.active_run_count > 0 THEN 'RUNNING' ELSE 'IDLE' END AS collector_status,
                MAX(created_at)::text AS last_report_at
              FROM raw_reports
              CROSS JOIN active_runs ar
              CROSS JOIN active_received received
-             GROUP BY ar.active_run_count, ar.active_since, ar.active_records_found, received.live_crawled",
+             CROSS JOIN run_totals totals
+             GROUP BY ar.active_run_count, ar.active_since, ar.active_records_found,
+                      received.current_live_crawl, totals.historical_crawled",
             &[],
         )
         .await
@@ -1637,6 +1648,8 @@ async fn crawling_stats(
     let this_month: i64 = summary_row.get("this_month");
     let last_month: i64 = summary_row.get("last_month");
     let total_processed: i64 = summary_row.get("total_processed");
+    let stored_in_db: i64 = summary_row.get("stored_in_db");
+    let nlp_processing: i64 = summary_row.get("nlp_processing");
     let current_month_label: String = summary_row
         .get::<_, Option<String>>("current_month_label")
         .unwrap_or_default();
@@ -1646,6 +1659,8 @@ async fn crawling_stats(
     let active_run_count: i64 = summary_row.get("active_run_count");
     let active_since: Option<String> = summary_row.get("active_since");
     let live_crawled: i64 = summary_row.get("live_crawled");
+    let current_live_crawl: i64 = summary_row.get("current_live_crawl");
+    let total_crawled_all_time: i64 = summary_row.get("total_crawled_all_time");
     let collector_status: String = summary_row.get("collector_status");
     let last_report_at: Option<String> = summary_row.get("last_report_at");
 
@@ -1683,9 +1698,13 @@ async fn crawling_stats(
             "this_month": this_month,
             "last_month": last_month,
             "total_processed": total_processed,
+            "stored_in_db": stored_in_db,
+            "nlp_processing": nlp_processing,
             "current_month": current_month_label,
             "previous_month": previous_month_label,
             "live_crawled": live_crawled,
+            "current_live_crawl": current_live_crawl,
+            "total_crawled_all_time": total_crawled_all_time,
             "active_run_count": active_run_count,
             "active_since": active_since,
             "collector_status": collector_status,
@@ -3087,7 +3106,7 @@ async fn public_dashboard(
     let mut locations = Vec::new();
     let mut alerts = Vec::new();
     let mut disease_totals = std::collections::HashMap::<String, (i64, i64, i64)>::new();
-    let mut country_totals = std::collections::HashMap::<String, i64>::new();
+    let mut country_totals = std::collections::HashMap::<String, (i64, i64)>::new();
     let mut location_keys = std::collections::HashSet::<String>::new();
     let mut total_cases = 0i64;
     let mut total_deaths = 0i64;
@@ -3129,7 +3148,9 @@ async fn public_dashboard(
         location_keys.insert(location.trim().to_lowercase());
         let entry = disease_totals.entry(disease.clone()).or_insert((0, 0, 0));
         entry.0 += cases; entry.1 += deaths; entry.2 += event_count;
-        *country_totals.entry(country.clone()).or_insert(0) += cases;
+        let country_entry = country_totals.entry(country.clone()).or_insert((0, 0));
+        country_entry.0 += cases;
+        country_entry.1 += deaths;
 
         let item = json!({
             "location_name": location, "disease": disease, "country": country,
@@ -3152,8 +3173,8 @@ async fn public_dashboard(
         json!({"name": name, "cases": v.0, "deaths": v.1, "events": v.2})
     ).collect();
     by_disease.sort_by(|a, b| b["cases"].as_i64().cmp(&a["cases"].as_i64()));
-    let mut by_country: Vec<Value> = country_totals.into_iter().map(|(name, cases)|
-        json!({"name": name, "cases": cases})
+    let mut by_country: Vec<Value> = country_totals.into_iter().map(|(name, (cases, deaths))|
+        json!({"name": name, "cases": cases, "deaths": deaths})
     ).collect();
     by_country.sort_by(|a, b| b["cases"].as_i64().cmp(&a["cases"].as_i64()));
 
