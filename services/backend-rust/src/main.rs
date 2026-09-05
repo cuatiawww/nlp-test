@@ -459,6 +459,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/analyze-url", post(analyze_url))
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/events/stats", get(dashboard_stats))
+        .route("/api/v1/crawling-stats", get(crawling_stats))
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/public-dashboard", get(public_dashboard))
         .route("/api/v1/skdr-reports", get(list_skdr_reports))
@@ -1557,6 +1558,80 @@ async fn dashboard_stats(
         }
     })))
 }
+
+async fn crawling_stats(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let summary_row = client
+        .query_one(
+            "SELECT
+               COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW())) AS this_month,
+               COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW()) - INTERVAL '1 month'
+                                  AND created_at < date_trunc('month', NOW())) AS last_month,
+               COUNT(*) FILTER (WHERE processing_status = 'PROCESSED') AS total_processed,
+               TO_CHAR(date_trunc('month', NOW()), 'YYYY-MM') AS current_month_label,
+               TO_CHAR(date_trunc('month', NOW()) - INTERVAL '1 month', 'YYYY-MM') AS previous_month_label
+             FROM raw_reports",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let total: i64 = summary_row.get("total");
+    let this_month: i64 = summary_row.get("this_month");
+    let last_month: i64 = summary_row.get("last_month");
+    let total_processed: i64 = summary_row.get("total_processed");
+    let current_month_label: String = summary_row
+        .get::<_, Option<String>>("current_month_label")
+        .unwrap_or_default();
+    let previous_month_label: String = summary_row
+        .get::<_, Option<String>>("previous_month_label")
+        .unwrap_or_default();
+
+    let by_source_rows = client
+        .query(
+            "SELECT
+               COALESCE(source_type, 'unknown') AS source_type,
+               COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE processing_status = 'PROCESSED') AS processed,
+               COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW())) AS this_month
+             FROM raw_reports
+             GROUP BY source_type
+             ORDER BY total DESC",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let by_source_type: Vec<serde_json::Value> = by_source_rows
+        .iter()
+        .map(|r| {
+            json!({
+                "source_type": r.get::<_, String>("source_type"),
+                "total": r.get::<_, i64>("total"),
+                "processed": r.get::<_, i64>("processed"),
+                "this_month": r.get::<_, i64>("this_month"),
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "total": total,
+            "this_month": this_month,
+            "last_month": last_month,
+            "total_processed": total_processed,
+            "current_month": current_month_label,
+            "previous_month": previous_month_label,
+            "by_source_type": by_source_type,
+        }
+    })))
+}
+
 
 fn require_dashboard_token(
     state: &Arc<AppState>,

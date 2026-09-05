@@ -201,6 +201,19 @@ export const updateCredibility = (id: string, data: any) =>
 export const deleteCredibility = (id: string) =>
   delFrom(`/api/v1/source-credibility/${id}`);
 
+
+// ── Crawling Stats ─────────────────────────────────────
+export const fetchCrawlingStats = () =>
+  fetchFrom<{
+    total: number;
+    this_month: number;
+    last_month: number;
+    total_processed: number;
+    current_month: string;
+    previous_month: string;
+    by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
+  }>("/api/v1/crawling-stats");
+
 // ── Events ────────────────────────────────────────
 
 export const fetchEvents = (params?: {

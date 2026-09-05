@@ -10,10 +10,12 @@ import {
   Clock3,
   ChevronDown,
   ChevronUp,
+  Database,
   Filter,
   ExternalLink,
   FileText,
   Globe2,
+  Info,
   MapPin,
   RefreshCw,
 Skull,
@@ -37,7 +39,7 @@ ResponsiveContainer,
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchPublicDashboard } from "@/lib/api";
+import { fetchPublicDashboard, fetchCrawlingStats } from "@/lib/api";
 import type { OutbreakLocation, PublicDashboard } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
@@ -115,6 +117,215 @@ function formatPublishDate(dateStr?: string | null, numLocale = "id-ID") {
   }
 }
 
+// ── Crawling Info Modal ───────────────────────────────────────────────────────
+function CrawlingInfoModal({ crawlingStats }: {
+  crawlingStats: {
+    total: number; this_month: number; last_month: number;
+    total_processed: number; current_month: string; previous_month: string;
+    by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
+  } | null;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!crawlingStats) return null;
+  const sourceLabel: Record<string, string> = {
+    rss: "RSS / News Feed",
+    twitter: "Twitter / X",
+    skdr: "SKDR Surveillance",
+    skdr_api: "SKDR API",
+    social: "Social Media",
+    unknown: "Unknown Source",
+  };
+  const processedPct = crawlingStats.total > 0
+    ? ((crawlingStats.total_processed / crawlingStats.total) * 100).toFixed(1)
+    : "0";
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-emerald-100 hover:text-emerald-600 transition"
+        aria-label="Info about Total Crawling"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] px-4"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-md rounded-2xl border border-emerald-100 bg-white shadow-[0_20px_60px_rgba(5,150,105,.15)] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between bg-gradient-to-r from-emerald-50 to-transparent px-5 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100">
+                  <Database className="h-4 w-4 text-emerald-600" />
+                </div>
+                <h3 className="text-sm font-black text-slate-800">Total Crawled Reports</h3>
+              </div>
+              <button onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 transition" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="rounded-xl bg-emerald-50/60 border border-emerald-100 p-3.5">
+                <p className="text-[11px] font-extrabold uppercase tracking-widest text-emerald-700 mb-1.5">What is this?</p>
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Total number of raw reports (news articles, social media posts, and surveillance data)
+                  collected by the crawling system since the beginning. This is an all-time total, not
+                  filtered by year. The system continuously crawls registered sources and queues each
+                  item for NLP processing.
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl p-3 text-center bg-emerald-50 border border-emerald-100">
+                  <p className="text-lg font-black text-emerald-600">{crawlingStats.total.toLocaleString()}</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wide mt-0.5">All-Time Total</p>
+                </div>
+                <div className="rounded-xl p-3 text-center bg-blue-50 border border-blue-100">
+                  <p className="text-lg font-black text-blue-600">{crawlingStats.this_month.toLocaleString()}</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wide mt-0.5">This Month</p>
+                </div>
+                <div className="rounded-xl p-3 text-center bg-violet-50 border border-violet-100">
+                  <p className="text-lg font-black text-violet-600">{processedPct}%</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wide mt-0.5">NLP Processed</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500 mb-2">Breakdown by Source</p>
+                <div className="rounded-xl border border-slate-100 overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-left">
+                        <th className="px-3 py-2 font-bold text-slate-600 text-[10px] uppercase tracking-wider">Source Type</th>
+                        <th className="px-3 py-2 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-right">Total</th>
+                        <th className="px-3 py-2 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-right">Processed</th>
+                        <th className="px-3 py-2 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-right">This Month</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {crawlingStats.by_source_type.map((src, i) => (
+                        <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/40"}>
+                          <td className="px-3 py-2 font-semibold text-slate-700">
+                            {sourceLabel[src.source_type] ?? src.source_type}
+                          </td>
+                          <td className="px-3 py-2 text-right font-bold text-slate-800">{src.total.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-emerald-600 font-bold">{src.processed.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-blue-600 font-bold">{src.this_month.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── KPI Info Modal ────────────────────────────────────────────────────────────
+function KpiInfoModal({
+  open,
+  onClose,
+  title,
+  description,
+  matrixTitle,
+  matrix,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description: string;
+  matrixTitle: string;
+  matrix: { label: string; value: number | string; sub?: string }[];
+}) {
+  if (!open) return null;
+  const total = matrix.reduce((s, r) => s + (typeof r.value === "number" ? r.value : 0), 0);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] px-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-md rounded-2xl border border-blue-100 bg-white shadow-[0_20px_60px_rgba(0,96,169,.18)] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#0060A9]/8 to-transparent px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#0060A9]/10">
+              <Info className="h-4 w-4 text-[#0060A9]" />
+            </div>
+            <h3 className="text-sm font-black text-slate-800">{title}</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {/* Body */}
+        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Description */}
+          <div className="rounded-xl bg-blue-50/60 border border-blue-100 p-3.5">
+            <p className="text-[11px] font-extrabold uppercase tracking-widest text-[#0060A9] mb-1.5">What is this?</p>
+            <p className="text-xs text-slate-700 leading-relaxed">{description}</p>
+          </div>
+          {/* Matrix */}
+          {matrix.length > 0 && (
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500 mb-2">{matrixTitle}</p>
+              <div className="rounded-xl border border-slate-100 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-left">
+                      <th className="px-3 py-2 font-bold text-slate-600 text-[10px] uppercase tracking-wider">Country / Source</th>
+                      <th className="px-3 py-2 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-right">Count</th>
+                      <th className="px-3 py-2 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-right">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {matrix.slice(0, 12).map((row, i) => {
+                      const pct = total > 0 && typeof row.value === "number"
+                        ? ((row.value / total) * 100).toFixed(1)
+                        : "–";
+                      return (
+                        <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/40"}>
+                          <td className="px-3 py-2 font-semibold text-slate-700">
+                            {row.label}
+                            {row.sub && <span className="ml-1 text-[9px] text-slate-400">({row.sub})</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right font-bold text-slate-800">
+                            {typeof row.value === "number" ? row.value.toLocaleString() : row.value}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <span className="inline-block rounded-full bg-[#0060A9]/10 px-2 py-0.5 text-[10px] font-bold text-[#0060A9]">
+                              {pct}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {matrix.length > 12 && (
+                <p className="mt-1 text-[10px] text-slate-400 text-right">Showing top 12 of {matrix.length}</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── KPI Card ──────────────────────────────────────────────────────────────────
 function Kpi({
   label,
   value,
@@ -122,6 +333,7 @@ function Kpi({
   tone = "blue",
   trend,
   previousMonth,
+  infoModal,
 }: {
   label: string;
   value: number;
@@ -129,9 +341,16 @@ function Kpi({
   tone?: string;
   trend?: { current: number; previous: number };
   previousMonth?: string;
+  infoModal?: {
+    title: string;
+    description: string;
+    matrixTitle: string;
+    matrix: { label: string; value: number | string; sub?: string }[];
+  };
 }) {
   const { t, locale } = useTranslation();
   const numLocale = locale === "en" ? "en-US" : "id-ID";
+  const [modalOpen, setModalOpen] = useState(false);
   const difference = (trend?.current ?? 0) - (trend?.previous ?? 0);
   const percentage = trend
     ? trend.previous > 0
@@ -154,42 +373,63 @@ function Kpi({
         : "text-[#0060A9] bg-blue-50/80";
 
   return (
-    <article
-      className="flex min-h-[128px] items-center gap-3 border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
-      style={{ borderRadius: "17px 17px 22px 17px" }}
-    >
-      <div
-        className={`flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full ${color}`}
+    <>
+      {infoModal && (
+        <KpiInfoModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          title={infoModal.title}
+          description={infoModal.description}
+          matrixTitle={infoModal.matrixTitle}
+          matrix={infoModal.matrix}
+        />
+      )}
+      <article
+        className="relative flex min-h-[128px] items-center gap-3 border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
+        style={{ borderRadius: "17px 17px 22px 17px" }}
       >
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
-          {label}
-        </p>
-        <p
-          className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-[#ED2939]" : tone === "gold" || tone === "orange" ? "text-[#B49B58]" : "text-[#0060A9]"}`}
+        {infoModal && (
+          <button
+            onClick={() => setModalOpen(true)}
+            className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-blue-100 hover:text-[#0060A9] transition"
+            aria-label={`Info about ${label}`}
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <div
+          className={`flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full ${color}`}
         >
-          {value.toLocaleString(numLocale)}
-        </p>
-        <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
-          <p className="uppercase">
-            {monthLabel} ({(trend?.previous ?? 0).toLocaleString(numLocale)})
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
+            {label}
           </p>
           <p
-            className={`mt-1 flex items-center gap-0.5 ${isUp ? "text-emerald-600" : "text-red-600"}`}
+            className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-[#ED2939]" : tone === "gold" || tone === "orange" ? "text-[#B49B58]" : "text-[#0060A9]"}`}
           >
-            {isUp ? (
-              <ChevronUp className="h-3 w-3" />
-            ) : (
-              <ChevronDown className="h-3 w-3" />
-            )}
-            {percentage.toLocaleString(numLocale, { maximumFractionDigits: 1 })}%{" "}
-            {t("dashboard.fromPreviousMonth")}
+            {value.toLocaleString(numLocale)}
           </p>
+          <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
+            <p className="uppercase">
+              {monthLabel} ({(trend?.previous ?? 0).toLocaleString(numLocale)})
+            </p>
+            <p
+              className={`mt-1 flex items-center gap-0.5 ${isUp ? "text-emerald-600" : "text-red-600"}`}
+            >
+              {isUp ? (
+                <ChevronUp className="h-3 w-3" />
+              ) : (
+                <ChevronDown className="h-3 w-3" />
+              )}
+              {percentage.toLocaleString(numLocale, { maximumFractionDigits: 1 })}%{" "}
+              {t("dashboard.fromPreviousMonth")}
+            </p>
+          </div>
         </div>
-      </div>
-    </article>
+      </article>
+    </>
   );
 }
 
@@ -203,11 +443,25 @@ export default function DashboardPage() {
   const [selected, setSelected] = useState<OutbreakLocation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [crawlingStats, setCrawlingStats] = useState<{
+    total: number;
+    this_month: number;
+    last_month: number;
+    total_processed: number;
+    current_month: string;
+    previous_month: string;
+    by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
       setError("");
-      setData(await fetchPublicDashboard({ country, year }));
+      const [dashData, crawlData] = await Promise.all([
+        fetchPublicDashboard({ country, year }),
+        fetchCrawlingStats().catch(() => null),
+      ]);
+      setData(dashData);
+      if (crawlData) setCrawlingStats(crawlData);
     } catch {
       setError(t("common.error"));
     } finally {
@@ -335,7 +589,7 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Kpi
           label={t("dashboard.kpiDetectedCases")}
           value={data?.trends?.cases.current ?? data?.kpis.cases ?? 0}
@@ -343,6 +597,16 @@ export default function DashboardPage() {
           tone="blue"
           trend={data?.trends?.cases}
           previousMonth={data?.trends?.previous_month}
+          infoModal={{
+            title: "Detected Cases",
+            description:
+              "Total number of disease cases detected this month from all crawled sources (news, social media, and surveillance reports). This reflects the current month only — not the full year. The number is the sum of reported case counts extracted by the NLP system from validated health-related articles.",
+            matrixTitle: "Breakdown by Country",
+            matrix: (data?.by_country ?? []).map((c) => ({
+              label: c.name,
+              value: c.cases,
+            })),
+          }}
         />
         <Kpi
           label={t("dashboard.kpiDeaths")}
@@ -351,6 +615,20 @@ export default function DashboardPage() {
           tone="red"
           trend={data?.trends?.deaths}
           previousMonth={data?.trends?.previous_month}
+          infoModal={{
+            title: "Deaths Reported",
+            description:
+              "Total number of disease-related deaths reported this month from validated health sources. Extracted by the NLP pipeline from news and official surveillance reports. A death count is only recorded when the source article explicitly mentions fatality figures linked to a disease outbreak.",
+            matrixTitle: "Breakdown by Country",
+            matrix: (data?.locations ?? [])
+              .reduce<{ label: string; value: number }[]>((acc, loc) => {
+                const existing = acc.find((x) => x.label === loc.country);
+                if (existing) { existing.value += loc.deaths; } else { acc.push({ label: loc.country, value: loc.deaths }); }
+                return acc;
+              }, [])
+              .filter((x) => x.value > 0)
+              .sort((a, b) => b.value - a.value),
+          }}
         />
         <Kpi
           label={t("dashboard.kpiValidatedEvents")}
@@ -359,6 +637,20 @@ export default function DashboardPage() {
           tone="blue"
           trend={data?.trends?.events}
           previousMonth={data?.trends?.previous_month}
+          infoModal={{
+            title: "Validated Events",
+            description:
+              "Number of unique news articles or reports that have been validated as health-related by the NLP system this month. Each 'event' is a single source document (e.g., one news article) that passed the disease detection and relevance filters. Duplicates (same URL) are automatically deduplicated.",
+            matrixTitle: "Breakdown by Country",
+            matrix: (data?.locations ?? [])
+              .reduce<{ label: string; value: number }[]>((acc, loc) => {
+                const existing = acc.find((x) => x.label === loc.country);
+                if (existing) { existing.value += loc.event_count; } else { acc.push({ label: loc.country, value: loc.event_count }); }
+                return acc;
+              }, [])
+              .filter((x) => x.value > 0)
+              .sort((a, b) => b.value - a.value),
+          }}
         />
         <Kpi
           label={t("dashboard.kpiLocations")}
@@ -367,6 +659,16 @@ export default function DashboardPage() {
           tone="blue"
           trend={data?.trends?.locations}
           previousMonth={data?.trends?.previous_month}
+          infoModal={{
+            title: "Detected Locations",
+            description:
+              "Number of unique geographic locations where disease events were detected this month. A location is counted when the NLP system successfully extracts a place name from a health article AND that location exists in the master location database with known coordinates. Locations without matching coordinates are excluded.",
+            matrixTitle: "Breakdown by Country",
+            matrix: (data?.by_country ?? []).map((c) => ({
+              label: c.name,
+              value: c.cases,
+            })),
+          }}
         />
         <Kpi
           label={t("dashboard.kpiActiveAlerts")}
@@ -375,7 +677,50 @@ export default function DashboardPage() {
           tone="gold"
           trend={data?.trends?.alerts}
           previousMonth={data?.trends?.previous_month}
+          infoModal={{
+            title: "Active EWS Alerts",
+            description:
+              "Number of locations currently under an Early Warning System (EWS) alert. An alert is triggered when: (1) the NLP model flags an article as an outbreak event, (2) the reported case count meets or exceeds the disease-specific threshold, and (3) the system confidence is ≥ 35% with a valid mapped location. Alert levels: WASPADA (watch), SIAGA (alert), AWAS (danger).",
+            matrixTitle: "Breakdown by Severity Level",
+            matrix: (["AWAS", "SIAGA", "WASPADA"] as const).map((sev) => ({
+              label: sev,
+              value: (data?.alerts ?? []).filter((a) => a.severity === sev).length,
+              sub: sev === "AWAS" ? "Danger" : sev === "SIAGA" ? "Alert" : "Watch",
+            })),
+          }}
         />
+        {/* ── Total Crawling Card ── */}
+        <article
+          className="relative flex min-h-[128px] items-center gap-3 border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
+          style={{ borderRadius: "17px 17px 22px 17px" }}
+        >
+          <CrawlingInfoModal crawlingStats={crawlingStats} />
+          <div className="flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full text-emerald-600 bg-emerald-50/80">
+            <Database className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
+              Total Crawled
+            </p>
+            <p className="mt-2 truncate text-[30px] font-bold leading-none text-emerald-600">
+              {(crawlingStats?.total ?? 0).toLocaleString()}
+            </p>
+            <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
+              <p className="uppercase">
+                {crawlingStats?.previous_month
+                  ? new Intl.DateTimeFormat("en-US", { month: "long" }).format(
+                      new Date(`${crawlingStats.previous_month}-01T00:00:00Z`),
+                    )
+                  : "Last month"}{" "}
+                ({(crawlingStats?.last_month ?? 0).toLocaleString()})
+              </p>
+              <p className="mt-1 flex items-center gap-0.5 text-slate-400">
+                <Info className="h-3 w-3" />
+                {(crawlingStats?.this_month ?? 0).toLocaleString()} this month
+              </p>
+            </div>
+          </div>
+        </article>
       </div>
 
       <section className="w-full bg-[#f8fafc] pb-5">
