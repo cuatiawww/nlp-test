@@ -42,18 +42,18 @@ interface WeeklyPerformanceItem {
 
 // Fallback week templates for consistent date ranges
 const WEEK_TEMPLATES = [
-  { weekNum: 11, weekLabel: "Minggu 11", subLabel: "10-16 Mar" },
-  { weekNum: 12, weekLabel: "Minggu 12", subLabel: "17-23 Mar" },
-  { weekNum: 13, weekLabel: "Minggu 13", subLabel: "24-30 Mar" },
-  { weekNum: 14, weekLabel: "Minggu 14", subLabel: "31 Mar-6 Apr" },
-  { weekNum: 16, weekLabel: "Minggu 16", subLabel: "7-13 Apr" },
-  { weekNum: 17, weekLabel: "Minggu 17", subLabel: "14-20 Apr" },
-  { weekNum: 18, weekLabel: "Minggu 18", subLabel: "21-27 Apr" },
-  { weekNum: 182, weekLabel: "Minggu 18", subLabel: "28 Apr-4 Mei" },
-  { weekNum: 19, weekLabel: "Minggu 19", subLabel: "5-11 Mei" },
-  { weekNum: 20, weekLabel: "Minggu 20", subLabel: "12-18 Mei" },
-  { weekNum: 21, weekLabel: "Minggu 21", subLabel: "19-25 Mei" },
-  { weekNum: 22, weekLabel: "Minggu 22", subLabel: "25-31 Mei" },
+  { weekNum: 11, weekLabel: "Week 11", subLabel: "10-16 Mar" },
+  { weekNum: 12, weekLabel: "Week 12", subLabel: "17-23 Mar" },
+  { weekNum: 13, weekLabel: "Week 13", subLabel: "24-30 Mar" },
+  { weekNum: 14, weekLabel: "Week 14", subLabel: "31 Mar-6 Apr" },
+  { weekNum: 16, weekLabel: "Week 16", subLabel: "7-13 Apr" },
+  { weekNum: 17, weekLabel: "Week 17", subLabel: "14-20 Apr" },
+  { weekNum: 18, weekLabel: "Week 18", subLabel: "21-27 Apr" },
+  { weekNum: 182, weekLabel: "Week 18", subLabel: "28 Apr-4 May" },
+  { weekNum: 19, weekLabel: "Week 19", subLabel: "5-11 May" },
+  { weekNum: 20, weekLabel: "Week 20", subLabel: "12-18 May" },
+  { weekNum: 21, weekLabel: "Week 21", subLabel: "19-25 May" },
+  { weekNum: 22, weekLabel: "Week 22", subLabel: "25-31 May" },
 ];
 
 interface CrawlingEnginePerformanceProps {
@@ -439,7 +439,7 @@ export default function CrawlingEnginePerformance({
                 type="button"
                 onClick={resetAllSeries}
                 className="flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-slate-500 hover:text-slate-900 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer ml-1"
-                title="Reset semua filter"
+                title="Reset all filters"
               >
                 <RotateCcw className="h-3 w-3" />
                 Reset
@@ -661,7 +661,7 @@ export default function CrawlingEnginePerformance({
 
               {/* Dynamic Preset Button Group */}
               <div className="flex flex-wrap items-center gap-1.5">
-                {/* 1. Tampilkan Semua */}
+                {/* 1. Show All */}
                 <button
                   type="button"
                   onClick={() => applyDynamicPreset("all")}
@@ -675,7 +675,7 @@ export default function CrawlingEnginePerformance({
                   {t("crawling.allChannels")}
                 </button>
 
-                {/* 2. Fokus News/Media */}
+                {/* 2. News/Media Focus */}
                 <button
                   type="button"
                   onClick={() => applyDynamicPreset("news")}
@@ -689,7 +689,7 @@ export default function CrawlingEnginePerformance({
                   {t("crawling.newsFocus")}
                 </button>
 
-                {/* 3. Fokus Social Media */}
+                {/* 3. Social Media Focus */}
                 <button
                   type="button"
                   onClick={() => applyDynamicPreset("social")}
@@ -703,7 +703,7 @@ export default function CrawlingEnginePerformance({
                   {t("crawling.socialFocus")}
                 </button>
 
-                {/* 4. Fokus API Data */}
+                {/* 4. API Data Focus */}
                 <button
                   type="button"
                   onClick={() => applyDynamicPreset("api")}
@@ -717,7 +717,7 @@ export default function CrawlingEnginePerformance({
                   {t("crawling.apiFocus")}
                 </button>
 
-                {/* 5. Akumulasi Kumulatif */}
+                {/* 5. Cumulative Total */}
                 <button
                   type="button"
                   onClick={() => applyDynamicPreset("cumulative")}
@@ -731,7 +731,7 @@ export default function CrawlingEnginePerformance({
                   {t("crawling.cumulative")}
                 </button>
 
-                {/* 6. 4 Minggu Terakhir */}
+                {/* 6. Last 4 Weeks */}
                 <button
                   type="button"
                   onClick={() => applyDynamicPreset("recent4")}

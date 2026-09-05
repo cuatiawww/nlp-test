@@ -18,9 +18,7 @@ import {
   Percent,
   RefreshCw,
   Skull,
-  Sparkles,
   TrendingDown,
-  TrendingUp,
   Users,
 } from 'lucide-react';
 import {
@@ -42,7 +40,7 @@ import {
 } from 'recharts';
 
 const DISEASE_FILTER_OPTIONS = [
-  { label: 'Semua Topik Kesehatan (All Health Topics)', value: 'all' },
+  { label: 'All Health Topics', value: 'all' },
   { label: 'Demam Berdarah (DBD)', value: 'dbd' },
   { label: 'Campak (Measles)', value: 'campak' },
   { label: 'HFMD (Flu Singapura)', value: 'hfmd' },
@@ -67,7 +65,7 @@ export default function MorbidityMortalitySection() {
       setData(res);
     } catch (err: any) {
       console.error('Failed to load morbidity and mortality:', err);
-      setError(err?.message || 'Gagal memuat data kasus & kematian');
+      setError(err?.message || 'Failed to load morbidity and mortality data');
     } finally {
       setLoading(false);
     }
@@ -78,9 +76,11 @@ export default function MorbidityMortalitySection() {
   }, [selectedDisease, selectedWeeks]);
 
   const formatCompact = (num: number): string => {
-    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
-    if (num >= 1_000) return (num / 1_000).toFixed(num >= 10_000 ? 0 : 1) + 'K';
-    return num.toLocaleString('id-ID');
+    const value = Number(num);
+    if (!Number.isFinite(value)) return '0';
+    if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+    if (value >= 1_000) return (value / 1_000).toFixed(value >= 10_000 ? 0 : 1) + 'K';
+    return value.toLocaleString('id-ID');
   };
 
   // Max values for relative horizontal bars in top diseases list
@@ -104,17 +104,7 @@ export default function MorbidityMortalitySection() {
       {/* ?? Top Header Bar ?? */}
       <div className="flex flex-col gap-4 border-b border-slate-200/80 pb-6 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-sky-700 uppercase">
-              <Sparkles className="h-3 w-3 text-sky-600" />
-              Surveillance & Impact Matrix
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-              Synchronized Real-Time Data
-            </span>
-          </div>
-          <h2 className="mt-2 text-xl font-black tracking-tight text-slate-900 lg:text-2xl uppercase">
+          <h2 className="text-xl font-black tracking-tight text-slate-900 lg:text-2xl uppercase">
             Case & Fatality Overview
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 lg:text-sm">
@@ -129,7 +119,7 @@ export default function MorbidityMortalitySection() {
             <select
               value={selectedDisease}
               onChange={(e) => setSelectedDisease(e.target.value)}
-              aria-label="Filter Topik Kesehatan"
+              aria-label="Health Topic Filter"
               className="appearance-none rounded-xl border border-slate-200 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-700 shadow-xs hover:border-slate-300 focus:border-sky-500 focus:outline-none"
             >
               {DISEASE_FILTER_OPTIONS.map((opt) => (
@@ -151,7 +141,7 @@ export default function MorbidityMortalitySection() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              8 Minggu
+              8 Weeks
             </button>
             <button
               onClick={() => setSelectedWeeks(12)}
@@ -161,7 +151,7 @@ export default function MorbidityMortalitySection() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              12 Minggu
+              12 Weeks
             </button>
             <button
               onClick={() => setSelectedWeeks(16)}
@@ -171,7 +161,7 @@ export default function MorbidityMortalitySection() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              16 Minggu
+              16 Weeks
             </button>
           </div>
 
@@ -179,8 +169,8 @@ export default function MorbidityMortalitySection() {
           <button
             onClick={() => loadData(selectedDisease, selectedWeeks)}
             disabled={loading}
-            title="Muat Ulang Morbiditas & Mortalitas"
-            aria-label="Muat Ulang Morbiditas & Mortalitas"
+            title="Reload Morbidity & Mortality"
+            aria-label="Reload Morbidity & Mortality"
             className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
@@ -200,10 +190,10 @@ export default function MorbidityMortalitySection() {
               Total Morbidity
             </div>
             <div className="text-2xl font-black text-slate-900 truncate">
-              {data ? data.summary.total_morbidity.toLocaleString('id-ID') : '...'}
+              {data ? formatCompact(data.summary?.total_morbidity) : '...'}
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Total Kasus Sakit Terdeteksi
+              Total Detected Cases
             </div>
           </div>
         </div>
@@ -218,10 +208,10 @@ export default function MorbidityMortalitySection() {
               Total Mortality
             </div>
             <div className="text-2xl font-black text-slate-900 truncate">
-              {data ? data.summary.total_mortality.toLocaleString('id-ID') : '...'}
+              {data ? formatCompact(data.summary?.total_mortality) : '...'}
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Total Kematian Terlapor
+              Total Reported Deaths
             </div>
           </div>
         </div>
@@ -239,7 +229,7 @@ export default function MorbidityMortalitySection() {
               {data ? `${data.summary.cfr_pct.toFixed(2)}%` : '...'}
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Rasio Kematian terhadap Kasus
+              Case Fatality Ratio
             </div>
           </div>
         </div>
@@ -251,16 +241,13 @@ export default function MorbidityMortalitySection() {
         <div className="lg:col-span-7 flex flex-col rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
             <div>
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-700 font-bold">
-                  <TrendingUp className="h-4 w-4" />
-                </div>
+              <div>
                 <h3 className="text-sm font-black text-slate-900">
                   Weekly Case & Fatality Trend
                 </h3>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Dinamika mingguan kasus (sumbu kiri) vs kematian (sumbu kanan)
+                Weekly case dynamics (left axis) versus deaths (right axis)
               </p>
             </div>
 
@@ -268,10 +255,10 @@ export default function MorbidityMortalitySection() {
             {latestWeekPoint && (
               <div className="flex items-center gap-2 self-start sm:self-auto">
                 <span className="rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-700">
-                  Kasus: {formatCompact(latestWeekPoint.morbidity)}
+                  Cases: {formatCompact(latestWeekPoint.morbidity)}
                 </span>
                 <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">
-                  Wafat: {formatCompact(latestWeekPoint.mortality)}
+                  Deaths: {formatCompact(latestWeekPoint.mortality)}
                 </span>
               </div>
             )}
@@ -324,7 +311,7 @@ export default function MorbidityMortalitySection() {
                   <Tooltip
                     formatter={(val: any, name: any) => [
                       Number(val).toLocaleString('id-ID'),
-                      name === 'morbidity' ? 'Morbiditas (Kasus)' : 'Mortalitas (Kematian)',
+                      name === 'morbidity' ? 'Morbidity (Cases)' : 'Mortality (Deaths)',
                     ]}
                     labelFormatter={(label) => `Periode: ${label}`}
                     contentStyle={{
@@ -344,7 +331,7 @@ export default function MorbidityMortalitySection() {
                     yAxisId="left"
                     type="monotone"
                     dataKey="morbidity"
-                    name="Morbiditas (Kasus)"
+                    name="Morbidity (Cases)"
                     fill="url(#colorMorbidity)"
                     stroke="#0284c7"
                     strokeWidth={2.5}
@@ -353,7 +340,7 @@ export default function MorbidityMortalitySection() {
                     yAxisId="right"
                     type="monotone"
                     dataKey="mortality"
-                    name="Mortalitas (Wafat)"
+                    name="Mortality (Deaths)"
                     stroke="#e11d48"
                     strokeWidth={2.5}
                     dot={{ r: 3.5, fill: '#e11d48' }}
@@ -367,11 +354,11 @@ export default function MorbidityMortalitySection() {
           <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-2.5">
             <span className="flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[#0284c7]" />
-              Sumbu Kiri (Biru): Volume Kasus
+              Left Axis (Blue): Case Volume
             </span>
             <span className="flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[#e11d48]" />
-              Sumbu Kanan (Merah): Volume Kematian
+              Right Axis (Red): Death Volume
             </span>
           </div>
         </div>
@@ -389,14 +376,14 @@ export default function MorbidityMortalitySection() {
                 </h3>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Rasio komparasi kasus vs kematian per topik kesehatan
+                Comparative case-versus-death ratio by health topic
               </p>
             </div>
           </div>
 
           {/* Table Header Columns */}
           <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-400 px-1 border-b border-slate-100 pb-1.5">
-            <span className="w-1/3">Topik Kesehatan</span>
+            <span className="w-1/3">Health Topics</span>
             <span className="w-1/3 text-center text-sky-700 font-bold">Total Cases</span>
             <span className="w-1/3 text-right text-rose-700 font-bold">Total Deaths</span>
           </div>
@@ -418,7 +405,7 @@ export default function MorbidityMortalitySection() {
                     if (opt) setSelectedDisease(opt.value);
                   }}
                   className="py-2 px-1 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors"
-                  title="Klik untuk memfilter kurva mingguan ke penyakit ini"
+                      title="Click to filter the weekly trend to this health topic"
                 >
                   {/* Top row: Health topic name + CFR badge */}
                   <div className="flex items-center justify-between text-xs font-bold text-slate-900">
@@ -447,7 +434,7 @@ export default function MorbidityMortalitySection() {
                         />
                       </div>
                       <span className="text-[10px] font-bold text-sky-800 font-mono">
-                        {d.total_cases.toLocaleString('id-ID')} kasus
+                        {formatCompact(d.total_cases)} cases
                       </span>
                     </div>
 
@@ -460,7 +447,7 @@ export default function MorbidityMortalitySection() {
                         />
                       </div>
                       <span className="text-[10px] font-bold text-rose-800 font-mono">
-                        {d.total_deaths.toLocaleString('id-ID')} wafat
+                        {formatCompact(d.total_deaths)} deaths
                       </span>
                     </div>
                   </div>
@@ -470,7 +457,7 @@ export default function MorbidityMortalitySection() {
           </div>
 
           <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-2">
-            <span>?? Klik baris topik kesehatan untuk menyaring grafik mingguan.</span>
+            <span>Click a health topic row to filter the weekly trend.</span>
           </div>
         </div>
       </div>
