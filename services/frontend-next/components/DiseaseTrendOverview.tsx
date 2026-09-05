@@ -15,12 +15,8 @@ import {
   Globe,
   Info,
   Layers,
-  LineChart as LineChartIcon,
   RefreshCw,
-  ShieldAlert,
-  Sparkles,
   TrendingDown,
-  TrendingUp,
 } from 'lucide-react';
 import CountryFlag from './CountryFlag';
 import {
@@ -62,7 +58,7 @@ export default function DiseaseTrendOverview() {
       setData(res);
     } catch (err: any) {
       console.error('Failed to load disease trend overview:', err);
-      setError(err?.message || 'Gagal memuat ringkasan tren surveilans');
+      setError(err?.message || 'Failed to load surveillance trend summary');
     } finally {
       setLoading(false);
     }
@@ -124,21 +120,11 @@ export default function DiseaseTrendOverview() {
       {/* ?? Header Bar ?? */}
       <div className="flex flex-col gap-4 border-b border-slate-200/80 pb-6 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-sky-700 uppercase">
-              <Sparkles className="h-3 w-3 text-sky-600" />
-              Surveillance Trend Overview
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-              NLP Multi-Source Validated
-            </span>
-          </div>
-          <h2 className="mt-2 text-xl font-black tracking-tight text-slate-900 lg:text-2xl">
-            Sinyal & Tren Topik Kesehatan per Negara
+          <h2 className="text-xl font-black tracking-tight text-slate-900 lg:text-2xl">
+            Health Topic Signals & Trends by Country
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 lg:text-sm">
-            Menampilkan topik kesehatan dengan beban kasus tertinggi, negara dengan konsentrasi sinyal terbesar berdasarkan ekstraksi NLP, serta kurva pergerakan kasus harian terkini di kawasan ASEAN.
+            Shows health topics with the highest case burden, countries with the greatest signal concentration based on NLP extraction, and the latest daily case trends across ASEAN.
           </p>
         </div>
 
@@ -153,7 +139,7 @@ export default function DiseaseTrendOverview() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              7 Hari Terakhir
+              Last 7 Days
             </button>
             <button
               onClick={() => setSelectedDays(14)}
@@ -163,7 +149,7 @@ export default function DiseaseTrendOverview() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              14 Hari
+              14 Days
             </button>
             <button
               onClick={() => setSelectedDays(30)}
@@ -173,15 +159,15 @@ export default function DiseaseTrendOverview() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              30 Hari
+              30 Days
             </button>
           </div>
 
           <button
             onClick={() => loadData(selectedDays)}
             disabled={loading}
-            title="Muat Ulang Ringkasan Tren"
-            aria-label="Muat Ulang Ringkasan Tren"
+            title="Reload Trend Summary"
+            aria-label="Reload Trend Summary"
             className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
@@ -197,10 +183,10 @@ export default function DiseaseTrendOverview() {
           </div>
           <div>
             <div className="text-base font-black text-slate-900">
-              {data?.summary.total_diseases ?? 15} Topik Kesehatan
+              {data?.summary.total_diseases ?? 15} Health Topics
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Total Klasifikasi Terpantau
+              Total Monitored Classifications
             </div>
           </div>
         </div>
@@ -214,7 +200,7 @@ export default function DiseaseTrendOverview() {
               DBD ({data?.summary.top_burden_country ?? 'Philippines'})
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Beban Kasus Tertinggi
+              Highest Case Burden
             </div>
           </div>
         </div>
@@ -228,7 +214,7 @@ export default function DiseaseTrendOverview() {
               HFMD (Malaysia)
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Konsentrasi 1.33M Kasus
+              1.33M Case Concentration
             </div>
           </div>
         </div>
@@ -242,7 +228,7 @@ export default function DiseaseTrendOverview() {
               Campak & COVID-19
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Dominasi Indonesia
+              Indonesia Dominance
             </div>
           </div>
         </div>
@@ -253,18 +239,13 @@ export default function DiseaseTrendOverview() {
         {/* LEFT COLUMN: Sinyal Prioritas List & Country Breakdown */}
         <div className="lg:col-span-6 flex flex-col rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-                <ShieldAlert className="h-4 w-4" />
-              </div>
-              <div>
+            <div>
                 <h3 className="text-sm font-black text-slate-900">
-                  Sinyal Prioritas
+                  Priority Signals
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Topik kesehatan dengan negara kasus terbanyak (Hasil Ekstraksi NLP)
+                  Health topics with the highest country case counts (NLP Extraction)
                 </p>
-              </div>
             </div>
             <span className="text-[11px] font-bold text-slate-400">
               {data?.priority_alerts.length ?? 0} Jenis
@@ -309,7 +290,7 @@ export default function DiseaseTrendOverview() {
                         <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
                           <span>Total ASEAN:</span>
                           <span className="font-bold text-slate-700">
-                            {formatCompact(item.total_asean_cases)} kasus
+                            {formatCompact(item.total_asean_cases)} cases
                           </span>
                         </div>
                       </div>
@@ -329,7 +310,7 @@ export default function DiseaseTrendOverview() {
                             {item.top_country}
                           </div>
                           <div className="text-[10px] text-slate-600">
-                            {formatCompact(item.top_country_cases)} kasus
+                            {formatCompact(item.top_country_cases)} cases
                           </div>
                         </div>
                       </div>
@@ -337,7 +318,7 @@ export default function DiseaseTrendOverview() {
                       {/* Detection Date */}
                       <div className="hidden sm:block text-right">
                         <div className="text-[11px] font-semibold text-slate-600">
-                          {item.latest_published_label || 'Terkini'}
+                          {item.latest_published_label || 'Latest'}
                         </div>
                       </div>
 
@@ -359,8 +340,8 @@ export default function DiseaseTrendOverview() {
                   {isExpanded && (
                     <div className="mt-2.5 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs animate-in fade-in duration-150">
                       <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-slate-600 uppercase">
-                        <span>Sebaran Kasus Antar Negara ({item.disease})</span>
-                        <span>{item.country_breakdown.length} Negara Terpapar</span>
+                        <span>Cross-Country Case Distribution ({item.disease})</span>
+                        <span>{item.country_breakdown.length} Affected Countries</span>
                       </div>
                       <div className="flex flex-col gap-2">
                         {item.country_breakdown.map((cb) => {
@@ -383,13 +364,13 @@ export default function DiseaseTrendOverview() {
                                   </span>
                                   {cb.country === item.top_country && (
                                     <span className="rounded bg-rose-100 px-1.5 py-0.2 text-[9px] font-bold text-rose-700">
-                                      Terbanyak
+                                      Highest
                                     </span>
                                   )}
                                 </div>
                                 <div className="flex items-center gap-2 font-mono">
                                   <span className="font-bold text-slate-900">
-                                    {formatCompact(cb.cases)} kasus
+                                    {formatCompact(cb.cases)} cases
                                   </span>
                                   <span className="text-slate-600">({pct}%)</span>
                                 </div>
@@ -422,7 +403,7 @@ export default function DiseaseTrendOverview() {
               onClick={() => setShowAllAlerts(!showAllAlerts)}
               className="mt-3 flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2 text-xs font-bold text-blue-700 hover:bg-slate-50 transition-colors"
             >
-              {showAllAlerts ? 'Tampilkan Lebih Sedikit' : 'Lihat Semua Sinyal (' + data.priority_alerts.length + ' Topik)'}
+              {showAllAlerts ? 'Show Less' : 'View All Signals (' + data.priority_alerts.length + ' Topics)'}
               <ChevronRight className={`h-3.5 w-3.5 transition-transform ${showAllAlerts ? '-rotate-90' : 'rotate-90'}`} />
             </button>
           )}
@@ -431,18 +412,13 @@ export default function DiseaseTrendOverview() {
         {/* RIGHT COLUMN: Multi-Day Trend Chart */}
         <div className="lg:col-span-6 flex flex-col rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
-                <LineChartIcon className="h-4 w-4" />
-              </div>
-              <div>
+            <div>
                 <h3 className="text-sm font-black text-slate-900">
-                  Tren Kasus Terdeteksi ({selectedDays} Hari Terakhir)
+                  Detected Case Trend ({selectedDays} Days)
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Dinamika fluktuasi harian kasus terdeteksi untuk topik prioritas
+                  Daily detected-case fluctuation for priority health topics
                 </p>
-              </div>
             </div>
           </div>
 
@@ -530,7 +506,7 @@ export default function DiseaseTrendOverview() {
                   />
                   <Tooltip
                     formatter={(val: any, name: any) => [
-                      Number(val).toLocaleString('id-ID') + ' kasus',
+                      Number(val).toLocaleString('en-US') + ' cases',
                       name.toUpperCase(),
                     ]}
                     contentStyle={{
@@ -604,7 +580,7 @@ export default function DiseaseTrendOverview() {
           <div className="mt-3 flex items-start gap-2 rounded-lg bg-slate-50 p-2.5 text-[11px] text-slate-500">
             <Info className="h-4 w-4 shrink-0 text-sky-600 mt-0.5" />
             <div>
-              Grafik menampilkan kasus harian topik dengan sinyal paling aktif. Klik pada pil legenda di atas grafik untuk mengisolasi kurva tertentu.
+              The chart shows daily cases for the most active topics. Click a legend pill above to isolate a trend.
             </div>
           </div>
         </div>

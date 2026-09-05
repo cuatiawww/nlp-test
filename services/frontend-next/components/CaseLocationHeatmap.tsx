@@ -7,14 +7,12 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
-  Flame,
   Globe,
   HelpCircle,
   Layers,
   MapPin,
   RefreshCw,
   Skull,
-  Sparkles,
   TrendingUp,
   X,
 } from 'lucide-react';
@@ -37,7 +35,7 @@ import {
   ComposedChart,
 } from 'recharts';
 
-export type HeatmapMetric = 'cases' | 'deaths' | 'cfr' | 'events';
+export type HeatmapMetric = 'cases' | 'deaths' | 'cfr';
 
 export default function CaseLocationHeatmap() {
   const [data, setData] = useState<SpatialHeatmapResponse | null>(null);
@@ -59,7 +57,7 @@ export default function CaseLocationHeatmap() {
       setData(res);
     } catch (err: any) {
       console.error('Failed to load spatial heatmap:', err);
-      setError(err?.message || 'Gagal memuat data heatmap spasial');
+      setError(err?.message || 'Failed to load spatial heatmap data');
     } finally {
       setLoading(false);
     }
@@ -72,13 +70,12 @@ export default function CaseLocationHeatmap() {
   // Calculate maximum values for relative coloring
   const metricStats = useMemo(() => {
     if (!data || !data.countries) {
-      return { maxCases: 1, maxDeaths: 1, maxCfr: 10, maxEvents: 1 };
+      return { maxCases: 1, maxDeaths: 1, maxCfr: 10 };
     }
 
     let maxCases = 1;
     let maxDeaths = 1;
     let maxCfr = 1;
-    let maxEvents = 1;
     let peakMonthName = 'September';
     let peakMonthVal = 0;
     const monthTotals: Record<string, number> = {};
@@ -87,7 +84,6 @@ export default function CaseLocationHeatmap() {
       c.months.forEach((m) => {
         if (m.cases > maxCases) maxCases = m.cases;
         if (m.deaths > maxDeaths) maxDeaths = m.deaths;
-        if (m.events > maxEvents) maxEvents = m.events;
         const cfr = m.cases > 0 ? (m.deaths / m.cases) * 100 : 0;
         if (cfr > maxCfr && cfr <= 100) maxCfr = cfr;
 
@@ -102,7 +98,7 @@ export default function CaseLocationHeatmap() {
       }
     });
 
-    return { maxCases, maxDeaths, maxCfr, maxEvents, peakMonthName, peakMonthVal };
+    return { maxCases, maxDeaths, maxCfr, peakMonthName, peakMonthVal };
   }, [data]);
 
   // Compact number formatting
@@ -133,10 +129,6 @@ export default function CaseLocationHeatmap() {
       rawVal = cfr;
       displayVal = cfr > 0 ? `${cfr.toFixed(1)}%` : '?';
       ratio = metricStats.maxCfr > 0 ? Math.min(cfr / 15, 1) : 0;
-    } else {
-      rawVal = m.events;
-      displayVal = m.events > 0 ? String(m.events) : '?';
-      ratio = metricStats.maxEvents > 0 ? m.events / metricStats.maxEvents : 0;
     }
 
     return { rawVal, displayVal, ratio };
@@ -171,21 +163,11 @@ export default function CaseLocationHeatmap() {
       {/* ?? Top Header Bar ?? */}
       <div className="flex flex-col gap-4 border-b border-slate-200/80 pb-6 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-sky-700 uppercase">
-              <Sparkles className="h-3 w-3 text-sky-600" />
-              Spatial-Temporal Surveillance Matrix
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-              Published Date Synchronized
-            </span>
-          </div>
           <h2 className="mt-2 text-xl font-black tracking-tight text-slate-900 lg:text-2xl">
             Surveillance Location Summary
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 lg:text-sm">
-            Provides a concise overview of mapped signal locations, geographic distribution, affected areas, and emerging spatial patterns across monitored ASEAN countries based on source publication timestamps.
+            Provides a concise overview of mapped locations, geographic distribution, affected areas, and emerging spatial patterns across monitored ASEAN countries based on source publication timestamps.
           </p>
         </div>
 
@@ -202,7 +184,7 @@ export default function CaseLocationHeatmap() {
               }`}
             >
               <Activity className="h-3.5 w-3.5" />
-              Kasus
+              Cases
             </button>
             <button
               onClick={() => setActiveMetric('deaths')}
@@ -213,7 +195,7 @@ export default function CaseLocationHeatmap() {
               }`}
             >
               <Skull className="h-3.5 w-3.5" />
-              Kematian
+              Deaths
             </button>
             <button
               onClick={() => setActiveMetric('cfr')}
@@ -226,17 +208,6 @@ export default function CaseLocationHeatmap() {
               <TrendingUp className="h-3.5 w-3.5" />
               CFR (%)
             </button>
-            <button
-              onClick={() => setActiveMetric('events')}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-all ${
-                activeMetric === 'events'
-                  ? 'bg-white text-purple-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Flame className="h-3.5 w-3.5" />
-              Sinyal
-            </button>
           </div>
 
           {/* Year Selector */}
@@ -244,12 +215,12 @@ export default function CaseLocationHeatmap() {
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
-              aria-label="Filter Tahun Heatmap"
+              aria-label="Heatmap Year Filter"
               className="appearance-none rounded-xl border border-slate-200 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-700 shadow-xs hover:border-slate-300 focus:border-sky-500 focus:outline-none"
             >
-              <option value={2026}>Tahun 2026</option>
-              <option value={2025}>Tahun 2025</option>
-              <option value={2024}>Tahun 2024</option>
+              <option value={2026}>Year 2026</option>
+              <option value={2025}>Year 2025</option>
+              <option value={2024}>Year 2024</option>
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-slate-400" />
           </div>
@@ -258,8 +229,8 @@ export default function CaseLocationHeatmap() {
           <button
             onClick={() => loadData(selectedYear)}
             disabled={loading}
-            title="Muat Ulang Data Heatmap"
-            aria-label="Muat Ulang Data Heatmap"
+            title="Reload Heatmap Data"
+            aria-label="Reload Heatmap Data"
             className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
@@ -276,7 +247,7 @@ export default function CaseLocationHeatmap() {
           </div>
           <div>
             <div className="text-base font-black text-slate-900">
-              11 Negara
+              11 Countries
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
               ASEAN Coverage
@@ -291,7 +262,7 @@ export default function CaseLocationHeatmap() {
           </div>
           <div>
             <div className="text-base font-black text-slate-900">
-              54 Wilayah
+              54 Regions
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
               Sub-national Points
@@ -309,7 +280,7 @@ export default function CaseLocationHeatmap() {
               {metricStats.peakMonthName} {selectedYear}
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Puncak {formatCompact(metricStats.peakMonthVal)} Kasus
+              Peak {formatCompact(metricStats.peakMonthVal)} Cases
             </div>
           </div>
         </div>
@@ -324,7 +295,7 @@ export default function CaseLocationHeatmap() {
               {data ? formatCompact(data.summary.total_cases) : '...'}
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
-              Total Kasus ({data ? formatCompact(data.summary.total_deaths) : '0'} Wafat)
+              Total Cases ({data ? formatCompact(data.summary.total_deaths) : '0'} Deaths)
             </div>
           </div>
         </div>
@@ -336,7 +307,7 @@ export default function CaseLocationHeatmap() {
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center rounded-xl bg-white/70 backdrop-blur-xs">
             <RefreshCw className="h-7 w-7 animate-spin text-sky-600" />
             <span className="mt-2 text-xs font-bold text-slate-600">
-              Menghitung matriks spasial temporal...
+              Calculating the spatiotemporal matrix...
             </span>
           </div>
         )}
@@ -352,7 +323,7 @@ export default function CaseLocationHeatmap() {
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-black uppercase tracking-wider text-slate-600">
                 <th className="sticky left-0 z-10 w-56 bg-slate-50/95 px-4 py-3 shadow-xs">
-                  Negara Anggota ASEAN
+                  ASEAN Member Countries
                 </th>
                 {monthNames.map((m) => (
                   <th
@@ -444,12 +415,12 @@ export default function CaseLocationHeatmap() {
                       </div>
                       <div className="text-[10px] font-normal text-slate-600">
                         {activeMetric === 'cases'
-                          ? `${formatCompact(c.total_deaths)} wafat`
+                          ? `${formatCompact(c.total_deaths)} deaths`
                           : activeMetric === 'deaths'
-                          ? `${formatCompact(c.total_cases)} kasus`
+                          ? `${formatCompact(c.total_cases)} cases`
                           : activeMetric === 'cfr'
-                          ? `${formatCompact(c.total_cases)} kasus`
-                          : `${formatCompact(c.total_cases)} kasus`}
+                          ? `${formatCompact(c.total_cases)} cases`
+                          : `${formatCompact(c.total_cases)} cases`}
                       </div>
                     </td>
                   </tr>
@@ -478,20 +449,20 @@ export default function CaseLocationHeatmap() {
                 ? {hoveredCell.month.month_name} {selectedYear}
               </span>
               <div className="mt-0.5 text-[11px] text-slate-500">
-                Berdasarkan artikel hasil crawling terbitan {hoveredCell.month.month_name} {selectedYear}
+                Based on crawled articles published in {hoveredCell.month.month_name} {selectedYear}
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-4 font-sans">
             <div className="rounded-lg bg-white px-3 py-1.5 border border-slate-200/80 shadow-xs">
-              <div className="text-[10px] font-bold text-slate-600 uppercase">Kasus Terdeteksi</div>
+              <div className="text-[10px] font-bold text-slate-600 uppercase">Detected Cases</div>
               <div className="text-sm font-black text-blue-700">
                 {formatCompact(hoveredCell.month.cases)}
               </div>
             </div>
             <div className="rounded-lg bg-white px-3 py-1.5 border border-slate-200/80 shadow-xs">
-              <div className="text-[10px] font-bold text-slate-600 uppercase">Kematian</div>
+              <div className="text-[10px] font-bold text-slate-600 uppercase">Deaths</div>
               <div className="text-sm font-black text-rose-700">
                 {formatCompact(hoveredCell.month.deaths)}
               </div>
@@ -505,12 +476,6 @@ export default function CaseLocationHeatmap() {
                 %
               </div>
             </div>
-            <div className="rounded-lg bg-white px-3 py-1.5 border border-slate-200/80 shadow-xs">
-              <div className="text-[10px] font-bold text-slate-600 uppercase">Sinyal Surveilans</div>
-              <div className="text-sm font-black text-purple-700">
-                {hoveredCell.month.events} sinyal ({hoveredCell.month.alerts} prioritas)
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -520,42 +485,42 @@ export default function CaseLocationHeatmap() {
         {/* Scale Legend */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Intensitas Skala:
+            Scale Intensity:
           </span>
           <div className="flex items-center gap-1.5">
             <span className="flex h-5 w-7 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[10px] font-bold text-slate-400">
               0
             </span>
-            <span className="text-[11px] text-slate-500">Nol / Belum ada data</span>
+            <span className="text-[11px] text-slate-500">Zero / No data yet</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="flex h-5 w-7 items-center justify-center rounded border border-emerald-200 bg-emerald-100 text-[10px] font-bold text-emerald-800">
               Low
             </span>
-            <span className="text-[11px] text-slate-500">Rendah</span>
+            <span className="text-[11px] text-slate-500">Low</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="flex h-5 w-7 items-center justify-center rounded border border-amber-300 bg-amber-100 text-[10px] font-bold text-amber-800">
               Med
             </span>
-            <span className="text-[11px] text-slate-500">Sedang</span>
+            <span className="text-[11px] text-slate-500">Medium</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="flex h-5 w-7 items-center justify-center rounded border border-orange-400 bg-orange-200 text-[10px] font-bold text-orange-950">
               High
             </span>
-            <span className="text-[11px] text-slate-500">Tinggi</span>
+            <span className="text-[11px] text-slate-500">High</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="flex h-5 w-7 items-center justify-center rounded border border-rose-600 bg-rose-500 text-[10px] font-bold text-white shadow-xs">
               Peak
             </span>
-            <span className="text-[11px] text-slate-500">Kritis / Puncak</span>
+            <span className="text-[11px] text-slate-500">Critical / Peak</span>
           </div>
         </div>
 
         <div className="text-[11px] text-slate-600">
-          ?? Klik baris negara untuk melihat rincian grafik kurva bulanan secara terperinci.
+          Click a country row to view its detailed monthly trend chart.
         </div>
       </div>
 
@@ -577,13 +542,13 @@ export default function CaseLocationHeatmap() {
                     Epidemiological Profile: {selectedCountry.country}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Distribusi bulanan kasus, kematian, dan sinyal wabah tahun {selectedYear}
+                    Monthly distribution of cases and deaths in {selectedYear}
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedCountry(null)}
-                aria-label="Tutup Detail Negara"
+                aria-label="Close Country Details"
                 className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="h-5 w-5" />
@@ -594,7 +559,7 @@ export default function CaseLocationHeatmap() {
             <div className="mt-4 grid grid-cols-3 gap-3">
               <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wider text-blue-700">
-                  Total Kasus
+                  Total Cases
                 </div>
                 <div className="mt-1 text-lg font-black text-blue-900">
                   {formatCompact(selectedCountry.total_cases)}
@@ -602,7 +567,7 @@ export default function CaseLocationHeatmap() {
               </div>
               <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wider text-rose-700">
-                  Total Kematian
+                  Total Deaths
                 </div>
                 <div className="mt-1 text-lg font-black text-rose-900">
                   {formatCompact(selectedCountry.total_deaths)}
@@ -610,7 +575,7 @@ export default function CaseLocationHeatmap() {
               </div>
               <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-wider text-amber-700">
-                  Tingkat Fatalitas (CFR)
+                  Case Fatality Rate (CFR)
                 </div>
                 <div className="mt-1 text-lg font-black text-amber-900">
                   {selectedCountry.total_cases > 0
@@ -624,7 +589,7 @@ export default function CaseLocationHeatmap() {
             {/* Modal Chart */}
             <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
               <div className="mb-3 text-xs font-bold text-slate-700">
-                Kurva Tren Kasus & Kematian Bulanan ({selectedCountry.country} - {selectedYear})
+                Monthly Cases & Deaths Trend ({selectedCountry.country} - {selectedYear})
               </div>
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -646,7 +611,7 @@ export default function CaseLocationHeatmap() {
                     <Tooltip
                       formatter={(val: any, name: any) => [
                         Number(val).toLocaleString('id-ID'),
-                        name === 'cases' ? 'Kasus Terdeteksi' : 'Kematian',
+                        name === 'cases' ? 'Detected Cases' : 'Deaths',
                       ]}
                       contentStyle={{
                         borderRadius: '0.75rem',
@@ -680,7 +645,7 @@ export default function CaseLocationHeatmap() {
                 onClick={() => setSelectedCountry(null)}
                 className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-bold text-white hover:bg-slate-800"
               >
-                Tutup
+                Close
               </button>
             </div>
           </div>
