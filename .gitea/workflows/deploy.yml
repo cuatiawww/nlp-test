@@ -22,10 +22,33 @@ jobs:
       - name: Checkout
         run: |
           cd "$GITHUB_WORKSPACE"
-          rm -rf ./* 2>/dev/null || true
-          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" \
-            clone --depth 1 --branch "${{ gitea.ref_name }}" \
-            https://gitea.mediaciptainformasi.co.id/KEMKES/NLP-PENYAKIT.git .
+          # Clear the runner workspace, including hidden files from a previous run.
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+
+          repo_url="https://gitea.mediaciptainformasi.co.id/KEMKES/NLP-PENYAKIT.git"
+          repo_branch="${{ gitea.ref_name }}"
+          repo_token="${{ gitea.token }}"
+
+          # Gitea is reached through a runner network where the default
+          # GnuTLS/HTTP2 negotiation can occasionally terminate early. Keep
+          # certificate verification enabled and retry over HTTP/1.1 instead.
+          for attempt in 1 2 3 4 5; do
+            if git -c http.version=HTTP/1.1 \
+              -c http.maxRequests=1 \
+              -c http.lowSpeedLimit=0 \
+              -c http.lowSpeedTime=600 \
+              -c http.extraHeader="Authorization: token ${repo_token}" \
+              clone --depth 1 --single-branch --branch "${repo_branch}" \
+              "${repo_url}" .; then
+              exit 0
+            fi
+            echo "Checkout Gitea gagal (percobaan ${attempt}/5); retry..."
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            sleep $((attempt * 5))
+          done
+
+          echo "Checkout Gitea gagal setelah 5 percobaan"
+          exit 1
 
       - name: Sync source ke folder deploy (tanpa config lokal & models)
         run: |
