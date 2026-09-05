@@ -124,6 +124,15 @@ function formatPublishDate(dateStr?: string | null, numLocale = "id-ID") {
 }
 
 // ── Normalization Helper for 100% Consistent KPI Breakdown ─────────────────────
+function formatNumber(
+  value: unknown,
+  numLocale = "id-ID",
+  options?: Intl.NumberFormatOptions,
+) {
+  const numeric = Number(value);
+  return (Number.isFinite(numeric) ? numeric : 0).toLocaleString(numLocale, options);
+}
+
 function normalizeMatrixToTarget(
   matrix: { label: string; value: number; sub?: string }[],
   targetTotal: number,
@@ -223,7 +232,7 @@ function CrawlingInfoModal({
     return {
       label: sourceLabel[sourceType] || sourceType.toUpperCase(),
       value: sourceTotal,
-      sub: `${sourceProcessed.toLocaleString()} ${t("crawling.processedByModel")}`,
+      sub: `${formatNumber(sourceProcessed)} ${t("crawling.processedByModel")}`,
     };
   });
   const normalizedSources = normalizeMatrixToTarget(rawSources, totalCrawled);
@@ -280,7 +289,7 @@ function CrawlingInfoModal({
                 <span>{t("crawling.syncedBadge")}</span>
                 </div>
                 <p className="text-3xl sm:text-4xl font-black text-emerald-600 tracking-tight">
-                  {totalCrawled.toLocaleString()}
+                  {formatNumber(totalCrawled)}
                 </p>
                 <p className="text-xs font-bold text-slate-600 mt-1">
                   {t("crawling.totalSourceRecords")}
@@ -313,7 +322,7 @@ function CrawlingInfoModal({
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-2.5">
                   <p className="text-sm sm:text-base font-black text-emerald-700">
-                    {totalCrawled.toLocaleString()}
+                    {formatNumber(totalCrawled)}
                   </p>
                   <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
                     {t("crawling.allTime")}
@@ -321,7 +330,7 @@ function CrawlingInfoModal({
                 </div>
                 <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-2.5">
                   <p className="text-sm sm:text-base font-black text-[#0060A9]">
-                    {thisMonth.toLocaleString()}
+                    {formatNumber(thisMonth)}
                   </p>
                   <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
                     {t("crawling.thisMonth")}
@@ -344,7 +353,7 @@ function CrawlingInfoModal({
                     {t("crawling.sourceBreakdown")}
                   </p>
                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    Total: {totalCrawled.toLocaleString()}
+                    Total: {formatNumber(totalCrawled)}
                   </span>
                 </div>
                 <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
@@ -385,7 +394,7 @@ function CrawlingInfoModal({
                             </div>
                           </td>
                           <td className="px-3.5 py-2.5 text-right font-black text-slate-900">
-                            {row.value.toLocaleString()}
+                            {formatNumber(row.value)}
                           </td>
                         </tr>
                       ))}
@@ -397,7 +406,7 @@ function CrawlingInfoModal({
                         </td>
                         <td className="px-2 py-2.5 text-center text-[10px]">100.0%</td>
                         <td className="px-3.5 py-2.5 text-right text-sm text-emerald-700 font-black">
-                          {totalCrawled.toLocaleString()}
+                          {formatNumber(totalCrawled)}
                         </td>
                       </tr>
                     </tfoot>
@@ -541,7 +550,7 @@ function KpiInfoModal({
               <span>Nilai Resmi Sinkron dengan Kartu KPI</span>
             </div>
             <p className={`text-3xl sm:text-4xl font-black ${theme.heroText} tracking-tight`}>
-              {kpiValue.toLocaleString()}
+              {formatNumber(kpiValue)}
             </p>
             <p className="text-xs font-bold text-slate-600 mt-1">
               Total {label} pada periode pemantauan aktif saat ini
@@ -578,7 +587,7 @@ function KpiInfoModal({
                   {matrixTitle}
                 </p>
                 <span className="text-[10px] font-bold text-slate-500">
-                  Total: {kpiValue.toLocaleString()}
+                  Total: {formatNumber(kpiValue)}
                 </span>
               </div>
               <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
@@ -619,7 +628,7 @@ function KpiInfoModal({
                           </div>
                         </td>
                         <td className="px-3.5 py-2.5 text-right font-black text-slate-900">
-                          {row.value.toLocaleString()}
+                          {formatNumber(row.value)}
                         </td>
                       </tr>
                     ))}
@@ -631,7 +640,7 @@ function KpiInfoModal({
                       </td>
                       <td className="px-2 py-2.5 text-center text-[10px]">100.0%</td>
                       <td className={`px-3.5 py-2.5 text-right text-sm font-black ${theme.heroText}`}>
-                        {kpiValue.toLocaleString()}
+                        {formatNumber(kpiValue)}
                       </td>
                     </tr>
                   </tfoot>
@@ -742,11 +751,11 @@ function Kpi({
           <p
             className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-[#ED2939]" : tone === "gold" || tone === "orange" ? "text-[#B49B58]" : "text-[#0060A9]"}`}
           >
-            {value.toLocaleString(numLocale)}
+            {formatNumber(value, numLocale)}
           </p>
           <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
             <p className="uppercase">
-              {monthLabel} ({(trend?.previous ?? 0).toLocaleString(numLocale)})
+              {monthLabel} ({formatNumber(trend?.previous ?? 0, numLocale)})
             </p>
             <p
               className={`mt-1 flex items-center gap-0.5 ${isUp ? "text-emerald-600" : "text-red-600"}`}
@@ -756,7 +765,7 @@ function Kpi({
               ) : (
                 <ChevronDown className="h-3 w-3" />
               )}
-              {percentage.toLocaleString(numLocale, { maximumFractionDigits: 1 })}%{" "}
+              {formatNumber(percentage, numLocale, { maximumFractionDigits: 1 })}%{" "}
               {t("dashboard.fromPreviousMonth")}
             </p>
           </div>
@@ -961,7 +970,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <p className="mt-1 truncate text-[30px] font-bold leading-none text-emerald-600">
-                {(crawlingStats?.live_crawled ?? 0).toLocaleString()}
+                {formatNumber(crawlingStats?.live_crawled ?? 0)}
               </p>
               <p className="mt-1 text-[9px] font-semibold text-slate-400">
                 Current active collector run
@@ -969,11 +978,11 @@ export default function DashboardPage() {
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
                   <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">Stored in DB</p>
-                  <p className="mt-0.5 text-sm font-black text-slate-700">{(crawlingStats?.total ?? 0).toLocaleString()}</p>
+                  <p className="mt-0.5 text-sm font-black text-slate-700">{formatNumber(crawlingStats?.total ?? 0)}</p>
                 </div>
                 <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-2 py-1.5">
                   <p className="text-[8px] font-black uppercase tracking-wide text-blue-500">Processed by NLP</p>
-                  <p className="mt-0.5 text-sm font-black text-[#0060A9]">{(crawlingStats?.total_processed ?? 0).toLocaleString()}</p>
+                  <p className="mt-0.5 text-sm font-black text-[#0060A9]">{formatNumber(crawlingStats?.total_processed ?? 0)}</p>
                 </div>
               </div>
             </div>
@@ -1106,7 +1115,7 @@ export default function DashboardPage() {
               {t("crawling.totalRecords")}
             </p>
             <p className="mt-2 truncate text-[30px] font-bold leading-none text-emerald-600">
-              {(crawlingStats?.total ?? 0).toLocaleString()}
+              {formatNumber(crawlingStats?.total ?? 0)}
             </p>
             <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
               <p className="uppercase">
@@ -1115,11 +1124,11 @@ export default function DashboardPage() {
                       new Date(`${crawlingStats.previous_month}-01T00:00:00Z`),
                     )
                   : t("crawling.lastMonth")}{" "}
-                ({(crawlingStats?.last_month ?? 0).toLocaleString()})
+                ({formatNumber(crawlingStats?.last_month ?? 0)})
               </p>
               <p className="mt-1 flex items-center gap-0.5 text-slate-400">
                 <Info className="h-3 w-3" />
-                {(crawlingStats?.this_month ?? 0).toLocaleString()} {t("crawling.thisMonthCount")}
+                {formatNumber(crawlingStats?.this_month ?? 0)} {t("crawling.thisMonthCount")}
               </p>
             </div>
           </div>
@@ -1187,7 +1196,7 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <p className="mt-2 text-xs text-slate-600">
-                        <b>{a.cases.toLocaleString(numLocale)}</b> {t("dashboard.casesUnit")} •{" "}
+                        <b>{formatNumber(a.cases ?? 0, numLocale)}</b> {t("dashboard.casesUnit")} •{" "}
                         <b>{a.deaths}</b> {t("dashboard.deathsUnit")} • {t("dashboard.publishDateUnit")}: {formatPublishDate(a.latest_date || a.detail?.published_at, numLocale)}
                       </p>
                     </button>
@@ -1338,7 +1347,7 @@ export default function DashboardPage() {
                   </td>
                   <td className="px-4 py-3">{translateDisease(r.disease)}</td>
                   <td className="px-4 py-3 text-right">
-                    {r.cases.toLocaleString(numLocale)}
+                    {formatNumber(r.cases ?? 0, numLocale)}
                   </td>
                   <td className="px-4 py-3 text-right">{r.deaths}</td>
                   <td className="px-4 py-3 text-right">
@@ -1402,8 +1411,8 @@ export default function DashboardPage() {
                 {[
                   [t("dashboard.labelDisease"), translateDisease(selected.disease)],
                   [t("dashboard.labelLocation"), `${selected.location_name}, ${selected.country}`],
-                  [t("dashboard.labelTotalCases"), selected.cases.toLocaleString(numLocale)],
-                  [t("dashboard.labelDeaths"), selected.deaths.toLocaleString(numLocale)],
+                  [t("dashboard.labelTotalCases"), formatNumber(selected.cases ?? 0, numLocale)],
+                  [t("dashboard.labelDeaths"), formatNumber(selected.deaths ?? 0, numLocale)],
                   [
                     t("dashboard.labelConfidence"),
                     selected.confidence == null
