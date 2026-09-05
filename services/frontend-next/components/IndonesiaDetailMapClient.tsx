@@ -197,10 +197,12 @@ export default function IndonesiaDetailMapClient({
     if (isHovered) {
       return new Style({
         fill: new Fill({
-          color: isDarkBase ? 'rgba(13, 148, 136, 0.75)' : '#0d9488',
+          color: hasData
+            ? (isDarkBase ? 'rgba(239, 68, 68, 0.8)' : '#dc2626')
+            : (isDarkBase ? 'rgba(226, 232, 240, 0.35)' : '#cbd5e1'),
         }),
         stroke: new Stroke({
-          color: isDarkBase ? '#5eead4' : '#042f2e',
+          color: hasData ? '#991b1b' : '#64748b',
           width: 2.5,
         }),
         zIndex: 20,
@@ -220,10 +222,10 @@ export default function IndonesiaDetailMapClient({
     if (hasData) {
       return new Style({
         fill: new Fill({
-          color: isDarkBase ? 'rgba(20, 184, 166, 0.55)' : '#14b8a6',
+          color: isDarkBase ? 'rgba(239, 68, 68, 0.65)' : '#ef4444',
         }),
         stroke: new Stroke({
-          color: isDarkBase ? '#2dd4bf' : '#0f766e',
+          color: isDarkBase ? '#fca5a5' : '#991b1b',
           width: 1.2,
         }),
       })
@@ -257,8 +259,7 @@ export default function IndonesiaDetailMapClient({
       source: markerSource,
       zIndex: 22,
       style: (f) => {
-        const sev = f.get('severity')
-        const col = sev === 'AWAS' ? '#ED2939' : sev === 'SIAGA' ? '#f59e0b' : '#0060A9'
+        const col = '#dc2626'
         return new Style({
           image: new CircleStyle({
             radius: 7,
@@ -719,7 +720,7 @@ export default function IndonesiaDetailMapClient({
           {/* Card Header */}
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-2">
-              <MapPin className="h-4 w-4 shrink-0 text-[#0d9488] mt-0.5" />
+              <MapPin className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
               <div>
                 <div className="flex items-center gap-1">
                   <h4 className="text-sm font-black tracking-tight text-slate-900 leading-tight">
@@ -747,7 +748,7 @@ export default function IndonesiaDetailMapClient({
               <span
                 className={`font-black text-[11px] px-2 py-0.5 rounded-full ${
                   detail.status === 'TERDETEKSI'
-                    ? 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+                    ? 'text-red-700 bg-red-50 border border-red-200'
                     : 'text-slate-600 bg-slate-100 border border-slate-200'
                 }`}
               >
@@ -799,7 +800,7 @@ export default function IndonesiaDetailMapClient({
               <div className="space-y-1.5 pt-1">
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2 text-slate-700 font-medium">
-                    <span className="h-3 w-3 rounded-xs shrink-0" style={{ backgroundColor: '#14b8a6' }} />
+                    <span className="h-3 w-3 rounded-xs shrink-0" style={{ backgroundColor: '#ef4444' }} />
                     <span>Terdeteksi</span>
                   </div>
                   <span className="font-bold text-slate-900">

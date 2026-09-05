@@ -196,6 +196,12 @@ struct PublicDashboardQuery {
     source: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct IbsSummaryQuery {
+    year: Option<i32>,
+    province: Option<String>,
+}
+
 
 #[derive(Debug, Deserialize)]
 struct CreateUserRequest {
@@ -478,6 +484,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/crawling-stats", get(crawling_stats))
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/public-dashboard", get(public_dashboard))
+        .route("/api/v1/skdr/ibs-summary", get(skdr_ibs_summary))
+        .route("/api/v1/skdr/ebs-summary", get(skdr_ebs_summary))
         .route("/api/v1/spatial-heatmap", get(spatial_heatmap))
         .route("/api/v1/disease-trend-overview", get(disease_trend_overview))
         .route("/api/v1/morbidity-mortality", get(morbidity_mortality_handler))
@@ -2424,6 +2432,266 @@ async fn dashboard_summary(
         "success": true,
         "message": "Success",
         "data": data
+    })))
+}
+
+fn normalized_json_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn find_json_field<'a>(payload: &'a Value, candidates: &[&str]) -> Option<&'a Value> {
+    match payload {
+        Value::Object(values) => {
+            for candidate in candidates {
+                let wanted = normalized_json_key(candidate);
+                if let Some((_, value)) = values
+                    .iter()
+                    .find(|(key, _)| normalized_json_key(key) == wanted)
+                {
+                    if !value.is_null() {
+                        return Some(value);
+                    }
+                }
+            }
+            values
+                .values()
+                .find_map(|value| find_json_field(value, candidates))
+        }
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| find_json_field(value, candidates)),
+        _ => None,
+    }
+}
+
+fn json_field_text(payload: &Value, candidates: &[&str]) -> Option<String> {
+    let value = find_json_field(payload, candidates)?;
+    let text = match value {
+        Value::String(text) => text.trim().to_string(),
+        Value::Number(number) => number.to_string(),
+        Value::Bool(value) => value.to_string(),
+        _ => return None,
+    };
+    (!text.is_empty()).then_some(text)
+}
+
+fn json_field_count(payload: &Value, candidates: &[&str]) -> i64 {
+    let Some(value) = find_json_field(payload, candidates) else {
+        return 0;
+    };
+    if let Some(number) = value.as_i64() {
+        return number.max(0);
+    }
+    if let Some(number) = value.as_f64() {
+        return number.max(0.0).round() as i64;
+    }
+    let Some(raw) = value.as_str().map(str::trim) else {
+        return 0;
+    };
+    if let Ok(number) = raw.parse::<i64>() {
+        return number.max(0);
+    }
+    let digits = raw.chars().filter(char::is_ascii_digit).collect::<String>();
+    digits.parse::<i64>().unwrap_or(0)
+}
+
+/// Dedicated IBS aggregate sourced directly from official SKDR records.
+/// It deliberately bypasses raw_reports, disease_events, and NLP.
+async fn skdr_ibs_summary(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<IbsSummaryQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    skdr_summary(state, query, "ibs").await
+}
+
+/// Dedicated EBS aggregate sourced directly from official SKDR records.
+/// Like IBS, this endpoint does not wait for the NLP processing pipeline.
+async fn skdr_ebs_summary(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<IbsSummaryQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    skdr_summary(state, query, "ebs").await
+}
+
+async fn skdr_summary(
+    state: Arc<AppState>,
+    query: IbsSummaryQuery,
+    endpoint_name: &'static str,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let selected_year = query.year.unwrap_or_else(|| chrono::Utc::now().year());
+    let province_filter = query
+        .province
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty() && value != "all");
+
+    let available_years = client
+        .query(
+            "SELECT DISTINCT report_year FROM skdr_reports
+             WHERE endpoint_name=$1 ORDER BY report_year DESC",
+            &[&endpoint_name],
+        )
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| row.get::<_, i32>(0))
+        .collect::<Vec<_>>();
+
+    let rows = client
+        .query(
+            "SELECT payload, epidemiological_week
+             FROM skdr_reports
+             WHERE endpoint_name=$1 AND report_year=$2",
+            &[&endpoint_name, &selected_year],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let disease_fields = [
+        "penyakit", "nama_penyakit", "nama_penyakit_sindrom",
+        "penyakit_sindrom", "disease", "disease_name", "jenis_penyakit",
+        "diagnosa", "verifikasi",
+    ];
+    let province_fields = ["provinsi", "propinsi", "nama_provinsi", "province"];
+    let case_fields = ["kasus", "jumlah_kasus", "jml_kasus", "case_count", "cases", "jumlah"];
+    let death_fields = ["kematian", "jumlah_kematian", "jml_kematian", "death_count", "deaths", "meninggal"];
+    let date_fields = ["tgl_laporan", "tanggal_laporan", "report_date", "date"];
+    let verification_fields = ["sts_verifikasi", "status_verifikasi"];
+    let examination_fields = ["hasil_pemeriksaan", "examination_result"];
+    let rumor_status_fields = ["sts_rumor", "status_rumor"];
+
+    let mut total_reports = 0i64;
+    let mut total_cases = 0i64;
+    let mut total_deaths = 0i64;
+    let mut klb_reports = 0i64;
+    let mut investigation_reports = 0i64;
+    let mut verified_reports = 0i64;
+    let mut negative_discarded_reports = 0i64;
+    let mut death_reports = 0i64;
+    let mut by_disease = HashMap::<String, (i64, i64, i64)>::new();
+    let mut by_province = HashMap::<String, (i64, i64, i64)>::new();
+    let mut by_week = HashMap::<i32, (i64, i64, i64)>::new();
+
+    for row in rows {
+        let payload = row.get::<_, Value>(0);
+        let mut week = row.get::<_, Option<i32>>(1).unwrap_or(0);
+        if week <= 0 {
+            if let Some(report_date) = json_field_text(&payload, &date_fields) {
+                if let Ok(date) = NaiveDate::parse_from_str(report_date.get(..10).unwrap_or(&report_date), "%Y-%m-%d") {
+                    week = date.iso_week().week() as i32;
+                }
+            }
+        }
+        let province = json_field_text(&payload, &province_fields)
+            .unwrap_or_else(|| "Wilayah tidak diketahui".to_string());
+        if let Some(ref expected) = province_filter {
+            if province.to_lowercase() != *expected {
+                continue;
+            }
+        }
+        let disease = json_field_text(&payload, &disease_fields)
+            .unwrap_or_else(|| "Penyakit tidak diketahui".to_string());
+        let cases = json_field_count(&payload, &case_fields);
+        let deaths = json_field_count(&payload, &death_fields);
+        let klb = json_field_text(&payload, &["klb"]).unwrap_or_default();
+        let verification = json_field_text(&payload, &verification_fields)
+            .unwrap_or_default().to_lowercase();
+        let examination = json_field_text(&payload, &examination_fields)
+            .unwrap_or_default().to_lowercase();
+        let rumor_status = json_field_text(&payload, &rumor_status_fields)
+            .unwrap_or_default().to_lowercase();
+
+        if (endpoint_name == "ebs" && klb == "1")
+            || (endpoint_name == "ibs" && !klb.is_empty() && klb != "0")
+        {
+            klb_reports += 1;
+        }
+        if (endpoint_name == "ebs" && rumor_status.contains("dalam investigasi"))
+            || (endpoint_name == "ibs" && (examination == "dalam_proses" || verification == "0"))
+        {
+            investigation_reports += 1;
+        }
+        if (endpoint_name == "ebs" && rumor_status.contains("terverifikasi"))
+            || (endpoint_name == "ibs" && verification == "1")
+        {
+            verified_reports += 1;
+        }
+        if (endpoint_name == "ebs" && rumor_status.contains("discarded"))
+            || (endpoint_name == "ibs" && examination == "negatif")
+        {
+            negative_discarded_reports += 1;
+        }
+        if deaths > 0 {
+            death_reports += 1;
+        }
+
+        total_reports += 1;
+        total_cases += cases;
+        total_deaths += deaths;
+        let disease_total = by_disease.entry(disease).or_insert((0, 0, 0));
+        disease_total.0 += cases;
+        disease_total.1 += deaths;
+        disease_total.2 += 1;
+        let province_total = by_province.entry(province).or_insert((0, 0, 0));
+        province_total.0 += cases;
+        province_total.1 += deaths;
+        province_total.2 += 1;
+        let week_total = by_week.entry(week).or_insert((0, 0, 0));
+        week_total.0 += cases;
+        week_total.1 += deaths;
+        week_total.2 += 1;
+    }
+
+    let mut diseases = by_disease
+        .into_iter()
+        .map(|(name, (cases, deaths, reports))| json!({
+            "name": name, "cases": cases, "deaths": deaths, "reports": reports
+        }))
+        .collect::<Vec<_>>();
+    diseases.sort_by_key(|item| std::cmp::Reverse(item["cases"].as_i64().unwrap_or(0)));
+
+    let mut provinces = by_province
+        .into_iter()
+        .map(|(name, (cases, deaths, reports))| json!({
+            "name": name, "cases": cases, "deaths": deaths, "reports": reports
+        }))
+        .collect::<Vec<_>>();
+    provinces.sort_by_key(|item| std::cmp::Reverse(item["cases"].as_i64().unwrap_or(0)));
+
+    let mut weekly_trend = by_week
+        .into_iter()
+        .map(|(week, (cases, deaths, reports))| json!({
+            "week": week, "cases": cases, "deaths": deaths, "reports": reports
+        }))
+        .collect::<Vec<_>>();
+    weekly_trend.sort_by_key(|item| item["week"].as_i64().unwrap_or(0));
+
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "source": format!("SKDR {}", endpoint_name.to_uppercase()),
+            "year": selected_year,
+            "available_years": available_years,
+            "totals": {
+                "reports": total_reports,
+                "cases": total_cases,
+                "deaths": total_deaths
+            },
+            "status": {
+                "klb": klb_reports,
+                "investigation": investigation_reports,
+                "verified": verified_reports,
+                "negative_discarded": negative_discarded_reports,
+                "with_deaths": death_reports
+            },
+            "by_disease": diseases,
+            "by_province": provinces,
+            "weekly_trend": weekly_trend
+        }
     })))
 }
 

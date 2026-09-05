@@ -68,8 +68,8 @@ import {
 import TimelineCalendarModal from './TimelineCalendarModal'
 import VolunteerMobilizationTab from './VolunteerMobilizationTab'
 import { useAuthStore } from '@/lib/authStore'
-import { fetchPublicDashboard } from '@/lib/api'
-import type { OutbreakLocation, PublicDashboard } from '@/types'
+import { fetchEbsSummary, fetchIbsSummary, fetchPublicDashboard } from '@/lib/api'
+import type { IbsSummary, OutbreakLocation, PublicDashboard } from '@/types'
 import {
   ResponsiveContainer,
   LineChart,
@@ -670,6 +670,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   const [livePenyakitSurveilans, setLivePenyakitSurveilans] = useState<any>(null)
   const [regionalSkdrData, setRegionalSkdrData] = useState<PublicDashboard | null>(null)
   const [regionalIbsData, setRegionalIbsData] = useState<PublicDashboard | null>(null)
+  const [regionalIbsSummary, setRegionalIbsSummary] = useState<IbsSummary | null>(null)
+  const [regionalEbsSummary, setRegionalEbsSummary] = useState<IbsSummary | null>(null)
   const [regionalEbsData, setRegionalEbsData] = useState<PublicDashboard | null>(null)
   const [loadingRegionalSkdr, setLoadingRegionalSkdr] = useState(false)
   const [upayaSelectedSubKlaster, setUpayaSelectedSubKlaster] = useState<string>('all')
@@ -849,15 +851,35 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         setLoadingRegionalSkdr(true)
         const currentYear = new Date().getFullYear()
         const country = String(selectedEvent?.provinsi || 'Indonesia')
-        const [all, ibs, ebs] = await Promise.all([
+        const loadDirectIbs = async () => {
+          let data = await fetchIbsSummary({ year: currentYear })
+          const latestAvailableYear = data.available_years?.[0]
+          if (!data.by_province?.length && latestAvailableYear && latestAvailableYear !== currentYear) {
+            data = await fetchIbsSummary({ year: latestAvailableYear })
+          }
+          return data
+        }
+        const loadDirectEbs = async () => {
+          let data = await fetchEbsSummary({ year: currentYear })
+          const latestAvailableYear = data.available_years?.[0]
+          if (!data.by_province?.length && latestAvailableYear && latestAvailableYear !== currentYear) {
+            data = await fetchEbsSummary({ year: latestAvailableYear })
+          }
+          return data
+        }
+        const [all, ibs, ebs, directIbs, directEbs] = await Promise.allSettled([
           loadSource('skdr', currentYear, country),
           loadSource('ibs', currentYear, country),
           loadSource('ebs', currentYear, country),
+          loadDirectIbs(),
+          loadDirectEbs(),
         ])
         if (active) {
-          setRegionalSkdrData(all)
-          setRegionalIbsData(ibs)
-          setRegionalEbsData(ebs)
+          if (all.status === 'fulfilled') setRegionalSkdrData(all.value)
+          if (ibs.status === 'fulfilled') setRegionalIbsData(ibs.value)
+          if (ebs.status === 'fulfilled') setRegionalEbsData(ebs.value)
+          if (directIbs.status === 'fulfilled') setRegionalIbsSummary(directIbs.value)
+          if (directEbs.status === 'fulfilled') setRegionalEbsSummary(directEbs.value)
         }
       } catch (error) {
         if (active) console.warn('[Regional SKDR Fetch Error]', error)
@@ -5760,57 +5782,71 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
       {isRegionalTemplate && (() => {
           // ── Surveillance Data & Metrics Preparation (SKDR IBS & EBS) ──
-          const totalKasus = regionalSkdrData?.kpis.cases ?? 0;
-          const totalKematian = regionalSkdrData?.kpis.deaths ?? 0;
+          const totalKasus = (regionalIbsSummary?.totals.cases ?? 0) + (regionalEbsSummary?.totals.cases ?? 0);
+          const totalKematian = (regionalIbsSummary?.totals.deaths ?? 0) + (regionalEbsSummary?.totals.deaths ?? 0);
           const totalAlerts = regionalSkdrData?.kpis.active_alerts ?? 0;
-          const topDiseaseObj = regionalSkdrData?.by_disease?.[0];
+          const topDiseaseObj = [...(regionalIbsSummary?.by_disease || []), ...(regionalEbsSummary?.by_disease || [])]
+            .sort((a, b) => b.cases - a.cases)[0];
           const topDiseaseName = topDiseaseObj ? formatDisasterName(topDiseaseObj.name) : 'Belum ada data';
           const topDiseaseCases = topDiseaseObj ? topDiseaseObj.cases : 0;
           const cfrRate = ((totalKematian / (totalKasus || 1)) * 100).toFixed(2);
 
-          // Trend series berasal langsung dari weekly_trend API.
-          const weeksData = (regionalSkdrData?.weekly_trend || []).map((item) => ({
-            week: `W-${String(item.week).padStart(2, '0')}`,
-            cases: item.cases,
-            terkonfirmasi: item.events,
-            deaths: item.deaths,
-            alert: item.alerts ?? 0,
-            cumulative: 0,
-          })).map((item, index, rows) => ({
+          // Trend IBS dan EBS dibaca langsung dari laporan resmi SKDR, tanpa NLP/EWS.
+          const weekNumbers = Array.from(new Set([
+            ...(regionalIbsSummary?.weekly_trend || []).map((item) => item.week),
+            ...(regionalEbsSummary?.weekly_trend || []).map((item) => item.week),
+          ])).filter((week) => week > 0).sort((a, b) => a - b);
+          const weeksData = weekNumbers.map((week) => {
+            const ibs = regionalIbsSummary?.weekly_trend.find((item) => item.week === week);
+            const ebs = regionalEbsSummary?.weekly_trend.find((item) => item.week === week);
+            return {
+              week: `W-${String(week).padStart(2, '0')}`,
+              cases: ibs?.cases ?? 0,
+              terkonfirmasi: ebs?.cases ?? 0,
+              deaths: (ibs?.deaths ?? 0) + (ebs?.deaths ?? 0),
+              cumulative: 0,
+            };
+          }).map((item, index, rows) => ({
             ...item,
-            cumulative: rows.slice(0, index + 1).reduce((total, current) => total + current.cases, 0),
+            cumulative: rows.slice(0, index + 1).reduce((total, current) => total + current.cases + current.terkonfirmasi, 0),
           }));
 
-          const currentWeekCases = weeksData[weeksData.length - 1]?.cases ?? 0;
+          const currentWeekCases = weeksData.length
+            ? weeksData[weeksData.length - 1].cases + weeksData[weeksData.length - 1].terkonfirmasi
+            : 0;
           const currentWeekLabel = weeksData[weeksData.length - 1]?.week || 'N/A';
+          const monitoringStatus = {
+            klb: (regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0),
+            investigation: (regionalIbsSummary?.status?.investigation ?? 0) + (regionalEbsSummary?.status?.investigation ?? 0),
+            verified: (regionalIbsSummary?.status?.verified ?? 0) + (regionalEbsSummary?.status?.verified ?? 0),
+            negativeDiscarded: (regionalIbsSummary?.status?.negative_discarded ?? 0) + (regionalEbsSummary?.status?.negative_discarded ?? 0),
+            withDeaths: (regionalIbsSummary?.status?.with_deaths ?? 0) + (regionalEbsSummary?.status?.with_deaths ?? 0),
+          };
 
           // Ringkasan kanal berasal dari snapshot IBS/EBS. Data fasilitas
           // individual tidak ditebak dari agregat dashboard.
           const makeChannelBreakdown = (
             key: string,
             title: string,
-            data: PublicDashboard | null,
+            data: IbsSummary | null,
             color: string,
             fills: string[],
           ) => ({
             key,
             title,
             icon: Activity,
-            totalMaster: data?.kpis.events ?? 0,
+            totalMaster: data?.totals.reports ?? 0,
             color,
             pieData: [
-              { name: 'Kasus', value: data?.kpis.cases ?? 0, fill: fills[0] },
-              { name: 'Event', value: data?.kpis.events ?? 0, fill: fills[1] },
-              { name: 'Lokasi', value: data?.kpis.locations ?? 0, fill: fills[2] },
+              { name: 'Kasus', value: data?.totals.cases ?? 0, fill: fills[0] },
+              { name: 'Laporan', value: data?.totals.reports ?? 0, fill: fills[1] },
+              { name: 'Provinsi', value: data?.by_province.length ?? 0, fill: fills[2] },
             ],
-            alertCount: data?.kpis.active_alerts ?? 0,
-            investigasiCount: data?.kpis.events ?? 0,
-            siagaCount: data?.kpis.locations ?? 0,
           });
 
           const faskesSurveillanceBreakdown = [
-            makeChannelBreakdown('ibs', 'IBS (Indikator)', regionalIbsData, 'text-sky-600', ['#0284c7', '#38bdf8', '#7dd3fc']),
-            makeChannelBreakdown('ebs', 'EBS (Event)', regionalEbsData, 'text-blue-600', ['#1d4ed8', '#60a5fa', '#93c5fd']),
+            makeChannelBreakdown('ibs', 'IBS (Indikator)', regionalIbsSummary, 'text-sky-600', ['#0284c7', '#38bdf8', '#7dd3fc']),
+            makeChannelBreakdown('ebs', 'EBS (Event)', regionalEbsSummary, 'text-blue-600', ['#1d4ed8', '#60a5fa', '#93c5fd']),
           ];
 
           /*
@@ -5888,8 +5924,32 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               .slice(0, 10);
           };
 
-          const ibsProvinceData = toRegionChart(regionalIbsData);
-          const ebsProvinceData = toRegionChart(regionalEbsData);
+          const ibsProvinceData = (regionalIbsSummary?.by_province || [])
+            .map((item) => ({
+              province: item.name,
+              cases: safeParseInt(item.cases),
+              reports: safeParseInt(item.reports),
+            }))
+            .sort((a, b) => b.cases - a.cases)
+            .slice(0, 10);
+          const ibsUsesReportCount = (regionalIbsSummary?.totals.cases ?? 0) <= 0;
+          const ibsChartData = ibsProvinceData.map((item) => ({
+            ...item,
+            value: ibsUsesReportCount ? item.reports : item.cases,
+          }));
+          const ebsProvinceData = (regionalEbsSummary?.by_province || [])
+            .map((item) => ({
+              province: item.name,
+              cases: safeParseInt(item.cases),
+              reports: safeParseInt(item.reports),
+            }))
+            .sort((a, b) => b.cases - a.cases)
+            .slice(0, 10);
+          const ebsUsesReportCount = (regionalEbsSummary?.totals.cases ?? 0) <= 0;
+          const ebsChartData = ebsProvinceData.map((item) => ({
+            ...item,
+            value: ebsUsesReportCount ? item.reports : item.cases,
+          }));
 
           return (
             <section className="space-y-6 mt-6" aria-labelledby="surveillance-trend-section">
@@ -5975,8 +6035,17 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       </div>
 
                       <div className="w-full h-[240px] sm:h-[260px]">
+                        {loadingRegionalSkdr ? (
+                          <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-500">
+                            Memuat agregasi langsung SKDR IBS…
+                          </div>
+                        ) : ibsChartData.length === 0 ? (
+                          <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-sky-200 bg-sky-50/40 px-6 text-center text-sm font-semibold text-slate-500">
+                            Belum ada laporan IBS pada tahun yang tersedia.
+                          </div>
+                        ) : (
                         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                          <BarChart data={ibsProvinceData} margin={{ top: 15, right: 15, left: -10, bottom: 25 }}>
+                          <BarChart data={ibsChartData} margin={{ top: 15, right: 15, left: -10, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                             <XAxis
                               dataKey="province"
@@ -5998,7 +6067,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                     <div className="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs shadow-lg border border-slate-700">
                                       <div className="font-bold">{d.province}</div>
                                       <div className="text-emerald-400 font-extrabold mt-0.5">
-                                        kasus : {Number(d.cases).toLocaleString('id-ID')}
+                                        {ibsUsesReportCount ? 'laporan' : 'kasus'} : {Number(d.value).toLocaleString('id-ID')}
                                       </div>
                                     </div>
                                   );
@@ -6006,13 +6075,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                 return null;
                               }}
                             />
-                            <Bar dataKey="cases" fill="#00B4D8" radius={[4, 4, 0, 0]}>
-                              {ibsProvinceData.map((_, idx) => (
+                            <Bar dataKey="value" fill="#00B4D8" radius={[4, 4, 0, 0]}>
+                              {ibsChartData.map((_, idx) => (
                                 <Cell key={`cell-ibs-${idx}`} fill={idx === 2 ? '#0284c7' : '#00B4D8'} />
                               ))}
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
+                        )}
                       </div>
                     </div>
                   )}
@@ -6035,8 +6105,17 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       </div>
 
                       <div className="w-full h-[240px] sm:h-[260px]">
+                        {loadingRegionalSkdr ? (
+                          <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-500">
+                            Memuat agregasi langsung SKDR EBS…
+                          </div>
+                        ) : ebsChartData.length === 0 ? (
+                          <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-blue-200 bg-blue-50/40 px-6 text-center text-sm font-semibold text-slate-500">
+                            Belum ada laporan EBS pada tahun yang tersedia.
+                          </div>
+                        ) : (
                         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                          <BarChart data={ebsProvinceData} margin={{ top: 15, right: 15, left: -10, bottom: 25 }}>
+                          <BarChart data={ebsChartData} margin={{ top: 15, right: 15, left: -10, bottom: 25 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                             <XAxis
                               dataKey="province"
@@ -6058,7 +6137,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                     <div className="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs shadow-lg border border-slate-700">
                                       <div className="font-bold">{d.province}</div>
                                       <div className="text-sky-400 font-extrabold mt-0.5">
-                                        kejadian / kasus : {Number(d.cases).toLocaleString('id-ID')}
+                                        {ebsUsesReportCount ? 'laporan' : 'kejadian / kasus'} : {Number(d.value).toLocaleString('id-ID')}
                                       </div>
                                     </div>
                                   );
@@ -6066,13 +6145,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                 return null;
                               }}
                             />
-                            <Bar dataKey="cases" fill="#3b82f6" radius={[4, 4, 0, 0]}>
-                              {ebsProvinceData.map((_, idx) => (
+                            <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]}>
+                              {ebsChartData.map((_, idx) => (
                                 <Cell key={`cell-ebs-${idx}`} fill={idx === 2 ? '#1d4ed8' : '#3b82f6'} />
                               ))}
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
+                        )}
                       </div>
                     </div>
                   )}
@@ -6092,7 +6172,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                             Tren Kasus &amp; Surveilans Epidemiologi
                           </h4>
                           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0 leading-relaxed">
-                            Dinamika pelaporan kasus mingguan SKDR IBS, deteksi dini alert EBS, rasio fatalitas (CFR), serta sebaran kasus bergejala terverifikasi di {displayRegion}.
+                            Dinamika kasus mingguan dari laporan resmi SKDR IBS dan EBS, rasio fatalitas (CFR), serta sebaran penyakit di {displayRegion}.
                           </p>
                         </div>
                         <button
@@ -6166,7 +6246,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#f97316]" />
-                          Kasus Baru
+                          Kasus IBS
                         </button>
                         <button
                           type="button"
@@ -6178,19 +6258,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#047d78]" />
-                          Terkonfirmasi
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleLine('Sinyal Alert EWS')}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                            visibleLines['Sinyal Alert EWS'] !== false
-                              ? 'bg-amber-50 text-amber-800 border-amber-300 shadow-2xs font-black'
-                              : 'bg-slate-100 text-slate-400 border-slate-200 line-through opacity-60'
-                          }`}
-                        >
-                          <span className="h-2 w-2 rounded-full bg-[#d97706]" />
-                          Sinyal Alert EWS
+                          Kasus EBS
                         </button>
                         <button
                           type="button"
@@ -6225,23 +6293,6 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                         </button>
                       </div>
 
-                      {/* View Mode Pills (Dual | Kasus | Sinyal) */}
-                      <div className="flex items-center gap-1 bg-slate-200/80 p-0.5 rounded-lg text-xs font-bold">
-                        {(['Dual', 'Kasus', 'Sinyal'] as const).map(mode => (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => setSurveillanceTrendMode(mode)}
-                            className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
-                              surveillanceTrendMode === mode
-                                ? 'bg-teal-700 text-white shadow-2xs font-black'
-                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                            }`}
-                          >
-                            {mode}
-                          </button>
-                        ))}
-                      </div>
                     </div>
 
                     {/* Chart Container */}
@@ -6276,43 +6327,31 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           <Legend
                             wrapperStyle={{ paddingTop: 8, fontSize: '11px', fontWeight: 700 }}
                           />
-                          {visibleLines['Kasus Baru'] !== false && (surveillanceTrendMode !== 'Sinyal') && (
+                          {visibleLines['Kasus Baru'] !== false && (
                             <Line
                               yAxisId="left"
                               type="monotone"
                               dataKey="cases"
-                              name="Kasus Baru"
+                              name="Kasus IBS"
                               stroke="#f97316"
                               strokeWidth={2.5}
                               dot={{ r: 3.5, fill: '#f97316' }}
                               activeDot={{ r: 6 }}
                             />
                           )}
-                          {visibleLines['Kasus Terkonfirmasi'] !== false && (surveillanceTrendMode !== 'Sinyal') && (
+                          {visibleLines['Kasus Terkonfirmasi'] !== false && (
                             <Line
                               yAxisId="left"
                               type="monotone"
                               dataKey="terkonfirmasi"
-                              name="Kasus Terkonfirmasi"
+                              name="Kasus EBS"
                               stroke="#047d78"
                               strokeWidth={2.5}
                               dot={{ r: 3.5, fill: '#047d78' }}
                               activeDot={{ r: 6 }}
                             />
                           )}
-                          {visibleLines['Sinyal Alert EWS'] !== false && (surveillanceTrendMode !== 'Kasus') && (
-                            <Line
-                              yAxisId="left"
-                              type="monotone"
-                              dataKey="alert"
-                              name="Sinyal Alert EWS"
-                              stroke="#d97706"
-                              strokeWidth={2}
-                              dot={{ r: 3.5, fill: '#d97706' }}
-                              activeDot={{ r: 5 }}
-                            />
-                          )}
-                          {visibleLines['Kematian'] !== false && (surveillanceTrendMode !== 'Kasus') && (
+                          {visibleLines['Kematian'] !== false && (
                             <Line
                               yAxisId="left"
                               type="monotone"
@@ -6324,7 +6363,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                               activeDot={{ r: 5 }}
                             />
                           )}
-                          {visibleLines['Total Kumulatif'] !== false && (surveillanceTrendMode !== 'Sinyal') && (
+                          {visibleLines['Total Kumulatif'] !== false && (
                             <Line
                               yAxisId="right"
                               type="monotone"
@@ -6383,8 +6422,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       {/* Top Metric Strip dari API */}
                       <div className="grid grid-cols-3 gap-2 mt-4 text-center">
                         <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Event</span>
-                          <span className="text-base sm:text-lg font-black text-slate-900 block mt-0.5">{regionalSkdrData?.kpis.events ?? 0}</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Laporan</span>
+                          <span className="text-base sm:text-lg font-black text-slate-900 block mt-0.5">{((regionalIbsSummary?.totals.reports ?? 0) + (regionalEbsSummary?.totals.reports ?? 0)).toLocaleString('id-ID')}</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/70">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">Total Kasus</span>
@@ -6392,55 +6431,59 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                         </div>
                         <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200/70">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">Lokasi</span>
-                          <span className="text-base sm:text-lg font-black text-emerald-900 block mt-0.5">{regionalSkdrData?.kpis.locations ?? 0}</span>
+                          <span className="text-base sm:text-lg font-black text-emerald-900 block mt-0.5">{new Set([...(regionalIbsSummary?.by_province || []).map(item => item.name), ...(regionalEbsSummary?.by_province || []).map(item => item.name)]).size}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Status Pemantauan Sinyal Faskes (Pemantauan Sinyal Alert Faskes) */}
+                    {/* Status pemantauan data SKDR */}
                     <div className="rounded-2xl bg-slate-50/80 border border-slate-200/90 p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs sm:text-sm font-black text-slate-900">
-                          Status Pemantauan Sinyal Faskes
+                          Status Pemantauan
                         </span>
-                        <span className="px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[11px] font-black text-rose-700 flex items-center gap-1.5">
-                          <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping" />
-                          {totalAlerts} Alert Aktif
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[11px] font-black text-amber-700 flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                          {monitoringStatus.klb.toLocaleString('id-ID')} Penanda KLB
                         </span>
                       </div>
 
-                      {/* Three EWS severity metrics: CRITICAL, HIGH, WARNING */}
-                      <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="p-2.5 rounded-xl bg-white border border-rose-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-rose-700 uppercase block">CRITICAL Status</span>
-                          <span className="text-lg font-black text-rose-900 leading-tight block mt-0.5">{regionalSkdrData?.alerts?.filter((item) => item.severity === 'AWAS').length ?? 0}</span>
-                          <span className="text-[9px] font-semibold text-rose-600 block mt-0.5">CRITICAL Alert</span>
-                        </div>
+                      <div className="grid grid-cols-2 gap-2 text-center">
                         <div className="p-2.5 rounded-xl bg-white border border-amber-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-amber-700 uppercase block">HIGH Status</span>
-                          <span className="text-lg font-black text-amber-900 leading-tight block mt-0.5">{regionalSkdrData?.alerts?.filter((item) => item.severity === 'SIAGA').length ?? 0}</span>
-                          <span className="text-[9px] font-semibold text-amber-600 block mt-0.5">HIGH Alert</span>
+                          <span className="text-[10px] font-bold text-amber-700 uppercase block">Dalam Investigasi</span>
+                          <span className="text-lg font-black text-amber-900 leading-tight block mt-0.5">{monitoringStatus.investigation.toLocaleString('id-ID')}</span>
+                          <span className="text-[9px] font-semibold text-amber-600 block mt-0.5">IBS &amp; EBS</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-white border border-emerald-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-emerald-700 uppercase block">WARNING Status</span>
-                          <span className="text-lg font-black text-emerald-900 leading-tight block mt-0.5">{regionalSkdrData?.alerts?.filter((item) => item.severity === 'WASPADA').length ?? 0}</span>
-                          <span className="text-[9px] font-semibold text-emerald-600 block mt-0.5">WARNING Alert</span>
+                          <span className="text-[10px] font-bold text-emerald-700 uppercase block">Terverifikasi</span>
+                          <span className="text-lg font-black text-emerald-900 leading-tight block mt-0.5">{monitoringStatus.verified.toLocaleString('id-ID')}</span>
+                          <span className="text-[9px] font-semibold text-emerald-600 block mt-0.5">Laporan resmi</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white border border-slate-200 shadow-2xs">
+                          <span className="text-[10px] font-bold text-slate-600 uppercase block">Negatif / Discarded</span>
+                          <span className="text-lg font-black text-slate-900 leading-tight block mt-0.5">{monitoringStatus.negativeDiscarded.toLocaleString('id-ID')}</span>
+                          <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">Ditutup / negatif</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white border border-rose-200 shadow-2xs">
+                          <span className="text-[10px] font-bold text-rose-700 uppercase block">Dengan Kematian</span>
+                          <span className="text-lg font-black text-rose-900 leading-tight block mt-0.5">{monitoringStatus.withDeaths.toLocaleString('id-ID')}</span>
+                          <span className="text-[9px] font-semibold text-rose-600 block mt-0.5">Laporan, bukan alert</span>
                         </div>
                       </div>
 
                       {/* Kinerja Surveilans SKDR Footer (Ketepatan, Kelengkapan, Respon PE) */}
                       <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] font-bold text-slate-600">
-                        <div className="flex items-center gap-1" title="Status koneksi snapshot API SKDR">
+                        <div className="flex items-center gap-1" title="Status koneksi API SKDR">
                           <Clock className="h-3.5 w-3.5 text-blue-600" />
-                          <span>API: <b className="text-slate-900">{regionalSkdrData ? 'Terhubung' : 'Belum tersedia'}</b></span>
+                          <span>API: <b className="text-slate-900">{regionalIbsSummary || regionalEbsSummary ? 'Terhubung' : 'Belum tersedia'}</b></span>
                         </div>
-                        <div className="flex items-center gap-1" title="Jumlah event dalam snapshot SKDR">
+                        <div className="flex items-center gap-1" title="Jumlah laporan resmi IBS dan EBS">
                           <ClipboardCheck className="h-3.5 w-3.5 text-emerald-600" />
-                          <span>Event: <b className="text-slate-900">{regionalSkdrData?.kpis.events ?? 0}</b></span>
+                          <span>Laporan: <b className="text-slate-900">{((regionalIbsSummary?.totals.reports ?? 0) + (regionalEbsSummary?.totals.reports ?? 0)).toLocaleString('id-ID')}</b></span>
                         </div>
-                        <div className="flex items-center gap-1" title="Jumlah alert aktif hasil aturan EWS">
+                        <div className="flex items-center gap-1" title="Penanda KLB dari data resmi SKDR">
                           <ShieldCheck className="h-3.5 w-3.5 text-teal-600" />
-                          <span>Alert: <b className="text-slate-900">{totalAlerts}</b></span>
+                          <span>KLB: <b className="text-slate-900">{monitoringStatus.klb.toLocaleString('id-ID')}</b></span>
                         </div>
                       </div>
                     </div>
@@ -6454,8 +6497,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       </span>
                       <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
                         <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Kasus</span>
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Event</span>
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Lokasi</span>
+                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Laporan</span>
+                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Provinsi</span>
                       </div>
                     </div>
 
@@ -6477,7 +6520,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                 </span>
                               </div>
                               <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md shrink-0 border border-slate-200/60">
-                                {cat.totalMaster} Event
+                                {cat.totalMaster.toLocaleString('id-ID')} Laporan
                               </span>
                             </div>
 
@@ -6520,13 +6563,13 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                 <div className="flex items-baseline justify-center gap-0.5">
                                   <span className="block text-blue-600 font-black leading-none text-xs">{cat.pieData[1].value}</span>
                                 </div>
-                                <span className="text-[8px] font-semibold text-blue-600 block mt-0.5">Event</span>
+                                <span className="text-[8px] font-semibold text-blue-600 block mt-0.5">Laporan</span>
                               </div>
                               <div className="text-emerald-700">
                                 <div className="flex items-baseline justify-center gap-0.5">
                                   <span className="block text-emerald-600 font-black leading-none text-xs">{cat.pieData[2].value}</span>
                                 </div>
-                                <span className="text-[8px] font-semibold text-emerald-600 block mt-0.5">Lokasi</span>
+                                <span className="text-[8px] font-semibold text-emerald-600 block mt-0.5">Provinsi</span>
                               </div>
                             </div>
                           </div>
@@ -9402,11 +9445,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                    EWS Real-Time
+                    Data SKDR Aktual
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm font-semibold text-slate-500">
-                  Rincian surveilans penyakit menular potensial KLB terpadu, sebaran sinyal kewaspadaan dini (EWS), respon verifikasi rumor kejadian (EBS), dan laporan indikator rutin mingguan faskes (IBS) Kemenkes RI.
+                  Rincian surveilans penyakit menular potensial KLB, respons verifikasi rumor kejadian (EBS), dan laporan indikator rutin mingguan (IBS) Kemenkes RI.
                 </p>
               </div>
 
@@ -9438,17 +9481,17 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               </div>
 
               <div className="bg-gradient-to-br from-sky-50 to-sky-100/40 p-3.5 rounded-2xl border border-sky-200/80 shadow-2xs">
-                <div className="text-[10px] font-black uppercase text-sky-800 tracking-wider">Sinyal Alert EWS (KLB)</div>
+                <div className="text-[10px] font-black uppercase text-sky-800 tracking-wider">Penanda KLB SKDR</div>
                 <div className="text-2xl font-black text-sky-950 mt-1">
-                  {regionalSkdrData?.kpis.active_alerts ?? 0} <span className="text-xs font-bold text-sky-700">Sinyal Aktif</span>
+                  {((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)).toLocaleString('id-ID')} <span className="text-xs font-bold text-sky-700">Laporan</span>
                 </div>
-                <div className="text-[11px] font-bold text-sky-700 mt-0.5">Respon Cepat Epidemiologi &lt;24 Jam</div>
+                <div className="text-[11px] font-bold text-sky-700 mt-0.5">Berdasarkan penanda resmi pada data SKDR</div>
               </div>
 
               <div className="bg-gradient-to-br from-purple-50 to-purple-100/40 p-3.5 rounded-2xl border border-purple-200/80 shadow-2xs">
                 <div className="text-[10px] font-black uppercase text-purple-800 tracking-wider">Status SKDR Wilayah</div>
                 <div className="text-xl sm:text-2xl font-black text-purple-950 mt-1">
-                  {(regionalSkdrData?.kpis.active_alerts ?? 0) > 0 ? 'Perlu Perhatian' : 'Terkendali'} <span className="text-xs font-bold text-purple-700">{(regionalSkdrData?.kpis.active_alerts ?? 0) > 0 ? 'Ada Alert' : 'Tanpa Alert'}</span>
+                  {((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)) > 0 ? 'Perlu Perhatian' : 'Terkendali'} <span className="text-xs font-bold text-purple-700">{((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)) > 0 ? 'Ada Penanda KLB' : 'Tanpa Penanda KLB'}</span>
                 </div>
                 <div className="text-[11px] font-bold text-purple-700 mt-0.5">Status dihitung dari data API SKDR</div>
               </div>
@@ -9500,7 +9543,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Sinyal Alert EWS ({regionalSkdrMatrixList.filter(r => r.isAlert).length})
+                  Prioritas KLB ({regionalSkdrMatrixList.filter(r => r.isAlert).length})
                 </button>
               </div>
 
@@ -9627,7 +9670,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                             <div className="mt-1">
                               <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-[9px] font-black bg-rose-100 text-rose-700 border border-rose-200 animate-pulse">
                                 <span className="h-1 w-1 rounded-full bg-rose-600" />
-                                Alert EWS
+                                Prioritas KLB
                               </span>
                             </div>
                           )}
@@ -9699,7 +9742,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </td>
                     <td className="py-3 px-3 text-right">
                       <span className="text-[10px] font-bold text-slate-500">
-                        {filteredRegionalSkdrList.filter(r => r.isAlert).length} Sinyal Alert EWS Aktif
+                        {filteredRegionalSkdrList.filter(r => r.isAlert).length} Prioritas KLB
                       </span>
                     </td>
                   </tr>

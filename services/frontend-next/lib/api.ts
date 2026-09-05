@@ -5,6 +5,7 @@ import type {
   DashboardStats,
   PublicDashboard,
   DiseaseEvent,
+  IbsSummary,
 } from "@/types";
 
 // Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
@@ -298,6 +299,28 @@ export const fetchPublicDashboard = (filters?: {
   const query = params.toString();
   return fetchFrom<PublicDashboard>(
     `/api/v1/public-dashboard${query ? `?${query}` : ""}`,
+  );
+};
+
+export const fetchIbsSummary = (filters?: { year?: number; province?: string }) => {
+  const params = new URLSearchParams();
+  if (filters?.year) params.set("year", String(filters.year));
+  if (filters?.province && filters.province !== "all")
+    params.set("province", filters.province);
+  const query = params.toString();
+  return fetchFrom<IbsSummary>(
+    `/api/v1/skdr/ibs-summary${query ? `?${query}` : ""}`,
+  );
+};
+
+export const fetchEbsSummary = (filters?: { year?: number; province?: string }) => {
+  const params = new URLSearchParams();
+  if (filters?.year) params.set("year", String(filters.year));
+  if (filters?.province && filters.province !== "all")
+    params.set("province", filters.province);
+  const query = params.toString();
+  return fetchFrom<IbsSummary>(
+    `/api/v1/skdr/ebs-summary${query ? `?${query}` : ""}`,
   );
 };
 

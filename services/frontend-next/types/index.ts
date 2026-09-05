@@ -137,6 +137,23 @@ export type PublicDashboard = {
   weekly_trend?: { week: number; cases: number; deaths: number; events: number; alerts?: number }[];
 };
 
+export type IbsSummary = {
+  source: string;
+  year: number;
+  available_years: number[];
+  totals: { reports: number; cases: number; deaths: number };
+  status: {
+    klb: number;
+    investigation: number;
+    verified: number;
+    negative_discarded: number;
+    with_deaths: number;
+  };
+  by_disease: { name: string; cases: number; deaths: number; reports: number }[];
+  by_province: { name: string; cases: number; deaths: number; reports: number }[];
+  weekly_trend: { week: number; cases: number; deaths: number; reports: number }[];
+};
+
 export type AnalyzeResponse = {
   title: string;
   content: string;
