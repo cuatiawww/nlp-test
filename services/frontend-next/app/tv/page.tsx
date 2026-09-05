@@ -237,7 +237,7 @@ export default function TvPage() {
                 <b className="font-mono text-xl text-emerald-600">
                   {loading && !crawlingStats
                     ? '...'
-                    : (crawlingStats?.live_crawled ?? 0).toLocaleString(numLocale)}
+                    : (crawlingStats?.current_live_crawl ?? crawlingStats?.live_crawled ?? 0).toLocaleString(numLocale)}
                 </b>
                 <span className="text-[9px] font-bold text-slate-500">Current run</span>
               </div>
@@ -245,13 +245,13 @@ export default function TvPage() {
                 <div className="rounded-md bg-slate-50 px-1.5 py-1">
                   <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">Stored in DB</p>
                   <p className="text-xs font-black text-slate-700">
-                    {(crawlingStats?.total ?? 0).toLocaleString(numLocale)}
+                    {(crawlingStats?.stored_in_db ?? crawlingStats?.total_processed ?? 0).toLocaleString(numLocale)}
                   </p>
                 </div>
                 <div className="rounded-md bg-blue-50 px-1.5 py-1">
                   <p className="text-[7px] font-black uppercase tracking-wide text-blue-500">Processed NLP</p>
                   <p className="text-xs font-black text-[#0060A9]">
-                    {(crawlingStats?.total_processed ?? 0).toLocaleString(numLocale)}
+                    {(crawlingStats?.nlp_processing ?? 0).toLocaleString(numLocale)}
                   </p>
                 </div>
               </div>
