@@ -10,7 +10,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { Database, Filter, RefreshCw, CheckCircle2 } from "lucide-react";
+import { Database, Filter, RefreshCw, CheckCircle2, Newspaper, Share2, Server } from "lucide-react";
 import type { CrawlingStats } from "@/lib/api";
 
 interface WeeklyPerformanceItem {
@@ -20,8 +20,6 @@ interface WeeklyPerformanceItem {
   totalNews: number;
   totalSocialMedia: number;
   totalApiData: number;
-  detectedSignals: number;
-  detectedData: number;
 }
 
 const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
@@ -32,8 +30,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 30420,
     totalSocialMedia: 21150,
     totalApiData: 14200,
-    detectedSignals: 2200,
-    detectedData: 5310,
   },
   {
     weekNum: 12,
@@ -42,8 +38,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 32680,
     totalSocialMedia: 24320,
     totalApiData: 15400,
-    detectedSignals: 2450,
-    detectedData: 5890,
   },
   {
     weekNum: 13,
@@ -52,8 +46,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 35120,
     totalSocialMedia: 26100,
     totalApiData: 16250,
-    detectedSignals: 2610,
-    detectedData: 6120,
   },
   {
     weekNum: 14,
@@ -62,8 +54,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 40500,
     totalSocialMedia: 27240,
     totalApiData: 16100,
-    detectedSignals: 2540,
-    detectedData: 6280,
   },
   {
     weekNum: 16,
@@ -72,8 +62,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 34800,
     totalSocialMedia: 24900,
     totalApiData: 14300,
-    detectedSignals: 2410,
-    detectedData: 6050,
   },
   {
     weekNum: 17,
@@ -82,8 +70,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 38450,
     totalSocialMedia: 25300,
     totalApiData: 15980,
-    detectedSignals: 2590,
-    detectedData: 6180,
   },
   {
     weekNum: 18,
@@ -92,8 +78,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 43200,
     totalSocialMedia: 26150,
     totalApiData: 17800,
-    detectedSignals: 2680,
-    detectedData: 6350,
   },
   {
     weekNum: 182,
@@ -102,8 +86,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 40700,
     totalSocialMedia: 23450,
     totalApiData: 17400,
-    detectedSignals: 2520,
-    detectedData: 6220,
   },
   {
     weekNum: 19,
@@ -112,8 +94,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 45800,
     totalSocialMedia: 23200,
     totalApiData: 16100,
-    detectedSignals: 2610,
-    detectedData: 6410,
   },
   {
     weekNum: 20,
@@ -122,8 +102,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 45600,
     totalSocialMedia: 24250,
     totalApiData: 15600,
-    detectedSignals: 2580,
-    detectedData: 6380,
   },
   {
     weekNum: 21,
@@ -132,8 +110,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 40100,
     totalSocialMedia: 24180,
     totalApiData: 15350,
-    detectedSignals: 2640,
-    detectedData: 6450,
   },
   {
     weekNum: 22,
@@ -142,8 +118,6 @@ const RAW_WEEKLY_DATA: WeeklyPerformanceItem[] = [
     totalNews: 37842,
     totalSocialMedia: 21736,
     totalApiData: 13782,
-    detectedSignals: 5291,
-    detectedData: 2939,
   },
 ];
 
@@ -162,14 +136,10 @@ export default function CrawlingEnginePerformance({
     totalNews: boolean;
     totalSocialMedia: boolean;
     totalApiData: boolean;
-    detectedSignals: boolean;
-    detectedData: boolean;
   }>({
     totalNews: true,
     totalSocialMedia: true,
     totalApiData: true,
-    detectedSignals: true,
-    detectedData: true,
   });
 
   const toggleSeries = (key: keyof typeof visibleSeries) => {
@@ -196,14 +166,12 @@ export default function CrawlingEnginePerformance({
       style={{ borderRadius: "17px 17px 22px 17px" }}
     >
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12 xl:items-start">
-        {/* ── Left Column: Title, Description, Filters & Metrics ── */}
+        {/* ── Left Column: Title, Description, Filters & 3 Metric Cards ── */}
         <div className="flex flex-col space-y-5 xl:col-span-4">
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl md:text-2xl font-black tracking-tight text-slate-900 uppercase">
-                Data Crawling Engine Performance
-              </h2>
-            </div>
+            <h2 className="text-xl md:text-2xl font-black tracking-tight text-slate-900 uppercase">
+              Data Crawling Engine Performance
+            </h2>
             <p className="mt-2 text-xs md:text-sm leading-relaxed text-slate-600">
               Presents crawling process performance, data retrieval success, active sources,
               processing speed, failure rates, duplication, and data freshness for ongoing
@@ -251,21 +219,21 @@ export default function CrawlingEnginePerformance({
             )}
           </div>
 
-          {/* 6 Metric Toggle Buttons (2 rows of 3 buttons) matching mockup layout */}
-          <div className="grid grid-cols-3 gap-2">
+          {/* 3 Metric Toggle Cards (Clean row matching user request) */}
+          <div className="grid grid-cols-3 gap-2.5">
             {/* 1. TOTAL NEWS/MEDIA */}
             <button
               type="button"
               onClick={() => toggleSeries("totalNews")}
-              className={`flex flex-col items-center justify-center p-2.5 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-md border ${
+              className={`flex flex-col items-center justify-center p-3 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-xl border ${
                 visibleSeries.totalNews
-                  ? "border-rose-500 bg-rose-50/50 text-rose-700 shadow-sm ring-1 ring-rose-400"
-                  : "border-slate-300 bg-slate-50 text-slate-400 hover:border-slate-400"
+                  ? "border-rose-500 bg-rose-50/60 text-rose-700 shadow-sm ring-1 ring-rose-400"
+                  : "border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300"
               }`}
             >
               <span>TOTAL</span>
               <span>NEWS/MEDIA</span>
-              <span className="mt-1 text-[11px] font-black text-rose-600">
+              <span className="mt-1.5 text-xs md:text-sm font-black text-rose-600">
                 {visibleSeries.totalNews ? latestEntry.totalNews.toLocaleString() : "Hidden"}
               </span>
             </button>
@@ -274,15 +242,15 @@ export default function CrawlingEnginePerformance({
             <button
               type="button"
               onClick={() => toggleSeries("totalSocialMedia")}
-              className={`flex flex-col items-center justify-center p-2.5 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-md border ${
+              className={`flex flex-col items-center justify-center p-3 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-xl border ${
                 visibleSeries.totalSocialMedia
-                  ? "border-blue-500 bg-blue-50/50 text-blue-700 shadow-sm ring-1 ring-blue-400"
-                  : "border-slate-300 bg-slate-50 text-slate-400 hover:border-slate-400"
+                  ? "border-blue-500 bg-blue-50/60 text-blue-700 shadow-sm ring-1 ring-blue-400"
+                  : "border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300"
               }`}
             >
               <span>TOTAL SOCIAL</span>
               <span>MEDIA</span>
-              <span className="mt-1 text-[11px] font-black text-blue-600">
+              <span className="mt-1.5 text-xs md:text-sm font-black text-blue-600">
                 {visibleSeries.totalSocialMedia ? latestEntry.totalSocialMedia.toLocaleString() : "Hidden"}
               </span>
             </button>
@@ -291,74 +259,23 @@ export default function CrawlingEnginePerformance({
             <button
               type="button"
               onClick={() => toggleSeries("totalApiData")}
-              className={`flex flex-col items-center justify-center p-2.5 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-md border ${
+              className={`flex flex-col items-center justify-center p-3 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-xl border ${
                 visibleSeries.totalApiData
-                  ? "border-emerald-500 bg-emerald-50/50 text-emerald-700 shadow-sm ring-1 ring-emerald-400"
-                  : "border-slate-300 bg-slate-50 text-slate-400 hover:border-slate-400"
+                  ? "border-emerald-500 bg-emerald-50/60 text-emerald-700 shadow-sm ring-1 ring-emerald-400"
+                  : "border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300"
               }`}
             >
               <span>TOTAL API/</span>
               <span>DATA STUDIO</span>
-              <span className="mt-1 text-[11px] font-black text-emerald-600">
+              <span className="mt-1.5 text-xs md:text-sm font-black text-emerald-600">
                 {visibleSeries.totalApiData ? latestEntry.totalApiData.toLocaleString() : "Hidden"}
-              </span>
-            </button>
-
-            {/* 4. DETECTED NEWS/MEDIA */}
-            <button
-              type="button"
-              onClick={() => toggleSeries("totalNews")}
-              className={`flex flex-col items-center justify-center p-2.5 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-md border ${
-                visibleSeries.totalNews
-                  ? "border-slate-700 bg-slate-100 text-slate-800"
-                  : "border-slate-300 bg-slate-50 text-slate-400 hover:border-slate-400"
-              }`}
-            >
-              <span>DETECTED</span>
-              <span>NEWS/ MEDIA</span>
-              <span className="mt-1 text-[11px] font-black text-slate-700">
-                {crawlingStats?.by_source_type?.find(s => s.source_type === "rss")?.total?.toLocaleString() ?? "3,286"}
-              </span>
-            </button>
-
-            {/* 5. DETECTED SIGNALS */}
-            <button
-              type="button"
-              onClick={() => toggleSeries("detectedSignals")}
-              className={`flex flex-col items-center justify-center p-2.5 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-md border ${
-                visibleSeries.detectedSignals
-                  ? "border-amber-500 bg-amber-50/50 text-amber-700 shadow-sm ring-1 ring-amber-400"
-                  : "border-slate-300 bg-slate-50 text-slate-400 hover:border-slate-400"
-              }`}
-            >
-              <span>DETECTED</span>
-              <span>SIGNALS</span>
-              <span className="mt-1 text-[11px] font-black text-amber-600">
-                {visibleSeries.detectedSignals ? latestEntry.detectedSignals.toLocaleString() : "Hidden"}
-              </span>
-            </button>
-
-            {/* 6. DETECTED DATA */}
-            <button
-              type="button"
-              onClick={() => toggleSeries("detectedData")}
-              className={`flex flex-col items-center justify-center p-2.5 text-center text-[10px] md:text-[11px] font-bold uppercase transition-all rounded-md border ${
-                visibleSeries.detectedData
-                  ? "border-purple-500 bg-purple-50/50 text-purple-700 shadow-sm ring-1 ring-purple-400"
-                  : "border-slate-300 bg-slate-50 text-slate-400 hover:border-slate-400"
-              }`}
-            >
-              <span>DETECTED</span>
-              <span>DATA</span>
-              <span className="mt-1 text-[11px] font-black text-purple-600">
-                {visibleSeries.detectedData ? latestEntry.detectedData.toLocaleString() : "Hidden"}
               </span>
             </button>
           </div>
 
           {/* Live DB Pipeline Summary */}
           {crawlingStats && (
-            <div className="flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-200/80 p-2.5 text-[11px] text-slate-600">
+            <div className="flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-[11px] text-slate-600">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
               <span>
                 <b>Live Engine:</b> {crawlingStats.total.toLocaleString()} total raw items (
@@ -493,36 +410,10 @@ export default function CrawlingEnginePerformance({
                     activeDot={{ r: 5 }}
                   />
                 )}
-
-                {/* 4. Orange Line: Detected Signals */}
-                {visibleSeries.detectedSignals && (
-                  <Line
-                    type="monotone"
-                    dataKey="detectedSignals"
-                    name="Detected Signals"
-                    stroke="#F59E0B"
-                    strokeWidth={2.5}
-                    dot={{ r: 3.5, fill: "#F59E0B" }}
-                    activeDot={{ r: 5 }}
-                  />
-                )}
-
-                {/* 5. Purple Line: Detected Data */}
-                {visibleSeries.detectedData && (
-                  <Line
-                    type="monotone"
-                    dataKey="detectedData"
-                    name="Detected Data"
-                    stroke="#8B5CF6"
-                    strokeWidth={2.5}
-                    dot={{ r: 3.5, fill: "#8B5CF6" }}
-                    activeDot={{ r: 5 }}
-                  />
-                )}
               </LineChart>
             </ResponsiveContainer>
 
-            {/* Right-hand End Badges matching mockup precisely */}
+            {/* Right-hand End Badges matching the 3 series */}
             <div className="absolute right-0 top-3 flex flex-col space-y-2 pointer-events-none text-right">
               {visibleSeries.totalNews && (
                 <div className="rounded border border-rose-400 bg-rose-50 px-2 py-0.5 text-[11px] font-black text-rose-600 shadow-xs">
@@ -539,20 +430,10 @@ export default function CrawlingEnginePerformance({
                   {latestEntry.totalApiData.toLocaleString()}
                 </div>
               )}
-              {visibleSeries.detectedSignals && (
-                <div className="rounded border border-amber-400 bg-amber-50 px-2 py-0.5 text-[11px] font-black text-amber-600 shadow-xs">
-                  {latestEntry.detectedSignals.toLocaleString()}
-                </div>
-              )}
-              {visibleSeries.detectedData && (
-                <div className="rounded border border-purple-400 bg-purple-50 px-2 py-0.5 text-[11px] font-black text-purple-600 shadow-xs">
-                  {latestEntry.detectedData.toLocaleString()}
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Bottom Legend Buttons matching mockup */}
+          {/* Bottom Legend Buttons */}
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
