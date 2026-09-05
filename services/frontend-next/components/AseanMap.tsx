@@ -107,6 +107,13 @@ function normalizedCountry(value?: string | null): string {
   return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function isWithinRecentWindow(value?: string | null): boolean {
+  if (!value) return false;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  return timestamp >= Date.now() - 7 * 24 * 60 * 60 * 1000;
+}
+
 export default function AseanMap({
 
   result,
@@ -123,8 +130,9 @@ export default function AseanMap({
   ewsRadiusKm,
   embedded,
   highlightCountry,
+  hideLegend = false,
 }: Props) {
-  const { t, translateDisease } = useTranslation();
+  const { t, locale, translateDisease } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorRef = useRef<VectorLayer<VectorSource> | null>(null);
@@ -209,37 +217,28 @@ export default function AseanMap({
     const markerSrc = new VectorSource();
     const getMarkerStyle = (f: FeatureLike) => {
       const exact = f.get("type") === "exact";
-      const severity = (f.get("severity") as string) || "NORMAL";
+      const isHot = f.get("isHot") === true;
+      const rgb = "0, 96, 169";
+      const coreColor = "#0060A9";
 
-      let rgb = "2, 132, 199";
-      let coreColor = "#0284C7";
-
-      if (severity === "AWAS") {
-        rgb = "239, 68, 68";
-        coreColor = "#EF4444";
-      } else if (severity === "SIAGA") {
-        rgb = "249, 115, 22";
-        coreColor = "#F97316";
-      } else if (severity === "WASPADA") {
-        rgb = "234, 179, 8";
-        coreColor = "#EAB308";
-      } else {
-        rgb = "16, 185, 129";
-        coreColor = "#10B981";
-      }
-
-      if (exact) {
-        rgb = "0, 96, 169";
-        coreColor = "#0060A9";
+      if (!isHot) {
+        return [new Style({
+          image: new CircleStyle({
+            radius: exact ? 7 : 5.5,
+            fill: new Fill({ color: coreColor }),
+            stroke: new Stroke({ color: "#ffffff", width: 2 }),
+          }),
+        })];
       }
 
       const now = Date.now();
-      // Pulsing frequency: AWAS pulses fast & urgent (1200ms), SIAGA (1500ms), others (1800ms)
-      const period = severity === "AWAS" ? 1200 : severity === "SIAGA" ? 1500 : 1800;
+      // Hot signals pulse uniformly. Severity/EWS colors are intentionally not
+      // exposed on public map markers.
+      const period = 1600;
       const wave1 = (now % period) / period;
       const wave2 = ((now + period / 2) % period) / period;
 
-      const maxExpansion = severity === "AWAS" ? 22 : severity === "SIAGA" ? 18 : 14;
+      const maxExpansion = 18;
       const r1 = 6 + wave1 * maxExpansion;
       const alpha1 = Math.max(0, (1 - wave1) * 0.75);
 
@@ -273,7 +272,7 @@ export default function AseanMap({
       // Inner soft halo
       const halo = new Style({
         image: new CircleStyle({
-          radius: severity === "AWAS" ? 9.5 : 8,
+          radius: 8,
           fill: new Fill({ color: `rgba(${rgb}, 0.28)` }),
         }),
       });
@@ -281,7 +280,7 @@ export default function AseanMap({
       // Center solid point
       const core = new Style({
         image: new CircleStyle({
-          radius: exact ? 7 : severity === "AWAS" ? 6.5 : 5.5,
+          radius: exact ? 7 : 5.5,
           fill: new Fill({ color: coreColor }),
           stroke: new Stroke({ color: "#ffffff", width: 2 }),
         }),
@@ -659,7 +658,12 @@ export default function AseanMap({
     markerSource.clear();
 
     outbreakLocations?.forEach((item) => {
-      if (item.latitude == null || item.longitude == null) return;
+      // Public pins are intentionally limited to the rolling recent window
+      // calculated by the backend. Historical aggregates remain available to
+      // the choropleth and dashboard totals, but do not become live markers.
+      const isRecent = item.is_recent === true
+        || (item.is_recent == null && isWithinRecentWindow(item.latest_date));
+      if (!isRecent || item.latitude == null || item.longitude == null) return;
       const feature = new GeoJSON().readFeature(
         {
           type: "Feature",
@@ -672,6 +676,7 @@ export default function AseanMap({
         { featureProjection: "EPSG:3857" },
       ) as Feature;
       feature.set("severity", item.severity);
+      feature.set("isHot", item.is_hot === true);
       feature.set("location", item);
       markerSource.addFeature(feature);
     });
@@ -790,15 +795,12 @@ export default function AseanMap({
           geojson = payload.geojson;
         } else {
           const metadataResponse = await fetch(
-            `https://www.geoboundaries.org/api/current/gbOpen/${iso3}/ADM1/`,
+            `${PUBLIC_BASE_PATH}/boundaries?country=${iso3}&level=ADM1`,
           );
-          if (!metadataResponse.ok) throw new Error(`Boundary metadata HTTP ${metadataResponse.status}`);
-          const metadata = await metadataResponse.json();
-          const geometryUrl = metadata.simplifiedGeometryGeoJSON || metadata.gjDownloadURL;
-          if (!geometryUrl) throw new Error("Boundary GeoJSON URL is missing");
-          const geometryResponse = await fetch(geometryUrl);
-          if (!geometryResponse.ok) throw new Error(`Boundary GeoJSON HTTP ${geometryResponse.status}`);
-          geojson = await geometryResponse.json();
+          if (!metadataResponse.ok) throw new Error(`Boundary proxy HTTP ${metadataResponse.status}`);
+          const payload = await metadataResponse.json();
+          if (!payload.geojson) throw new Error("Boundary GeoJSON is missing");
+          geojson = payload.geojson;
         }
 
         if (cancelled || !geojson) return;
@@ -901,6 +903,9 @@ export default function AseanMap({
         }));
 
   const locationsCount = displayLocations.length || countryOutbreaks.length || (selected?.locations.length ?? 0);
+  const popupPositionClass = fullBleed
+    ? "bottom-16 left-1/2 -translate-x-1/2"
+    : "right-4 top-20";
 
   return (
     <div
@@ -948,7 +953,7 @@ export default function AseanMap({
 
       {selectedRegion && (
         <div
-          className="absolute bottom-16 left-1/2 z-30 w-[min(360px,calc(100%-32px))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5"
+          className={`absolute ${popupPositionClass} z-30 w-[min(360px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5`}
           style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
           <button
@@ -995,7 +1000,7 @@ export default function AseanMap({
 
       {selectedLocation && (
         <div
-          className="absolute bottom-16 left-1/2 z-35 w-[min(410px,calc(100%-32px))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5 transition-all duration-300 hover:z-50"
+          className={`absolute ${popupPositionClass} z-35 w-[min(410px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5 transition-all duration-300 hover:z-50`}
           style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
           <button
@@ -1021,6 +1026,9 @@ export default function AseanMap({
             <p className="truncate text-[11px] font-semibold text-slate-500">
               {translateDisease(selectedLocation.disease)} • {selectedLocation.country}
             </p>
+            <p className="mt-1 text-[10px] font-semibold text-slate-400">
+              Aggregated NLP result for this location and disease
+            </p>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div className="rounded-xl border border-blue-200/80 bg-blue-50/70 p-2 text-center">
@@ -1037,13 +1045,54 @@ export default function AseanMap({
               <span>Source: {selectedLocation.detail?.source_name || (selectedLocation.detail?.source_type ? selectedLocation.detail.source_type.toUpperCase() : "Surveillance AI")}</span>
               <span>{selectedLocation.latest_date ? new Date(selectedLocation.latest_date).toLocaleDateString("en-US") : "-"}</span>
             </div>
+            <p className="mt-1 text-[9px] font-medium leading-relaxed text-slate-400">
+              Cases and deaths are aggregated from processed NLP reports. The source above is the latest representative article.
+            </p>
+            {(selectedLocation.recent_event_count ?? 0) > 0 && (
+              <p className="mt-1 text-[9px] font-semibold leading-relaxed text-[#0060A9]">
+                Recent activity: {(selectedLocation.recent_cases ?? 0).toLocaleString()} cases • {(selectedLocation.recent_event_count ?? 0).toLocaleString()} reports • {(selectedLocation.recent_source_count ?? 0).toLocaleString()} sources (7 days)
+              </p>
+            )}
+            {(selectedLocation.sources?.length ?? 0) > 0 && (
+              <div className="mt-2 border-t border-slate-100 pt-2">
+                <p className="text-[9px] font-black uppercase tracking-wide text-slate-400">Related sources</p>
+                <div className="mt-1 space-y-0.5">
+                  {selectedLocation.sources?.slice(0, 3).map((source, index) => (
+                    source.url ? (
+                      <a
+                        key={`${source.url}-${index}`}
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate text-[9px] font-semibold text-[#0060A9] hover:underline"
+                      >
+                        {source.source_name || source.source_type || source.url}
+                      </a>
+                    ) : null
+                  ))}
+                </div>
+                {(selectedLocation.sources?.length ?? 0) > 3 && (
+                  <p className="mt-1 text-[9px] text-slate-400">+{(selectedLocation.sources?.length ?? 0) - 3} more sources</p>
+                )}
+              </div>
+            )}
+            {selectedLocation.detail?.url && (
+              <a
+                href={selectedLocation.detail.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-flex font-bold text-[#0060A9] hover:underline"
+              >
+                Open source article
+              </a>
+            )}
           </div>
         </div>
       )}
 
       {selected && (
         <div
-          className="absolute bottom-16 left-1/2 z-35 w-[min(410px,calc(100%-32px))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5 transition-all duration-300 hover:z-50"
+          className={`absolute ${popupPositionClass} z-35 w-[min(410px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5 transition-all duration-300 hover:z-50`}
           style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
           {/* Close Button - Clean top-right positioning without badge */}
@@ -1177,6 +1226,38 @@ export default function AseanMap({
       )}
 
 
+
+      {/* ── Gradient Bar Legend for Region Intensity ── */}
+      {!hideLegend && (
+        <div className="absolute bottom-3 left-3 z-20 max-w-[280px] sm:max-w-[320px] rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur-md transition-all duration-300 pointer-events-auto">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-[#0060A9]" />
+              {locale === 'id' ? 'Intensitas Kasus & Kematian' : 'Case & Mortality Burden'}
+            </span>
+            <span className="text-[9px] font-bold text-slate-400">
+              Choropleth
+            </span>
+          </div>
+
+          {/* Color Gradient Bar */}
+          <div className="relative h-2.5 w-full rounded-full bg-gradient-to-r from-[#e2e8f0] via-[#60a5fa] to-[#004d88] shadow-inner" />
+
+          {/* Scale Labels */}
+          <div className="mt-1 flex items-center justify-between text-[10px] font-bold text-slate-500">
+            <span>{locale === 'id' ? 'Rendah (0)' : 'Low (0)'}</span>
+            <span>{locale === 'id' ? 'Sedang' : 'Moderate'}</span>
+            <span className="text-[#0060A9] font-black">{locale === 'id' ? 'Pekat (Tertinggi)' : 'Deep Blue (Peak)'}</span>
+          </div>
+
+          {/* Explicit Helper Note */}
+          <p className="mt-1.5 text-[9.5px] leading-relaxed text-slate-500 border-t border-slate-100 pt-1.5">
+            {locale === 'id'
+              ? 'Wilayah berwarna biru pekat mengindikasikan konsentrasi jumlah kasus dan tingkat kematian tertinggi.'
+              : 'Regions shaded in deep blue indicate higher concentrations of reported cases and mortality.'}
+          </p>
+        </div>
+      )}
 
       <div className="absolute bottom-3 right-3 flex flex-col gap-1">
         <button

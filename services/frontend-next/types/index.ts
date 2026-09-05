@@ -85,6 +85,18 @@ export type OutbreakLocation = {
   severity: "NORMAL" | "WASPADA" | "SIAGA" | "AWAS";
   has_alert: boolean;
   latest_date: string;
+  sources?: {
+    url?: string | null;
+    source_name?: string | null;
+    source_type?: string | null;
+    published_at?: string | null;
+  }[];
+  recent_cases?: number;
+  previous_period_cases?: number;
+  recent_event_count?: number;
+  recent_source_count?: number;
+  is_recent?: boolean;
+  is_hot?: boolean;
   detail?: {
     event_id?: string;
     raw_report_id?: string;

@@ -2170,22 +2170,17 @@ async fn morbidity_mortality_handler(
     let total_mortality: i64 = summary_row.get("total_mortality");
     let cfr_pct: f64 = summary_row.get("cfr_pct");
 
-    // 2. Weekly trends
-    let weekly_rows = client.query(
-        "WITH max_d AS (
-           SELECT COALESCE(MAX(published_at), CURRENT_DATE) as end_date FROM disease_events WHERE published_at IS NOT NULL
-         ), weekly AS (
+    // 2. Monthly trends (converted to monthly aggregation per user request)
+    let monthly_rows = client.query(
+        "WITH monthly AS (
            SELECT 
-             EXTRACT(YEAR FROM e.published_at)::int as year_num,
-             EXTRACT(WEEK FROM e.published_at)::int as week_num,
-             TO_CHAR(MIN(e.published_at), 'Mon') as month_str,
-             MIN(e.published_at) as week_start,
+             EXTRACT(YEAR FROM COALESCE(e.published_at, e.created_at::date))::int as year_num,
+             EXTRACT(MONTH FROM COALESCE(e.published_at, e.created_at::date))::int as month_num,
+             TO_CHAR(MIN(COALESCE(e.published_at, e.created_at::date)), 'Mon') as month_str,
              SUM(GREATEST(COALESCE(e.case_count, 0), 0))::bigint as morbidity,
              SUM(GREATEST(COALESCE(e.death_count, 0), 0))::bigint as mortality
-           FROM disease_events e, max_d
-           WHERE e.published_at IS NOT NULL
-             AND e.published_at >= (max_d.end_date - make_interval(weeks => $2))
-             AND e.published_at <= max_d.end_date
+           FROM disease_events e
+           WHERE COALESCE(e.published_at, e.created_at::date) >= '2026-01-01'
              AND (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
              AND (
                $1 = 'all' OR
@@ -2201,27 +2196,31 @@ async fn morbidity_mortality_handler(
            GROUP BY 1, 2
            ORDER BY 1, 2
          )
-         SELECT year_num, week_num, 
-                ('W' || week_num::text || ' ' || month_str) as week_label,
+         SELECT year_num, month_num, 
+                (month_str || ' ' || year_num::text) as month_label,
+                month_str,
                 morbidity, mortality,
                 COALESCE(ROUND((mortality::numeric / NULLIF(morbidity, 0)) * 100, 2), 0)::float8 as cfr_pct
-         FROM weekly;",
-        &[&selected_disease, &weeks_count],
+         FROM monthly;",
+        &[&selected_disease],
     ).await.map_err(internal_error)?;
 
     let mut weekly_trends = Vec::new();
-    for row in weekly_rows {
+    for row in monthly_rows {
         let year_num: i32 = row.get("year_num");
-        let week_num: i32 = row.get("week_num");
-        let week_label: String = row.get("week_label");
+        let month_num: i32 = row.get("month_num");
+        let month_label: String = row.get("month_label");
+        let month_str: String = row.get("month_str");
         let morbidity: i64 = row.get("morbidity");
         let mortality: i64 = row.get("mortality");
         let cfr: f64 = row.get("cfr_pct");
 
         weekly_trends.push(json!({
             "year": year_num,
-            "week": week_num,
-            "week_label": week_label,
+            "month": month_num,
+            "month_label": month_label,
+            "week": month_num,
+            "week_label": month_str, // "Jan", "Feb", "Mar", etc.
             "morbidity": morbidity,
             "mortality": mortality,
             "cfr_pct": cfr,
@@ -2779,6 +2778,14 @@ async fn public_dashboard(
                     BOOL_OR(COALESCE(e.outbreak_alert, FALSE)) AS model_alert,
                     COALESCE(MAX(r.min_case_count), 1) AS threshold,
                     MAX(e.published_at)::text AS latest_date,
+                    COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT(
+                      'url', e.report_url, 'source_name', e.source_name,
+                      'source_type', e.source_type, 'published_at', e.published_at::text
+                    ) ORDER BY e.published_at DESC, e.confidence DESC) FILTER (WHERE e.report_url IS NOT NULL), '[]'::jsonb) AS sources,
+                    COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'), 0)::bigint AS recent_cases,
+                    COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '14 days' AND e.published_at < CURRENT_TIMESTAMP - INTERVAL '7 days'), 0)::bigint AS previous_period_cases,
+                    COUNT(*) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::bigint AS recent_event_count,
+                    COUNT(DISTINCT COALESCE(NULLIF(LOWER(TRIM(e.source_name)), ''), NULLIF(e.report_url, ''), e.raw_report_id::text, e.id::text)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::bigint AS recent_source_count,
                     (JSONB_AGG(JSONB_BUILD_OBJECT(
                       'event_id', e.id::text, 'raw_report_id', e.raw_report_id::text,
                       'url', e.report_url, 'content', e.original_text, 'language', e.language,
@@ -2863,6 +2870,14 @@ async fn public_dashboard(
                     BOOL_OR(COALESCE(e.outbreak_alert, FALSE)) AS model_alert,
                     COALESCE(MAX(r.min_case_count), 1) AS threshold,
                     MAX(e.published_at)::text AS latest_date,
+                    COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT(
+                      'url', e.report_url, 'source_name', e.source_name,
+                      'source_type', e.source_type, 'published_at', e.published_at::text
+                    ) ORDER BY e.published_at DESC, e.confidence DESC) FILTER (WHERE e.report_url IS NOT NULL), '[]'::jsonb) AS sources,
+                    COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'), 0)::bigint AS recent_cases,
+                    COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '14 days' AND e.published_at < CURRENT_TIMESTAMP - INTERVAL '7 days'), 0)::bigint AS previous_period_cases,
+                    COUNT(*) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::bigint AS recent_event_count,
+                    COUNT(DISTINCT COALESCE(NULLIF(LOWER(TRIM(e.source_name)), ''), NULLIF(e.report_url, ''), e.raw_report_id::text, e.id::text)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::bigint AS recent_source_count,
                     (JSONB_AGG(JSONB_BUILD_OBJECT(
                       'event_id', e.id::text, 'raw_report_id', e.raw_report_id::text,
                       'url', e.report_url, 'content', e.original_text, 'language', e.language,
@@ -3125,7 +3140,12 @@ async fn public_dashboard(
         let model_alert: bool = row.get(9);
         let threshold: i32 = row.get(10);
         let latest_date: String = row.get::<_, Option<String>>(11).unwrap_or_default();
-        let detail: Value = row.get::<_, Option<Value>>(12).unwrap_or(Value::Null);
+        let sources: Value = row.get::<_, Option<Value>>(12).unwrap_or_else(|| json!([]));
+        let recent_cases: i64 = row.get(13);
+        let previous_period_cases: i64 = row.get(14);
+        let recent_event_count: i64 = row.get(15);
+        let recent_source_count: i64 = row.get(16);
+        let detail: Value = row.get::<_, Option<Value>>(17).unwrap_or(Value::Null);
         let threshold_i64 = i64::from(threshold.max(1));
         let ratio = cases as f64 / threshold_i64 as f64;
         // A threshold alone is not an outbreak signal. Require the NLP event
@@ -3141,6 +3161,10 @@ async fn public_dashboard(
             && longitude.is_some();
         let severity = if ews_verified { candidate_severity } else { "NORMAL" };
         let is_alert = severity != "NORMAL";
+        let is_recent = recent_event_count > 0;
+        let has_case_surge = recent_cases >= 2
+            && (previous_period_cases == 0 || recent_cases * 2 >= previous_period_cases * 3);
+        let is_hot = is_recent && (has_case_surge || recent_source_count >= 2);
 
         total_cases += cases;
         total_deaths += deaths;
@@ -3157,7 +3181,11 @@ async fn public_dashboard(
             "latitude": latitude, "longitude": longitude, "cases": cases,
             "deaths": deaths, "event_count": event_count, "confidence": confidence,
             "threshold": threshold_i64, "severity": severity, "has_alert": is_alert,
-            "latest_date": latest_date, "detail": detail
+            "latest_date": latest_date, "sources": sources, "recent_cases": recent_cases,
+            "previous_period_cases": previous_period_cases,
+            "recent_event_count": recent_event_count,
+            "recent_source_count": recent_source_count,
+            "is_recent": is_recent, "is_hot": is_hot, "detail": detail
         });
         if is_alert { alerts.push(item.clone()); }
         locations.push(item);
