@@ -7,13 +7,14 @@ import Image from 'next/image'
 import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronUp, Globe2, Layers, MapPin, Maximize, Minimize, Radio, RefreshCw, Settings, Skull, Volume2, VolumeX, X } from 'lucide-react'
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchCrawlingStats, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
-import type { PublicDashboard } from '@/types'
+import type { OutbreakLocation, PublicDashboard } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import CrawlingFeedPanel from '@/components/CrawlingFeedPanel'
 import AnalyticsSituationPanel from '@/components/AnalyticsSituationPanel'
 import CountryFlag from '@/components/CountryFlag'
+import SurveillanceDetailModal from '@/components/SurveillanceDetailModal'
 
 const AseanMap = dynamic(() => import('@/components/AseanMap'), { ssr: false })
 type BaseMap = 'osm'|'terrain'|'satellite'|'light'|'dark'
@@ -33,7 +34,7 @@ export default function TvPage() {
   const { t, locale, translateDisease, translateSeverity } = useTranslation()
   const numLocale = locale === 'en' ? 'en-US' : 'id-ID'
 
-  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
+  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [selectedEvent,setSelectedEvent]=useState<OutbreakLocation|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
   const [drawer,setDrawer]=useState(false), [sound,setSound]=useState(false), [fullscreen,setFullscreen]=useState(false), [kpiHidden,setKpiHidden]=useState(false), [leftHidden,setLeftHidden]=useState(false), [rightHidden,setRightHidden]=useState(false)
   const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [markerLookbackDays,setMarkerLookbackDays]=useState<MarkerLookbackDays>(30), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
   const [bnpb,setBnpb]=useState({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false}), [wind,setWind]=useState(false)
@@ -329,8 +330,8 @@ export default function TvPage() {
               : data?.locations?.filter((l) => (l.cases ?? 0) > 0 || l.has_alert)
           }
           translateDisease={translateDisease}
-          translateSeverity={translateSeverity}
           numLocale={numLocale}
+          onSelectAlert={setSelectedEvent}
         />
       </div>
 
@@ -389,6 +390,13 @@ export default function TvPage() {
           </div>
         </div>
       )}
+
+      <SurveillanceDetailModal
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        translateDisease={translateDisease}
+        numLocale={numLocale}
+      />
 
       <footer className="fixed bottom-2 left-2 right-2 z-40 flex h-9 items-center overflow-hidden rounded-xl border border-[#cfe0f1] bg-white/95 shadow-[0_-4px_16px_rgba(0,96,169,.08)] backdrop-blur-xl">
         <div className="flex h-full shrink-0 items-center gap-2 bg-gradient-to-r from-[#0060A9] to-[#0284c7] px-4 text-[10px] font-black tracking-widest text-white">

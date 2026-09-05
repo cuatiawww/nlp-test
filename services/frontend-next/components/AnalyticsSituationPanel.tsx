@@ -8,17 +8,13 @@ import {
   Bug,
   Calendar,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
-  ExternalLink,
   Globe2,
   Layers,
   MapPin,
   Radio,
   Search,
-  ShieldAlert,
   Sparkles,
   TrendingUp,
   X,
@@ -46,7 +42,6 @@ type Props = {
   byCountry?: CountryData[];
   alerts?: OutbreakLocation[];
   translateDisease: (name?: string | null) => string;
-  translateSeverity?: (sev?: string | null) => string;
   numLocale?: string;
   onSelectAlert?: (alert: OutbreakLocation) => void;
 };
@@ -58,14 +53,11 @@ export default function AnalyticsSituationPanel({
   byCountry = [],
   alerts = [],
   translateDisease,
-  translateSeverity,
   numLocale = "en-US",
   onSelectAlert,
 }: Props) {
   const [viewMode, setViewMode] = useState<AnalyticsViewMode>("all");
-  const [severityFilter, setSeverityFilter] = useState<"ALL" | "CRITICAL" | "WARNING" | "ADVISORY">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
-  const [expandedAlertKey, setExpandedAlertKey] = useState<string | null>(null);
 
   const formattedDiseases = useMemo(() => {
     return byDisease.map((d) => ({
@@ -116,47 +108,8 @@ export default function AnalyticsSituationPanel({
     }
   };
 
-  const getSeverityStyle = (sev?: string) => {
-    const s = String(sev || "").toUpperCase();
-    if (s === "AWAS" || s === "CRITICAL") {
-      return {
-        label: translateSeverity ? translateSeverity(sev) : "CRITICAL",
-        badgeClass: "bg-rose-500 text-white border-rose-600 shadow-xs font-black",
-        borderClass: "border-l-rose-500",
-        hoverBg: "hover:border-rose-300 hover:bg-rose-50/40",
-      };
-    }
-    if (s === "SIAGA" || s === "WARNING") {
-      return {
-        label: translateSeverity ? translateSeverity(sev) : "WARNING",
-        badgeClass: "bg-amber-500 text-white border-amber-600 shadow-xs font-black",
-        borderClass: "border-l-amber-500",
-        hoverBg: "hover:border-amber-300 hover:bg-amber-50/40",
-      };
-    }
-    if (s === "WASPADA" || s === "ADVISORY") {
-      return {
-        label: translateSeverity ? translateSeverity(sev) : "ADVISORY",
-        badgeClass: "bg-amber-100 text-amber-900 border-amber-300 font-bold",
-        borderClass: "border-l-amber-400",
-        hoverBg: "hover:border-amber-200 hover:bg-amber-50/30",
-      };
-    }
-    return {
-      label: translateSeverity ? translateSeverity(sev) : "NORMAL",
-      badgeClass: "bg-blue-100 text-blue-800 border-blue-200 font-bold",
-      borderClass: "border-l-blue-400",
-      hoverBg: "hover:border-blue-200 hover:bg-blue-50/30",
-    };
-  };
-
   const filteredAlerts = useMemo(() => {
     return alerts.filter((a) => {
-      const s = String(a.severity || "").toUpperCase();
-      if (severityFilter === "CRITICAL" && !(s === "AWAS" || s === "CRITICAL")) return false;
-      if (severityFilter === "WARNING" && !(s === "SIAGA" || s === "WARNING")) return false;
-      if (severityFilter === "ADVISORY" && !(s === "WASPADA" || s === "ADVISORY")) return false;
-
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const diseaseMatch =
@@ -169,20 +122,7 @@ export default function AnalyticsSituationPanel({
       }
       return true;
     });
-  }, [alerts, severityFilter, searchQuery, translateDisease]);
-
-  const severityCounts = useMemo(() => {
-    let critical = 0;
-    let warning = 0;
-    let advisory = 0;
-    alerts.forEach((a) => {
-      const s = String(a.severity || "").toUpperCase();
-      if (s === "AWAS" || s === "CRITICAL") critical++;
-      else if (s === "SIAGA" || s === "WARNING") warning++;
-      else if (s === "WASPADA" || s === "ADVISORY") advisory++;
-    });
-    return { all: alerts.length, critical, warning, advisory };
-  }, [alerts]);
+  }, [alerts, searchQuery, translateDisease]);
 
   // Collapsed Sidebar Mode
   if (collapsed) {
@@ -553,50 +493,6 @@ export default function AnalyticsSituationPanel({
                 </span>
               </div>
 
-              {/* Quick Severity Filter Tabs */}
-              <div className="mt-2 flex items-center gap-1 overflow-x-auto text-[9px] font-bold">
-                <button
-                  onClick={() => setSeverityFilter("ALL")}
-                  className={`rounded-md px-2 py-0.5 transition cursor-pointer ${
-                    severityFilter === "ALL"
-                      ? "bg-amber-600 text-white font-black shadow-xs"
-                      : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  ALL ({severityCounts.all})
-                </button>
-                <button
-                  onClick={() => setSeverityFilter("CRITICAL")}
-                  className={`rounded-md px-2 py-0.5 transition cursor-pointer ${
-                    severityFilter === "CRITICAL"
-                      ? "bg-rose-500 text-white font-black shadow-xs"
-                      : "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50"
-                  }`}
-                >
-                  PRIORITY ({severityCounts.critical})
-                </button>
-                <button
-                  onClick={() => setSeverityFilter("WARNING")}
-                  className={`rounded-md px-2 py-0.5 transition cursor-pointer ${
-                    severityFilter === "WARNING"
-                      ? "bg-amber-500 text-white font-black shadow-xs"
-                      : "bg-white text-amber-700 border border-amber-200 hover:bg-amber-50"
-                  }`}
-                >
-                  MONITORED ({severityCounts.warning})
-                </button>
-                <button
-                  onClick={() => setSeverityFilter("ADVISORY")}
-                  className={`rounded-md px-2 py-0.5 transition cursor-pointer ${
-                    severityFilter === "ADVISORY"
-                      ? "bg-sky-500 text-white font-black shadow-xs"
-                      : "bg-white text-sky-700 border border-sky-200 hover:bg-sky-50"
-                  }`}
-                >
-                  ROUTINE ({severityCounts.advisory})
-                </button>
-              </div>
-
               {/* Search Bar */}
               <div className="relative mt-2">
                 <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
@@ -623,21 +519,15 @@ export default function AnalyticsSituationPanel({
               {filteredAlerts.length > 0 ? (
                 filteredAlerts.map((a, i) => {
                   const key = `${a.location_name}-${a.disease}-${i}`;
-                  const isExpanded = expandedAlertKey === key;
-                  const sev = getSeverityStyle(a.severity);
-
                   return (
                     <div
                       key={key}
-                      className={`rounded-xl border border-slate-200/90 bg-white shadow-2xs transition-all duration-200 ${sev.borderClass} border-l-4 ${sev.hoverBg}`}
+                      className="rounded-xl border border-slate-200/90 border-l-4 border-l-blue-400 bg-white shadow-2xs transition-all duration-200 hover:border-blue-200 hover:bg-blue-50/30"
                     >
                       {/* Card Header clickable */}
                       <button
                         type="button"
-                        onClick={() => {
-                          setExpandedAlertKey(isExpanded ? null : key);
-                          onSelectAlert?.(a);
-                        }}
+                        onClick={() => onSelectAlert?.(a)}
                         className="w-full p-2.5 text-left cursor-pointer focus:outline-none"
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -673,75 +563,10 @@ export default function AnalyticsSituationPanel({
                           <div className="flex items-center gap-1 text-[9.5px] text-slate-400">
                             <Calendar className="h-3 w-3" />
                             <span>{formatPublishDate(a.latest_date || a.detail?.published_at)}</span>
-                            {isExpanded ? (
-                              <ChevronUp className="h-3 w-3 ml-1 text-slate-500" />
-                            ) : (
-                              <ChevronDown className="h-3 w-3 ml-1 text-slate-500" />
-                            )}
+                            <ChevronRight className="h-3 w-3 ml-1 text-slate-500" />
                           </div>
                         </div>
                       </button>
-
-                      {/* Smooth Accordion Expanded Detail */}
-                      {isExpanded && (
-                        <div className="border-t border-slate-100 bg-slate-50/70 p-2.5 text-xs space-y-2 animate-in fade-in duration-150">
-                          {/* Channel & Confidence */}
-                          <div className="flex items-center justify-between text-[10px]">
-                            <span className="font-bold text-slate-600">
-                              Source:{" "}
-                              <span className="text-[#0060A9]">
-                                {a.detail?.source_name || a.detail?.source_type || "Surveillance Pipeline"}
-                              </span>
-                            </span>
-                            {a.confidence != null && (
-                              <span className="rounded-full bg-slate-200/80 px-2 py-0.5 font-mono text-[9px] font-bold text-slate-700">
-                                {Math.round(a.confidence * 100)}% Confidence
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Symptoms if available */}
-                          {a.detail?.symptoms && a.detail.symptoms.length > 0 && (
-                            <div>
-                              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                                Detected Symptoms:
-                              </p>
-                              <div className="flex flex-wrap gap-1">
-                                {a.detail.symptoms.slice(0, 5).map((sym: string, sIdx: number) => (
-                                  <span
-                                    key={sIdx}
-                                    className="rounded bg-white border border-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600"
-                                  >
-                                    {sym}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Snippet / Content Excerpt */}
-                          {a.detail?.content && (
-                            <p className="text-[10px] text-slate-600 leading-relaxed line-clamp-3 bg-white p-2 rounded-lg border border-slate-200/60">
-                              {a.detail.content}
-                            </p>
-                          )}
-
-                          {/* Action Button: Open Source Link */}
-                          {a.detail?.url && (
-                            <div className="pt-1 flex justify-end">
-                              <a
-                                href={a.detail.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-[#0060A9] hover:bg-blue-100 transition"
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                                <span>Open Source Report</span>
-                              </a>
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   );
                 })
