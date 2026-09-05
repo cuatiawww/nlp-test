@@ -573,7 +573,7 @@ export default function AnalyticsSituationPanel({
                       : "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50"
                   }`}
                 >
-                  CRITICAL ({severityCounts.critical})
+                  PRIORITY ({severityCounts.critical})
                 </button>
                 <button
                   onClick={() => setSeverityFilter("WARNING")}
@@ -583,17 +583,17 @@ export default function AnalyticsSituationPanel({
                       : "bg-white text-amber-700 border border-amber-200 hover:bg-amber-50"
                   }`}
                 >
-                  WARNING ({severityCounts.warning})
+                  MONITORED ({severityCounts.warning})
                 </button>
                 <button
                   onClick={() => setSeverityFilter("ADVISORY")}
                   className={`rounded-md px-2 py-0.5 transition cursor-pointer ${
                     severityFilter === "ADVISORY"
-                      ? "bg-yellow-400 text-slate-900 font-black shadow-xs"
-                      : "bg-white text-yellow-800 border border-yellow-200 hover:bg-yellow-50"
+                      ? "bg-sky-500 text-white font-black shadow-xs"
+                      : "bg-white text-sky-700 border border-sky-200 hover:bg-sky-50"
                   }`}
                 >
-                  ADVISORY ({severityCounts.advisory})
+                  ROUTINE ({severityCounts.advisory})
                 </button>
               </div>
 
@@ -653,9 +653,10 @@ export default function AnalyticsSituationPanel({
                             </div>
                           </div>
                           <span
-                            className={`rounded-full px-2 py-0.5 text-[9px] font-black shrink-0 ${sev.badgeClass}`}
+                            className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-[9.5px] font-bold text-[#0060A9] border border-blue-200/80 shrink-0 transition group-hover:bg-[#0060A9] group-hover:text-white"
                           >
-                            {sev.label}
+                            <span>View Details</span>
+                            <ChevronRight className="h-3 w-3" />
                           </span>
                         </div>
 

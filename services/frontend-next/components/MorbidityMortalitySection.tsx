@@ -243,11 +243,11 @@ export default function MorbidityMortalitySection() {
             <div>
               <div>
                 <h3 className="text-sm font-black text-slate-900">
-                  Weekly Case & Fatality Trend
+                  Monthly Case & Fatality Trend
                 </h3>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Weekly case dynamics (left axis) versus deaths (right axis)
+                Monthly case dynamics (left axis) versus deaths (right axis) - Tahun 2026
               </p>
             </div>
 
@@ -311,9 +311,11 @@ export default function MorbidityMortalitySection() {
                   <Tooltip
                     formatter={(val: any, name: any) => [
                       Number(val).toLocaleString('id-ID'),
-                      name === 'morbidity' ? 'Morbidity (Cases)' : 'Mortality (Deaths)',
+                      String(name).toLowerCase().includes('morbidity') || name === 'morbidity'
+                        ? 'Morbidity (Cases)'
+                        : 'Mortality (Deaths)',
                     ]}
-                    labelFormatter={(label) => `Periode: ${label}`}
+                    labelFormatter={(label) => `Bulan: ${label}`}
                     contentStyle={{
                       borderRadius: '0.75rem',
                       border: '1px solid #e2e8f0',
@@ -354,11 +356,11 @@ export default function MorbidityMortalitySection() {
           <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-2.5">
             <span className="flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[#0284c7]" />
-              Left Axis (Blue): Case Volume
+              Left Axis (Blue): Monthly Case Volume
             </span>
             <span className="flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-[#e11d48]" />
-              Right Axis (Red): Death Volume
+              Right Axis (Red): Monthly Death Volume
             </span>
           </div>
         </div>

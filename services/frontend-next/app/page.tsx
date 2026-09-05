@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Clock3,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Database,
   Filter,
@@ -1114,7 +1115,7 @@ export default function DashboardPage() {
                       key={`${a.location_name}-${a.disease}-${i}`}
                       type="button"
                       onClick={() => setSelected(a)}
-                      className="w-full rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/60"
+                      className="group w-full rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/60"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -1126,9 +1127,10 @@ export default function DashboardPage() {
                           </p>
                         </div>
                         <span
-                          className={`rounded-full px-2 py-1 text-[10px] font-black ${severityClass[a.severity]}`}
+                          className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-[#0060A9] border border-blue-200/80 transition group-hover:bg-[#0060A9] group-hover:text-white shrink-0"
                         >
-                          {translateSeverity(a.severity)}
+                          <span>View Details</span>
+                          <ChevronRight className="h-3 w-3" />
                         </span>
                       </div>
                       <p className="mt-2 text-xs text-slate-600">
