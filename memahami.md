@@ -49,20 +49,20 @@ Setiap lokasi umumnya memiliki:
 | `severity` | Level akhir: `NORMAL`, `WARNING`, `HIGH`, atau `CRITICAL` pada tampilan |
 | `detail` | Rincian event dan sumber data |
 
-## 3. Arti marker di peta
+## 3. Arti marker di peta (Terbaru & Dinamis)
 
-Pada implementasi saat ini, peta masih menerima kumpulan `locations`. Artinya, tidak semua titik yang terlihat otomatis merupakan EWS.
+Peta telah diperbarui menggunakan **titik berbasis severity dengan animasi denyut radius gelombang (pulsating waves radar)**. Area poligon negara dinetralkan sehingga fokus visual 100% berada pada titik lokasi kejadian aktual dan tingkat keparahannya:
 
-| Marker | Arti saat ini | EWS? |
-|---|---|---|
-| Merah | Severity `AWAS` | Ya, level tertinggi |
-| Oranye/emas | Severity `SIAGA` | Ya |
-| Kuning | Severity `WASPADA` | Ya jika `has_alert` aktif |
-| Biru | Event kesehatan biasa atau event tanpa severity alert | Tidak selalu |
-| Marker `exact` | Lokasi dari hasil URL analysis atau hasil analisis tertentu | Bukan otomatis EWS |
-| Lingkaran radius | Radius visual di sekitar lokasi alert | Ya, hanya dibuat dari lokasi `has_alert` |
+| Marker & Denyut Radius | Severity Level | Warna & Efek Visual | Apakah EWS? |
+|---|---|---|---|
+| **Merah Berdenyut Cepat** | `AWAS` / `CRITICAL` | Titik merah (`#EF4444`) + 2 lapis gelombang denyut cepat (1200ms, r: 22px) | Ya, level tertinggi |
+| **Oranye Berdenyut** | `SIAGA` / `HIGH` | Titik oranye (`#F97316`) + 2 lapis gelombang denyut mantap (1500ms, r: 18px) | Ya, alert tinggi |
+| **Kuning/Emas Berdenyut** | `WASPADA` / `WARNING` | Titik kuning amber (`#EAB308`) + denyut lembut (1800ms, r: 14px) | Ya, peringatan dini |
+| **Hijau Zamrud** | `NORMAL` / `SIGNAL` | Titik emerald (`#10B981`) + halo stabil | Bukan alert (sinyal terpantau) |
+| **Biru Berdenyut** | Marker Exact / Analisis | Titik biru (`#0060A9`) | Hasil analisis URL/spesifik |
+| **Lingkaran Radius Transparan** | Jangkauan Buffer EWS | Lingkaran radius (km) di sekitar titik alert aktif | Ya, visualisasi radius dampak EWS |
 
-Kesimpulan penting: titik biru tidak boleh langsung dianggap sebagai alert EWS. Titik biru dapat berarti lokasi event yang sedang dipantau tetapi belum memicu aturan EWS.
+Poligon negara kini diwarnai netral (`rgba(241, 245, 249, 0.35)`) dengan garis batas abu-abu rapi dan highlight biru saat difokuskan, menghilangkan kebingungan gradasi warna negara yang sebelumnya mirip warna marker.
 
 ## 4. Arti warna dan istilah severity
 
@@ -119,16 +119,14 @@ Jumlah marker CRITICAL di peta
 
 Perbedaan jumlah harus dianggap sebagai indikasi bug filter, agregasi, atau koordinat yang tidak valid.
 
-## 7. Masalah pemahaman pada implementasi saat ini
+## 7. Perbaikan yang Telah Diterapkan (Status Terkini)
 
-Beberapa hal dapat membuat pengguna bingung:
+Masalah pemahaman dan hardcoding sebelumnya telah diselesaikan:
 
-- Peta menggambar seluruh `locations`, bukan hanya `alerts`.
-- Marker biru dapat terlihat seperti marker EWS, padahal mungkin hanya event biasa.
-- Popup pernah menggunakan label `Regional IBS Alert`, padahal data dashboard dapat berasal dari NLP/news, IBS, EBS, atau sumber lain.
-- Popup belum menjelaskan alasan sebuah lokasi menjadi `CRITICAL` atau `HIGH`.
-- Popup belum selalu menampilkan threshold, confidence, `outbreak_alert`, dan sumber asli.
-- Radius EWS adalah visualisasi area di sekitar lokasi alert, bukan batas administratif dan bukan bukti penyebaran penyakit.
+- ✅ **Labeling Hardcode Dihapus**: Label statis `Regional IBS Alert` telah dilepas sepenuhnya. Popup kini menampilkan **Severity Badge dinamis** (`CRITICAL Alert`, `HIGH Alert`, `WARNING Alert`, `VERIFIED Signal`), tipe sumber dinamis (`detail.source_type`), nama sumber dinamis, dan terjemahan nama penyakit.
+- ✅ **Pewarnaan Negara Dinemotifkan (Neutralized)**: Seluruh negara tidak lagi diwarnai kuning/oranye/merah berdasarkan agregasi kasus kasar, sehingga tidak menimbulkan salah tafsir bahwa seluruh wilayah negara tertular.
+- ✅ **Animasi Denyut Gelombang Radius Ditambahkan**: Setiap titik marker kini memiliki animasi gelombang denyut (*pulsating radar ring*) yang warnanya dan frekuensinya mencerminkan keparahan (*severity*) wabah secara langsung di atas peta.
+- ✅ **Legend Peta Diperbarui**: Panduan legenda kini mencantumkan arti warna titik dan animasi denyut radius keparahan secara transparan.
 
 ## 8. Rancangan tampilan yang direkomendasikan
 

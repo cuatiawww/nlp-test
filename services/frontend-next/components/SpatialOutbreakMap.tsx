@@ -122,23 +122,43 @@ export default function SpatialOutbreakMap({
           </div>
           {legend && (
             <div>
-              <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-widest text-[#0060A9]">
-                {t("dashboard.labelEwsStatus")}
-              </p>
-              <div className="space-y-1 text-[10px] font-medium text-slate-700">
-                {[
-                  ["bg-red-500", t("map.legendAwas")],
-                  ["bg-orange-500", t("map.legendSiaga")],
-                  ["bg-yellow-400", t("map.legendWaspada")],
-                  ["bg-slate-400", t("severity.NORMAL")],
-                ].map(([c, l]) => (
-                  <div key={l} className="flex items-center gap-2">
-                    <span
-                      className={`h-3 w-3 shrink-0 rounded-full border border-white shadow ${c}`}
-                    />
-                    <span>{l}</span>
-                  </div>
-                ))}
+              <div className="mb-1.5 flex items-center justify-between">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest text-[#0060A9]">
+                  {t("dashboard.labelEwsStatus")}
+                </p>
+                <span className="text-[9px] font-semibold text-slate-400">Pulsing Radius</span>
+              </div>
+              <div className="space-y-1.5 text-[10px] font-medium text-slate-700">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3 w-3 items-center justify-center">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                  </span>
+                  <span className="font-semibold text-slate-800">{t("map.legendAwas")}</span>
+                  <span className="ml-auto rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[8.5px] font-black text-red-600">CRITICAL</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3 w-3 items-center justify-center">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-60" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-orange-500" />
+                  </span>
+                  <span className="font-semibold text-slate-800">{t("map.legendSiaga")}</span>
+                  <span className="ml-auto rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[8.5px] font-black text-orange-600">HIGH</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3 w-3 items-center justify-center">
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-400" />
+                  </span>
+                  <span className="font-semibold text-slate-800">{t("map.legendWaspada")}</span>
+                  <span className="ml-auto rounded border border-yellow-200 bg-yellow-50 px-1.5 py-0.5 text-[8.5px] font-black text-yellow-700">WARNING</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3 w-3 items-center justify-center">
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                  <span className="font-semibold text-slate-800">{t("severity.NORMAL")}</span>
+                  <span className="ml-auto rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[8.5px] font-black text-emerald-700">SIGNAL</span>
+                </div>
               </div>
             </div>
           )}

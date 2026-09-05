@@ -57,13 +57,9 @@ type Props = {
 const HIGHLIGHT = "#0060A9";
 const MARKER = "#0060A9";
 
-function countryFill(cases: number | undefined): string {
-  const opacity = 0.22;
-  if (!cases) return `rgba(241,245,249,${opacity * 0.5})`;
-  if (cases <= 25) return `rgba(234,179,8,${opacity})`;
-  if (cases <= 75) return `rgba(249,115,22,${opacity})`;
-  if (cases <= 200) return `rgba(239,68,68,${opacity})`;
-  return `rgba(185,28,28,${opacity})`;
+function countryFill(cases?: number): string {
+  // Neutral subtle fill that prevents color clashing with severity markers
+  return "rgba(241, 245, 249, 0.35)";
 }
 
 export default function AseanMap({
@@ -84,7 +80,7 @@ export default function AseanMap({
   embedded,
   highlightCountry,
 }: Props) {
-  const { t, translateSeverity } = useTranslation();
+  const { t, translateSeverity, translateDisease } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorRef = useRef<VectorLayer<VectorSource> | null>(null);
@@ -130,27 +126,92 @@ export default function AseanMap({
     vectorRef.current = vectorLayer;
 
     const markerSrc = new VectorSource();
+    const getMarkerStyle = (f: FeatureLike) => {
+      const exact = f.get("type") === "exact";
+      const severity = (f.get("severity") as string) || "NORMAL";
+
+      let rgb = "2, 132, 199";
+      let coreColor = "#0284C7";
+
+      if (severity === "AWAS") {
+        rgb = "239, 68, 68";
+        coreColor = "#EF4444";
+      } else if (severity === "SIAGA") {
+        rgb = "249, 115, 22";
+        coreColor = "#F97316";
+      } else if (severity === "WASPADA") {
+        rgb = "234, 179, 8";
+        coreColor = "#EAB308";
+      } else {
+        rgb = "16, 185, 129";
+        coreColor = "#10B981";
+      }
+
+      if (exact) {
+        rgb = "0, 96, 169";
+        coreColor = "#0060A9";
+      }
+
+      const now = Date.now();
+      // Pulsing frequency: AWAS pulses fast & urgent (1200ms), SIAGA (1500ms), others (1800ms)
+      const period = severity === "AWAS" ? 1200 : severity === "SIAGA" ? 1500 : 1800;
+      const wave1 = (now % period) / period;
+      const wave2 = ((now + period / 2) % period) / period;
+
+      const maxExpansion = severity === "AWAS" ? 22 : severity === "SIAGA" ? 18 : 14;
+      const r1 = 6 + wave1 * maxExpansion;
+      const alpha1 = Math.max(0, (1 - wave1) * 0.75);
+
+      const r2 = 6 + wave2 * maxExpansion;
+      const alpha2 = Math.max(0, (1 - wave2) * 0.5);
+
+      // Outer pulsating wave 1 (Denyut gelombang 1)
+      const pulse1 = new Style({
+        image: new CircleStyle({
+          radius: r1,
+          fill: new Fill({ color: `rgba(${rgb}, ${alpha1 * 0.22})` }),
+          stroke: new Stroke({
+            color: `rgba(${rgb}, ${alpha1})`,
+            width: 1.5,
+          }),
+        }),
+      });
+
+      // Outer pulsating wave 2 (Denyut gelombang 2)
+      const pulse2 = new Style({
+        image: new CircleStyle({
+          radius: r2,
+          fill: new Fill({ color: `rgba(${rgb}, ${alpha2 * 0.16})` }),
+          stroke: new Stroke({
+            color: `rgba(${rgb}, ${alpha2 * 0.8})`,
+            width: 1,
+          }),
+        }),
+      });
+
+      // Inner soft halo
+      const halo = new Style({
+        image: new CircleStyle({
+          radius: severity === "AWAS" ? 9.5 : 8,
+          fill: new Fill({ color: `rgba(${rgb}, 0.28)` }),
+        }),
+      });
+
+      // Center solid point
+      const core = new Style({
+        image: new CircleStyle({
+          radius: exact ? 7 : severity === "AWAS" ? 6.5 : 5.5,
+          fill: new Fill({ color: coreColor }),
+          stroke: new Stroke({ color: "#ffffff", width: 2 }),
+        }),
+      });
+
+      return [pulse1, pulse2, halo, core];
+    };
+
     const markerLayer = new VectorLayer({
       source: markerSrc,
-      style: (f) => {
-        const exact = f.get("type") === "exact";
-        const severity = f.get("severity");
-        const color =
-          severity === "AWAS"
-            ? "#ED2939"
-            : severity === "SIAGA"
-              ? "#B49B58"
-              : severity === "WASPADA"
-                ? "#eab308"
-                : MARKER;
-        return new Style({
-          image: new CircleStyle({
-            radius: exact ? 8 : severity ? 9 : 6,
-            fill: new Fill({ color: exact ? MARKER : color }),
-            stroke: new Stroke({ color: "#fff", width: 2 }),
-          }),
-        });
-      },
+      style: getMarkerStyle,
     });
     markerRef.current = markerLayer;
 
@@ -453,6 +514,24 @@ export default function AseanMap({
     return () => cancelAnimationFrame(frame);
   }, [outbreakLocations, ewsRadiusKm]);
 
+  // Continuous smooth pulsating animation for severity markers (Denyut-denyut)
+  useEffect(() => {
+    let animId: number;
+    let lastTime = 0;
+    const animatePulse = (time: number) => {
+      if (time - lastTime >= 28) {
+        lastTime = time;
+        if (markerRef.current) {
+          markerRef.current.changed();
+        }
+      }
+      animId = requestAnimationFrame(animatePulse);
+    };
+    animId = requestAnimationFrame(animatePulse);
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+
   useEffect(() => {
     const vectorLayer = vectorRef.current;
     const markerLayer = markerRef.current;
@@ -488,12 +567,11 @@ export default function AseanMap({
 
     vectorLayer.setStyle((f: FeatureLike) => {
       const name = (f.get("name") as string).toLowerCase();
-      const item = countryData?.find((d) => d.name.toLowerCase() === name);
       const isHighlighted =
         !!targetCountry && (name === targetCountry || name === highlightCountry?.toLowerCase());
-      const fill = isHighlighted ? "#dc2626" : countryFill(item?.cases);
-      const stroke = isHighlighted ? "#dc2626" : "#475569";
-      const sw = isHighlighted ? 2 : 1;
+      const fill = isHighlighted ? "rgba(0, 96, 169, 0.12)" : countryFill();
+      const stroke = isHighlighted ? "#0060A9" : "#cbd5e1";
+      const sw = isHighlighted ? 2.5 : 1;
       return new Style({
         fill: new Fill({ color: fill }),
         stroke: new Stroke({ color: stroke, width: sw }),
@@ -655,25 +733,43 @@ export default function AseanMap({
         }
       />
 
-      {countryData && !hideLegend && (
-        <div className="pointer-events-none absolute bottom-3 left-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-            {t("map.legend")}
-          </p>
-          <p className="mt-0.5 text-[9px] text-slate-400">
-            {t("map.casesPerCountry")}
+      {!hideLegend && (
+        <div className="pointer-events-none absolute bottom-3 left-3 rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-lg backdrop-blur-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping" />
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
+              {t("map.legend")}
+            </p>
+          </div>
+          <p className="mt-0.5 text-[9px] font-semibold text-slate-400">
+            Pulsating radius indicates outbreak severity
           </p>
           <ul className="mt-2 space-y-1.5">
-            <li className="flex items-center gap-2 text-[10px] text-slate-600">
-              <span className="h-3 w-3 shrink-0 rounded-[3px] bg-red-500" />{" "}
-              &gt;30
+            <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
+              <span className="relative flex h-3 w-3 items-center justify-center">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#EF4444]" />
+              </span>
+              <span>{t("map.legendAwas")} (CRITICAL)</span>
             </li>
-            <li className="flex items-center gap-2 text-[10px] text-slate-600">
-              <span className="h-3 w-3 shrink-0 rounded-[3px] bg-yellow-500" />{" "}
-              1-30
+            <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
+              <span className="relative flex h-3 w-3 items-center justify-center">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#F97316]" />
+              </span>
+              <span>{t("map.legendSiaga")} (HIGH)</span>
             </li>
-            <li className="flex items-center gap-2 text-[10px] text-slate-600">
-              <span className="h-3 w-3 shrink-0 rounded-[3px] bg-slate-400" /> 0
+            <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
+              <span className="relative flex h-3 w-3 items-center justify-center">
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#EAB308]" />
+              </span>
+              <span>{t("map.legendWaspada")} (WARNING)</span>
+            </li>
+            <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
+              <span className="relative flex h-3 w-3 items-center justify-center">
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#10B981]" />
+              </span>
+              <span>NORMAL (Verified Signal)</span>
             </li>
           </ul>
         </div>
@@ -693,10 +789,45 @@ export default function AseanMap({
             <X className="h-4 w-4" />
           </button>
           <div className="pr-8">
-            <p className="text-[10px] font-black uppercase tracking-widest text-[#0060A9]">Regional IBS Alert</p>
-            <h3 className="mt-1 truncate text-base font-black text-slate-900">{selectedLocation.location_name}</h3>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                  selectedLocation.severity === "AWAS"
+                    ? "bg-rose-100 text-rose-700 border border-rose-300 shadow-2xs"
+                    : selectedLocation.severity === "SIAGA"
+                    ? "bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs"
+                    : selectedLocation.severity === "WASPADA"
+                    ? "bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-2xs"
+                    : "bg-blue-100 text-[#0060A9] border border-blue-200 shadow-2xs"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    selectedLocation.severity === "AWAS"
+                      ? "bg-rose-600 animate-ping"
+                      : selectedLocation.severity === "SIAGA"
+                      ? "bg-amber-600"
+                      : selectedLocation.severity === "WASPADA"
+                      ? "bg-yellow-600"
+                      : "bg-[#0060A9]"
+                  }`}
+                />
+                {translateSeverity(selectedLocation.severity)}{" "}
+                {selectedLocation.has_alert ? "Alert" : "Signal"}
+              </span>
+
+              {selectedLocation.detail?.source_type && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 border border-slate-200">
+                  {selectedLocation.detail.source_type}
+                </span>
+              )}
+            </div>
+
+            <h3 className="mt-1.5 truncate text-base font-black text-slate-900">
+              {selectedLocation.location_name}
+            </h3>
             <p className="truncate text-[11px] font-semibold text-slate-500">
-              {selectedLocation.disease} • {selectedLocation.country}
+              {translateDisease(selectedLocation.disease)} • {selectedLocation.country}
             </p>
           </div>
           <div className="mt-3 grid grid-cols-4 gap-2">
@@ -719,7 +850,7 @@ export default function AseanMap({
           </div>
           <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-500">
             <div className="flex items-center justify-between gap-3">
-              <span>Source: {selectedLocation.detail?.source_name || "SKDR IBS"}</span>
+              <span>Source: {selectedLocation.detail?.source_name || (selectedLocation.detail?.source_type ? selectedLocation.detail.source_type.toUpperCase() : "Surveillance AI")}</span>
               <span>{selectedLocation.latest_date ? new Date(selectedLocation.latest_date).toLocaleDateString("en-US") : "-"}</span>
             </div>
           </div>
