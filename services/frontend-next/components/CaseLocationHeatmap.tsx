@@ -180,10 +180,10 @@ export default function CaseLocationHeatmap() {
             </span>
           </div>
           <h2 className="mt-2 text-xl font-black tracking-tight text-slate-900 lg:text-2xl">
-            Case Location Summary
+            Surveillance Location Summary
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 lg:text-sm">
-            Provides a concise overview of detected disease locations, geographic distribution, affected areas, and emerging spatial patterns across monitored ASEAN countries based on crawl article publication timestamps.
+            Provides a concise overview of mapped signal locations, geographic distribution, affected areas, and emerging spatial patterns across monitored ASEAN countries based on source publication timestamps.
           </p>
         </div>
 
@@ -504,9 +504,9 @@ export default function CaseLocationHeatmap() {
               </div>
             </div>
             <div className="rounded-lg bg-white px-3 py-1.5 border border-slate-200/80 shadow-xs">
-              <div className="text-[10px] font-bold text-slate-600 uppercase">Sinyal / Alert</div>
+              <div className="text-[10px] font-bold text-slate-600 uppercase">Sinyal Surveilans</div>
               <div className="text-sm font-black text-purple-700">
-                {hoveredCell.month.events} sinyal ({hoveredCell.month.alerts} alert)
+                {hoveredCell.month.events} sinyal ({hoveredCell.month.alerts} prioritas)
               </div>
             </div>
           </div>

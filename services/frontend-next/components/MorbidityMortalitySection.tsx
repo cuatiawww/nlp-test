@@ -42,7 +42,7 @@ import {
 } from 'recharts';
 
 const DISEASE_FILTER_OPTIONS = [
-  { label: 'Semua Penyakit (All Diseases)', value: 'all' },
+  { label: 'Semua Topik Kesehatan (All Health Topics)', value: 'all' },
   { label: 'Demam Berdarah (DBD)', value: 'dbd' },
   { label: 'Campak (Measles)', value: 'campak' },
   { label: 'HFMD (Flu Singapura)', value: 'hfmd' },
@@ -67,7 +67,7 @@ export default function MorbidityMortalitySection() {
       setData(res);
     } catch (err: any) {
       console.error('Failed to load morbidity and mortality:', err);
-      setError(err?.message || 'Gagal memuat data morbiditas & mortalitas');
+      setError(err?.message || 'Gagal memuat data kasus & kematian');
     } finally {
       setLoading(false);
     }
@@ -107,7 +107,7 @@ export default function MorbidityMortalitySection() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-sky-700 uppercase">
               <Sparkles className="h-3 w-3 text-sky-600" />
-              Clinical Surveillance & Fatality Matrix
+              Surveillance & Impact Matrix
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
@@ -115,21 +115,21 @@ export default function MorbidityMortalitySection() {
             </span>
           </div>
           <h2 className="mt-2 text-xl font-black tracking-tight text-slate-900 lg:text-2xl uppercase">
-            Morbidity & Mortality
+            Case & Fatality Overview
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 lg:text-sm">
-            Provides an overview of disease burden and deaths, highlighting trends, severity, affected populations, and changes across monitored ASEAN countries over time.
+            Provides an overview of reported cases and deaths, highlighting trends, impact, affected populations, and changes across monitored ASEAN countries over time.
           </p>
         </div>
 
-        {/* ?? Controls: Disease Filter & Weeks Selector ?? */}
+        {/* ?? Controls: Health Topic Filter & Weeks Selector ?? */}
         <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-auto">
-          {/* Disease Selector Dropdown */}
+          {/* Health Topic Selector Dropdown */}
           <div className="relative inline-flex items-center">
             <select
               value={selectedDisease}
               onChange={(e) => setSelectedDisease(e.target.value)}
-              aria-label="Filter Jenis Penyakit"
+              aria-label="Filter Topik Kesehatan"
               className="appearance-none rounded-xl border border-slate-200 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-700 shadow-xs hover:border-slate-300 focus:border-sky-500 focus:outline-none"
             >
               {DISEASE_FILTER_OPTIONS.map((opt) => (
@@ -245,7 +245,7 @@ export default function MorbidityMortalitySection() {
         </div>
       </div>
 
-      {/* ?? Main Dual Section: Weekly Trend Chart (Center) & Top Diseases Cases vs Deaths (Right) ?? */}
+      {/* ?? Main Dual Section: Weekly Case Trend (Center) & Top Health Topics Cases vs Deaths (Right) ?? */}
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* CENTER / LEFT: Weekly Trend of Morbidity & Mortality (Dual Y-Axis Area + Line) */}
         <div className="lg:col-span-7 flex flex-col rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
@@ -256,11 +256,11 @@ export default function MorbidityMortalitySection() {
                   <TrendingUp className="h-4 w-4" />
                 </div>
                 <h3 className="text-sm font-black text-slate-900">
-                  Weekly Trend of Morbidity and Mortality
+                  Weekly Case & Fatality Trend
                 </h3>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Dinamika mingguan kasus sakit (sumbu kiri) vs kematian (sumbu kanan)
+                Dinamika mingguan kasus (sumbu kiri) vs kematian (sumbu kanan)
               </p>
             </div>
 
@@ -376,7 +376,7 @@ export default function MorbidityMortalitySection() {
           </div>
         </div>
 
-        {/* RIGHT: Top Diseases by Total Cases and Deaths (Butterfly Comparative Bar Chart) */}
+        {/* RIGHT: Top Health Topics by Total Cases and Deaths (Butterfly Comparative Bar Chart) */}
         <div className="lg:col-span-5 flex flex-col rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
@@ -385,18 +385,18 @@ export default function MorbidityMortalitySection() {
                   <Layers className="h-4 w-4" />
                 </div>
                 <h3 className="text-sm font-black text-slate-900">
-                  Top Diseases by Cases & Deaths
+                  Top Health Topics by Cases & Deaths
                 </h3>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Rasio komparasi morbiditas vs mortalitas per penyakit
+                Rasio komparasi kasus vs kematian per topik kesehatan
               </p>
             </div>
           </div>
 
           {/* Table Header Columns */}
           <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-400 px-1 border-b border-slate-100 pb-1.5">
-            <span className="w-1/3">Penyakit</span>
+            <span className="w-1/3">Topik Kesehatan</span>
             <span className="w-1/3 text-center text-sky-700 font-bold">Total Cases</span>
             <span className="w-1/3 text-right text-rose-700 font-bold">Total Deaths</span>
           </div>
@@ -420,7 +420,7 @@ export default function MorbidityMortalitySection() {
                   className="py-2 px-1 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors"
                   title="Klik untuk memfilter kurva mingguan ke penyakit ini"
                 >
-                  {/* Top row: Disease name + CFR badge */}
+                  {/* Top row: Health topic name + CFR badge */}
                   <div className="flex items-center justify-between text-xs font-bold text-slate-900">
                     <span className="truncate max-w-[170px]">{d.disease}</span>
                     <span
@@ -470,7 +470,7 @@ export default function MorbidityMortalitySection() {
           </div>
 
           <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-2">
-            <span>?? Klik baris penyakit untuk menyaring grafik mingguan.</span>
+            <span>?? Klik baris topik kesehatan untuk menyaring grafik mingguan.</span>
           </div>
         </div>
       </div>
