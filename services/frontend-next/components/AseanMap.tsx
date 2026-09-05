@@ -329,7 +329,7 @@ export default function AseanMap({
       const locs = (curLocs && curLocs.length > 0)
         ? curLocs.filter((l) => l.country?.toLowerCase() === name.toLowerCase())
         : matchingOutbreaks.map((l) => ({
-            name: l.location_name || l.disease || "Monitored Outbreak",
+            name: l.location_name || l.disease || "Monitored Signal",
             cases: l.cases || 1,
           }));
 
@@ -742,7 +742,7 @@ export default function AseanMap({
             </p>
           </div>
           <p className="mt-0.5 text-[9px] font-semibold text-slate-400">
-            Pulsating radius indicates outbreak severity
+            {t("map.pulsatingRadius")}
           </p>
           <ul className="mt-2 space-y-1.5">
             <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
@@ -813,7 +813,7 @@ export default function AseanMap({
                   }`}
                 />
                 {translateSeverity(selectedLocation.severity)}{" "}
-                {selectedLocation.has_alert ? "Alert" : "Signal"}
+                {t("map.signal")}
               </span>
 
               {selectedLocation.detail?.source_type && (
@@ -883,8 +883,8 @@ export default function AseanMap({
               </h3>
               <p className="truncate text-[11px] font-semibold text-slate-500">
                 {locationsCount > 0
-                  ? `${locationsCount} Locations Monitored • ASEAN Region`
-                  : "Monitored Region • ASEAN Region"}
+                  ? t("map.mappedLocationsRegion", { count: locationsCount })
+                  : t("map.monitoredRegion")}
               </p>
             </div>
           </div>
@@ -915,11 +915,11 @@ export default function AseanMap({
               </p>
             </div>
 
-            {/* Alerts */}
+            {/* Signals */}
             <div className="rounded-xl border border-rose-200/80 bg-rose-50/70 p-2 text-center">
               <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-[#ED2939]">
                 <AlertTriangle className="h-3 w-3" />
-                <span>Alerts</span>
+                <span>{t("map.signals")}</span>
               </div>
               <p className="mt-0.5 text-sm font-black text-[#ED2939]">{alertCount}</p>
             </div>
@@ -928,7 +928,7 @@ export default function AseanMap({
             <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 p-2 text-center">
               <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-[#B49B58]">
                 <MapPin className="h-3 w-3" />
-                <span>Locations</span>
+                <span>{t("map.mappedLocations")}</span>
               </div>
               <p className="mt-0.5 text-sm font-black text-[#B49B58]">
                 {locationsCount}
@@ -939,7 +939,7 @@ export default function AseanMap({
           {/* Detected Diseases */}
           {uniqueDiseases.length > 0 && (
             <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
-              <span className="text-[9.5px] font-bold text-slate-400">Diseases:</span>
+              <span className="text-[9.5px] font-bold text-slate-400">{t("map.healthTopics")}:</span>
               {uniqueDiseases.map((dis) => (
                 <span key={dis} className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#0060A9] ring-1 ring-blue-200/60">
                   {dis}
@@ -1040,4 +1040,3 @@ export default function AseanMap({
     </div>
   );
 }
-

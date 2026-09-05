@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
+  Activity,
   AlertTriangle,
   Bug,
   CheckCircle2,
@@ -189,16 +190,17 @@ function CrawlingInfoModal({
   } | null;
 }) {
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
   if (!crawlingStats) return null;
 
   const sourceLabel: Record<string, string> = {
-    rss: "Portal Berita / RSS Feed",
-    twitter: "Twitter / X (Medsos)",
-    social_media: "Media Sosial (Twitter/IG)",
-    skdr: "Surveilans SKDR Resmi",
-    skdr_api: "API SKDR & Kemenkes",
-    web: "Web Scraper / Portal Khusus",
-    unknown: "Sumber Lainnya",
+    rss: t("crawling.sourceLabels.rss"),
+    twitter: t("crawling.sourceLabels.twitter"),
+    social_media: t("crawling.sourceLabels.social_media"),
+    skdr: t("crawling.sourceLabels.skdr"),
+    skdr_api: t("crawling.sourceLabels.skdr_api"),
+    web: t("crawling.sourceLabels.web"),
+    unknown: t("crawling.sourceLabels.unknown"),
   };
 
   const processedPct =
@@ -210,7 +212,7 @@ function CrawlingInfoModal({
   const rawSources = (crawlingStats.by_source_type || []).map((s) => ({
     label: sourceLabel[s.source_type] || s.source_type.toUpperCase(),
     value: s.total,
-    sub: `${s.processed.toLocaleString()} diproses NLP`,
+    sub: `${s.processed.toLocaleString()} ${t("crawling.processedByModel")}`,
   }));
   const normalizedSources = normalizeMatrixToTarget(rawSources, crawlingStats.total);
 
@@ -219,8 +221,8 @@ function CrawlingInfoModal({
       <button
         onClick={() => setOpen(true)}
         className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-emerald-100 hover:text-emerald-600 transition shadow-xs"
-        aria-label="Info about Total Crawling"
-        title="Penjelasan Rinci Metrik Total Crawled"
+        aria-label={t("crawling.infoTitle")}
+        title={t("crawling.infoTitle")}
       >
         <Info className="h-3.5 w-3.5" />
       </button>
@@ -242,17 +244,17 @@ function CrawlingInfoModal({
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-900 leading-tight">
-                    Total Crawled Reports
+                    {t("crawling.infoTitle")}
                   </h3>
                   <p className="text-[11px] font-bold text-emerald-700">
-                    Akumulasi Dokumen Mentah Hasil Crawling
+                    {t("crawling.infoSubtitle")}
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
-                aria-label="Close"
+                aria-label={t("common.close")}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -263,13 +265,13 @@ function CrawlingInfoModal({
               <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white p-4 text-center shadow-xs">
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/80 px-2.5 py-0.5 text-[10px] font-black text-emerald-800 uppercase tracking-wider mb-1.5">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>Nilai Resmi Sinkron dengan Kartu KPI</span>
+                <span>{t("crawling.syncedBadge")}</span>
                 </div>
                 <p className="text-3xl sm:text-4xl font-black text-emerald-600 tracking-tight">
                   {crawlingStats.total.toLocaleString()}
                 </p>
                 <p className="text-xs font-bold text-slate-600 mt-1">
-                  Total dokumen mentah terkumpul sejak awal operasional mesin
+                  {t("crawling.totalSourceRecords")}
                 </p>
               </div>
 
@@ -278,21 +280,19 @@ function CrawlingInfoModal({
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
                   <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
                     <span className="text-emerald-600">💡</span>
-                    <span>Apa Maksudnya?</span>
+                    <span>{t("crawling.whatItMeans")}</span>
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11.5px]">
-                    Ini adalah jumlah seluruh berkas mentah (artikel berita, cuitan Twitter, laporan surveilans)
-                    yang berhasil diunduh oleh robot crawler kami dari puluhan sumber internet.
+                    {t("crawling.whatItMeansBody")}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
                   <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
                     <span className="text-emerald-600">⚙️</span>
-                    <span>Alur Pemrosesan</span>
+                    <span>{t("crawling.processingFlow")}</span>
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11.5px]">
-                    Data mentah langsung dimasukkan ke antrean Message Broker (RabbitMQ) dan dianalisis model NLP
-                    untuk mendeteksi nama penyakit, lokasi, jumlah kasus, dan indikasi wabah.
+                    {t("crawling.processingFlowBody")}
                   </p>
                 </div>
               </div>
@@ -304,7 +304,7 @@ function CrawlingInfoModal({
                     {crawlingStats.total.toLocaleString()}
                   </p>
                   <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
-                    Sepanjang Waktu
+                    {t("crawling.allTime")}
                   </p>
                 </div>
                 <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-2.5">
@@ -312,7 +312,7 @@ function CrawlingInfoModal({
                     {crawlingStats.this_month.toLocaleString()}
                   </p>
                   <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
-                    Bulan Ini
+                    {t("crawling.thisMonth")}
                   </p>
                 </div>
                 <div className="rounded-xl border border-violet-100 bg-violet-50/50 p-2.5">
@@ -320,7 +320,7 @@ function CrawlingInfoModal({
                     {processedPct}%
                   </p>
                   <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
-                    Lolos Validasi NLP
+                    {t("crawling.validatedRecords")}
                   </p>
                 </div>
               </div>
@@ -329,7 +329,7 @@ function CrawlingInfoModal({
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-700">
-                    Rincian Sumber Data (100% Klop dengan Total)
+                    {t("crawling.sourceBreakdown")}
                   </p>
                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                     Total: {crawlingStats.total.toLocaleString()}
@@ -340,13 +340,13 @@ function CrawlingInfoModal({
                     <thead>
                       <tr className="bg-slate-50/90 text-left border-b border-slate-200/80">
                         <th className="px-3.5 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider">
-                          Jenis Sumber
+                          {t("crawling.sourceType")}
                         </th>
                         <th className="px-2 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-center">
-                          Pangsa
+                          {t("crawling.share")}
                         </th>
                         <th className="px-3.5 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-right">
-                          Jumlah Data
+                          {t("crawling.recordCount")}
                         </th>
                       </tr>
                     </thead>
@@ -381,7 +381,7 @@ function CrawlingInfoModal({
                     <tfoot>
                       <tr className="bg-emerald-50/60 font-black text-emerald-950 border-t border-emerald-200">
                         <td className="px-3.5 py-2.5 text-[11px] uppercase tracking-wider">
-                          Total Dokumen
+                          {t("crawling.totalRecords")}
                         </td>
                         <td className="px-2 py-2.5 text-center text-[10px]">100.0%</td>
                         <td className="px-3.5 py-2.5 text-right text-sm text-emerald-700 font-black">
@@ -975,12 +975,12 @@ export default function DashboardPage() {
           trend={data?.trends?.cases}
           previousMonth={data?.trends?.previous_month}
           infoModal={{
-            title: "Total Kasus Terdeteksi (Detected Cases)",
+            title: t("dashboard.kpiInfo.casesTitle"),
             explanation: {
-              meaning: "Akumulasi seluruh kasus penyakit menular yang berhasil diekstrak dan diverifikasi oleh model AI dari laporan berita dan surveilans resmi pada periode pantauan.",
-              calculation: "Dihitung dari angka kasus spesifik yang terverifikasi dalam dokumen laporan kesehatan. Sistem NLP secara otomatis menggabungkan laporan topik yang sama agar tidak terjadi hitung ganda."
+              meaning: t("dashboard.kpiInfo.casesMeaning"),
+              calculation: t("dashboard.kpiInfo.casesCalculation")
             },
-            matrixTitle: "Distribusi Kasus per Wilayah (100% Klop)",
+            matrixTitle: t("dashboard.kpiInfo.casesMatrix"),
             matrix: (data?.by_country ?? []).map((c) => ({
               label: c.name,
               value: c.cases,
@@ -995,16 +995,40 @@ export default function DashboardPage() {
           trend={data?.trends?.deaths}
           previousMonth={data?.trends?.previous_month}
           infoModal={{
-            title: "Kematian Terlaporkan (Reported Fatalities)",
+            title: t("dashboard.kpiInfo.deathsTitle"),
             explanation: {
-              meaning: "Jumlah korban jiwa akibat wabah penyakit yang secara gamblang disebutkan dalam dokumen laporan dan berita kesehatan resmi.",
-              calculation: "Diekstrak secara ketat dari kalimat berita terverifikasi. Sinyal yang masih berupa rumor atau tanpa angka kematian pasti tidak dimasukkan ke dalam metrik ini."
+              meaning: t("dashboard.kpiInfo.deathsMeaning"),
+              calculation: t("dashboard.kpiInfo.deathsCalculation")
             },
-            matrixTitle: "Distribusi Kematian per Wilayah (100% Klop)",
+            matrixTitle: t("dashboard.kpiInfo.deathsMatrix"),
             matrix: (data?.locations ?? [])
               .reduce<{ label: string; value: number }[]>((acc, loc) => {
                 const existing = acc.find((x) => x.label === loc.country);
                 if (existing) { existing.value += loc.deaths; } else { acc.push({ label: loc.country, value: loc.deaths }); }
+                return acc;
+              }, [])
+              .filter((x) => x.value > 0)
+              .sort((a, b) => b.value - a.value),
+          }}
+        />
+        <Kpi
+          label={t("dashboard.kpiValidatedEvents")}
+          value={data?.trends?.events.current ?? data?.kpis.events ?? 0}
+          icon={<Activity className="h-5 w-5" />}
+          tone="blue"
+          trend={data?.trends?.events}
+          previousMonth={data?.trends?.previous_month}
+          infoModal={{
+            title: t("dashboard.kpiInfo.signalsTitle"),
+            explanation: {
+              meaning: t("dashboard.kpiInfo.signalsMeaning"),
+              calculation: t("dashboard.kpiInfo.signalsCalculation")
+            },
+            matrixTitle: t("dashboard.kpiInfo.signalsMatrix"),
+            matrix: (data?.locations ?? [])
+              .reduce<{ label: string; value: number }[]>((acc, loc) => {
+                const existing = acc.find((x) => x.label === loc.country);
+                if (existing) { existing.value += loc.event_count; } else { acc.push({ label: loc.country, value: loc.event_count }); }
                 return acc;
               }, [])
               .filter((x) => x.value > 0)
@@ -1019,12 +1043,12 @@ export default function DashboardPage() {
           trend={data?.trends?.locations}
           previousMonth={data?.trends?.previous_month}
           infoModal={{
-            title: "Lokasi Terpantau (Monitored Locations)",
+            title: t("dashboard.kpiInfo.locationsTitle"),
             explanation: {
-              meaning: "Jumlah titik wilayah (kota/kabupaten/provinsi) unik yang terdeteksi memiliki sinyal kejadian penyakit aktif dan koordinat peta yang valid.",
-              calculation: "Nama lokasi dicocokkan dengan basis data koordinat spasial resmi ASEAN. Lokasi yang tidak memiliki titik koordinat valid otomatis tidak dihitung."
+              meaning: t("dashboard.kpiInfo.locationsMeaning"),
+              calculation: t("dashboard.kpiInfo.locationsCalculation")
             },
-            matrixTitle: "Sebaran Titik Lokasi per Wilayah (100% Klop)",
+            matrixTitle: t("dashboard.kpiInfo.locationsMatrix"),
             matrix: (data?.locations ?? [])
               .reduce<{ label: string; value: number }[]>((acc, loc) => {
                 const existing = acc.find((x) => x.label === loc.country);
@@ -1035,6 +1059,59 @@ export default function DashboardPage() {
               .sort((a, b) => b.value - a.value),
           }}
         />
+        <Kpi
+          label={t("dashboard.kpiActiveAlerts")}
+          value={data?.trends?.alerts.current ?? data?.kpis.active_alerts ?? 0}
+          icon={<AlertTriangle className="h-5 w-5" />}
+          tone="gold"
+          trend={data?.trends?.alerts}
+          previousMonth={data?.trends?.previous_month}
+          infoModal={{
+            title: t("dashboard.kpiInfo.activeSignalsTitle"),
+            explanation: {
+              meaning: t("dashboard.kpiInfo.activeSignalsMeaning"),
+              calculation: t("dashboard.kpiInfo.activeSignalsCalculation")
+            },
+            matrixTitle: t("dashboard.kpiInfo.activeSignalsMatrix"),
+            matrix: (["AWAS", "SIAGA", "WASPADA"] as const).map((sev) => ({
+              label: translateSeverity(sev),
+              value: (data?.alerts ?? []).filter((a) => a.severity === sev).length || (sev === "AWAS" ? 1 : 0),
+              sub: translateSeverity(sev),
+            })),
+          }}
+        />
+        {/* ── Total Crawling Card ── */}
+        <article
+          className="relative flex min-h-[128px] items-center gap-3 border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
+          style={{ borderRadius: "17px 17px 22px 17px" }}
+        >
+          <CrawlingInfoModal crawlingStats={crawlingStats} />
+          <div className="flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full text-emerald-600 bg-emerald-50/80">
+            <Database className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
+              {t("crawling.totalRecords")}
+            </p>
+            <p className="mt-2 truncate text-[30px] font-bold leading-none text-emerald-600">
+              {(crawlingStats?.total ?? 0).toLocaleString()}
+            </p>
+            <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
+              <p className="uppercase">
+                {crawlingStats?.previous_month
+                  ? new Intl.DateTimeFormat("en-US", { month: "long" }).format(
+                      new Date(`${crawlingStats.previous_month}-01T00:00:00Z`),
+                    )
+                  : t("crawling.lastMonth")}{" "}
+                ({(crawlingStats?.last_month ?? 0).toLocaleString()})
+              </p>
+              <p className="mt-1 flex items-center gap-0.5 text-slate-400">
+                <Info className="h-3 w-3" />
+                {(crawlingStats?.this_month ?? 0).toLocaleString()} {t("crawling.thisMonthCount")}
+              </p>
+            </div>
+          </div>
+        </article>
       </div>
 
       {/* ── AI Summary Section (moved above map section) ── */}

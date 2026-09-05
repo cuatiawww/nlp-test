@@ -36,8 +36,8 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
   };
 
   const logoSrc = settings.sidebar_logo_url || `${PUBLIC_BASE_PATH}/abvc-logo.webp`;
-  const appTitle = settings.app_name || "DISEASE SURVEILLANCE AI";
-  const appSubtitle = settings.app_tagline || "ASEAN Surveillance Centre";
+  const appTitle = settings.app_name || "ASEAN REAL-TIME AI SURVEILLANCE DATA";
+  const appSubtitle = settings.app_tagline || "Real-time multilingual data monitoring";
 
   return (
     <aside

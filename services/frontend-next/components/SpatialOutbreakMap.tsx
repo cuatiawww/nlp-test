@@ -126,7 +126,7 @@ export default function SpatialOutbreakMap({
                 <p className="text-[10px] font-extrabold uppercase tracking-widest text-[#0060A9]">
                   {t("dashboard.labelEwsStatus")}
                 </p>
-                <span className="text-[9px] font-semibold text-slate-400">Pulsing Radius</span>
+                <span className="text-[9px] font-semibold text-slate-400">{t("map.pulsatingRadius")}</span>
               </div>
               <div className="space-y-1.5 text-[10px] font-medium text-slate-700">
                 <div className="flex items-center gap-2">

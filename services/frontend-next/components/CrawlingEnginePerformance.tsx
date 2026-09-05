@@ -29,6 +29,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import type { CrawlingStats } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 interface WeeklyPerformanceItem {
   weekNum: number;
@@ -65,6 +66,7 @@ type DynamicPreset = "all" | "news" | "social" | "api" | "cumulative" | "recent4
 export default function CrawlingEnginePerformance({
   crawlingStats,
 }: CrawlingEnginePerformanceProps) {
+  const { t } = useTranslation();
   const [startWeek, setStartWeek] = useState<number>(11);
   const [endWeek, setEndWeek] = useState<number>(22);
   const [chartMode, setChartMode] = useState<ChartDisplayMode>("stacked");
@@ -247,21 +249,20 @@ export default function CrawlingEnginePerformance({
             <div className="flex items-center justify-between gap-2">
               <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50/80 px-2.5 py-0.5 text-[11px] font-bold text-[#0060A9]">
                 <Activity className="h-3.5 w-3.5 text-[#0060A9] animate-pulse" />
-                <span>DATA CRAWLING PIPELINE</span>
+                <span>{t("crawling.pipeline")}</span>
               </div>
               <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-                ONLINE
+                {t("crawling.online")}
               </span>
             </div>
 
             <h2 className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-snug">
-              Data Crawling Engine Performance
+              {t("crawling.title")}
             </h2>
 
             <p className="text-xs leading-relaxed text-slate-500">
-              Presents crawling process performance, data retrieval success, active sources,
-              processing speed, and data freshness for ongoing surveillance monitoring.
+              {t("crawling.description")}
             </p>
           </div>
 
@@ -283,10 +284,10 @@ export default function CrawlingEnginePerformance({
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                    Total News / Media
+                    {t("crawling.newsMedia")}
                   </p>
                   <p className="text-base font-black text-rose-600">
-                    {visibleSeries.totalNews ? totalNewsCount.toLocaleString() : "Nonaktif"}
+                    {visibleSeries.totalNews ? totalNewsCount.toLocaleString() : t("crawling.inactive")}
                   </p>
                 </div>
               </div>
@@ -295,7 +296,7 @@ export default function CrawlingEnginePerformance({
                   RSS/Portal
                 </span>
                 <p className="mt-1 text-[10px] font-bold text-rose-600">
-                  {((totalNewsCount / (runningTotalCrawled || 1)) * 100).toFixed(1)}% pangsa
+                  {((totalNewsCount / (runningTotalCrawled || 1)) * 100).toFixed(1)}% {t("crawling.share")}
                 </p>
               </div>
             </button>
@@ -316,10 +317,10 @@ export default function CrawlingEnginePerformance({
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                    Social Media Signals
+                    {t("crawling.socialSignals")}
                   </p>
                   <p className="text-base font-black text-blue-600">
-                    {visibleSeries.totalSocialMedia ? totalSocialCount.toLocaleString() : "Nonaktif"}
+                    {visibleSeries.totalSocialMedia ? totalSocialCount.toLocaleString() : t("crawling.inactive")}
                   </p>
                 </div>
               </div>
@@ -328,7 +329,7 @@ export default function CrawlingEnginePerformance({
                   Twitter/IG
                 </span>
                 <p className="mt-1 text-[10px] font-bold text-blue-600">
-                  {((totalSocialCount / (runningTotalCrawled || 1)) * 100).toFixed(1)}% pangsa
+                  {((totalSocialCount / (runningTotalCrawled || 1)) * 100).toFixed(1)}% {t("crawling.share")}
                 </p>
               </div>
             </button>
@@ -349,10 +350,10 @@ export default function CrawlingEnginePerformance({
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                    API & Data Studio
+                    {t("crawling.officialFeeds")}
                   </p>
                   <p className="text-base font-black text-emerald-600">
-                    {visibleSeries.totalApiData ? totalApiCount.toLocaleString() : "Nonaktif"}
+                    {visibleSeries.totalApiData ? totalApiCount.toLocaleString() : t("crawling.inactive")}
                   </p>
                 </div>
               </div>
@@ -361,7 +362,7 @@ export default function CrawlingEnginePerformance({
                   SKDR / GFS
                 </span>
                 <p className="mt-1 text-[10px] font-bold text-emerald-600">
-                  {((totalApiCount / (runningTotalCrawled || 1)) * 100).toFixed(1)}% pangsa
+                  {((totalApiCount / (runningTotalCrawled || 1)) * 100).toFixed(1)}% {t("crawling.share")}
                 </p>
               </div>
             </button>
@@ -388,7 +389,7 @@ export default function CrawlingEnginePerformance({
             {/* Left: Category Filter Pills */}
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <span className="text-[11px] font-bold text-slate-500 mr-1 hidden sm:inline">
-                Filter Kategori:
+                {t("crawling.channelFilters")}:
               </span>
 
               {/* News Pill */}
@@ -402,7 +403,7 @@ export default function CrawlingEnginePerformance({
                 }`}
               >
                 <span className="h-2 w-2 rounded-full bg-[#EF4444]" />
-                News / Media
+                {t("crawling.newsMedia")}
               </button>
 
               {/* Social Media Pill */}
@@ -416,7 +417,7 @@ export default function CrawlingEnginePerformance({
                 }`}
               >
                 <span className="h-2 w-2 rounded-full bg-[#2563EB]" />
-                Social Media
+                {t("crawling.socialSignals")}
               </button>
 
               {/* API Pill */}
@@ -430,7 +431,7 @@ export default function CrawlingEnginePerformance({
                 }`}
               >
                 <span className="h-2 w-2 rounded-full bg-[#10B981]" />
-                API Data
+                {t("crawling.apiData")}
               </button>
 
               {/* Reset Button */}
@@ -457,7 +458,7 @@ export default function CrawlingEnginePerformance({
                 }`}
               >
                 <Layers className="h-3 w-3" />
-                Stacked Bar
+                {t("crawling.stackedBar")}
               </button>
               <button
                 type="button"
@@ -469,7 +470,7 @@ export default function CrawlingEnginePerformance({
                 }`}
               >
                 <TrendingUp className="h-3 w-3" />
-                Trend Line
+                {t("crawling.trendLine")}
               </button>
               <button
                 type="button"
@@ -481,7 +482,7 @@ export default function CrawlingEnginePerformance({
                 }`}
               >
                 <BarChart2 className="h-3 w-3" />
-                Grouped
+                {t("crawling.grouped")}
               </button>
             </div>
           </div>
@@ -520,7 +521,7 @@ export default function CrawlingEnginePerformance({
                     <Line
                       type="monotone"
                       dataKey="totalNewsVal"
-                      name="News/Media"
+                      name={t("crawling.newsMedia")}
                       stroke="#EF4444"
                       strokeWidth={2.5}
                       dot={{ r: 3.5, fill: "#EF4444" }}
@@ -542,7 +543,7 @@ export default function CrawlingEnginePerformance({
                     <Line
                       type="monotone"
                       dataKey="totalApiDataVal"
-                      name="API Data"
+                      name={t("crawling.apiData")}
                       stroke="#10B981"
                       strokeWidth={2.5}
                       dot={{ r: 3.5, fill: "#10B981" }}
@@ -607,7 +608,7 @@ export default function CrawlingEnginePerformance({
                               })}
                             </div>
                             <div className="border-t border-slate-100 pt-1.5 flex items-center justify-between font-black text-slate-900">
-                              <span>Total {isCumulative ? "Akumulasi" : "Minggu"}:</span>
+                              <span>{t("crawling.total")} {isCumulative ? t("crawling.cumulative") : t("crawling.week")}:</span>
                               <span className="text-[#0060A9] font-black">
                                 {totalSum.toLocaleString()}
                               </span>
@@ -621,7 +622,7 @@ export default function CrawlingEnginePerformance({
                   {visibleSeries.totalNews && (
                     <Bar
                       dataKey="totalNewsVal"
-                      name="News/Media"
+                      name={t("crawling.newsMedia")}
                       stackId={chartMode === "stacked" ? "crawling" : undefined}
                       fill="#EF4444"
                       radius={chartMode === "grouped" ? [4, 4, 0, 0] : (!visibleSeries.totalSocialMedia && !visibleSeries.totalApiData ? [6, 6, 0, 0] : [0, 0, 0, 0])}
@@ -630,7 +631,7 @@ export default function CrawlingEnginePerformance({
                   {visibleSeries.totalSocialMedia && (
                     <Bar
                       dataKey="totalSocialMediaVal"
-                      name="Social Media"
+                      name={t("crawling.socialSignals")}
                       stackId={chartMode === "stacked" ? "crawling" : undefined}
                       fill="#2563EB"
                       radius={chartMode === "grouped" ? [4, 4, 0, 0] : (!visibleSeries.totalApiData ? [6, 6, 0, 0] : [0, 0, 0, 0])}
@@ -639,7 +640,7 @@ export default function CrawlingEnginePerformance({
                   {visibleSeries.totalApiData && (
                     <Bar
                       dataKey="totalApiDataVal"
-                      name="API Data"
+                      name={t("crawling.apiData")}
                       stackId={chartMode === "stacked" ? "crawling" : undefined}
                       fill="#10B981"
                       radius={chartMode === "grouped" ? [4, 4, 0, 0] : [6, 6, 0, 0]}
@@ -655,7 +656,7 @@ export default function CrawlingEnginePerformance({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
                 <SlidersHorizontal className="h-3.5 w-3.5 text-[#0060A9]" />
-                <span>Pilihan Tampilan Dinamis:</span>
+                <span>{t("crawling.viewOptions")}:</span>
               </div>
 
               {/* Dynamic Preset Button Group */}
@@ -671,7 +672,7 @@ export default function CrawlingEnginePerformance({
                   }`}
                 >
                   <Eye className="h-3 w-3" />
-                  Semua Kanal
+                  {t("crawling.allChannels")}
                 </button>
 
                 {/* 2. Fokus News/Media */}
@@ -685,7 +686,7 @@ export default function CrawlingEnginePerformance({
                   }`}
                 >
                   <span className="h-2 w-2 rounded-full bg-rose-500 border border-white" />
-                  Fokus News
+                  {t("crawling.newsFocus")}
                 </button>
 
                 {/* 3. Fokus Social Media */}
@@ -699,7 +700,7 @@ export default function CrawlingEnginePerformance({
                   }`}
                 >
                   <span className="h-2 w-2 rounded-full bg-blue-500 border border-white" />
-                  Fokus Social
+                  {t("crawling.socialFocus")}
                 </button>
 
                 {/* 4. Fokus API Data */}
@@ -713,7 +714,7 @@ export default function CrawlingEnginePerformance({
                   }`}
                 >
                   <span className="h-2 w-2 rounded-full bg-emerald-500 border border-white" />
-                  Fokus API
+                  {t("crawling.apiFocus")}
                 </button>
 
                 {/* 5. Akumulasi Kumulatif */}
@@ -727,7 +728,7 @@ export default function CrawlingEnginePerformance({
                   }`}
                 >
                   <TrendingUp className="h-3 w-3" />
-                  Kumulatif
+                  {t("crawling.cumulative")}
                 </button>
 
                 {/* 6. 4 Minggu Terakhir */}
@@ -741,7 +742,7 @@ export default function CrawlingEnginePerformance({
                   }`}
                 >
                   <Calendar className="h-3 w-3" />
-                  4 Mgg Terakhir
+                  {t("crawling.last4Weeks")}
                 </button>
               </div>
             </div>

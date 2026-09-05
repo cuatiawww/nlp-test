@@ -12,12 +12,12 @@ export interface SystemSettings {
 }
 
 const DEFAULT_SETTINGS: SystemSettings = {
-  app_name: 'ASEAN Disease Outbreak Surveillance AI',
-  app_tagline: 'Real-time Multilingual Disease Monitoring',
+  app_name: 'ASEAN Real-time AI Surveillance Data',
+  app_tagline: 'Real-time multilingual data monitoring',
   sidebar_logo_url: '',
   login_logo_url: '',
   favicon_url: '',
-  footer_text: 'Disease Surveillance AI',
+  footer_text: 'ASEAN Real-time AI Surveillance Data',
   ticker_text: '',
 };
 
