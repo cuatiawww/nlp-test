@@ -78,9 +78,11 @@ export default function MorbidityMortalitySection() {
   }, [selectedDisease, selectedWeeks]);
 
   const formatCompact = (num: number): string => {
-    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
-    if (num >= 1_000) return (num / 1_000).toFixed(num >= 10_000 ? 0 : 1) + 'K';
-    return num.toLocaleString('id-ID');
+    const value = Number(num);
+    if (!Number.isFinite(value)) return '0';
+    if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+    if (value >= 1_000) return (value / 1_000).toFixed(value >= 10_000 ? 0 : 1) + 'K';
+    return value.toLocaleString('id-ID');
   };
 
   // Max values for relative horizontal bars in top diseases list
@@ -200,7 +202,7 @@ export default function MorbidityMortalitySection() {
               Total Morbidity
             </div>
             <div className="text-2xl font-black text-slate-900 truncate">
-              {data ? data.summary.total_morbidity.toLocaleString('id-ID') : '...'}
+              {data ? formatCompact(data.summary?.total_morbidity) : '...'}
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
               Total Kasus Sakit Terdeteksi
@@ -218,7 +220,7 @@ export default function MorbidityMortalitySection() {
               Total Mortality
             </div>
             <div className="text-2xl font-black text-slate-900 truncate">
-              {data ? data.summary.total_mortality.toLocaleString('id-ID') : '...'}
+              {data ? formatCompact(data.summary?.total_mortality) : '...'}
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
               Total Kematian Terlapor
@@ -447,7 +449,7 @@ export default function MorbidityMortalitySection() {
                         />
                       </div>
                       <span className="text-[10px] font-bold text-sky-800 font-mono">
-                        {d.total_cases.toLocaleString('id-ID')} kasus
+                        {formatCompact(d.total_cases)} kasus
                       </span>
                     </div>
 
@@ -460,7 +462,7 @@ export default function MorbidityMortalitySection() {
                         />
                       </div>
                       <span className="text-[10px] font-bold text-rose-800 font-mono">
-                        {d.total_deaths.toLocaleString('id-ID')} wafat
+                        {formatCompact(d.total_deaths)} wafat
                       </span>
                     </div>
                   </div>

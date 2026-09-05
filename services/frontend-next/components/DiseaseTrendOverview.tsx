@@ -73,9 +73,11 @@ export default function DiseaseTrendOverview() {
   }, [selectedDays]);
 
   const formatCompact = (num: number): string => {
-    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
-    if (num >= 1_000) return (num / 1_000).toFixed(num >= 10_000 ? 0 : 1) + 'K';
-    return num.toLocaleString('id-ID');
+    const value = Number(num);
+    if (!Number.isFinite(value)) return '0';
+    if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+    if (value >= 1_000) return (value / 1_000).toFixed(value >= 10_000 ? 0 : 1) + 'K';
+    return value.toLocaleString('id-ID');
   };
 
   const toggleLine = (dataKey: string) => {
@@ -387,7 +389,7 @@ export default function DiseaseTrendOverview() {
                                 </div>
                                 <div className="flex items-center gap-2 font-mono">
                                   <span className="font-bold text-slate-900">
-                                    {cb.cases.toLocaleString('id-ID')} kasus
+                                    {formatCompact(cb.cases)} kasus
                                   </span>
                                   <span className="text-slate-600">({pct}%)</span>
                                 </div>

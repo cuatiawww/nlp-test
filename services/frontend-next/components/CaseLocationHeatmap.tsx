@@ -107,9 +107,11 @@ export default function CaseLocationHeatmap() {
 
   // Compact number formatting
   const formatCompact = (num: number): string => {
-    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
-    if (num >= 1_000) return (num / 1_000).toFixed(num >= 10_000 ? 0 : 1) + 'K';
-    return num.toLocaleString('id-ID');
+    const value = Number(num);
+    if (!Number.isFinite(value)) return '0';
+    if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+    if (value >= 1_000) return (value / 1_000).toFixed(value >= 10_000 ? 0 : 1) + 'K';
+    return value.toLocaleString('id-ID');
   };
 
   // Get cell display value and relative intensity 0..1
@@ -485,13 +487,13 @@ export default function CaseLocationHeatmap() {
             <div className="rounded-lg bg-white px-3 py-1.5 border border-slate-200/80 shadow-xs">
               <div className="text-[10px] font-bold text-slate-600 uppercase">Kasus Terdeteksi</div>
               <div className="text-sm font-black text-blue-700">
-                {hoveredCell.month.cases.toLocaleString('id-ID')}
+                {formatCompact(hoveredCell.month.cases)}
               </div>
             </div>
             <div className="rounded-lg bg-white px-3 py-1.5 border border-slate-200/80 shadow-xs">
               <div className="text-[10px] font-bold text-slate-600 uppercase">Kematian</div>
               <div className="text-sm font-black text-rose-700">
-                {hoveredCell.month.deaths.toLocaleString('id-ID')}
+                {formatCompact(hoveredCell.month.deaths)}
               </div>
             </div>
             <div className="rounded-lg bg-white px-3 py-1.5 border border-slate-200/80 shadow-xs">
@@ -595,7 +597,7 @@ export default function CaseLocationHeatmap() {
                   Total Kasus
                 </div>
                 <div className="mt-1 text-lg font-black text-blue-900">
-                  {selectedCountry.total_cases.toLocaleString('id-ID')}
+                  {formatCompact(selectedCountry.total_cases)}
                 </div>
               </div>
               <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-3">
@@ -603,7 +605,7 @@ export default function CaseLocationHeatmap() {
                   Total Kematian
                 </div>
                 <div className="mt-1 text-lg font-black text-rose-900">
-                  {selectedCountry.total_deaths.toLocaleString('id-ID')}
+                  {formatCompact(selectedCountry.total_deaths)}
                 </div>
               </div>
               <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-3">
