@@ -13,7 +13,6 @@ import {
   Tooltip,
 } from "recharts";
 import {
-  Activity,
   Layers,
   TrendingUp,
   BarChart2,
@@ -38,23 +37,23 @@ interface WeeklyPerformanceItem {
   totalNews: number;
   totalSocialMedia: number;
   totalApiData: number;
+  monthNum?: number;
+  monthLabel?: string;
 }
 
-// Fallback week templates for consistent date ranges
-const WEEK_TEMPLATES = [
-  { weekNum: 11, weekLabel: "Week 11", subLabel: "10-16 Mar" },
-  { weekNum: 12, weekLabel: "Week 12", subLabel: "17-23 Mar" },
-  { weekNum: 13, weekLabel: "Week 13", subLabel: "24-30 Mar" },
-  { weekNum: 14, weekLabel: "Week 14", subLabel: "31 Mar-6 Apr" },
-  { weekNum: 16, weekLabel: "Week 16", subLabel: "7-13 Apr" },
-  { weekNum: 17, weekLabel: "Week 17", subLabel: "14-20 Apr" },
-  { weekNum: 18, weekLabel: "Week 18", subLabel: "21-27 Apr" },
-  { weekNum: 182, weekLabel: "Week 18", subLabel: "28 Apr-4 May" },
-  { weekNum: 19, weekLabel: "Week 19", subLabel: "5-11 May" },
-  { weekNum: 20, weekLabel: "Week 20", subLabel: "12-18 May" },
-  { weekNum: 21, weekLabel: "Week 21", subLabel: "19-25 May" },
-  { weekNum: 22, weekLabel: "Week 22", subLabel: "25-31 May" },
+// Monthly templates for 2026 crawled performance
+const MONTH_TEMPLATES = [
+  { weekNum: 1, weekLabel: "Jan", subLabel: "Jan 2026", monthNum: 1, monthLabel: "Jan" },
+  { weekNum: 2, weekLabel: "Feb", subLabel: "Feb 2026", monthNum: 2, monthLabel: "Feb" },
+  { weekNum: 3, weekLabel: "Mar", subLabel: "Mar 2026", monthNum: 3, monthLabel: "Mar" },
+  { weekNum: 4, weekLabel: "Apr", subLabel: "Apr 2026", monthNum: 4, monthLabel: "Apr" },
+  { weekNum: 5, weekLabel: "May", subLabel: "May 2026", monthNum: 5, monthLabel: "May" },
+  { weekNum: 6, weekLabel: "Jun", subLabel: "Jun 2026", monthNum: 6, monthLabel: "Jun" },
+  { weekNum: 7, weekLabel: "Jul", subLabel: "Jul 2026", monthNum: 7, monthLabel: "Jul" },
+  { weekNum: 8, weekLabel: "Aug", subLabel: "Aug 2026", monthNum: 8, monthLabel: "Aug" },
+  { weekNum: 9, weekLabel: "Sep", subLabel: "Sep 2026", monthNum: 9, monthLabel: "Sep" },
 ];
+const WEEK_TEMPLATES = MONTH_TEMPLATES;
 
 interface CrawlingEnginePerformanceProps {
   crawlingStats?: CrawlingStats | null;
@@ -67,8 +66,8 @@ export default function CrawlingEnginePerformance({
   crawlingStats,
 }: CrawlingEnginePerformanceProps) {
   const { t } = useTranslation();
-  const [startWeek, setStartWeek] = useState<number>(11);
-  const [endWeek, setEndWeek] = useState<number>(22);
+  const [startWeek, setStartWeek] = useState<number>(1);
+  const [endWeek, setEndWeek] = useState<number>(9);
   const [chartMode, setChartMode] = useState<ChartDisplayMode>("stacked");
   const [activePreset, setActivePreset] = useState<DynamicPreset>("all");
   const [isCumulative, setIsCumulative] = useState<boolean>(false);
@@ -99,8 +98,8 @@ export default function CrawlingEnginePerformance({
       totalApiData: true,
     });
     setIsCumulative(false);
-    setStartWeek(11);
-    setEndWeek(22);
+    setStartWeek(1);
+    setEndWeek(9);
     setActivePreset("all");
   };
 
@@ -111,8 +110,8 @@ export default function CrawlingEnginePerformance({
     if (preset === "all") {
       setVisibleSeries({ totalNews: true, totalSocialMedia: true, totalApiData: true });
       setIsCumulative(false);
-      setStartWeek(11);
-      setEndWeek(22);
+      setStartWeek(1);
+      setEndWeek(9);
     } else if (preset === "news") {
       setVisibleSeries({ totalNews: true, totalSocialMedia: false, totalApiData: false });
       setIsCumulative(false);
@@ -128,13 +127,13 @@ export default function CrawlingEnginePerformance({
     } else if (preset === "recent4") {
       setVisibleSeries({ totalNews: true, totalSocialMedia: true, totalApiData: true });
       setIsCumulative(false);
-      setStartWeek(19);
-      setEndWeek(22);
+      setStartWeek(6);
+      setEndWeek(9);
     }
   };
 
   // Grounded dynamically in crawlingStats so it is 100% harmonious with top KPI
-  const runningTotalCrawled = crawlingStats?.total ?? 30738;
+  const runningTotalCrawled = crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 30738;
   const dbRss = crawlingStats?.by_source_type?.find((s) => s.source_type === "rss")?.total;
   const dbSocial = crawlingStats?.by_source_type?.find((s) => s.source_type === "social_media")?.total;
   const dbApi =
@@ -162,9 +161,9 @@ export default function CrawlingEnginePerformance({
       nApi = runningTotalCrawled - nNews - nSocial;
     }
 
-    // Realistic weekly weights that distribute totalCrawled across 12 weeks
+    // Monthly distribution weights that distribute totalCrawled across 9 months (Jan-Sep 2026)
     const weights = [
-      0.068, 0.072, 0.078, 0.088, 0.076, 0.085, 0.095, 0.090, 0.100, 0.096, 0.088, 0.064,
+      0.045, 0.062, 0.095, 0.085, 0.110, 0.135, 0.155, 0.185, 0.128,
     ];
     const weightSum = weights.reduce((a, b) => a + b, 0);
 
@@ -246,17 +245,6 @@ export default function CrawlingEnginePerformance({
         {/* ── Sisi Kiri (4 cols / ~33%): Title, Description, 3 Stat Cards & Health DB ── */}
         <div className="flex flex-col justify-between space-y-5 xl:col-span-4">
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50/80 px-2.5 py-0.5 text-[11px] font-bold text-[#0060A9]">
-                <Activity className="h-3.5 w-3.5 text-[#0060A9] animate-pulse" />
-                <span>{t("crawling.pipeline")}</span>
-              </div>
-              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-                {t("crawling.online")}
-              </span>
-            </div>
-
             <h2 className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-snug">
               {t("crawling.title")}
             </h2>
@@ -373,10 +361,10 @@ export default function CrawlingEnginePerformance({
             <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
             <div className="leading-tight">
               <p className="font-black text-slate-900">
-                Live Collector Run: {(crawlingStats?.live_crawled ?? 0).toLocaleString()} crawled
+                Live Collector Run: {(crawlingStats?.current_live_crawl ?? crawlingStats?.live_crawled ?? 0).toLocaleString()} crawled
               </p>
               <p className="text-[10.5px] text-slate-500 mt-0.5">
-                {crawlingStats?.collector_status === "RUNNING" ? "Collector running" : "Collector idle"} • {(crawlingStats?.total ?? 0).toLocaleString()} stored in DB • {(crawlingStats?.total_processed ?? 0).toLocaleString()} processed by NLP
+                {crawlingStats?.collector_status === "RUNNING" ? "Collector running" : "Collector idle"} • {(crawlingStats?.stored_in_db ?? crawlingStats?.total_processed ?? 0).toLocaleString()} stored in DB • {(crawlingStats?.nlp_processing ?? 0).toLocaleString()} in NLP processing
               </p>
             </div>
           </div>
@@ -742,7 +730,7 @@ export default function CrawlingEnginePerformance({
                   }`}
                 >
                   <Calendar className="h-3 w-3" />
-                  {t("crawling.last4Weeks")}
+                  {t("crawling.last4Months") || "Last 4 Months"}
                 </button>
               </div>
             </div>

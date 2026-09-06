@@ -24,6 +24,7 @@ import {
   DiseaseTrendOverviewData,
   PriorityDiseaseAlert,
 } from '@/lib/api';
+import { EpiFilterState } from './EpiFilterBar';
 import {
   ResponsiveContainer,
   LineChart,
@@ -35,11 +36,14 @@ import {
   Legend,
 } from 'recharts';
 
-export default function DiseaseTrendOverview() {
+interface DiseaseTrendOverviewProps {
+  filters: EpiFilterState;
+}
+
+export default function DiseaseTrendOverview({ filters }: DiseaseTrendOverviewProps) {
   const [data, setData] = useState<DiseaseTrendOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDays, setSelectedDays] = useState<number>(7);
   const [showAllAlerts, setShowAllAlerts] = useState<boolean>(false);
   const [expandedDisease, setExpandedDisease] = useState<string | null>(null);
   const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({
@@ -50,11 +54,18 @@ export default function DiseaseTrendOverview() {
     hfmd: true,
   });
 
-  const loadData = async (days: number) => {
+  const loadData = async (activeFilters: EpiFilterState) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchDiseaseTrendOverview(days);
+      const res = await fetchDiseaseTrendOverview({
+        country: activeFilters.country,
+        disease: activeFilters.disease,
+        start_year: activeFilters.startYear,
+        start_week: activeFilters.startWeek,
+        end_year: activeFilters.endYear,
+        end_week: activeFilters.endWeek,
+      });
       setData(res);
     } catch (err: any) {
       console.error('Failed to load disease trend overview:', err);
@@ -65,8 +76,8 @@ export default function DiseaseTrendOverview() {
   };
 
   useEffect(() => {
-    loadData(selectedDays);
-  }, [selectedDays]);
+    loadData(filters);
+  }, [filters]);
 
   const formatCompact = (num: number): string => {
     const value = Number(num);
@@ -128,51 +139,6 @@ export default function DiseaseTrendOverview() {
           </p>
         </div>
 
-        {/* ?? Controls: Day Filter & Refresh ?? */}
-        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
-          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100/80 p-1 text-xs font-semibold">
-            <button
-              onClick={() => setSelectedDays(7)}
-              className={`rounded-lg px-3 py-1.5 transition-all ${
-                selectedDays === 7
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Last 7 Days
-            </button>
-            <button
-              onClick={() => setSelectedDays(14)}
-              className={`rounded-lg px-3 py-1.5 transition-all ${
-                selectedDays === 14
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              14 Days
-            </button>
-            <button
-              onClick={() => setSelectedDays(30)}
-              className={`rounded-lg px-3 py-1.5 transition-all ${
-                selectedDays === 30
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              30 Days
-            </button>
-          </div>
-
-          <button
-            onClick={() => loadData(selectedDays)}
-            disabled={loading}
-            title="Reload Trend Summary"
-            aria-label="Reload Trend Summary"
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
-          </button>
-        </div>
       </div>
 
       {/* ?? Quick KPI Stat Highlights ?? */}
@@ -271,15 +237,20 @@ export default function DiseaseTrendOverview() {
 
             {!loading && displayedAlerts.map((item) => {
               const isExpanded = expandedDisease === item.disease;
+              const topCountries = (item.country_breakdown && item.country_breakdown.length > 0)
+                ? item.country_breakdown.slice().sort((a, b) => b.cases - a.cases).slice(0, 3)
+                : item.top_country
+                ? [{ country: item.top_country, cases: item.top_country_cases, iso: item.top_country_iso, deaths: 0, events: 0, alerts: 0 }]
+                : [];
 
               return (
                 <div key={item.disease} className="py-2.5 transition-colors">
                   <div
                     onClick={() => setExpandedDisease(isExpanded ? null : item.disease)}
-                    className="flex cursor-pointer items-center justify-between gap-3 rounded-lg p-1.5 hover:bg-slate-50/80"
+                    className="flex cursor-pointer flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl p-2 hover:bg-slate-50/80 transition-colors"
                   >
-                    {/* Disease Icon & Name */}
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    {/* Disease Icon, Name & ASEAN Total */}
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700 font-black text-xs">
                         {item.disease.charAt(0)}
                       </div>
@@ -292,41 +263,60 @@ export default function DiseaseTrendOverview() {
                           <span className="font-bold text-slate-700">
                             {formatCompact(item.total_asean_cases)} cases
                           </span>
+                          {item.latest_published_label && (
+                            <>
+                              <span className="text-slate-300">•</span>
+                              <span className="text-slate-400">{item.latest_published_label}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    {/* Top Country with Flag */}
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1.5 text-right">
-                        <CountryFlag
-                          countryName={item.top_country}
-                          shape="rounded"
-                          size="sm"
-                          className="shadow-2xs"
-                        />
-                        <div className="text-left">
-                          <div className="text-xs font-bold text-slate-800">
-                            {item.top_country}
+                    {/* Top 3 Countries in 1 row & Chevron */}
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {topCountries.map((cb, idx) => (
+                          <div
+                            key={cb.country}
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition shadow-2xs ${
+                              idx === 0
+                                ? "border-rose-200/90 bg-rose-50/70 text-slate-900"
+                                : idx === 1
+                                ? "border-amber-200/90 bg-amber-50/60 text-slate-800"
+                                : "border-slate-200 bg-slate-50/70 text-slate-700"
+                            }`}
+                            title={`${cb.country}: ${formatCompact(cb.cases)} cases`}
+                          >
+                            <span
+                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-black ${
+                                idx === 0
+                                  ? "bg-rose-500 text-white"
+                                  : idx === 1
+                                  ? "bg-amber-500 text-white"
+                                  : "bg-slate-400 text-white"
+                              }`}
+                            >
+                              {idx + 1}
+                            </span>
+                            <CountryFlag
+                              countryName={cb.country}
+                              shape="rounded"
+                              size="xs"
+                              className="shadow-2xs shrink-0"
+                            />
+                            <span className="font-bold text-[11px] text-slate-900 max-w-[70px] sm:max-w-[85px] truncate">
+                              {cb.country}
+                            </span>
+                            <span className="font-mono text-[10.5px] font-bold text-slate-600 shrink-0">
+                              {formatCompact(cb.cases)}
+                            </span>
                           </div>
-                          <div className="text-[10px] text-slate-600">
-                            {formatCompact(item.top_country_cases)} cases
-                          </div>
-                        </div>
+                        ))}
                       </div>
-
-                      {/* Detection Date */}
-                      <div className="hidden sm:block text-right">
-                        <div className="text-[11px] font-semibold text-slate-600">
-                          {item.latest_published_label || 'Latest'}
-                        </div>
-                      </div>
-
-                      {/* Severity Badge */}
-                      <div>{getSeverityBadge(item.severity)}</div>
 
                       {/* Chevron Toggle */}
-                      <div className="text-slate-400">
+                      <div className="text-slate-400 pl-1 shrink-0">
                         {isExpanded ? (
                           <ChevronUp className="h-4 w-4" />
                         ) : (
@@ -414,7 +404,7 @@ export default function DiseaseTrendOverview() {
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
                 <h3 className="text-sm font-black text-slate-900">
-                  Detected Case Trend ({selectedDays} Days)
+                  Detected Case Trend ({data?.summary.trend_days ?? 0} Days)
                 </h3>
                 <p className="text-[11px] text-slate-500">
                   Daily detected-case fluctuation for priority health topics

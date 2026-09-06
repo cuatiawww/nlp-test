@@ -21,7 +21,7 @@ import type { FeatureLike } from "ol/Feature";
 import { fromLonLat } from "ol/proj";
 import { unByKey } from "ol/Observable";
 import { defaults as defaultControls } from "ol/control";
-import { X, MapPin, RotateCcw, Navigation, Activity, Skull, AlertTriangle, ChevronRight } from "lucide-react";
+import { X, MapPin, RotateCcw, Navigation, Activity, Skull, ChevronRight } from "lucide-react";
 import type { AnalyzeResponse, OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 import CountryFlag from "@/components/CountryFlag";
@@ -31,7 +31,7 @@ import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 
 type Props = {
   result?: AnalyzeResponse | null;
-  countryData?: { name: string; cases: number }[];
+  countryData?: { name: string; cases: number; deaths?: number }[];
   locationsData?: { name: string; cases: number; country?: string }[];
   hideLegend?: boolean;
   outbreakLocations?: OutbreakLocation[];
@@ -50,16 +50,69 @@ type Props = {
   };
   showWind?: boolean;
   ewsRadiusKm?: number | null;
+  markerLookbackDays?: 7 | 14 | 30 | 90;
   embedded?: boolean;
   highlightCountry?: string;
+};
+
+type RegionMetric = {
+  cases: number;
+  deaths: number;
+  eventCount: number;
+};
+
+const COUNTRY_ISO3: Record<string, string> = {
+  brunei: "BRN",
+  "brunei darussalam": "BRN",
+  cambodia: "KHM",
+  indonesia: "IDN",
+  laos: "LAO",
+  malaysia: "MYS",
+  myanmar: "MMR",
+  philippines: "PHL",
+  singapore: "SGP",
+  thailand: "THA",
+  "timor-leste": "TLS",
+  "timor leste": "TLS",
+  vietnam: "VNM",
+  "viet nam": "VNM",
 };
 
 const HIGHLIGHT = "#0060A9";
 const MARKER = "#0060A9";
 
-function countryFill(cases?: number): string {
-  // Neutral subtle fill that prevents color clashing with severity markers
-  return "rgba(241, 245, 249, 0.35)";
+function heatFill(value: number, maximum: number): string {
+  if (value <= 0 || maximum <= 0) return "rgba(226, 232, 240, 0.28)";
+  const intensity = Math.sqrt(Math.min(value / maximum, 1));
+  return `rgba(0, 96, 169, ${0.12 + intensity * 0.58})`;
+}
+
+function regionName(properties: Record<string, unknown>): string {
+  for (const key of [
+    "name",
+    "shapeName",
+    "NAME_1",
+    "NAME_2",
+    "provinsi",
+    "PROVINSI",
+    "WADMPR",
+    "VARNAME_1",
+  ]) {
+    const value = properties[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "Unknown region";
+}
+
+function normalizedCountry(value?: string | null): string {
+  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isWithinRecentWindowForDays(value: string | null | undefined, days: 7 | 14 | 30 | 90): boolean {
+  if (!value) return false;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  return timestamp >= Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
 export default function AseanMap({
@@ -67,7 +120,6 @@ export default function AseanMap({
   result,
   countryData,
   locationsData,
-  hideLegend,
   outbreakLocations,
   compact,
   fullBleed,
@@ -77,14 +129,17 @@ export default function AseanMap({
   bnpbLayers,
   showWind,
   ewsRadiusKm,
+  markerLookbackDays = 30,
   embedded,
   highlightCountry,
+  hideLegend = false,
 }: Props) {
-  const { t, translateSeverity, translateDisease } = useTranslation();
+  const { t, locale, translateDisease } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorRef = useRef<VectorLayer<VectorSource> | null>(null);
   const markerRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const regionRef = useRef<VectorLayer<VectorSource> | null>(null);
   const tileRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const bnpbRef = useRef<Record<string, TileLayer<TileArcGISRest>>>({});
   const radiusRef = useRef<VectorLayer<VectorSource> | null>(null);
@@ -96,6 +151,13 @@ export default function AseanMap({
     locations: { name: string; cases: number }[];
   } | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<OutbreakLocation | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState<{
+    name: string;
+    country: string;
+    cases: number;
+    deaths: number;
+    eventCount: number;
+  } | null>(null);
 
   const latestPropsRef = useRef({ countryData, outbreakLocations, locationsData });
   useEffect(() => {
@@ -116,49 +178,69 @@ export default function AseanMap({
       style: (f: FeatureLike) => {
         const name = (f.get("name") as string).toLowerCase();
         const item = countryData?.find((d) => d.name.toLowerCase() === name);
-        const fill = countryFill(item?.cases);
+        const maximum = Math.max(...(countryData || []).map((d) => d.cases || 0), 0);
+        const fill = heatFill(item?.cases || 0, maximum);
         return new Style({
           fill: new Fill({ color: fill }),
-          stroke: new Stroke({ color: "#475569", width: 1 }),
+          stroke: new Stroke({
+            color: (item?.deaths || 0) > 0 ? "#be123c" : "#475569",
+            width: (item?.deaths || 0) > 0 ? 1.6 : 1,
+            lineDash: (item?.deaths || 0) > 0 ? [5, 3] : undefined,
+          }),
         });
       },
     });
     vectorRef.current = vectorLayer;
 
+    const regionSource = new VectorSource();
+    const regionLayer = new VectorLayer({
+      source: regionSource,
+      visible: false,
+      zIndex: 11,
+      style: (f: FeatureLike) => {
+        const metric = (f.get("regionMetric") as RegionMetric | undefined) || {
+          cases: 0,
+          deaths: 0,
+          eventCount: 0,
+        };
+        const maximum = Number(f.get("regionMaximumCases")) || 0;
+        return new Style({
+          fill: new Fill({ color: heatFill(metric.cases, maximum) }),
+          stroke: new Stroke({
+            color: metric.deaths > 0 ? "#be123c" : "#64748b",
+            width: metric.deaths > 0 ? 1.8 : 0.8,
+            lineDash: metric.deaths > 0 ? [5, 3] : undefined,
+          }),
+        });
+      },
+    });
+    regionRef.current = regionLayer;
+
     const markerSrc = new VectorSource();
     const getMarkerStyle = (f: FeatureLike) => {
       const exact = f.get("type") === "exact";
-      const severity = (f.get("severity") as string) || "NORMAL";
+      const isHot = f.get("isHot") === true;
+      const rgb = "0, 96, 169";
+      const coreColor = "#0060A9";
 
-      let rgb = "2, 132, 199";
-      let coreColor = "#0284C7";
-
-      if (severity === "AWAS") {
-        rgb = "239, 68, 68";
-        coreColor = "#EF4444";
-      } else if (severity === "SIAGA") {
-        rgb = "249, 115, 22";
-        coreColor = "#F97316";
-      } else if (severity === "WASPADA") {
-        rgb = "234, 179, 8";
-        coreColor = "#EAB308";
-      } else {
-        rgb = "16, 185, 129";
-        coreColor = "#10B981";
-      }
-
-      if (exact) {
-        rgb = "0, 96, 169";
-        coreColor = "#0060A9";
+      if (!isHot) {
+        return [new Style({
+          image: new CircleStyle({
+            radius: exact ? 7 : 5.5,
+            fill: new Fill({ color: coreColor }),
+            stroke: new Stroke({ color: "#ffffff", width: 2 }),
+          }),
+        })];
       }
 
       const now = Date.now();
-      // Pulsing frequency: AWAS pulses fast & urgent (1200ms), SIAGA (1500ms), others (1800ms)
-      const period = severity === "AWAS" ? 1200 : severity === "SIAGA" ? 1500 : 1800;
+      // Hot signals pulse uniformly. Severity/EWS colors are intentionally not
+      // exposed on public map markers.
+      const period = 1600;
       const wave1 = (now % period) / period;
       const wave2 = ((now + period / 2) % period) / period;
 
-      const maxExpansion = severity === "AWAS" ? 22 : severity === "SIAGA" ? 18 : 14;
+      const maxExpansion = 18;
       const r1 = 6 + wave1 * maxExpansion;
       const alpha1 = Math.max(0, (1 - wave1) * 0.75);
 
@@ -192,7 +274,7 @@ export default function AseanMap({
       // Inner soft halo
       const halo = new Style({
         image: new CircleStyle({
-          radius: severity === "AWAS" ? 9.5 : 8,
+          radius: 8,
           fill: new Fill({ color: `rgba(${rgb}, 0.28)` }),
         }),
       });
@@ -200,7 +282,7 @@ export default function AseanMap({
       // Center solid point
       const core = new Style({
         image: new CircleStyle({
-          radius: exact ? 7 : severity === "AWAS" ? 6.5 : 5.5,
+          radius: exact ? 7 : 5.5,
           fill: new Fill({ color: coreColor }),
           stroke: new Stroke({ color: "#ffffff", width: 2 }),
         }),
@@ -272,6 +354,7 @@ export default function AseanMap({
         tileLayer,
         ...externalLayers,
         vectorLayer,
+        regionLayer,
         radiusLayer,
         markerLayer,
       ],
@@ -298,7 +381,36 @@ export default function AseanMap({
       const clickedLocation = markerHits[0]?.get("location") as OutbreakLocation | undefined;
       if (clickedLocation) {
         setSelected(null);
+        setSelectedRegion(null);
         setSelectedLocation(clickedLocation);
+        return;
+      }
+
+      const regionHits: FeatureLike[] = [];
+      map.forEachFeatureAtPixel(
+        evt.pixel,
+        (f) => {
+          regionHits.push(f);
+          return true;
+        },
+        { hitTolerance: 8, layerFilter: (l) => l === regionLayer },
+      );
+      if (regionHits.length > 0) {
+        const feature = regionHits[0];
+        const metric = (feature.get("regionMetric") as RegionMetric | undefined) || {
+          cases: 0,
+          deaths: 0,
+          eventCount: 0,
+        };
+        setSelected(null);
+        setSelectedLocation(null);
+        setSelectedRegion({
+          name: String(feature.get("regionName") || "Region"),
+          country: String(feature.get("regionCountry") || ""),
+          cases: metric.cases,
+          deaths: metric.deaths,
+          eventCount: metric.eventCount,
+        });
         return;
       }
 
@@ -314,6 +426,7 @@ export default function AseanMap({
 
       if (hits.length === 0) {
         setSelected(null);
+        setSelectedRegion(null);
         setSelectedLocation(null);
         return;
       }
@@ -329,7 +442,7 @@ export default function AseanMap({
       const locs = (curLocs && curLocs.length > 0)
         ? curLocs.filter((l) => l.country?.toLowerCase() === name.toLowerCase())
         : matchingOutbreaks.map((l) => ({
-            name: l.location_name || l.disease || "Monitored Signal",
+            name: l.location_name || l.disease || "Monitored Location",
             cases: l.cases || 1,
           }));
 
@@ -342,6 +455,7 @@ export default function AseanMap({
         totalCases,
         locations: locs.sort((a, b) => b.cases - a.cases),
       });
+      setSelectedRegion(null);
       setSelectedLocation(null);
 
       const geom = (hits[0] as Feature<Geometry>).getGeometry();
@@ -358,7 +472,7 @@ export default function AseanMap({
       if (evt.dragging) return;
       const hit = map.hasFeatureAtPixel(evt.pixel, {
         hitTolerance: 8,
-        layerFilter: (l) => l === vectorLayer || l === markerLayer,
+        layerFilter: (l) => l === vectorLayer || l === regionLayer || l === markerLayer,
       });
       (map.getTargetElement() as HTMLElement).style.cursor = hit
         ? "pointer"
@@ -463,9 +577,12 @@ export default function AseanMap({
   }, [baseMap, fullBleed]);
 
   useEffect(() => {
-    vectorRef.current?.setVisible(showAdmin);
+    const drilldownCountry = normalizedCountry(selected?.name);
+    const hasRegionBoundary = Boolean(COUNTRY_ISO3[drilldownCountry]);
+    vectorRef.current?.setVisible(Boolean(showAdmin && !hasRegionBoundary));
+    regionRef.current?.setVisible(Boolean(showAdmin && hasRegionBoundary));
     markerRef.current?.setVisible(showMarkers);
-  }, [showAdmin, showMarkers]);
+  }, [showAdmin, showMarkers, selected?.name]);
 
   useEffect(() => {
     Object.entries(bnpbRef.current).forEach(([key, layer]) =>
@@ -543,7 +660,11 @@ export default function AseanMap({
     markerSource.clear();
 
     outbreakLocations?.forEach((item) => {
-      if (item.latitude == null || item.longitude == null) return;
+      // Public pins are intentionally limited to the rolling recent window
+      // calculated by the backend. Historical aggregates remain available to
+      // the choropleth and dashboard totals, but do not become live markers.
+      const isRecent = isWithinRecentWindowForDays(item.latest_date, markerLookbackDays);
+      if (!isRecent || item.latitude == null || item.longitude == null) return;
       const feature = new GeoJSON().readFeature(
         {
           type: "Feature",
@@ -556,6 +677,7 @@ export default function AseanMap({
         { featureProjection: "EPSG:3857" },
       ) as Feature;
       feature.set("severity", item.severity);
+      feature.set("isHot", item.is_hot === true);
       feature.set("location", item);
       markerSource.addFeature(feature);
     });
@@ -567,14 +689,26 @@ export default function AseanMap({
 
     vectorLayer.setStyle((f: FeatureLike) => {
       const name = (f.get("name") as string).toLowerCase();
+      const item = countryData?.find((d) => d.name?.toLowerCase() === name);
+      const maximum = Math.max(...(countryData || []).map((d) => d.cases || 0), 0);
       const isHighlighted =
         !!targetCountry && (name === targetCountry || name === highlightCountry?.toLowerCase());
-      const fill = isHighlighted ? "rgba(0, 96, 169, 0.12)" : countryFill();
-      const stroke = isHighlighted ? "#0060A9" : "#cbd5e1";
-      const sw = isHighlighted ? 2.5 : 1;
+      const fill = isHighlighted
+        ? heatFill(Math.max(item?.cases || 0, maximum * 0.18), maximum || 1)
+        : heatFill(item?.cases || 0, maximum);
+      const stroke = isHighlighted
+        ? "#0060A9"
+        : (item?.deaths || 0) > 0
+          ? "#be123c"
+          : "#cbd5e1";
+      const sw = isHighlighted ? 2.5 : (item?.deaths || 0) > 0 ? 1.6 : 1;
       return new Style({
         fill: new Fill({ color: fill }),
-        stroke: new Stroke({ color: stroke, width: sw }),
+        stroke: new Stroke({
+          color: stroke,
+          width: sw,
+          lineDash: !isHighlighted && (item?.deaths || 0) > 0 ? [5, 3] : undefined,
+        }),
       });
     });
     vectorLayer.changed();
@@ -635,10 +769,93 @@ export default function AseanMap({
         ?.getView()
         .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 500 });
     }
-  }, [countryData, result, outbreakLocations, highlightCountry]);
+  }, [countryData, result, outbreakLocations, highlightCountry, markerLookbackDays]);
+
+  // Load regional boundaries only after a country is selected. Indonesia uses
+  // the project's own wilayah-data route; other ASEAN countries use the free
+  // geoBoundaries Open dataset at ADM1 level.
+  useEffect(() => {
+    const layer = regionRef.current;
+    const source = layer?.getSource();
+    const countryName = normalizedCountry(selected?.name);
+    const iso3 = COUNTRY_ISO3[countryName];
+    if (!layer || !source) return;
+
+    source.clear();
+    layer.setVisible(false);
+    if (!iso3 || !showAdmin || !selected?.name) return;
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        let geojson: unknown;
+        if (iso3 === "IDN") {
+          const response = await fetch(`${PUBLIC_BASE_PATH}/wilayah-data?level=provinsi`);
+          if (!response.ok) throw new Error(`Indonesia boundary HTTP ${response.status}`);
+          const payload = await response.json();
+          geojson = payload.geojson;
+        } else {
+          const metadataResponse = await fetch(
+            `${PUBLIC_BASE_PATH}/boundaries?country=${iso3}&level=ADM1`,
+          );
+          if (!metadataResponse.ok) throw new Error(`Boundary proxy HTTP ${metadataResponse.status}`);
+          const payload = await metadataResponse.json();
+          if (!payload.geojson) throw new Error("Boundary GeoJSON is missing");
+          geojson = payload.geojson;
+        }
+
+        if (cancelled || !geojson) return;
+        const features = new GeoJSON().readFeatures(geojson as any, {
+          featureProjection: "EPSG:3857",
+        });
+        const locations = (latestPropsRef.current.outbreakLocations || []).filter(
+          (item) => normalizedCountry(item.country) === countryName
+            && item.latitude != null
+            && item.longitude != null,
+        );
+        const points = locations.map((item) => ({
+          item,
+          coordinate: fromLonLat([item.longitude!, item.latitude!]),
+        }));
+
+        let maximumCases = 0;
+        features.forEach((feature) => {
+          const geometry = feature.getGeometry();
+          const metric: RegionMetric = { cases: 0, deaths: 0, eventCount: 0 };
+          if (geometry) {
+            points.forEach(({ item, coordinate }) => {
+              if (!geometry.intersectsCoordinate(coordinate)) return;
+              metric.cases += Math.max(item.cases || 0, 0);
+              metric.deaths += Math.max(item.deaths || 0, 0);
+              metric.eventCount += Math.max(item.event_count || 0, 0);
+            });
+          }
+          maximumCases = Math.max(maximumCases, metric.cases);
+          feature.set("regionName", regionName(feature.getProperties()));
+          feature.set("regionCountry", selected.name);
+          feature.set("regionMetric", metric);
+        });
+        features.forEach((feature) => feature.set("regionMaximumCases", maximumCases));
+        if (cancelled) return;
+        source.addFeatures(features);
+        layer.setVisible(Boolean(showAdmin));
+        layer.changed();
+      } catch {
+        if (!cancelled) layer.setVisible(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+      source.clear();
+      layer.setVisible(false);
+    };
+  }, [selected?.name, showAdmin, outbreakLocations]);
 
   const resetView = () => {
     setSelected(null);
+    setSelectedRegion(null);
     setSelectedLocation(null);
     mapRef.current
       ?.getView()
@@ -669,7 +886,6 @@ export default function AseanMap({
     : countryOutbreaks.length;
 
   const totalDeaths = countryOutbreaks.reduce((acc, curr) => acc + (curr.deaths || 0), 0);
-  const alertCount = countryOutbreaks.filter((x) => x.has_alert || x.severity === "AWAS").length;
   const uniqueDiseases = Array.from(
     new Set(
       countryOutbreaks
@@ -688,6 +904,9 @@ export default function AseanMap({
         }));
 
   const locationsCount = displayLocations.length || countryOutbreaks.length || (selected?.locations.length ?? 0);
+  const popupPositionClass = fullBleed
+    ? "bottom-16 left-1/2 -translate-x-1/2"
+    : "right-4 top-20";
 
   return (
     <div
@@ -733,51 +952,56 @@ export default function AseanMap({
         }
       />
 
-      {!hideLegend && (
-        <div className="pointer-events-none absolute bottom-3 left-3 rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-lg backdrop-blur-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping" />
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
-              {t("map.legend")}
+      {selectedRegion && (
+        <div
+          className={`absolute ${popupPositionClass} z-30 w-[min(360px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5`}
+          style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
+        >
+          <button
+            type="button"
+            onClick={resetView}
+            className="absolute right-3.5 top-3.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <div className="pr-8">
+            <p className="text-[10px] font-black uppercase tracking-wider text-[#0060A9]">
+              Regional NLP Coverage
+            </p>
+            <h3 className="mt-1 truncate text-base font-black text-slate-900">
+              {selectedRegion.name}
+            </h3>
+            <p className="truncate text-[11px] font-semibold text-slate-500">
+              {selectedRegion.country}
             </p>
           </div>
-          <p className="mt-0.5 text-[9px] font-semibold text-slate-400">
-            {t("map.pulsatingRadius")}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-xl border border-blue-200/80 bg-blue-50/70 p-2 text-center">
+              <span className="text-[9px] font-bold text-[#0060A9]">Cases</span>
+              <p className="mt-0.5 text-sm font-black text-[#0060A9]">
+                {selectedRegion.cases.toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-xl border border-rose-200/80 bg-rose-50/70 p-2 text-center">
+              <span className="text-[9px] font-bold text-rose-700">Deaths</span>
+              <p className="mt-0.5 text-sm font-black text-rose-700">
+                {selectedRegion.deaths.toLocaleString()}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-500">
+            Aggregated from processed NLP locations in this region.
           </p>
-          <ul className="mt-2 space-y-1.5">
-            <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
-              <span className="relative flex h-3 w-3 items-center justify-center">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#EF4444]" />
-              </span>
-              <span>{t("map.legendAwas")} (CRITICAL)</span>
-            </li>
-            <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
-              <span className="relative flex h-3 w-3 items-center justify-center">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#F97316]" />
-              </span>
-              <span>{t("map.legendSiaga")} (HIGH)</span>
-            </li>
-            <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
-              <span className="relative flex h-3 w-3 items-center justify-center">
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#EAB308]" />
-              </span>
-              <span>{t("map.legendWaspada")} (WARNING)</span>
-            </li>
-            <li className="flex items-center gap-2 text-[10px] font-bold text-slate-700">
-              <span className="relative flex h-3 w-3 items-center justify-center">
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#10B981]" />
-              </span>
-              <span>NORMAL (Verified Signal)</span>
-            </li>
-          </ul>
+          <p className="mt-1 text-[9px] font-semibold text-slate-400">
+            Boundary source: {selectedRegion.country.toLowerCase() === "indonesia" ? "Internal project data" : "geoBoundaries gbOpen"}
+          </p>
         </div>
       )}
 
       {selectedLocation && (
         <div
-          className="absolute bottom-16 left-1/2 z-30 w-[min(410px,calc(100%-32px))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5"
+          className={`absolute ${popupPositionClass} z-35 w-[min(410px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5 transition-all duration-300 hover:z-50`}
           style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
           <button
@@ -790,32 +1014,6 @@ export default function AseanMap({
           </button>
           <div className="pr-8">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
-                  selectedLocation.severity === "AWAS"
-                    ? "bg-rose-100 text-rose-700 border border-rose-300 shadow-2xs"
-                    : selectedLocation.severity === "SIAGA"
-                    ? "bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs"
-                    : selectedLocation.severity === "WASPADA"
-                    ? "bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-2xs"
-                    : "bg-blue-100 text-[#0060A9] border border-blue-200 shadow-2xs"
-                }`}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    selectedLocation.severity === "AWAS"
-                      ? "bg-rose-600 animate-ping"
-                      : selectedLocation.severity === "SIAGA"
-                      ? "bg-amber-600"
-                      : selectedLocation.severity === "WASPADA"
-                      ? "bg-yellow-600"
-                      : "bg-[#0060A9]"
-                  }`}
-                />
-                {translateSeverity(selectedLocation.severity)}{" "}
-                {t("map.signal")}
-              </span>
-
               {selectedLocation.detail?.source_type && (
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 border border-slate-200">
                   {selectedLocation.detail.source_type}
@@ -829,8 +1027,11 @@ export default function AseanMap({
             <p className="truncate text-[11px] font-semibold text-slate-500">
               {translateDisease(selectedLocation.disease)} • {selectedLocation.country}
             </p>
+            <p className="mt-1 text-[10px] font-semibold text-slate-400">
+              Aggregated NLP result for this location and disease
+            </p>
           </div>
-          <div className="mt-3 grid grid-cols-4 gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2">
             <div className="rounded-xl border border-blue-200/80 bg-blue-50/70 p-2 text-center">
               <span className="text-[9px] font-bold text-[#0060A9]">Cases</span>
               <p className="mt-0.5 text-sm font-black text-[#0060A9]">{selectedLocation.cases.toLocaleString()}</p>
@@ -839,27 +1040,60 @@ export default function AseanMap({
               <span className="text-[9px] font-bold text-rose-700">Deaths</span>
               <p className="mt-0.5 text-sm font-black text-rose-700">{selectedLocation.deaths.toLocaleString()}</p>
             </div>
-            <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 p-2 text-center">
-              <span className="text-[9px] font-bold text-amber-700">Status</span>
-              <p className="mt-0.5 text-[10px] font-black text-amber-800">{translateSeverity(selectedLocation.severity)}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-center">
-              <span className="text-[9px] font-bold text-slate-600">Events</span>
-              <p className="mt-0.5 text-sm font-black text-slate-800">{selectedLocation.event_count.toLocaleString()}</p>
-            </div>
           </div>
           <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-500">
             <div className="flex items-center justify-between gap-3">
               <span>Source: {selectedLocation.detail?.source_name || (selectedLocation.detail?.source_type ? selectedLocation.detail.source_type.toUpperCase() : "Surveillance AI")}</span>
               <span>{selectedLocation.latest_date ? new Date(selectedLocation.latest_date).toLocaleDateString("en-US") : "-"}</span>
             </div>
+            <p className="mt-1 text-[9px] font-medium leading-relaxed text-slate-400">
+              Cases and deaths are aggregated from processed NLP reports. The source above is the latest representative article.
+            </p>
+            {(selectedLocation.recent_event_count ?? 0) > 0 && (
+              <p className="mt-1 text-[9px] font-semibold leading-relaxed text-[#0060A9]">
+                Recent activity: {(selectedLocation.recent_cases ?? 0).toLocaleString()} cases • {(selectedLocation.recent_event_count ?? 0).toLocaleString()} reports • {(selectedLocation.recent_source_count ?? 0).toLocaleString()} sources (7 days)
+              </p>
+            )}
+            {(selectedLocation.sources?.length ?? 0) > 0 && (
+              <div className="mt-2 border-t border-slate-100 pt-2">
+                <p className="text-[9px] font-black uppercase tracking-wide text-slate-400">Related sources</p>
+                <div className="mt-1 space-y-0.5">
+                  {selectedLocation.sources?.slice(0, 3).map((source, index) => (
+                    source.url ? (
+                      <a
+                        key={`${source.url}-${index}`}
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate text-[9px] font-semibold text-[#0060A9] hover:underline"
+                      >
+                        {source.source_name || source.source_type || source.url}
+                      </a>
+                    ) : null
+                  ))}
+                </div>
+                {(selectedLocation.sources?.length ?? 0) > 3 && (
+                  <p className="mt-1 text-[9px] text-slate-400">+{(selectedLocation.sources?.length ?? 0) - 3} more sources</p>
+                )}
+              </div>
+            )}
+            {selectedLocation.detail?.url && (
+              <a
+                href={selectedLocation.detail.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-flex font-bold text-[#0060A9] hover:underline"
+              >
+                Open source article
+              </a>
+            )}
           </div>
         </div>
       )}
 
       {selected && (
         <div
-          className="absolute bottom-16 left-1/2 z-30 w-[min(410px,calc(100%-32px))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5"
+          className={`absolute ${popupPositionClass} z-35 w-[min(410px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5 transition-all duration-300 hover:z-50`}
           style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
           {/* Close Button - Clean top-right positioning without badge */}
@@ -889,8 +1123,8 @@ export default function AseanMap({
             </div>
           </div>
 
-          {/* 4 Real Surveillance Metric Boxes in English (ABVC Theme Consistent) */}
-          <div className="mt-3.5 grid grid-cols-4 gap-2">
+          {/* Public NLP metrics in English (ABVC Theme Consistent) */}
+          <div className="mt-3.5 grid grid-cols-3 gap-2">
             {/* Total Cases */}
             <div className="rounded-xl border border-blue-200/80 bg-blue-50/70 p-2 text-center">
               <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-[#0060A9]">
@@ -913,15 +1147,6 @@ export default function AseanMap({
               <p className="mt-0.5 text-sm font-black text-slate-800">
                 {totalDeaths.toLocaleString()}
               </p>
-            </div>
-
-            {/* Signals */}
-            <div className="rounded-xl border border-rose-200/80 bg-rose-50/70 p-2 text-center">
-              <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-[#ED2939]">
-                <AlertTriangle className="h-3 w-3" />
-                <span>{t("map.signals")}</span>
-              </div>
-              <p className="mt-0.5 text-sm font-black text-[#ED2939]">{alertCount}</p>
             </div>
 
             {/* Monitored Locations */}
@@ -1002,6 +1227,38 @@ export default function AseanMap({
       )}
 
 
+
+      {/* ── Gradient Bar Legend for Region Intensity ── */}
+      {!hideLegend && (
+        <div className="absolute bottom-3 left-3 z-20 max-w-[280px] sm:max-w-[320px] rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur-md transition-all duration-300 pointer-events-auto">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-[#0060A9]" />
+              {locale === 'id' ? 'Intensitas Kasus & Kematian' : 'Case & Mortality Burden'}
+            </span>
+            <span className="text-[9px] font-bold text-slate-400">
+              Choropleth
+            </span>
+          </div>
+
+          {/* Color Gradient Bar */}
+          <div className="relative h-2.5 w-full rounded-full bg-gradient-to-r from-[#e2e8f0] via-[#60a5fa] to-[#004d88] shadow-inner" />
+
+          {/* Scale Labels */}
+          <div className="mt-1 flex items-center justify-between text-[10px] font-bold text-slate-500">
+            <span>{locale === 'id' ? 'Rendah (0)' : 'Low (0)'}</span>
+            <span>{locale === 'id' ? 'Sedang' : 'Moderate'}</span>
+            <span className="text-[#0060A9] font-black">{locale === 'id' ? 'Pekat (Tertinggi)' : 'Deep Blue (Peak)'}</span>
+          </div>
+
+          {/* Explicit Helper Note */}
+          <p className="mt-1.5 text-[9.5px] leading-relaxed text-slate-500 border-t border-slate-100 pt-1.5">
+            {locale === 'id'
+              ? 'Wilayah berwarna biru pekat mengindikasikan konsentrasi jumlah kasus dan tingkat kematian tertinggi.'
+              : 'Regions shaded in deep blue indicate higher concentrations of reported cases and mortality.'}
+          </p>
+        </div>
+      )}
 
       <div className="absolute bottom-3 right-3 flex flex-col gap-1">
         <button

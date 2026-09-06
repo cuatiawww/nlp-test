@@ -1,14 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity,
   AlertTriangle,
   Calendar,
-  ChevronDown,
   ChevronRight,
   Globe,
   HelpCircle,
+  Info,
   Layers,
   MapPin,
   RefreshCw,
@@ -23,6 +24,7 @@ import {
   HeatmapCountryData,
   HeatmapMonthData,
 } from '@/lib/api';
+import { EpiFilterState } from './EpiFilterBar';
 import {
   ResponsiveContainer,
   BarChart,
@@ -37,23 +39,36 @@ import {
 
 export type HeatmapMetric = 'cases' | 'deaths' | 'cfr';
 
-export default function CaseLocationHeatmap() {
+interface CaseLocationHeatmapProps {
+  filters: EpiFilterState;
+}
+
+export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProps) {
+  const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<SpatialHeatmapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [activeMetric, setActiveMetric] = useState<HeatmapMetric>('cases');
   const [selectedCountry, setSelectedCountry] = useState<HeatmapCountryData | null>(null);
+  const [showScaleInfo, setShowScaleInfo] = useState(false);
   const [hoveredCell, setHoveredCell] = useState<{
     country: HeatmapCountryData;
     month: HeatmapMonthData;
   } | null>(null);
 
-  const loadData = async (year: number) => {
+  const loadData = async (activeFilters: EpiFilterState) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchSpatialHeatmap(year);
+      const res = await fetchSpatialHeatmap({
+        country: activeFilters.country,
+        disease: activeFilters.disease,
+        year: activeFilters.endYear,
+        start_year: activeFilters.startYear,
+        start_week: activeFilters.startWeek,
+        end_year: activeFilters.endYear,
+        end_week: activeFilters.endWeek,
+      });
       setData(res);
     } catch (err: any) {
       console.error('Failed to load spatial heatmap:', err);
@@ -64,8 +79,11 @@ export default function CaseLocationHeatmap() {
   };
 
   useEffect(() => {
-    loadData(selectedYear);
-  }, [selectedYear]);
+    setMounted(true);
+    loadData(filters);
+  }, [filters]);
+
+  const selectedYear = data?.year ?? filters.endYear;
 
   // Calculate maximum values for relative coloring
   const metricStats = useMemo(() => {
@@ -210,31 +228,6 @@ export default function CaseLocationHeatmap() {
             </button>
           </div>
 
-          {/* Year Selector */}
-          <div className="relative inline-flex items-center">
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              aria-label="Heatmap Year Filter"
-              className="appearance-none rounded-xl border border-slate-200 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-700 shadow-xs hover:border-slate-300 focus:border-sky-500 focus:outline-none"
-            >
-              <option value={2026}>Year 2026</option>
-              <option value={2025}>Year 2025</option>
-              <option value={2024}>Year 2024</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-slate-400" />
-          </div>
-
-          {/* Refresh Button */}
-          <button
-            onClick={() => loadData(selectedYear)}
-            disabled={loading}
-            title="Reload Heatmap Data"
-            aria-label="Reload Heatmap Data"
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
-          </button>
         </div>
       </div>
 
@@ -484,9 +477,20 @@ export default function CaseLocationHeatmap() {
       <div className="mt-5 flex flex-col gap-3 border-t border-slate-200/80 pt-4 text-xs lg:flex-row lg:items-center lg:justify-between">
         {/* Scale Legend */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Scale Intensity:
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              Scale Intensity:
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowScaleInfo(true)}
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-[#0060A9] transition shadow-xs focus:outline-none cursor-pointer"
+              title="Scale Intensity Formula & Calculation Guide"
+              aria-label="Scale Intensity Info"
+            >
+              <Info className="h-3 w-3" />
+            </button>
+          </div>
           <div className="flex items-center gap-1.5">
             <span className="flex h-5 w-7 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[10px] font-bold text-slate-400">
               0
@@ -524,10 +528,10 @@ export default function CaseLocationHeatmap() {
         </div>
       </div>
 
-      {/* ?? Modal Breakdown for Selected Country ?? */}
-      {selectedCountry && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="relative w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+      {/* Modal Breakdown for Selected Country */}
+      {mounted && selectedCountry && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs transition-all duration-300 animate-in fade-in">
+          <div className="relative w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl transition-all duration-300 animate-in zoom-in-95">
             {/* Modal Header */}
             <div className="flex items-start justify-between border-b border-slate-200 pb-4">
               <div className="flex items-center gap-3">
@@ -643,14 +647,220 @@ export default function CaseLocationHeatmap() {
             <div className="mt-5 flex justify-end">
               <button
                 onClick={() => setSelectedCountry(null)}
-                className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-bold text-white hover:bg-slate-800 transition cursor-pointer"
               >
                 Close
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
+
+      {/* ── Modal: Scale Intensity & Metric Formula Guide ── */}
+      {mounted && showScaleInfo && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 p-4 sm:p-6 backdrop-blur-xs transition-all duration-300 animate-in fade-in"
+          onClick={() => setShowScaleInfo(false)}
+        >
+          <div
+            className="relative flex max-h-[90vh] w-full max-w-3xl sm:max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl transition-all duration-300 animate-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header - Clean Title without Icon */}
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-50 via-blue-50/40 to-white px-6 py-4 sm:px-7">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 tracking-tight leading-tight">
+                  Scale Intensity & Calculation Formulas
+                </h3>
+                <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                  Panduan metodologi penentuan skala intensitas, rasio normalisasi, dan metrik epidemiologi
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowScaleInfo(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6">
+              {/* Formula Highlight Banner */}
+              <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50/80 via-indigo-50/30 to-white p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-blue-800">
+                    Formula Normalisasi Relatif Bulanan
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-500">
+                    Adaptive scale for the selected period ({selectedYear})
+                  </span>
+                </div>
+                <div className="rounded-xl border border-blue-200/80 bg-white p-4 font-mono text-center shadow-2xs">
+                  <div className="text-sm sm:text-base font-black text-blue-900">
+                    Intensity Ratio (R) = <span className="text-blue-700">Monthly Value</span> / <span className="text-indigo-700">Peak Monthly Value in Year (Vmax)</span>
+                  </div>
+                  <p className="mt-1 font-sans text-xs text-slate-500">
+                    <span className="font-semibold text-slate-700">Monthly Value</span> is the case or death count for that month, while <span className="font-semibold text-slate-700">Vmax</span> is the highest monthly value in the ASEAN region during {selectedYear}.
+                  </p>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Pendekatan normalisasi dinamis ini menjamin visualisasi heatmap tetap sensitif dan akurat dalam mendeteksi lonjakan kasus antar-musim tanpa terdistorsi oleh batas absolut statis.
+                </p>
+              </div>
+
+              {/* 5 Intensity Tiers Table */}
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                    Klasifikasi 5 Tingkat Skala Intensitas
+                  </h4>
+                  <span className="text-[11px] text-slate-400">
+                    Berdasarkan Rasio Terhadap Nilai Puncak (R)
+                  </span>
+                </div>
+
+                <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-2xs">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50/90">
+                        <th className="px-4 py-3 font-bold uppercase tracking-wider text-slate-600 text-[10px]">
+                          Tingkat Skala
+                        </th>
+                        <th className="px-4 py-3 font-bold uppercase tracking-wider text-slate-600 text-[10px]">
+                          Ambang Batas Rasio (Threshold)
+                        </th>
+                        <th className="px-4 py-3 font-bold uppercase tracking-wider text-slate-600 text-[10px]">
+                          Definisi & Interpretasi Epidemiologis
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      <tr className="hover:bg-slate-50/60 transition">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="inline-flex h-6 w-9 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[10px] font-bold text-slate-500">
+                            0
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold text-slate-600 whitespace-nowrap">
+                          Value = 0 (R = 0%)
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <strong className="text-slate-800 font-bold">Zero / No Data:</strong> Tidak ada laporan kasus atau kematian yang terdeteksi dari sumber berita, SKDR, maupun portal kesehatan pada bulan tersebut.
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-50/60 transition">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="inline-flex h-6 w-9 items-center justify-center rounded border border-emerald-200 bg-emerald-100 text-[10px] font-bold text-emerald-800">
+                            Low
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold text-emerald-700 whitespace-nowrap">
+                          0 &lt; R &lt; 5%
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <strong className="text-emerald-800 font-bold">Low (Insidensi Dasar):</strong> Penularan kasus sporadis tingkat dasar. Kejadian penyakit berada dalam batas baseline normal yang terkendali.
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-50/60 transition">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="inline-flex h-6 w-9 items-center justify-center rounded border border-amber-300 bg-amber-100 text-[10px] font-bold text-amber-800">
+                            Med
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold text-amber-700 whitespace-nowrap">
+                          5% &le; R &lt; 20%
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <strong className="text-amber-800 font-bold">Medium (Transmisi Sedang):</strong> Terdeteksi kluster kasus aktif berkelanjutan. Sinyal peningkatan mulai muncul dan perlu dipantau secara berkala.
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-50/60 transition">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="inline-flex h-6 w-9 items-center justify-center rounded border border-orange-400 bg-orange-200 text-[10px] font-bold text-orange-950">
+                            High
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold text-orange-800 whitespace-nowrap">
+                          20% &le; R &lt; 55%
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <strong className="text-orange-950 font-bold">High (Lonjakan Signifikan):</strong> Peningkatan kasus substansial di atas rata-rata tren (outbreak elevation). Menandakan penyebaran aktif yang memerlukan kesiapsiagaan intervensi dini dan alokasi logistik kesehatan.
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-50/60 transition">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="inline-flex h-6 w-9 items-center justify-center rounded border border-rose-600 bg-rose-500 text-[10px] font-bold text-white shadow-xs">
+                            Peak
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono font-semibold text-rose-700 whitespace-nowrap">
+                          R &ge; 55%
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <strong className="text-rose-700 font-bold">Critical / Peak (Beban Puncak Epidemi):</strong> Beban transmisi penyakit mencapai rekor kuartil tertinggi tahun berjalan. Mengindikasikan status krisis transmisi yang memerlukan tindakan mitigasi mendesak.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Metric Breakdown Cards */}
+              <div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 mb-2.5">
+                  Rumus Metrik Epidemiologi & Surveilans
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-2">
+                    <div className="text-blue-900 font-black text-xs uppercase tracking-wider">
+                      Detected Cases
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed">
+                      Total kasus terdeteksi yang diagregasi dari artikel berita dan laporan kesehatan tervalidasi oleh model NLP setelah ekstraksi entitas dan resolusi lokasi.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-2">
+                    <div className="text-rose-900 font-black text-xs uppercase tracking-wider">
+                      Recorded Deaths
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed">
+                      Jumlah kematian fatalitas akibat penyakit yang dilaporkan secara eksplisit dalam artikel yang dipublikasikan pada bulan bersangkutan.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-2">
+                    <div className="text-amber-900 font-black text-xs uppercase tracking-wider">
+                      Case Fatality Rate (CFR %)
+                    </div>
+                    <div className="rounded-lg bg-white p-2 border border-slate-200/80 font-mono text-[11px] font-bold text-amber-800 text-center">
+                      (Deaths / Cases) &times; 100%
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed">
+                      Rasio fatalitas kasus. Pada visualisasi CFR, intensitas diukur terhadap ambang batas kewaspadaan fatalitas klinis (15%).
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex shrink-0 items-center justify-end border-t border-slate-200 bg-slate-50/80 px-6 py-3.5 sm:px-7">
+              <button
+                type="button"
+                onClick={() => setShowScaleInfo(false)}
+                className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-bold text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                Tutup Panduan
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
     </section>
   );
 }

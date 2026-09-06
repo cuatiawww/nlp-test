@@ -1,0 +1,3 @@
+-- Non-destructive rollback marker for 043.
+-- Keep relation data for audit and recovery; disable readers/writers through
+-- deployment configuration rather than dropping this additive table.

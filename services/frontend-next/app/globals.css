@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Keep the reports matrix typography consistent with the main dashboard.
+   The page still uses utility classes such as font-sans/font-mono for layout
+   semantics, but both resolve to the application Roboto family here. */
+.reports-page .font-sans,
+.reports-page .font-mono {
+  font-family: var(--font-roboto), sans-serif;
+}
+
 @keyframes marquee {
   from {
     transform: translateX(0);

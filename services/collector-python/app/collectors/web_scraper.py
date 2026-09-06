@@ -72,6 +72,24 @@ def _country_hint_from_url(url: str) -> str:
     for part in host_parts:
         if part in aliases:
             return aliases[part]
+
+    # ASEAN national ccTLD mapping (e.g. kpl.gov.la, kemkes.go.id, moh.gov.sg)
+    tld_map = {
+        "la": "Laos",
+        "id": "Indonesia",
+        "my": "Malaysia",
+        "th": "Thailand",
+        "vn": "Vietnam",
+        "ph": "Philippines",
+        "sg": "Singapore",
+        "kh": "Cambodia",
+        "mm": "Myanmar",
+        "bn": "Brunei",
+        "tl": "Timor-Leste",
+    }
+    if host_parts and host_parts[-1] in tld_map:
+        return tld_map[host_parts[-1]]
+
     return ""
 
 
@@ -408,6 +426,11 @@ class WebScraperCollector(BaseCollector):
 
     async def extract_url(self, url: str) -> dict:
         """Fetch one URL for interactive analysis without publishing it."""
+        from .pdf_document import try_pdf
+        pdf = await asyncio.to_thread(try_pdf, url)
+        if pdf is not None:
+            pdf["source_country"] = _country_hint_from_url(url)
+            return pdf
         fetch_mode = str(self.config.get("fetch_mode", "auto")).lower()
         if fetch_mode not in {"auto", "http", "stealth"}:
             raise ValueError(f"Invalid fetch_mode: {fetch_mode}")
@@ -488,6 +511,20 @@ class WebScraperCollector(BaseCollector):
                     continue
                 result.records_found += 1
                 try:
+                    from .pdf_document import try_pdf
+                    pdf = await asyncio.to_thread(try_pdf, url)
+                    if pdf is not None:
+                        from .. import rabbitmq
+                        if not pdf["content"].strip():
+                            raise ValueError("Table-only PDF retained; structured table review required")
+                        await asyncio.to_thread(rabbitmq.publish, {
+                            **pdf, "text": pdf["content"], "source_type": "web",
+                            "source_name": self.source.get("name", ""),
+                            "collector_source_id": str(self.source["id"]),
+                            "source_country": self.config.get("country") or _country_hint_from_url(url),
+                        })
+                        result.records_ingested += 1
+                        continue
                     outcome, stealth_session = await self._fetch(
                         url, fetch_mode, body_selector, stealth_session, stack
                     )

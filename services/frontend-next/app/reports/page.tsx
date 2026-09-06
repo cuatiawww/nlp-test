@@ -61,8 +61,6 @@ export type SurveillanceReportRow = {
   cases: number
   deaths: number
   cfr: number
-  severity: 'AWAS' | 'SIAGA' | 'WASPADA' | 'NORMAL'
-  threshold: number
   confidence: number
   sourceType: string
   sourceName: string
@@ -181,7 +179,7 @@ export default function ReportsPage() {
 
   // State: Active View Tab
   const [activeTab, setActiveTab] = useState<'cross_matrix' | 'event_log' | 'time_distribution'>('cross_matrix')
-  const [matrixMetric, setMatrixMetric] = useState<'both' | 'cases' | 'deaths' | 'severity'>('both')
+  const [matrixMetric, setMatrixMetric] = useState<'both' | 'cases' | 'deaths'>('both')
 
   // State: Detail Modal
   const [selectedDetailItem, setSelectedDetailItem] = useState<SurveillanceReportRow | null>(null)
@@ -195,11 +193,9 @@ export default function ReportsPage() {
   const [selectedDatePreset, setSelectedDatePreset] = useState<string>('all')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
-  const [selectedSeverities, setSelectedSeverities] = useState<string[]>([])
   const [selectedSources, setSelectedSources] = useState<string[]>([])
   const [filterCasesOnly, setFilterCasesOnly] = useState<boolean>(false)
   const [filterDeathsOnly, setFilterDeathsOnly] = useState<boolean>(false)
-  const [filterAlertOnly, setFilterAlertOnly] = useState<boolean>(false)
 
   // State: Pagination & Sorting
   const [currentPage, setCurrentPage] = useState(1)
@@ -212,7 +208,6 @@ export default function ReportsPage() {
     countries: true,
     diseases: true,
     dates: true,
-    severity: true,
     sources: false,
     specific: true,
   })
@@ -270,8 +265,6 @@ export default function ReportsPage() {
             cases,
             deaths,
             cfr,
-            severity: loc.severity || (loc.has_alert ? 'AWAS' : 'NORMAL'),
-            threshold: loc.threshold || 10,
             confidence: loc.confidence || 0.88,
             sourceType: loc.detail?.source_type || 'news',
             sourceName: loc.detail?.source_name || 'Health Intelligence Feed',
@@ -304,14 +297,6 @@ export default function ReportsPage() {
           const deaths = Number(ev.death_count) || 0
           const cfr = cases > 0 ? Number(((deaths / cases) * 100).toFixed(2)) : 0
 
-          const severity: 'AWAS' | 'SIAGA' | 'WASPADA' | 'NORMAL' = ev.outbreak_alert
-            ? 'AWAS'
-            : cases > 50
-            ? 'SIAGA'
-            : cases > 10
-            ? 'WASPADA'
-            : 'NORMAL'
-
           combined.push({
             id: rowId,
             date: dateStr,
@@ -324,8 +309,6 @@ export default function ReportsPage() {
             cases,
             deaths,
             cfr,
-            severity,
-            threshold: 10,
             confidence: ev.confidence || 0.85,
             sourceType: ev.source_type || 'rss',
             sourceName: ev.source_name || 'Surveillance Wire',
@@ -408,13 +391,6 @@ export default function ReportsPage() {
     setCurrentPage(1)
   }
 
-  const handleToggleSeverity = (sev: string) => {
-    setSelectedSeverities((prev) =>
-      prev.includes(sev) ? prev.filter((s) => s !== sev) : [...prev, sev]
-    )
-    setCurrentPage(1)
-  }
-
   const handleToggleSource = (src: string) => {
     setSelectedSources((prev) =>
       prev.includes(src) ? prev.filter((s) => s !== src) : [...prev, src]
@@ -429,11 +405,9 @@ export default function ReportsPage() {
     setSelectedDatePreset('all')
     setCustomStartDate('')
     setCustomEndDate('')
-    setSelectedSeverities([])
     setSelectedSources([])
     setFilterCasesOnly(false)
     setFilterDeathsOnly(false)
-    setFilterAlertOnly(false)
     setCountrySearch('')
     setDiseaseSearch('')
     setCurrentPage(1)
@@ -445,23 +419,19 @@ export default function ReportsPage() {
     let count = 0
     count += selectedCountries.length
     count += selectedDiseases.length
-    count += selectedSeverities.length
     count += selectedSources.length
     if (selectedDatePreset !== 'all') count += 1
     if (filterCasesOnly) count += 1
     if (filterDeathsOnly) count += 1
-    if (filterAlertOnly) count += 1
     if (searchQuery.trim() !== '') count += 1
     return count
   }, [
     selectedCountries,
     selectedDiseases,
-    selectedSeverities,
     selectedSources,
     selectedDatePreset,
     filterCasesOnly,
     filterDeathsOnly,
-    filterAlertOnly,
     searchQuery,
   ])
 
@@ -518,20 +488,14 @@ export default function ReportsPage() {
         }
       }
 
-      // 5. Severity filter
-      if (selectedSeverities.length > 0) {
-        if (!selectedSeverities.includes(item.severity)) return false
-      }
-
-      // 6. Source filter
+      // 5. Source filter
       if (selectedSources.length > 0) {
         if (!selectedSources.includes(item.sourceType)) return false
       }
 
-      // 7. Special impact criteria
+      // 6. Special impact criteria
       if (filterCasesOnly && item.cases <= 0) return false
       if (filterDeathsOnly && item.deaths <= 0) return false
-      if (filterAlertOnly && item.severity === 'NORMAL') return false
 
       return true
     })
@@ -543,11 +507,9 @@ export default function ReportsPage() {
     selectedDatePreset,
     customStartDate,
     customEndDate,
-    selectedSeverities,
     selectedSources,
     filterCasesOnly,
     filterDeathsOnly,
-    filterAlertOnly,
   ])
 
   // Sorting
@@ -600,7 +562,6 @@ export default function ReportsPage() {
           deaths: number
           cfr: number
           count: number
-          severity: 'AWAS' | 'SIAGA' | 'WASPADA' | 'NORMAL'
         }
       >
     > = {}
@@ -628,7 +589,6 @@ export default function ReportsPage() {
           deaths: 0,
           cfr: 0,
           count: 0,
-          severity: 'NORMAL',
         }
       })
     })
@@ -648,7 +608,6 @@ export default function ReportsPage() {
             deaths: 0,
             cfr: 0,
             count: 0,
-            severity: 'NORMAL',
           }
         })
       }
@@ -658,15 +617,6 @@ export default function ReportsPage() {
         cell.cases += row.cases
         cell.deaths += row.deaths
         cell.count += 1
-        if (row.severity === 'AWAS') cell.severity = 'AWAS'
-        else if (row.severity === 'SIAGA' && cell.severity !== 'AWAS') cell.severity = 'SIAGA'
-        else if (
-          row.severity === 'WASPADA' &&
-          cell.severity !== 'AWAS' &&
-          cell.severity !== 'SIAGA'
-        ) {
-          cell.severity = 'WASPADA'
-        }
       }
 
       if (diseaseTotals[row.disease]) {
@@ -758,9 +708,6 @@ export default function ReportsPage() {
     const totalReports = filteredData.length
     const totalCases = filteredData.reduce((acc, curr) => acc + curr.cases, 0)
     const totalDeaths = filteredData.reduce((acc, curr) => acc + curr.deaths, 0)
-    const totalAlerts = filteredData.filter(
-      (d) => d.severity === 'AWAS' || d.severity === 'SIAGA'
-    ).length
     const affectedCountries = new Set(filteredData.map((d) => d.country)).size
     const avgCfr = totalCases > 0 ? Number(((totalDeaths / totalCases) * 100).toFixed(2)) : 0
 
@@ -768,7 +715,6 @@ export default function ReportsPage() {
       totalReports,
       totalCases,
       totalDeaths,
-      totalAlerts,
       affectedCountries,
       avgCfr,
     }
@@ -792,8 +738,6 @@ export default function ReportsPage() {
       'Reported Cases',
       'Deaths',
       'CFR (%)',
-      'Alert Severity',
-      'Detection Threshold',
       'NLP Confidence (%)',
       'Source Platform',
       'Source Name',
@@ -814,8 +758,6 @@ export default function ReportsPage() {
         row.cases,
         row.deaths,
         row.cfr,
-        `"${row.severity === "AWAS" ? "CRITICAL" : row.severity === "SIAGA" ? "HIGH" : row.severity === "WASPADA" ? "WARNING" : "NORMAL"}"`,
-        row.threshold,
         Math.round(row.confidence * 100),
         `"${row.sourceType}"`,
         `"${row.sourceName.replace(/"/g, '""')}"`,
@@ -847,7 +789,6 @@ export default function ReportsPage() {
       `Total Surveillance Events: ${metrics.totalReports}`,
       `Total Confirmed Cases: ${metrics.totalCases.toLocaleString()}`,
       `Total Fatalities: ${metrics.totalDeaths.toLocaleString()} (CFR: ${metrics.avgCfr}%)`,
-      `Active Outbreak Alerts: ${metrics.totalAlerts}`,
       `Affected Countries: ${metrics.affectedCountries} Countries`,
       '',
       `Top Diseases by Morbidity:`,
@@ -867,42 +808,8 @@ export default function ReportsPage() {
     window.print()
   }
 
-  // Severity Badge Component
-  const getSeverityBadge = (sev: string) => {
-    switch (sev) {
-      case 'AWAS':
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1 text-xs md:text-sm font-extrabold text-rose-700 border border-rose-200 shadow-2xs">
-            <span className="h-2 w-2 rounded-full bg-rose-600 animate-pulse" />
-            CRITICAL
-          </span>
-        )
-      case 'SIAGA':
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-xs md:text-sm font-extrabold text-amber-700 border border-amber-200 shadow-2xs">
-            <span className="h-2 w-2 rounded-full bg-amber-600" />
-            HIGH
-          </span>
-        )
-      case 'WASPADA':
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-yellow-50 px-2.5 py-1 text-xs md:text-sm font-extrabold text-yellow-800 border border-yellow-200 shadow-2xs">
-            <span className="h-2 w-2 rounded-full bg-yellow-500" />
-            WARNING
-          </span>
-        )
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs md:text-sm font-extrabold text-emerald-700 border border-emerald-200 shadow-2xs">
-            <span className="h-2 w-2 rounded-full bg-emerald-600" />
-            NORMAL
-          </span>
-        )
-    }
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-16 font-sans">
+    <div className="reports-page min-h-screen bg-[#f8fafc] text-slate-900 pb-16 font-roboto">
       {/* Toast Notification Alert */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-xs font-semibold text-white shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-bottom-5">
@@ -919,7 +826,7 @@ export default function ReportsPage() {
               MINISTRY OF HEALTH & REGIONAL CDC NETWORK
             </h1>
             <p className="text-xs font-bold text-[#0060A9] uppercase tracking-wider mt-0.5">
-              ASEAN COMMUNICABLE DISEASE SURVEILLANCE & OUTBREAK INTELLIGENCE
+              ASEAN COMMUNICABLE DISEASE SURVEILLANCE & HEALTH INTELLIGENCE
             </p>
             <p className="text-[11px] text-slate-600 mt-1">
               Official Epidemiological Matrix Report — Live NLP Extraction Database
@@ -932,33 +839,10 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="w-full px-2 sm:px-4 lg:px-6 pt-2 space-y-5">
-        {/* ==================== 4 TOP KPI STAT CARDS ==================== */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 print:grid-cols-4">
-          {/* Card 1: Filtered Reports */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs md:text-sm font-black uppercase tracking-wider text-slate-500">
-                  Filtered Events
-                </p>
-                <h3 className="mt-1.5 text-3xl lg:text-4xl font-black text-slate-900 tracking-tight">
-                  {loading ? '...' : metrics.totalReports.toLocaleString()}{' '}
-                  <span className="text-sm lg:text-base font-bold text-slate-500">Events</span>
-                </h3>
-              </div>
-              <div className="grid h-12 w-12 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100 shadow-2xs">
-                <FileSpreadsheet className="h-6 w-6" />
-              </div>
-            </div>
-            <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
-              {activeFilterCount > 0
-                ? `${activeFilterCount} active filter criteria`
-                : `Live NLP dataset (${dataList.length} total records)`}
-            </p>
-          </div>
-
-          {/* Card 2: Total Cases */}
+      <div className="w-full px-4 md:px-6 pt-3 space-y-4">
+        {/* ==================== TOP KPI STAT CARDS ==================== */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 print:grid-cols-3">
+          {/* Card 1: Total Cases */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
@@ -979,7 +863,7 @@ export default function ReportsPage() {
             </p>
           </div>
 
-          {/* Card 3: Deaths & CFR */}
+          {/* Card 2: Deaths & CFR */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
@@ -1002,28 +886,6 @@ export default function ReportsPage() {
             </p>
           </div>
 
-          {/* Card 4: Active Alerts */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs md:text-sm font-black uppercase tracking-wider text-slate-500">
-                  Outbreak Alerts
-                </p>
-                <h3 className="mt-1.5 text-3xl lg:text-4xl font-black text-amber-600 tracking-tight">
-                  {loading ? '...' : metrics.totalAlerts}{' '}
-                  <span className="text-sm lg:text-base font-bold text-slate-500">
-                    Active Signals
-                  </span>
-                </h3>
-              </div>
-              <div className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-amber-600 border border-amber-100 shadow-2xs">
-                <AlertTriangle className="h-6 w-6" />
-              </div>
-            </div>
-            <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
-              Critical &amp; High outbreak triggers
-            </p>
-          </div>
         </div>
 
         {/* ==================== MAIN EQUAL-HEIGHT LAYOUT: FILTER SIDEBAR + DATA MATRIX ==================== */}
@@ -1279,56 +1141,7 @@ export default function ReportsPage() {
                 )}
               </div>
 
-              {/* SECTION 4: ALERT SEVERITY */}
-              <div className="space-y-3 pt-2.5 border-t border-slate-100">
-                <div
-                  className="flex items-center justify-between cursor-pointer select-none py-1"
-                  onClick={() => toggleSection('severity')}
-                >
-                  <span className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 text-amber-500" />
-                    Alert Severity
-                  </span>
-                  {expandedSections.severity ? (
-                    <ChevronUp className="h-4.5 w-4.5 text-slate-400" />
-                  ) : (
-                    <ChevronDown className="h-4.5 w-4.5 text-slate-400" />
-                  )}
-                </div>
-
-                {expandedSections.severity && (
-                  <div className="space-y-2 pt-1">
-                    {[
-                      { id: 'AWAS', label: 'CRITICAL', color: 'text-rose-700 bg-rose-50 border-rose-200' },
-                      { id: 'SIAGA', label: 'HIGH', color: 'text-amber-700 bg-amber-50 border-amber-200' },
-                      { id: 'WASPADA', label: 'WARNING', color: 'text-yellow-800 bg-yellow-50 border-yellow-200' },
-                      { id: 'NORMAL', label: 'NORMAL', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-                    ].map((sev) => {
-                      const isChecked = selectedSeverities.includes(sev.id)
-                      return (
-                        <label
-                          key={sev.id}
-                          className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition border cursor-pointer ${
-                            isChecked
-                              ? `${sev.color} font-black shadow-xs`
-                              : 'border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => handleToggleSeverity(sev.id)}
-                            className="h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
-                          />
-                          <span>{sev.label}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION 5: PLATFORM SOURCES */}
+              {/* SECTION 4: PLATFORM SOURCES */}
               <div className="space-y-3 pt-2.5 border-t border-slate-100">
                 <div
                   className="flex items-center justify-between cursor-pointer select-none py-1"
@@ -1428,18 +1241,6 @@ export default function ReportsPage() {
                       <span>Has Deaths (&gt; 0)</span>
                     </label>
 
-                    <label className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 hover:bg-slate-50 transition cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={filterAlertOnly}
-                        onChange={(e) => {
-                          setFilterAlertOnly(e.target.checked)
-                          setCurrentPage(1)
-                        }}
-                        className="h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
-                      />
-                      <span>Active Alerts Only</span>
-                    </label>
                   </div>
                 )}
               </div>
@@ -1465,7 +1266,7 @@ export default function ReportsPage() {
                 <div>
                   <div className="flex items-center gap-2.5">
                     <h1 className="text-xl md:text-2xl font-black text-slate-900 uppercase tracking-tight">
-                      DISEASE OUTBREAK SURVEILLANCE REPORT MATRIX
+                      DISEASE SURVEILLANCE REPORT MATRIX
                     </h1>
                     <span className="hidden sm:inline-flex items-center rounded-lg bg-[#0060A9]/10 px-2.5 py-1 text-xs font-black text-[#0060A9] border border-[#0060A9]/20">
                       LIVE NLP DATA
@@ -1575,7 +1376,6 @@ export default function ReportsPage() {
                         { id: 'both', label: 'Cases & Deaths' },
                         { id: 'cases', label: 'Cases Only' },
                         { id: 'deaths', label: 'Deaths Only' },
-                        { id: 'severity', label: 'Alert Level' },
                       ].map((m) => (
                         <button
                           key={m.id}
@@ -1625,18 +1425,6 @@ export default function ReportsPage() {
                       />
                     </span>
                   ))}
-                  {selectedSeverities.map((s) => (
-                    <span
-                      key={s}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs font-bold text-amber-700"
-                    >
-                      Alert: {s}
-                      <X
-                        className="h-3.5 w-3.5 cursor-pointer hover:text-amber-900"
-                        onClick={() => handleToggleSeverity(s)}
-                      />
-                    </span>
-                  ))}
                   {selectedSources.map((src) => (
                     <span
                       key={src}
@@ -1680,7 +1468,7 @@ export default function ReportsPage() {
                       Connecting to NLP Intelligence Pipeline...
                     </p>
                     <p className="text-sm text-slate-500 mt-1">
-                      Retrieving real surveillance events, morbidities, and outbreak triggers from database.
+                      Retrieving real surveillance events and epidemiological records from database.
                     </p>
                   </div>
                 </div>
@@ -1773,7 +1561,6 @@ export default function ReportsPage() {
                                               deaths: 0,
                                               cfr: 0,
                                               count: 0,
-                                              severity: 'NORMAL',
                                             }
 
                                       return (
@@ -1798,7 +1585,7 @@ export default function ReportsPage() {
                                             <span className="font-black text-blue-950 text-sm md:text-base">
                                               {cell.cases.toLocaleString()}
                                             </span>
-                                          ) : matrixMetric === 'deaths' ? (
+                                          ) : (
                                             <span
                                               className={`font-black text-sm md:text-base ${
                                                 cell.deaths > 0 ? 'text-rose-600' : 'text-slate-300'
@@ -1806,10 +1593,6 @@ export default function ReportsPage() {
                                             >
                                               {cell.deaths}
                                             </span>
-                                          ) : (
-                                            <div className="flex justify-center">
-                                              {getSeverityBadge(cell.severity)}
-                                            </div>
                                           )}
                                         </td>
                                       )
@@ -2006,9 +1789,6 @@ export default function ReportsPage() {
                                   <ArrowUpDown className="h-3.5 w-3.5" />
                                 </div>
                               </th>
-                              <th className="py-3.5 px-3.5 font-black text-center border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm">
-                                STATUS
-                              </th>
                               <th className="py-3.5 px-3.5 font-black border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm">
                                 SOURCE
                               </th>
@@ -2020,7 +1800,7 @@ export default function ReportsPage() {
                           <tbody className="divide-y divide-slate-200 bg-white">
                             {paginatedData.length === 0 ? (
                               <tr>
-                                <td colSpan={9} className="py-14 text-center text-slate-400 font-bold text-sm">
+                                <td colSpan={8} className="py-14 text-center text-slate-400 font-bold text-sm">
                                   No records found matching query &quot;{searchQuery}&quot;
                                 </td>
                               </tr>
@@ -2061,10 +1841,6 @@ export default function ReportsPage() {
 
                                   <td className="py-3 px-3.5 text-center font-mono font-black text-amber-700 text-sm md:text-base whitespace-nowrap">
                                     {item.cfr}%
-                                  </td>
-
-                                  <td className="py-3 px-3.5 text-center whitespace-nowrap">
-                                    {getSeverityBadge(item.severity)}
                                   </td>
 
                                   <td className="py-3 px-3.5 whitespace-nowrap">
@@ -2246,7 +2022,6 @@ export default function ReportsPage() {
                 <span className="text-sm font-mono font-black text-[#0060A9]">
                   {selectedDetailItem.id.slice(0, 18)}...
                 </span>
-                {getSeverityBadge(selectedDetailItem.severity)}
               </div>
               <button
                 type="button"

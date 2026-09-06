@@ -1,0 +1,109 @@
+ENV DAN DOCKER COMPOSE REQUIREMENTS
+===================================
+
+Dokumen ini berisi konfigurasi yang perlu diteruskan ke server/local runtime.
+Tidak perlu membuat file Compose baru untuk fitur PDF.
+
+
+1. PDF ROUTING
+==============
+
+Tambahkan ke file .env:
+
+PDF_ROUTING_ENABLED=true
+
+Service yang perlu di-recreate:
+
+docker compose up -d --build --force-recreate disease-collector-python
+
+Catatan:
+- PDF_ROUTING_ENABLED dibaca oleh disease-collector-python.
+- Tidak perlu menambahkan blok service baru ke docker-compose.yml.
+- Pastikan image collector dibuild ulang agar dependency pdfplumber tersedia.
+
+
+2. ASYNC ANALYZE URL
+===============================
+
+Aktifkan di file .env:
+
+ANALYZE_URL_ASYNC_ENABLED=true
+
+Tambahkan service berikut ke docker-compose.yml jika belum tersedia:
+
+  analysis-job-worker:
+    profiles: ["analysis"]
+    build:
+      context: ./services/worker-python
+    container_name: disease-analysis-job-worker
+    command: ["python", "-m", "app.analysis_jobs"]
+    init: true
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NLP_SERVICE_URL: http://disease-nlp-python:8000
+      COLLECTOR_URL: http://disease-collector-python:8002
+      RABBITMQ_URL: ${RABBITMQ_URL_DISEASE:-amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@disease-rabbitmq:5672/%2f}
+    volumes:
+      - ./services/worker-python/app:/app/app:ro
+    depends_on:
+      disease-nlp-python:
+        condition: service_healthy
+      disease-collector-python:
+        condition: service_started
+      disease-rabbitmq:
+        condition: service_healthy
+    networks:
+      - default
+      - db_db
+
+Jalankan worker async:
+
+docker compose --profile analysis up -d --build --force-recreate analysis-job-worker
+
+Backend juga perlu direcreate setelah ANALYZE_URL_ASYNC_ENABLED diaktifkan:
+
+docker compose up -d --build --force-recreate disease-backend-rust
+
+
+3. STORAGE RELATION LOKASI DAN PENYAKIT
+=======================================
+
+Tambahkan ke file .env:
+
+ENTITY_LOCATION_STORAGE_ENABLED=true
+ENTITY_DISEASE_STORAGE_ENABLED=true
+
+Kedua variabel ini dibaca oleh backend dan worker. Tidak membutuhkan service
+Compose tambahan.
+
+
+4. KONFIGURASI COMPOSE YANG WAJIB ADA
+=====================================
+
+Pastikan service berikut tersedia dan menggunakan network/database yang sama:
+
+- disease-backend-rust
+- disease-collector-python
+- disease-nlp-python
+- disease-worker-python
+- disease-rabbitmq
+- disease-minio
+
+Backend harus tetap memiliki mount migration:
+
+    volumes:
+      - ./database/init:/init:ro
+
+Jika migration 041 sampai 044 belum diterapkan, restart/recreate backend agar
+migration runner memproses file tersebut.
+
+
+5. VARIABEL YANG TIDAK PERLU DITAMBAHKAN
+========================================
+
+- ANALYZE_URL_USE_CACHE
+- docker-compose.analysis-jobs.yml
+
+File overlay docker-compose.analysis-jobs.yml tidak digunakan oleh konfigurasi
+sekarang. Async worker menggunakan profile "analysis" di docker-compose.yml.

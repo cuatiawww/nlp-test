@@ -9,6 +9,8 @@ import psycopg
 from psycopg.rows import dict_row
 import requests
 
+from .entity_relations import disease_relation_rows, location_relation_rows
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("worker")
 
@@ -19,6 +21,12 @@ RABBITMQ_SKDR_QUEUE = os.getenv("RABBITMQ_SKDR_QUEUE", "disease.skdr")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
 CURRENT_YEAR_ONLY = os.getenv("CURRENT_YEAR_ONLY", "true").lower() in {"1", "true", "yes", "on"}
+ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
+    "ENTITY_LOCATION_STORAGE_ENABLED", "true"
+).lower() in {"1", "true", "yes", "on"}
+ENTITY_DISEASE_STORAGE_ENABLED = os.getenv(
+    "ENTITY_DISEASE_STORAGE_ENABLED", "true"
+).lower() in {"1", "true", "yes", "on"}
 
 
 def env_year(name: str = "CURRENT_YEAR") -> int:
@@ -46,6 +54,180 @@ HEALTH_HINTS = (
 
 def get_db():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def persist_location_relations(conn, event_id, nlp: dict) -> None:
+    if not ENTITY_LOCATION_STORAGE_ENABLED:
+        return
+    for relation in location_relation_rows(nlp):
+        conn.execute(
+            """INSERT INTO disease_event_locations
+               (disease_event_id, location_ref, location_name, role, country,
+                latitude, longitude, case_count, death_count, evidence)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (disease_event_id, location_ref, role) DO UPDATE SET
+                 country = EXCLUDED.country,
+                 latitude = EXCLUDED.latitude,
+                 longitude = EXCLUDED.longitude,
+                 case_count = EXCLUDED.case_count,
+                 death_count = EXCLUDED.death_count,
+                 evidence = EXCLUDED.evidence""",
+            (
+                event_id,
+                relation["location_ref"],
+                relation["location_name"],
+                relation["role"],
+                relation.get("country"),
+                relation.get("latitude"),
+                relation.get("longitude"),
+                relation.get("case_count"),
+                relation.get("death_count"),
+                relation.get("evidence"),
+            ),
+        )
+
+
+def persist_disease_relations(conn, event_id, nlp: dict) -> None:
+    if not ENTITY_DISEASE_STORAGE_ENABLED:
+        return
+    for relation in disease_relation_rows(nlp):
+        conn.execute(
+            """INSERT INTO disease_event_diseases
+               (disease_event_id, surface_form, disease_name, role, icd11_code,
+                confidence, case_count, death_count, evidence, resolution_source)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (disease_event_id, disease_name, role) DO UPDATE SET
+                 surface_form = EXCLUDED.surface_form,
+                 icd11_code = EXCLUDED.icd11_code,
+                 confidence = EXCLUDED.confidence,
+                 case_count = EXCLUDED.case_count,
+                 death_count = EXCLUDED.death_count,
+                 evidence = EXCLUDED.evidence,
+                 resolution_source = EXCLUDED.resolution_source""",
+            (
+                event_id,
+                relation["surface_form"],
+                relation["disease_name"],
+                relation["role"],
+                relation.get("icd11_code"),
+                relation.get("confidence"),
+                relation.get("case_count"),
+                relation.get("death_count"),
+                relation.get("evidence"),
+                relation.get("resolution_source"),
+            ),
+        )
+
+
+def mark_message_processing(msg: dict) -> None:
+    """Make the NLP queue visible to the dashboard while analysis is running.
+
+    Collector messages normally do not have a raw_report row until after NLP
+    finishes. Create/update a provisional row for URL-based messages so the
+    API can expose the in-flight NLP count without changing the final dedupe
+    behavior below.
+    """
+    raw_id = msg.get("raw_report_id")
+    url = msg.get("url")
+    skdr_report_id = msg.get("skdr_report_id")
+    if not raw_id and not url and not skdr_report_id:
+        return
+
+    with get_db() as conn:
+        if raw_id:
+            conn.execute(
+                "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
+                (raw_id,),
+            )
+        elif url:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (url,))
+            existing = conn.execute(
+                """SELECT id FROM raw_reports
+                   WHERE url=%s
+                   ORDER BY created_at DESC
+                   LIMIT 1
+                   FOR UPDATE""",
+                (url,),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
+                    (existing["id"],),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO raw_reports
+                       (source_type, source_name, published_at, original_text, url, object_path, processing_status)
+                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSING')""",
+                    (
+                        msg.get("source_type"),
+                        msg.get("source_name"),
+                        parse_date(msg.get("published_at")),
+                        msg.get("text", ""),
+                        url,
+                        msg.get("object_path"),
+                    ),
+                )
+        else:
+            skdr_row = conn.execute(
+                "SELECT raw_report_id FROM skdr_reports WHERE id=%s FOR UPDATE",
+                (skdr_report_id,),
+            ).fetchone()
+            if skdr_row and skdr_row["raw_report_id"]:
+                conn.execute(
+                    "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
+                    (skdr_row["raw_report_id"],),
+                )
+            elif skdr_row:
+                raw_row = conn.execute(
+                    """INSERT INTO raw_reports
+                       (source_type, source_name, published_at, original_text, url, object_path, processing_status)
+                       VALUES (%s, %s, %s, %s, NULL, NULL, 'PROCESSING')
+                       RETURNING id""",
+                    (
+                        msg.get("source_type"),
+                        msg.get("source_name"),
+                        parse_date(msg.get("published_at")),
+                        msg.get("text", ""),
+                    ),
+                ).fetchone()
+                conn.execute(
+                    "UPDATE skdr_reports SET raw_report_id=%s, updated_at=NOW() WHERE id=%s",
+                    (raw_row["id"], skdr_report_id),
+                )
+        conn.commit()
+
+
+def mark_message_failed(msg: dict) -> None:
+    """Remove a permanently failed message from the in-flight NLP count."""
+    raw_id = msg.get("raw_report_id")
+    url = msg.get("url")
+    skdr_report_id = msg.get("skdr_report_id")
+    if not raw_id and not url and not skdr_report_id:
+        return
+
+    try:
+        with get_db() as conn:
+            if raw_id:
+                conn.execute(
+                    "UPDATE raw_reports SET processing_status='FAILED' WHERE id=%s",
+                    (raw_id,),
+                )
+            elif url:
+                conn.execute(
+                    """UPDATE raw_reports SET processing_status='FAILED'
+                       WHERE id=(SELECT id FROM raw_reports WHERE url=%s ORDER BY created_at DESC LIMIT 1)""",
+                    (url,),
+                )
+            else:
+                conn.execute(
+                    """UPDATE raw_reports SET processing_status='FAILED'
+                       WHERE id=(SELECT raw_report_id FROM skdr_reports WHERE id=%s)""",
+                    (skdr_report_id,),
+                )
+            conn.commit()
+    except Exception:
+        logger.exception("Could not mark failed NLP message")
 
 
 def parse_date(val: str) -> str | None:
@@ -131,6 +313,8 @@ def callback(ch, method, properties, body):
             msg.get("source_type", ""),
             len(msg.get("text", "")),
         )
+
+        mark_message_processing(msg)
 
         nlp = fast_non_health_result(msg)
         if nlp is None:
@@ -316,7 +500,7 @@ def callback(ch, method, properties, body):
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
-            conn.execute(
+            event_cursor = conn.execute(
                 """INSERT INTO disease_events
                    (raw_report_id, source_type, source_name, published_at, original_text, language,
                          location_name, geom, symptoms, disease_extracted, disease_mentions, disease_classification,
@@ -327,7 +511,8 @@ def callback(ch, method, properties, body):
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
-                            %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)""",
+                            %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                   RETURNING id""",
                 (
                     raw_id,
                     msg.get("source_type"),
@@ -355,6 +540,9 @@ def callback(ch, method, properties, body):
                     nlp.get("source_credibility_label", ""),
                 ),
             )
+            event_id = event_cursor.fetchone()["id"]
+            persist_location_relations(conn, event_id, nlp)
+            persist_disease_relations(conn, event_id, nlp)
             conn.commit()
 
         logger.info("Processed successfully: raw_id=%s", raw_id)
@@ -372,6 +560,7 @@ def callback(ch, method, properties, body):
         _DELIVERY_ATTEMPTS[msg_key] = attempts
         if attempts >= 3:
             logger.error("Message %s failed %d times with NLP error, dropping poison pill: %s", msg_key, attempts, e)
+            mark_message_failed(msg)
             _DELIVERY_ATTEMPTS.pop(msg_key, None)
             ch.basic_ack(delivery_tag=method.delivery_tag)
         else:
@@ -417,4 +606,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

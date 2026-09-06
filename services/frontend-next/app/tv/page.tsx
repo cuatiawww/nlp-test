@@ -1,22 +1,26 @@
 ﻿'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronUp, Globe2, Layers, MapPin, Maximize, Minimize, Radio, RefreshCw, Settings, ShieldAlert, Skull, Volume2, VolumeX, X } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronUp, Globe2, Layers, MapPin, Maximize, Minimize, Radio, RefreshCw, Settings, Skull, Volume2, VolumeX, X } from 'lucide-react'
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchCrawlingStats, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
-import type { PublicDashboard } from '@/types'
+import type { OutbreakLocation, PublicDashboard } from '@/types'
+import type { CrawlingFeedItem } from '@/lib/crawling-feed'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import CrawlingFeedPanel from '@/components/CrawlingFeedPanel'
 import AnalyticsSituationPanel from '@/components/AnalyticsSituationPanel'
 import CountryFlag from '@/components/CountryFlag'
+import SurveillanceDetailModal from '@/components/SurveillanceDetailModal'
+import CrawlModeOverlay from '@/components/CrawlModeOverlay'
 
 const AseanMap = dynamic(() => import('@/components/AseanMap'), { ssr: false })
 type BaseMap = 'osm'|'terrain'|'satellite'|'light'|'dark'
+type MarkerLookbackDays = 7 | 14 | 30 | 90
 function Toggle({checked,onChange}:{checked:boolean;onChange:(v:boolean)=>void}) {
   return (
     <button
@@ -32,11 +36,33 @@ export default function TvPage() {
   const { t, locale, translateDisease, translateSeverity } = useTranslation()
   const numLocale = locale === 'en' ? 'en-US' : 'id-ID'
 
-  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
+  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [crawlItems,setCrawlItems]=useState<CrawlingFeedItem[]>([]), [selectedEvent,setSelectedEvent]=useState<OutbreakLocation|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
+  const [mapMode,setMapMode]=useState<'map'|'crawl'>('map')
   const [drawer,setDrawer]=useState(false), [sound,setSound]=useState(false), [fullscreen,setFullscreen]=useState(false), [kpiHidden,setKpiHidden]=useState(false), [leftHidden,setLeftHidden]=useState(false), [rightHidden,setRightHidden]=useState(false)
-  const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
-  const [bnpb,setBnpb]=useState({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false}), [wind,setWind]=useState(false), [ewsRadius,setEwsRadius]=useState<number|null>(null)
+  const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [markerLookbackDays,setMarkerLookbackDays]=useState<MarkerLookbackDays>(30), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
+  const [bnpb,setBnpb]=useState({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false}), [wind,setWind]=useState(false)
   const [clock,setClock]=useState({wib:'',wita:'',wit:'',date:''})
+
+  // Dynamic Auto-Layouting Coordinator for floating panels & cards
+  const topSectionRef = useRef<HTMLDivElement>(null)
+  const [panelTopOffset, setPanelTopOffset] = useState<number>(195)
+
+  useEffect(() => {
+    const updateTop = () => {
+      if (topSectionRef.current) {
+        const rect = topSectionRef.current.getBoundingClientRect()
+        setPanelTopOffset(Math.max(Math.round(rect.bottom + 10), 74))
+      }
+    }
+    updateTop()
+    const ro = new ResizeObserver(updateTop)
+    if (topSectionRef.current) ro.observe(topSectionRef.current)
+    window.addEventListener('resize', updateTop)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', updateTop)
+    }
+  }, [kpiHidden, headerExpanded])
   const load=useCallback(async()=>{
     try {
       const [dashboardData, crawlData] = await Promise.all([
@@ -78,13 +104,6 @@ export default function TvPage() {
     return()=>document.removeEventListener('fullscreenchange',onFs)
   },[])
 
-  useEffect(()=>{
-    if(localStorage.getItem('disease-ews-consent')==='accepted')setEwsRadius(100)
-    const handler=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.active)setEwsRadius(d.radius||100)}
-    window.addEventListener('disease-ews-changed',handler)
-    return()=>window.removeEventListener('disease-ews-changed',handler)
-  },[])
-
   const toggleFs=()=>fullscreen?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()
   const alerts=data?.alerts??[]
   const playSound=()=>{setSound(v=>!v);if(!sound){const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);g.gain.value=.04;o.start();o.stop(c.currentTime+.25)}}
@@ -102,9 +121,10 @@ export default function TvPage() {
         <AseanMap
           fullBleed
           baseMap={baseMap}
-          showAdmin={admin}
-          showMarkers={markers}
-          countryData={choropleth?data?.by_country:undefined}
+          showAdmin={mapMode === 'map' && admin}
+          showMarkers={mapMode === 'map' && markers}
+          markerLookbackDays={markerLookbackDays}
+          countryData={mapMode === 'map' && choropleth ? data?.by_country : undefined}
           outbreakLocations={data?.locations}
           locationsData={data?.locations?.map((l) => ({
             name: l.location_name || l.disease || "Kasus Terpantau",
@@ -113,9 +133,9 @@ export default function TvPage() {
           }))}
           bnpbLayers={bnpb}
           showWind={wind}
-          ewsRadiusKm={ewsRadius}
           hideLegend
         />
+        <CrawlModeOverlay active={mapMode === 'crawl'} items={crawlItems} locale={numLocale} />
       </div>
 
       <header className="pointer-events-none fixed left-2 right-2 top-2 z-40 flex items-center justify-between gap-3 sm:left-3 sm:right-3 sm:top-3">
@@ -152,6 +172,22 @@ export default function TvPage() {
 
         <div className="pointer-events-auto flex items-center gap-2">
           <LanguageSwitcher compact />
+          <div className="hidden items-center gap-0.5 rounded-xl border border-blue-200 bg-blue-50 p-0.5 sm:flex" role="group" aria-label="Map display mode">
+            <button
+              type="button"
+              onClick={() => setMapMode('map')}
+              className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide transition ${mapMode === 'map' ? 'bg-white text-[#0060A9] shadow-sm' : 'text-slate-500 hover:text-[#0060A9]'}`}
+            >
+              Map
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapMode('crawl')}
+              className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide transition ${mapMode === 'crawl' ? 'bg-slate-900 text-cyan-200 shadow-sm' : 'text-slate-500 hover:text-[#0060A9]'}`}
+            >
+              Crawl
+            </button>
+          </div>
           <button onClick={()=>setDrawer(v=>!v)} className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-extrabold ${drawer?'border-[#0060A9] bg-[#0060A9] text-white':'border-blue-200 bg-blue-50 text-[#0060A9]'}`}>
             <Layers className="h-4 w-4"/>
             <span className="hidden sm:inline">{t('tv.controls')}</span>
@@ -169,79 +205,154 @@ export default function TvPage() {
         </div>
       </header>
 
-      <div className="pointer-events-none fixed left-2 right-2 top-[60px] z-[35] sm:left-3 sm:right-3">
+      {/* Floating Top KPI Bar with Dynamic Measurement & Auto-Layouting */}
+      <div
+        ref={topSectionRef}
+        className="pointer-events-none fixed left-2 right-2 top-[58px] z-35 sm:left-3 sm:right-3 transition-all duration-300"
+      >
         <div className="mx-auto flex max-w-[1680px] flex-col items-center">
-          <button onClick={()=>setKpiHidden(v=>!v)} className="pointer-events-auto mb-1 flex items-center gap-1.5 rounded-full border border-[#cfe0f1] bg-white/95 px-3 py-0.5 text-[9.5px] font-extrabold shadow-sm">
+          <button
+            onClick={() => setKpiHidden((v) => !v)}
+            className="pointer-events-auto mb-1 flex items-center gap-1.5 rounded-full border border-[#cfe0f1] bg-white/95 px-3 py-0.5 text-[9.5px] font-extrabold shadow-sm transition hover:border-blue-300 hover:bg-blue-50 cursor-pointer"
+          >
             {kpiHidden ? t('tv.showKpi') : t('tv.hideKpi')}
-            {kpiHidden?<ChevronDown className="h-3 w-3 text-[#0060A9]"/>:<ChevronUp className="h-3 w-3 text-[#0060A9]"/>}
+            {kpiHidden ? (
+              <ChevronDown className="h-3 w-3 text-[#0060A9]" />
+            ) : (
+              <ChevronUp className="h-3 w-3 text-[#0060A9]" />
+            )}
           </button>
-          {!kpiHidden && (
-            <div className="pointer-events-auto grid w-full grid-cols-2 gap-2 lg:grid-cols-4">
-              <div className="rounded-xl border border-emerald-200 bg-white/95 p-2.5 shadow-[0_4px_14px_rgba(5,150,105,.08)] backdrop-blur-xl lg:col-span-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-1 text-emerald-600"><Radio className="h-3.5 w-3.5"/></div>
-                    <span className="text-[9.5px] font-black tracking-wider text-slate-600">LIVE CRAWLED</span>
+
+          {/* Smooth Collapsible KPI Cards Container */}
+          <div
+            className={`pointer-events-auto grid w-full grid-cols-2 gap-2 lg:grid-cols-4 transition-all duration-350 ease-in-out origin-top ${
+              kpiHidden
+                ? 'max-h-0 opacity-0 -translate-y-2 pointer-events-none overflow-hidden my-0 scale-98'
+                : 'max-h-96 opacity-100 translate-y-0 overflow-visible mt-1 scale-100'
+            }`}
+          >
+            <div className="rounded-xl border border-emerald-200 bg-white/95 p-2.5 shadow-[0_4px_14px_rgba(5,150,105,.08)] backdrop-blur-xl lg:col-span-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:border-emerald-300">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-1 text-emerald-600">
+                    <Radio className="h-3.5 w-3.5" />
                   </div>
-                  <span className={`inline-flex items-center gap-1 text-[8px] font-black uppercase ${crawlingStats?.collector_status === 'RUNNING' ? 'text-emerald-600' : 'text-slate-400'}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${crawlingStats?.collector_status === 'RUNNING' ? 'animate-pulse bg-emerald-500' : 'bg-slate-300'}`}/>
-                    {crawlingStats?.collector_status === 'RUNNING' ? 'Running' : 'Idle'}
-                  </span>
+                  <span className="text-[9.5px] font-black tracking-wider text-slate-600">TOTAL CRAWLED (ALL-TIME)</span>
                 </div>
-                <div className="mt-1 flex items-baseline justify-between">
-                  <b className="font-mono text-xl text-emerald-600">{loading && !crawlingStats ? '...' : (crawlingStats?.live_crawled ?? 0).toLocaleString(numLocale)}</b>
-                  <span className="text-[9px] font-bold text-slate-500">Current run</span>
+                <span
+                  className={`inline-flex items-center gap-1 text-[8px] font-black uppercase ${
+                    crawlingStats?.collector_status === 'RUNNING' ? 'text-emerald-600' : 'text-slate-400'
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      crawlingStats?.collector_status === 'RUNNING'
+                        ? 'animate-pulse bg-emerald-500'
+                        : 'bg-slate-300'
+                    }`}
+                  />
+                  {crawlingStats?.collector_status === 'RUNNING' ? 'Running' : 'Idle'}
+                </span>
+              </div>
+              <div className="mt-1 flex items-baseline justify-between">
+                <b className="font-mono text-xl text-emerald-600">
+                  {loading && !crawlingStats
+                    ? '...'
+                    : (crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 0).toLocaleString(numLocale)}
+                </b>
+                <span className="text-[9px] font-bold text-slate-500">All-time total</span>
+              </div>
+              <p className="mt-1 text-[8px] font-semibold text-slate-400">
+                Cumulative collector total, updated while crawling is live
+              </p>
+              <div className="mt-1.5 grid grid-cols-3 gap-1.5 border-t border-slate-100 pt-1.5">
+                <div className="rounded-md bg-slate-50 px-1.5 py-1">
+                  <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">Current Live Crawl</p>
+                  <p className="text-xs font-black text-slate-700">
+                    {(crawlingStats?.current_live_crawl ?? crawlingStats?.live_crawled ?? 0).toLocaleString(numLocale)}
+                  </p>
                 </div>
-                <div className="mt-1.5 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-1.5">
-                  <div className="rounded-md bg-slate-50 px-1.5 py-1">
-                    <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">Stored in DB</p>
-                    <p className="text-xs font-black text-slate-700">{(crawlingStats?.total ?? 0).toLocaleString(numLocale)}</p>
-                  </div>
-                  <div className="rounded-md bg-blue-50 px-1.5 py-1">
-                    <p className="text-[7px] font-black uppercase tracking-wide text-blue-500">Processed NLP</p>
-                    <p className="text-xs font-black text-[#0060A9]">{(crawlingStats?.total_processed ?? 0).toLocaleString(numLocale)}</p>
-                  </div>
+                <div className="rounded-md bg-blue-50 px-1.5 py-1">
+                  <p className="text-[7px] font-black uppercase tracking-wide text-blue-500">NLP Processing</p>
+                  <p className="text-xs font-black text-[#0060A9]">
+                    {(crawlingStats?.nlp_processing ?? 0).toLocaleString(numLocale)}
+                  </p>
+                </div>
+                <div className="rounded-md bg-violet-50 px-1.5 py-1">
+                  <p className="text-[7px] font-black uppercase tracking-wide text-violet-500">Stored in DB</p>
+                  <p className="text-xs font-black text-violet-700">
+                    {(crawlingStats?.stored_in_db ?? crawlingStats?.total_processed ?? 0).toLocaleString(numLocale)}
+                  </p>
                 </div>
               </div>
-              {cards.map(([label,value,Icon,color,bg])=>(
-                <div key={label} className="rounded-xl border border-[#cfe0f1] bg-white/95 p-2.5 shadow-[0_4px_14px_rgba(0,96,169,.06)] backdrop-blur-xl">
-                  <div className="flex items-center gap-2">
-                    <div className={`rounded-lg border p-1 ${bg}`}><Icon className="h-3.5 w-3.5"/></div>
-                    <span className="text-[9.5px] font-black tracking-wider text-slate-600">{label}</span>
-                  </div>
-                  <div className="mt-1 flex items-baseline justify-between">
-                    <b className={`font-mono text-xl ${color}`}>{loading?'...':Number(value).toLocaleString(numLocale)}</b>
-                    <span className="text-[9px] font-bold text-slate-500">{label===t('dashboard.kpiDeaths')?'Deaths':'Data'}</span>
-                  </div>
-                  <div className="mt-1 border-t border-slate-100 pt-1 text-[9px] font-bold text-slate-500">
-                    {data?.trends?.current_month
-                      ? t('tv.currentPeriod', { period: data.trends.current_month })
-                      : 'Snapshot NLP multilingual'}
-                  </div>
-                </div>
-              ))}
             </div>
-          )}
+
+            {cards.map(([label, value, Icon, color, bg]) => (
+              <div
+                key={label}
+                className="rounded-xl border border-[#cfe0f1] bg-white/95 p-2.5 shadow-[0_4px_14px_rgba(0,96,169,.06)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:border-blue-300"
+              >
+                <div className="flex items-center gap-2">
+                  <div className={`rounded-lg border p-1 ${bg}`}>
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <span className="text-[9.5px] font-black tracking-wider text-slate-600">{label}</span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <b className={`font-mono text-xl ${color}`}>
+                    {loading ? '...' : Number(value).toLocaleString(numLocale)}
+                  </b>
+                  <span className="text-[9px] font-bold text-slate-500">
+                    {label === t('dashboard.kpiDeaths') ? 'Deaths' : 'Data'}
+                  </span>
+                </div>
+                <div className="mt-1 border-t border-slate-100 pt-1 text-[9px] font-bold text-slate-500">
+                  {data?.trends?.current_month
+                    ? t('tv.currentPeriod', { period: data.trends.current_month })
+                    : 'Snapshot NLP multilingual'}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className={`pointer-events-none fixed bottom-12 left-3 z-30 transition-all ${leftHidden?'w-12':'w-[360px] 2xl:w-[420px]'} ${kpiHidden?'top-[74px]':'top-[198px]'}`}>
+      {/* Floating Left Panel: Crawling Feed (Dynamic Auto-Layout & Hover Elevation) */}
+      <div
+        style={{ top: `${panelTopOffset}px` }}
+        className={`pointer-events-none fixed bottom-12 left-3 z-30 transition-all duration-350 ease-in-out hover:z-45 focus-within:z-45 ${
+          leftHidden ? 'w-12' : 'w-[360px] 2xl:w-[420px]'
+        }`}
+      >
         <CrawlingFeedPanel
           collapsed={leftHidden}
           onToggle={() => setLeftHidden((value) => !value)}
           t={t}
           translateDisease={translateDisease}
+          onItemsChange={setCrawlItems}
         />
       </div>
 
-                  <div className={`pointer-events-none fixed bottom-12 right-3 z-30 transition-all ${rightHidden?'w-11':'w-80 2xl:w-96'} ${kpiHidden?'top-[74px]':'top-[198px]'}`}>
+      {/* Floating Right Panel: Analytics & Situation with Surveillance Signals (Dynamic Auto-Layout & Hover Elevation) */}
+      <div
+        style={{ top: `${panelTopOffset}px` }}
+        className={`pointer-events-none fixed bottom-12 right-3 z-30 transition-all duration-350 ease-in-out hover:z-45 focus-within:z-45 ${
+          rightHidden ? 'w-11' : 'w-80 2xl:w-96'
+        }`}
+      >
         <AnalyticsSituationPanel
           collapsed={rightHidden}
-          onToggle={() => setRightHidden(v => !v)}
+          onToggle={() => setRightHidden((v) => !v)}
           byDisease={data?.by_disease}
           byCountry={data?.by_country}
+          alerts={
+            data?.alerts && data.alerts.length > 0
+              ? data.alerts
+              : data?.locations?.filter((l) => (l.cases ?? 0) > 0 || l.has_alert)
+          }
           translateDisease={translateDisease}
           numLocale={numLocale}
+          onSelectAlert={setSelectedEvent}
         />
       </div>
 
@@ -264,7 +375,17 @@ export default function TvPage() {
           <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50/50 p-3.5">
             <LayerToggle icon={<Globe2 className="h-4 w-4"/>} title={t('map.adminBoundaries')} sub={t('map.adminBoundariesSub')} value={admin} set={setAdmin}/>
             <LayerToggle icon={<MapPin className="h-4 w-4"/>} title={t('map.outbreakMarkers')} sub={t('map.outbreakMarkersSub')} value={markers} set={setMarkers}/>
-            <LayerToggle icon={<ShieldAlert className="h-4 w-4"/>} title={t('map.casesChoropleth')} sub={t('map.casesChoroplethSub')} value={choropleth} set={setChoropleth}/>
+            <div className="ml-10 rounded-xl border border-slate-200 bg-white/80 p-2.5">
+              <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Marker time range</p>
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {([7, 14, 30, 90] as const).map((days) => (
+                  <button key={days} type="button" onClick={() => setMarkerLookbackDays(days)} className={`rounded-lg border px-2 py-1.5 text-[10px] font-bold transition ${markerLookbackDays === days ? 'border-[#0060A9] bg-blue-50 text-[#0060A9]' : 'border-slate-200 bg-white text-slate-500 hover:border-blue-200'}`}>
+                    {days === 90 ? '3 Months' : `${days} Days`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <LayerToggle icon={<Layers className="h-4 w-4"/>} title={t('map.casesChoropleth')} sub={t('map.casesChoroplethSub')} value={choropleth} set={setChoropleth}/>
             <LayerToggle icon={<Activity className="h-4 w-4"/>} title={t('map.windFlow')} sub={t('map.windFlowSub')} value={wind} set={setWind}/>
             <div>
               <p className="mb-2 text-[11px] font-black uppercase tracking-wider text-slate-700">{t('map.bnpbInarisk')}</p>
@@ -273,24 +394,6 @@ export default function TvPage() {
                   <LayerToggle key={key} icon={<Layers className="h-4 w-4"/>} title={label} sub={t('map.gisBnpb')} value={bnpb[key]} set={v=>setBnpb(p=>({...p,[key]:v}))}/>
                 ))}
               </div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-bold">{t('map.activeEwsRadius')}</p>
-                  <p className="text-[10px] font-semibold text-slate-500">{t('map.activeEwsRadiusSub')}</p>
-                </div>
-                <Toggle checked={ewsRadius!=null} onChange={v=>setEwsRadius(v?25:null)}/>
-              </div>
-              {ewsRadius!=null && (
-                <div className="mt-3">
-                  <div className="flex justify-between text-[10px] font-bold text-slate-600">
-                    <span>{t('map.impactRadius')}</span>
-                    <span>{ewsRadius} km</span>
-                  </div>
-                  <input type="range" min="5" max="250" step="5" value={ewsRadius} onChange={e=>setEwsRadius(Number(e.target.value))} className="mt-2 w-full accent-[#0060A9]"/>
-                </div>
-              )}
             </div>
             <div>
               <p className="mb-2 text-[11px] font-black uppercase tracking-wider text-slate-700">{t('map.baseMap')}</p>
@@ -302,19 +405,19 @@ export default function TvPage() {
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-3 text-[10px] font-semibold text-slate-600">
-              <p className="mb-2 text-xs font-black">{t('map.legend')}</p>
-              <p><i className="mr-2 inline-block h-3 w-3 rounded-full bg-[#ED2939]"/>{t('map.legendAwas')}</p>
-              <p className="mt-1"><i className="mr-2 inline-block h-3 w-3 rounded-full bg-[#B49B58]"/>{t('map.legendSiaga')}</p>
-              <p className="mt-1"><i className="mr-2 inline-block h-3 w-3 rounded-full bg-yellow-400"/>{t('map.legendWaspada')}</p>
-              <p className="mt-1"><i className="mr-2 inline-block h-3 w-3 rounded-full border-2 border-red-500 bg-red-100"/>{t('map.activeEwsRadius')}</p>
-            </div>
-            <button onClick={()=>{setBaseMap('osm');setAdmin(true);setMarkers(true);setChoropleth(true);setWind(false);setEwsRadius(null);setBnpb({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false})}} className="w-full rounded-xl border border-blue-300 bg-blue-50 py-2 text-xs font-black text-[#0060A9]">
+            <button onClick={()=>{setBaseMap('osm');setAdmin(true);setMarkers(true);setMarkerLookbackDays(30);setChoropleth(true);setWind(false);setBnpb({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false})}} className="w-full rounded-xl border border-blue-300 bg-blue-50 py-2 text-xs font-black text-[#0060A9]">
               {t('map.resetLayers')}
             </button>
           </div>
         </div>
       )}
+
+      <SurveillanceDetailModal
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        translateDisease={translateDisease}
+        numLocale={numLocale}
+      />
 
       <footer className="fixed bottom-2 left-2 right-2 z-40 flex h-9 items-center overflow-hidden rounded-xl border border-[#cfe0f1] bg-white/95 shadow-[0_-4px_16px_rgba(0,96,169,.08)] backdrop-blur-xl">
         <div className="flex h-full shrink-0 items-center gap-2 bg-gradient-to-r from-[#0060A9] to-[#0284c7] px-4 text-[10px] font-black tracking-widest text-white">

@@ -12,3 +12,4 @@ minio==7.2.10
 psycopg[binary]==3.2.3
 apscheduler==3.10.4
 python-dateutil==2.9.0.post0
+pdfplumber==0.11.4

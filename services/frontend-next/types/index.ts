@@ -85,6 +85,18 @@ export type OutbreakLocation = {
   severity: "NORMAL" | "WASPADA" | "SIAGA" | "AWAS";
   has_alert: boolean;
   latest_date: string;
+  sources?: {
+    url?: string | null;
+    source_name?: string | null;
+    source_type?: string | null;
+    published_at?: string | null;
+  }[];
+  recent_cases?: number;
+  previous_period_cases?: number;
+  recent_event_count?: number;
+  recent_source_count?: number;
+  is_recent?: boolean;
+  is_hot?: boolean;
   detail?: {
     event_id?: string;
     raw_report_id?: string;
@@ -109,10 +121,26 @@ export type OutbreakLocation = {
   };
 };
 
+export type PublicDashboardFilters = {
+  country?: string | null;
+  year?: number;
+  disease?: string | null;
+  source?: string | null;
+  start_year?: number;
+  start_week?: number;
+  end_year?: number;
+  end_week?: number;
+  start_date?: string;
+  end_date?: string;
+};
+
 export type PublicDashboard = {
   updated_at: string;
   available_years?: number[];
-  filters?: { country: string | null; year: number };
+  available_diseases?: string[];
+  current_epi_week?: number;
+  current_epi_year?: number;
+  filters?: PublicDashboardFilters;
   kpis: {
     cases: number;
     deaths: number;
@@ -123,7 +151,7 @@ export type PublicDashboard = {
   alerts: OutbreakLocation[];
   locations: OutbreakLocation[];
   by_disease: { name: string; cases: number; deaths: number; events: number }[];
-  by_country: { name: string; cases: number }[];
+  by_country: { name: string; cases: number; deaths?: number }[];
   ai_summary: { text: string; provider: string; cached: boolean };
   trends: {
     current_month: string;

@@ -4,7 +4,7 @@
     routing::{get, post, put},
     Json, Router,
 };
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, Weekday};
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,39 @@ struct IngestRequest {
 #[derive(Debug, Deserialize)]
 struct AnalyzeUrlRequest {
     url: String,
+    #[serde(default, rename = "async")]
+    asynchronous: bool,
+}
+
+#[cfg(test)]
+mod analysis_contract_tests {
+    use super::*;
+    #[test]
+    fn old_request_remains_synchronous() {
+        let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org"})).unwrap();
+        assert!(!request.asynchronous);
+    }
+    #[test]
+    fn async_is_explicit_opt_in() {
+        let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org","async":true})).unwrap();
+        assert!(request.asynchronous);
+    }
+
+    #[test]
+    fn disease_candidate_review_requires_official_concept_when_resolving() {
+        assert!(validate_candidate_review("resolved", None).is_err());
+        assert!(validate_candidate_review("resolved", Some(Uuid::new_v4())).is_ok());
+        assert!(validate_candidate_review("rejected", None).is_ok());
+        assert!(validate_candidate_review("pending", None).is_err());
+        assert!(validate_candidate_review("unknown", None).is_err());
+    }
+
+    #[test]
+    fn unified_dashboard_filter_uses_iso_week_boundaries() {
+        let (start, end) = resolve_dashboard_dates(2026, Some(2025), Some(1), Some(2026), Some(36));
+        assert_eq!(start, NaiveDate::from_ymd_opt(2024, 12, 30).unwrap());
+        assert_eq!(end, NaiveDate::from_ymd_opt(2026, 9, 6).unwrap());
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,16 +210,33 @@ struct LoginRequest {
 struct MorbidityQuery {
     disease: Option<String>,
     weeks: Option<i32>,
+    country: Option<String>,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
 struct TrendOverviewQuery {
     days: Option<i32>,
+    country: Option<String>,
+    disease: Option<String>,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
 struct HeatmapQuery {
     year: Option<i32>,
+    country: Option<String>,
+    disease: Option<String>,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -194,12 +244,54 @@ struct PublicDashboardQuery {
     country: Option<String>,
     year: Option<i32>,
     source: Option<String>,
+    disease: Option<String>,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
+}
+
+/// Resolve the same ISO-week date boundaries used by the main dashboard.
+/// Optional fields preserve the legacy year-only behavior of the supporting
+/// dashboard endpoints when callers do not send the unified filter.
+fn resolve_dashboard_dates(
+    default_year: i32,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
+) -> (NaiveDate, NaiveDate) {
+    let start_year = start_year.unwrap_or(default_year);
+    let end_year = end_year.unwrap_or(default_year);
+    let start_date = start_week
+        .and_then(|week| NaiveDate::from_isoywd_opt(start_year, week, Weekday::Mon))
+        .or_else(|| NaiveDate::from_ymd_opt(start_year, 1, 1))
+        .unwrap();
+    let end_date = end_week
+        .and_then(|week| NaiveDate::from_isoywd_opt(end_year, week, Weekday::Sun))
+        .or_else(|| NaiveDate::from_ymd_opt(end_year, 12, 31))
+        .unwrap();
+    (start_date, end_date)
 }
 
 #[derive(Debug, Deserialize)]
 struct IbsSummaryQuery {
     year: Option<i32>,
     province: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiseaseCandidateQuery {
+    status: Option<String>,
+    language: Option<String>,
+    page: Option<i64>,
+    per_page: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewDiseaseCandidateRequest {
+    status: String,
+    resolved_concept_id: Option<Uuid>,
 }
 
 
@@ -479,8 +571,21 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health))
         .route("/api/v1/ingest", post(ingest))
         .route("/api/v1/analyze-url", post(analyze_url))
+        .route("/api/v1/analysis-jobs/:id", get(analysis_job_status))
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/events/stats", get(dashboard_stats))
+        .route(
+            "/api/v1/disease-discovery-candidates",
+            get(list_disease_discovery_candidates),
+        )
+        .route(
+            "/api/v1/disease-discovery-candidates/metrics",
+            get(disease_discovery_candidate_metrics),
+        )
+        .route(
+            "/api/v1/disease-discovery-candidates/:id/review",
+            post(review_disease_discovery_candidate),
+        )
         .route("/api/v1/crawling-stats", get(crawling_stats))
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/public-dashboard", get(public_dashboard))
@@ -888,11 +993,43 @@ fn extract_body_text(html: &str) -> String {
     strip_html_text(html)
 }
 
+async fn analysis_job_status(
+    State(state): State<Arc<AppState>>, Path(id): Path<Uuid>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let response = state.http.get(format!("{}/analysis-jobs/{}", state.collector_url, id))
+        .timeout(std::time::Duration::from_secs(8)).send().await.map_err(internal_error)?;
+    let status = response.status();
+    let body: Value = response.json().await.map_err(internal_error)?;
+    if !status.is_success() {
+        return Err((StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), Json(body)));
+    }
+    Ok(Json(body))
+}
+
 async fn analyze_url(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AnalyzeUrlRequest>,
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
     let url = payload.url.trim().to_string();
+    let entity_location_storage_enabled = env::var("ENTITY_LOCATION_STORAGE_ENABLED")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(true);
+    let entity_disease_storage_enabled = env::var("ENTITY_DISEASE_STORAGE_ENABLED")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(true);
+
+    if payload.asynchronous && env::var("ANALYZE_URL_ASYNC_ENABLED").map(|v| v == "true").unwrap_or(false) {
+        let response = state.http.post(format!("{}/analysis-jobs", state.collector_url))
+            .json(&json!({"url": url})).timeout(std::time::Duration::from_secs(8))
+            .send().await.map_err(internal_error)?;
+        let status = response.status();
+        let body: Value = response.json().await.map_err(internal_error)?;
+        if !status.is_success() {
+            return Err((StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), Json(body)));
+        }
+        return Ok(Json(ApiResponse { success: true, data: body["data"].clone(),
+            total: None, page: None, per_page: None, total_pages: None }));
+    }
 
     if url.is_empty() {
         return Err((StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "URL tidak boleh kosong" }))));
@@ -1253,7 +1390,142 @@ async fn analyze_url(
             .map_err(internal_error)?;
     }
 
-    for loc in &nlp.locations {
+    if entity_disease_storage_enabled {
+        let mut mentions = nlp.disease_mentions.clone();
+        if mentions.is_empty() {
+            mentions.push(json!({
+                "surface_form": nlp.disease_classification,
+                "canonical_name": nlp.disease_classification,
+                "role": "primary",
+                "confidence": nlp.confidence,
+                "resolution_source": "legacy_primary",
+            }));
+        }
+        for mention in mentions {
+            let disease_name = mention
+                .get("canonical_name")
+                .and_then(Value::as_str)
+                .or_else(|| mention.get("surface_form").and_then(Value::as_str))
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if disease_name.is_empty()
+                || disease_name.eq_ignore_ascii_case("unknown")
+                || disease_name.to_ascii_uppercase().starts_with("NEGATIVE")
+            {
+                continue;
+            }
+            let surface_form = mention
+                .get("surface_form")
+                .and_then(Value::as_str)
+                .unwrap_or(&disease_name)
+                .to_string();
+            let is_primary = mention
+                .get("role")
+                .and_then(Value::as_str)
+                .map(|role| role.eq_ignore_ascii_case("primary"))
+                .unwrap_or(false)
+                || disease_name.eq_ignore_ascii_case(&nlp.disease_classification);
+            let role = if is_primary { "primary" } else { "mentioned" };
+            let case_count = if is_primary { Some(nlp.case_count) } else { None };
+            let death_count = if is_primary { Some(nlp.death_count) } else { None };
+            let icd11_code = mention
+                .get("icd11_code")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let confidence = mention
+                .get("confidence")
+                .and_then(Value::as_f64)
+                .or(Some(nlp.confidence));
+            let evidence = mention
+                .get("evidence")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let resolution_source = mention
+                .get("resolution_source")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            client
+                .execute(
+                    "INSERT INTO disease_event_diseases
+                       (disease_event_id, surface_form, disease_name, role,
+                        icd11_code, confidence, case_count, death_count,
+                        evidence, resolution_source)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                     ON CONFLICT (disease_event_id, disease_name, role) DO UPDATE SET
+                       surface_form = EXCLUDED.surface_form,
+                       icd11_code = EXCLUDED.icd11_code,
+                       confidence = EXCLUDED.confidence,
+                       case_count = EXCLUDED.case_count,
+                       death_count = EXCLUDED.death_count,
+                       evidence = EXCLUDED.evidence,
+                       resolution_source = EXCLUDED.resolution_source",
+                    &[
+                        &event_id,
+                        &surface_form,
+                        &disease_name,
+                        &role,
+                        &icd11_code,
+                        &confidence,
+                        &case_count,
+                        &death_count,
+                        &evidence,
+                        &resolution_source,
+                    ],
+                )
+                .await
+                .map_err(internal_error)?;
+        }
+    }
+
+    let mut entity_locations = nlp.locations.clone();
+    if entity_locations.is_empty() {
+        if let Some(name) = nlp.location_name.clone() {
+            entity_locations.push(LocationItem {
+                name,
+                latitude: nlp.latitude,
+                longitude: nlp.longitude,
+                country: nlp.country.clone(),
+            });
+        }
+    }
+    if entity_location_storage_enabled {
+        for loc in &entity_locations {
+            let is_event_location = Some(&loc.name) == nlp.location_name.as_ref();
+            let role = if is_event_location { "event" } else { "other" };
+            let case_count = if is_event_location { Some(nlp.case_count) } else { None };
+            let death_count = if is_event_location { Some(nlp.death_count) } else { None };
+            client
+                .execute(
+                    "INSERT INTO disease_event_locations
+                       (disease_event_id, location_ref, location_name, role, country,
+                        latitude, longitude, case_count, death_count, evidence)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                     ON CONFLICT (disease_event_id, location_ref, role) DO UPDATE SET
+                       country = EXCLUDED.country,
+                       latitude = EXCLUDED.latitude,
+                       longitude = EXCLUDED.longitude,
+                       case_count = EXCLUDED.case_count,
+                       death_count = EXCLUDED.death_count,
+                       evidence = EXCLUDED.evidence",
+                    &[
+                        &event_id,
+                        &loc.name,
+                        &loc.name,
+                        &role,
+                        &loc.country,
+                        &loc.latitude,
+                        &loc.longitude,
+                        &case_count,
+                        &death_count,
+                        &Option::<String>::None,
+                    ],
+                )
+                .await
+                .map_err(internal_error)?;
+        }
+    } else {
+    for loc in &entity_locations {
         if Some(&loc.name) == nlp.location_name.as_ref() {
             continue;
         }
@@ -1320,6 +1592,7 @@ async fn analyze_url(
                 )
                 .await;
         }
+    }
     }
 
     let mut sources = serde_json::Map::new();
@@ -1399,8 +1672,241 @@ fn build_pagination(page: Option<i64>, per_page: Option<i64>) -> (i64, i64, i64)
     (p, pp, offset)
 }
 
+fn page_params(page: Option<i64>, per_page: Option<i64>) -> (i64, i64, i64) {
+    build_pagination(page, per_page)
+}
+
 fn calc_total_pages(total: i64, per_page: i64) -> i64 {
     if total == 0 { 1 } else { (total as f64 / per_page as f64).ceil() as i64 }
+}
+
+fn validate_candidate_review(
+    status: &str,
+    resolved_concept_id: Option<Uuid>,
+) -> Result<(), &'static str> {
+    match status {
+        "resolved" if resolved_concept_id.is_some() => Ok(()),
+        "resolved" => Err("resolved candidates require resolved_concept_id"),
+        "rejected" => Ok(()),
+        "pending" => Err("pending is not a review action"),
+        _ => Err("status must be resolved or rejected"),
+    }
+}
+
+async fn list_disease_discovery_candidates(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DiseaseCandidateQuery>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let requested_status = query.status.as_deref().unwrap_or("pending");
+    if !matches!(requested_status, "pending" | "resolved" | "rejected" | "all") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "status must be pending, resolved, rejected, or all"})),
+        ));
+    }
+
+    let (page, per_page, offset) = page_params(query.page, query.per_page);
+    let status_filter = if requested_status == "all" {
+        None
+    } else {
+        Some(requested_status.to_string())
+    };
+    let language_filter = query
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let client = state.db.get().await.map_err(internal_error)?;
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*)::bigint
+             FROM disease_discovery_candidates
+             WHERE ($1::text IS NULL OR status = $1)
+               AND ($2::text IS NULL OR language = $2)",
+            &[&status_filter, &language_filter],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+    let rows = client
+        .query(
+            "SELECT id, surface_form, normalized_form, language, sample_text,
+                    source_url, status, resolved_concept_id, provider,
+                    confidence, occurrences, created_at::text, updated_at::text
+             FROM disease_discovery_candidates
+             WHERE ($1::text IS NULL OR status = $1)
+               AND ($2::text IS NULL OR language = $2)
+             ORDER BY updated_at DESC, occurrences DESC
+             LIMIT $3 OFFSET $4",
+            &[&status_filter, &language_filter, &per_page, &offset],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let items = rows
+        .iter()
+        .map(|row| {
+            json!({
+                "id": row.get::<_, Uuid>("id"),
+                "surface_form": row.get::<_, String>("surface_form"),
+                "normalized_form": row.get::<_, String>("normalized_form"),
+                "language": row.get::<_, Option<String>>("language"),
+                "sample_text": row.get::<_, Option<String>>("sample_text"),
+                "source_url": row.get::<_, Option<String>>("source_url"),
+                "status": row.get::<_, String>("status"),
+                "resolved_concept_id": row.get::<_, Option<Uuid>>("resolved_concept_id"),
+                "provider": row.get::<_, Option<String>>("provider"),
+                "confidence": row.get::<_, Option<f64>>("confidence"),
+                "occurrences": row.get::<_, i32>("occurrences"),
+                "created_at": row.get::<_, String>("created_at"),
+                "updated_at": row.get::<_, String>("updated_at"),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({"items": items}),
+        total: Some(total),
+        page: Some(page),
+        per_page: Some(per_page),
+        total_pages: Some(calc_total_pages(total, per_page)),
+    }))
+}
+
+async fn disease_discovery_candidate_metrics(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query(
+            "WITH counts AS (
+                 SELECT COALESCE(NULLIF(language, ''), 'unknown') AS language,
+                        status, COUNT(*)::bigint AS count,
+                        SUM(occurrences)::bigint AS occurrences
+                 FROM disease_discovery_candidates
+                 GROUP BY 1, status
+             ), totals AS (
+                 SELECT language, SUM(count)::bigint AS total
+                 FROM counts
+                 GROUP BY language
+             )
+             SELECT counts.language, counts.status, counts.count,
+                    counts.occurrences,
+                    ROUND((counts.count::numeric * 100 / NULLIF(totals.total, 0)), 2)::float8
+                        AS percentage
+             FROM counts
+             JOIN totals USING (language)
+             ORDER BY counts.language, counts.status",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+    let by_language = rows
+        .iter()
+        .map(|row| {
+            json!({
+                "language": row.get::<_, String>("language"),
+                "status": row.get::<_, String>("status"),
+                "count": row.get::<_, i64>("count"),
+                "occurrences": row.get::<_, Option<i64>>("occurrences").unwrap_or(0),
+                "percentage": row.get::<_, Option<f64>>("percentage").unwrap_or(0.0),
+            })
+        })
+        .collect::<Vec<_>>();
+    let unknown_rows = client
+        .query(
+            "WITH totals AS (
+                 SELECT COALESCE(NULLIF(language, ''), 'unknown') AS language,
+                        COUNT(*)::bigint AS total
+                 FROM disease_events
+                 GROUP BY 1
+             ), unknowns AS (
+                 SELECT COALESCE(NULLIF(language, ''), 'unknown') AS language,
+                        COUNT(*)::bigint AS count
+                 FROM disease_events
+                 WHERE UPPER(COALESCE(disease_classification, 'UNKNOWN')) = 'UNKNOWN'
+                 GROUP BY 1
+             )
+             SELECT totals.language, COALESCE(unknowns.count, 0)::bigint AS count,
+                    ROUND((COALESCE(unknowns.count, 0)::numeric * 100 /
+                           NULLIF(totals.total, 0)), 2)::float8 AS percentage
+             FROM totals
+             LEFT JOIN unknowns USING (language)
+             ORDER BY totals.language",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+    let unknown_by_language = unknown_rows
+        .iter()
+        .map(|row| {
+            json!({
+                "language": row.get::<_, String>("language"),
+                "count": row.get::<_, i64>("count"),
+                "percentage": row.get::<_, Option<f64>>("percentage").unwrap_or(0.0),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "by_language": by_language,
+            "unknown_events_by_language": unknown_by_language,
+        }),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+async fn review_disease_discovery_candidate(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<ReviewDiseaseCandidateRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    if let Err(message) =
+        validate_candidate_review(&payload.status, payload.resolved_concept_id)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": message})),
+        ));
+    }
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_opt(
+            "UPDATE disease_discovery_candidates
+             SET status = $2, resolved_concept_id = $3, updated_at = NOW()
+             WHERE id = $1
+             RETURNING id, surface_form, status, resolved_concept_id,
+                       updated_at::text",
+            &[&id, &payload.status, &payload.resolved_concept_id],
+        )
+        .await
+        .map_err(internal_error)?;
+    let Some(row) = row else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"success": false, "error": "Disease candidate not found"})),
+        ));
+    };
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "id": row.get::<_, Uuid>("id"),
+            "surface_form": row.get::<_, String>("surface_form"),
+            "status": row.get::<_, String>("status"),
+            "resolved_concept_id": row.get::<_, Option<Uuid>>("resolved_concept_id"),
+            "updated_at": row.get::<_, String>("updated_at"),
+        }),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
 }
 
 async fn list_events(
@@ -1601,8 +2107,13 @@ async fn crawling_stats(
                FROM collector_runs
                WHERE status = 'RUNNING'
              ),
+             run_totals AS (
+               SELECT COALESCE(SUM(records_found), 0)::BIGINT AS historical_crawled
+               FROM collector_runs
+               WHERE status <> 'RUNNING'
+             ),
              active_received AS (
-               SELECT COUNT(*)::BIGINT AS live_crawled
+               SELECT COUNT(*)::BIGINT AS current_live_crawl
                FROM raw_reports rr
                WHERE EXISTS (
                  SELECT 1
@@ -1617,17 +2128,23 @@ async fn crawling_stats(
                COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW()) - INTERVAL '1 month'
                                   AND created_at < date_trunc('month', NOW())) AS last_month,
                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED') AS total_processed,
+               COUNT(*) FILTER (WHERE processing_status IN ('PROCESSED', 'NON_HEALTH')) AS stored_in_db,
+               COUNT(*) FILTER (WHERE processing_status IN ('NEW', 'PROCESSING')) AS nlp_processing,
                TO_CHAR(date_trunc('month', NOW()), 'YYYY-MM') AS current_month_label,
                TO_CHAR(date_trunc('month', NOW()) - INTERVAL '1 month', 'YYYY-MM') AS previous_month_label,
                ar.active_run_count,
                ar.active_since,
-               GREATEST(ar.active_records_found, received.live_crawled) AS live_crawled,
+               GREATEST(ar.active_records_found, received.current_live_crawl) AS live_crawled,
+               received.current_live_crawl,
+               totals.historical_crawled + received.current_live_crawl AS total_crawled_all_time,
                CASE WHEN ar.active_run_count > 0 THEN 'RUNNING' ELSE 'IDLE' END AS collector_status,
                MAX(created_at)::text AS last_report_at
              FROM raw_reports
              CROSS JOIN active_runs ar
              CROSS JOIN active_received received
-             GROUP BY ar.active_run_count, ar.active_since, ar.active_records_found, received.live_crawled",
+             CROSS JOIN run_totals totals
+             GROUP BY ar.active_run_count, ar.active_since, ar.active_records_found,
+                      received.current_live_crawl, totals.historical_crawled",
             &[],
         )
         .await
@@ -1637,6 +2154,8 @@ async fn crawling_stats(
     let this_month: i64 = summary_row.get("this_month");
     let last_month: i64 = summary_row.get("last_month");
     let total_processed: i64 = summary_row.get("total_processed");
+    let stored_in_db: i64 = summary_row.get("stored_in_db");
+    let nlp_processing: i64 = summary_row.get("nlp_processing");
     let current_month_label: String = summary_row
         .get::<_, Option<String>>("current_month_label")
         .unwrap_or_default();
@@ -1646,6 +2165,8 @@ async fn crawling_stats(
     let active_run_count: i64 = summary_row.get("active_run_count");
     let active_since: Option<String> = summary_row.get("active_since");
     let live_crawled: i64 = summary_row.get("live_crawled");
+    let current_live_crawl: i64 = summary_row.get("current_live_crawl");
+    let total_crawled_all_time: i64 = summary_row.get("total_crawled_all_time");
     let collector_status: String = summary_row.get("collector_status");
     let last_report_at: Option<String> = summary_row.get("last_report_at");
 
@@ -1683,9 +2204,13 @@ async fn crawling_stats(
             "this_month": this_month,
             "last_month": last_month,
             "total_processed": total_processed,
+            "stored_in_db": stored_in_db,
+            "nlp_processing": nlp_processing,
             "current_month": current_month_label,
             "previous_month": previous_month_label,
             "live_crawled": live_crawled,
+            "current_live_crawl": current_live_crawl,
+            "total_crawled_all_time": total_crawled_all_time,
             "active_run_count": active_run_count,
             "active_since": active_since,
             "collector_status": collector_status,
@@ -1702,6 +2227,17 @@ async fn spatial_heatmap(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     let selected_year = query.year.unwrap_or_else(|| chrono::Utc::now().year());
+    let (start_date, end_date) = resolve_dashboard_dates(
+        selected_year,
+        query.start_year,
+        query.start_week,
+        query.end_year,
+        query.end_week,
+    );
+    let selected_country = query.country.filter(|value| {
+        !value.trim().is_empty() && value != "all" && value != "ASEAN"
+    });
+    let selected_disease = query.disease.filter(|value| !value.trim().is_empty() && value != "all");
 
     let rows = client
         .query(
@@ -1719,7 +2255,7 @@ async fn spatial_heatmap(
                  AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
                  AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
                  AND e.published_at IS NOT NULL
-                 AND e.published_at >= make_date($1, 1, 1) AND e.published_at < make_date($1 + 1, 1, 1)
+                 AND e.published_at::date >= $1 AND e.published_at::date <= $2
              ), valid AS (
                SELECT ranked.*,
                       CASE 
@@ -1752,9 +2288,11 @@ async fn spatial_heatmap(
                     COUNT(*) FILTER (WHERE outbreak_alert = TRUE)::bigint AS alert_count
              FROM valid
              WHERE resolved_country IN ('Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam')
+               AND ($3::text IS NULL OR LOWER(resolved_country) = LOWER($3))
+               AND ($4::text IS NULL OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
              GROUP BY resolved_country, 2, 3
              ORDER BY resolved_country, month_num",
-            &[&selected_year],
+            &[&start_date, &end_date, &selected_country, &selected_disease],
         )
         .await
         .map_err(internal_error)?;
@@ -1879,6 +2417,25 @@ async fn disease_trend_overview(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     let days_count = query.days.unwrap_or(7).clamp(3, 90);
+    let current_date = chrono::Utc::now().date_naive();
+    let (start_date, end_date) = if query.start_year.is_some() || query.start_week.is_some()
+        || query.end_year.is_some() || query.end_week.is_some()
+    {
+        resolve_dashboard_dates(
+            current_date.year(),
+            query.start_year,
+            query.start_week,
+            query.end_year,
+            query.end_week,
+        )
+    } else {
+        (current_date - chrono::Duration::days(i64::from(days_count)), current_date)
+    };
+    let selected_country = query.country.filter(|value| {
+        !value.trim().is_empty() && value != "all" && value != "ASEAN"
+    });
+    let selected_disease = query.disease.filter(|value| !value.trim().is_empty() && value != "all");
+    let trend_days = (end_date - start_date).num_days().saturating_add(1) as i32;
 
     let rows = client.query(
         "WITH ranked AS (
@@ -1944,30 +2501,33 @@ async fn disease_trend_overview(
                 COUNT(*) FILTER (WHERE outbreak_alert = TRUE)::bigint as alert_count
          FROM valid
          WHERE resolved_country IN ('Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam')
+           AND published_at::date >= $1 AND published_at::date <= $2
+           AND ($3::text IS NULL OR LOWER(resolved_country) = LOWER($3))
+           AND ($4::text IS NULL OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
          GROUP BY standard_disease, resolved_country
          ORDER BY standard_disease, total_cases DESC, event_count DESC;",
-        &[],
+        &[&start_date, &end_date, &selected_country, &selected_disease],
     ).await.map_err(internal_error)?;
 
     // Daily multi-line trends
     let trend_rows = client.query(
-        "WITH max_d AS (
-           SELECT COALESCE(MAX(published_at::date), CURRENT_DATE) as end_date FROM disease_events
-         )
-         SELECT (published_at::date)::text as date_str,
+        "SELECT (e.published_at::date)::text as date_str,
                 TO_CHAR(published_at, 'DD Mon') as date_label,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%dengue%' OR UPPER(disease_classification) = 'DBD' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as dbd,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%measles%' OR LOWER(disease_classification) LIKE '%campak%' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as campak,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%covid%' OR LOWER(disease_classification) LIKE '%corona%' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as covid,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%rabies%' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as rabies,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%hand foot%' OR LOWER(disease_classification) LIKE '%hfmd%' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as hfmd
-         FROM disease_events, max_d
-         WHERE published_at::date >= (max_d.end_date - make_interval(days => $1))
-           AND published_at::date <= max_d.end_date
-           AND (is_health_related = TRUE OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
-         GROUP BY (published_at::date)::text, TO_CHAR(published_at, 'DD Mon')
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%dengue%' OR UPPER(e.disease_classification) = 'DBD' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as dbd,
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%measles%' OR LOWER(e.disease_classification) LIKE '%campak%' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as campak,
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%covid%' OR LOWER(e.disease_classification) LIKE '%corona%' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as covid,
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%rabies%' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as rabies,
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%hand foot%' OR LOWER(e.disease_classification) LIKE '%hfmd%' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as hfmd
+         FROM disease_events e
+         WHERE e.published_at::date >= $1
+           AND e.published_at::date <= $2
+           AND (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+           AND ($3::text IS NULL OR LOWER(e.disease_classification) = LOWER($3) OR LOWER(e.disease_classification) LIKE '%' || LOWER($3) || '%')
+           AND ($4::text IS NULL OR (LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($4) = 'indonesia')
+             OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(e.location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($4)))
+         GROUP BY (e.published_at::date)::text, TO_CHAR(e.published_at, 'DD Mon')
          ORDER BY date_str ASC;",
-        &[&days_count],
+        &[&start_date, &end_date, &selected_disease, &selected_country],
     ).await.map_err(internal_error)?;
 
     // Aggregate into disease structures
@@ -2108,7 +2668,7 @@ async fn disease_trend_overview(
                 "top_burden_disease": top_disease,
                 "top_burden_country": top_country,
                 "total_cases_tracked": grand_cases,
-                "trend_days": days_count,
+                "trend_days": trend_days,
             },
             "priority_alerts": priority_alerts,
             "daily_trends": daily_trends,
@@ -2124,6 +2684,17 @@ async fn morbidity_mortality_handler(
     let client = state.db.get().await.map_err(internal_error)?;
     let selected_disease = query.disease.unwrap_or_else(|| "all".to_string()).to_lowercase();
     let weeks_count = query.weeks.unwrap_or(12).clamp(4, 52);
+    let default_year = query.end_year.or(query.start_year).unwrap_or_else(|| chrono::Utc::now().year());
+    let (start_date, end_date) = resolve_dashboard_dates(
+        default_year,
+        query.start_year,
+        query.start_week,
+        query.end_year,
+        query.end_week,
+    );
+    let selected_country = query.country.filter(|value| {
+        !value.trim().is_empty() && value != "all" && value != "ASEAN"
+    });
 
     // 1. Overall summary
     let summary_row = client.query_one(
@@ -2133,6 +2704,10 @@ async fn morbidity_mortality_handler(
            COALESCE(ROUND((SUM(GREATEST(COALESCE(death_count, 0), 0))::numeric / NULLIF(SUM(GREATEST(COALESCE(case_count, 0), 0)), 0)) * 100, 2), 0)::float8 as cfr_pct
          FROM disease_events e
          WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+           AND COALESCE(e.published_at, e.created_at::date) >= $2
+           AND COALESCE(e.published_at, e.created_at::date) <= $3
+           AND ($4::text IS NULL OR (LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($4) = 'indonesia')
+             OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(e.location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($4)))
            AND (
              $1 = 'all' OR
              ($1 = 'dbd' AND (LOWER(e.disease_classification) LIKE '%dengue%' OR UPPER(e.disease_classification) = 'DBD')) OR
@@ -2144,30 +2719,28 @@ async fn morbidity_mortality_handler(
              ($1 = 'cholera' AND (LOWER(e.disease_classification) LIKE '%cholera%' OR LOWER(e.disease_classification) LIKE '%kolera%')) OR
              LOWER(e.disease_classification) LIKE '%' || $1 || '%'
            );",
-        &[&selected_disease],
+        &[&selected_disease, &start_date, &end_date, &selected_country],
     ).await.map_err(internal_error)?;
 
     let total_morbidity: i64 = summary_row.get("total_morbidity");
     let total_mortality: i64 = summary_row.get("total_mortality");
     let cfr_pct: f64 = summary_row.get("cfr_pct");
 
-    // 2. Weekly trends
-    let weekly_rows = client.query(
-        "WITH max_d AS (
-           SELECT COALESCE(MAX(published_at), CURRENT_DATE) as end_date FROM disease_events WHERE published_at IS NOT NULL
-         ), weekly AS (
+    // 2. Monthly trends (converted to monthly aggregation per user request)
+    let monthly_rows = client.query(
+        "WITH monthly AS (
            SELECT 
-             EXTRACT(YEAR FROM e.published_at)::int as year_num,
-             EXTRACT(WEEK FROM e.published_at)::int as week_num,
-             TO_CHAR(MIN(e.published_at), 'Mon') as month_str,
-             MIN(e.published_at) as week_start,
+             EXTRACT(YEAR FROM COALESCE(e.published_at, e.created_at::date))::int as year_num,
+             EXTRACT(MONTH FROM COALESCE(e.published_at, e.created_at::date))::int as month_num,
+             TO_CHAR(MIN(COALESCE(e.published_at, e.created_at::date)), 'Mon') as month_str,
              SUM(GREATEST(COALESCE(e.case_count, 0), 0))::bigint as morbidity,
              SUM(GREATEST(COALESCE(e.death_count, 0), 0))::bigint as mortality
-           FROM disease_events e, max_d
-           WHERE e.published_at IS NOT NULL
-             AND e.published_at >= (max_d.end_date - make_interval(weeks => $2))
-             AND e.published_at <= max_d.end_date
+           FROM disease_events e
+           WHERE COALESCE(e.published_at, e.created_at::date) >= $2
+             AND COALESCE(e.published_at, e.created_at::date) <= $3
              AND (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+             AND ($4::text IS NULL OR (LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($4) = 'indonesia')
+               OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(e.location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($4)))
              AND (
                $1 = 'all' OR
                ($1 = 'dbd' AND (LOWER(e.disease_classification) LIKE '%dengue%' OR UPPER(e.disease_classification) = 'DBD')) OR
@@ -2182,27 +2755,31 @@ async fn morbidity_mortality_handler(
            GROUP BY 1, 2
            ORDER BY 1, 2
          )
-         SELECT year_num, week_num, 
-                ('W' || week_num::text || ' ' || month_str) as week_label,
+         SELECT year_num, month_num, 
+                (month_str || ' ' || year_num::text) as month_label,
+                month_str,
                 morbidity, mortality,
                 COALESCE(ROUND((mortality::numeric / NULLIF(morbidity, 0)) * 100, 2), 0)::float8 as cfr_pct
-         FROM weekly;",
-        &[&selected_disease, &weeks_count],
+         FROM monthly;",
+        &[&selected_disease, &start_date, &end_date, &selected_country],
     ).await.map_err(internal_error)?;
 
     let mut weekly_trends = Vec::new();
-    for row in weekly_rows {
+    for row in monthly_rows {
         let year_num: i32 = row.get("year_num");
-        let week_num: i32 = row.get("week_num");
-        let week_label: String = row.get("week_label");
+        let month_num: i32 = row.get("month_num");
+        let month_label: String = row.get("month_label");
+        let month_str: String = row.get("month_str");
         let morbidity: i64 = row.get("morbidity");
         let mortality: i64 = row.get("mortality");
         let cfr: f64 = row.get("cfr_pct");
 
         weekly_trends.push(json!({
             "year": year_num,
-            "week": week_num,
-            "week_label": week_label,
+            "month": month_num,
+            "month_label": month_label,
+            "week": month_num,
+            "week_label": month_str, // "Jan", "Feb", "Mar", etc.
             "morbidity": morbidity,
             "mortality": mortality,
             "cfr_pct": cfr,
@@ -2252,10 +2829,15 @@ async fn morbidity_mortality_handler(
                 COALESCE(ROUND((SUM(GREATEST(COALESCE(death_count, 0), 0))::numeric / NULLIF(SUM(GREATEST(COALESCE(case_count, 0), 0)), 0)) * 100, 2), 0)::float8 as cfr_pct,
                 COUNT(*)::bigint as event_count
          FROM valid
+         WHERE COALESCE(published_at, created_at::date) >= $1
+           AND COALESCE(published_at, created_at::date) <= $2
+           AND ($3::text IS NULL OR (LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($3) = 'indonesia')
+             OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($3)))
+           AND ($4::text IS NULL OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
          GROUP BY standard_disease
          ORDER BY total_cases DESC
          LIMIT 12;",
-        &[],
+        &[&start_date, &end_date, &selected_country, &selected_disease],
     ).await.map_err(internal_error)?;
 
     let mut disease_breakdowns = Vec::new();
@@ -2709,330 +3291,241 @@ async fn public_dashboard(
     Query(query): Query<PublicDashboardQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
-    let selected_year = query.year.unwrap_or_else(|| chrono::Utc::now().year());
+
+    let now = chrono::Utc::now();
+    let current_epi_week = now.iso_week().week();
+    let current_epi_year = now.iso_week().year();
+
+    let selected_year = query.year.unwrap_or(current_epi_year);
     let selected_country = query.country.filter(|value| !value.trim().is_empty() && value != "all");
+    let selected_disease = query.disease.filter(|value| !value.trim().is_empty() && value != "all");
     let selected_source = query.source
         .filter(|value| matches!(value.trim().to_lowercase().as_str(), "ibs" | "ebs" | "skdr"))
         .map(|value| value.trim().to_lowercase());
 
-    let available_years = if let Some(ref src) = selected_source {
-        client.query(
+    let start_year = query.start_year.unwrap_or(selected_year);
+    let end_year = query.end_year.unwrap_or(selected_year);
+
+    let (start_date, start_week_val) = match query.start_week {
+        Some(w) => {
+            let d = NaiveDate::from_isoywd_opt(start_year, w, Weekday::Mon)
+                .unwrap_or_else(|| NaiveDate::from_ymd_opt(start_year, 1, 1).unwrap());
+            (d, Some(w))
+        }
+        None => {
+            let d = NaiveDate::from_ymd_opt(start_year, 1, 1).unwrap();
+            (d, None)
+        }
+    };
+
+    let (end_date, end_week_val) = match query.end_week {
+        Some(w) => {
+            let d = NaiveDate::from_isoywd_opt(end_year, w, Weekday::Sun)
+                .unwrap_or_else(|| NaiveDate::from_ymd_opt(end_year, 12, 31).unwrap());
+            (d, Some(w))
+        }
+        None => {
+            let d = NaiveDate::from_ymd_opt(end_year, 12, 31).unwrap();
+            (d, None)
+        }
+    };
+
+    let available_years = client
+        .query(
             "SELECT DISTINCT EXTRACT(YEAR FROM published_at)::int AS year
              FROM disease_events
              WHERE published_at IS NOT NULL
-              AND (is_health_related = TRUE OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
+               AND (is_health_related = TRUE OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
                AND disease_classification IS NOT NULL
                AND UPPER(disease_classification) <> 'UNKNOWN'
                AND UPPER(disease_classification) NOT LIKE 'NEGATIVE%'
-                AND (COALESCE(confidence, 0) >= 0.15 OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
-                AND (EXISTS (
-                  SELECT 1 FROM skdr_reports sr
-                  WHERE sr.raw_report_id = disease_events.raw_report_id
-                    AND ($1::text = 'skdr' OR sr.endpoint_name = $1::text)
-                ) OR ($1::text = 'skdr' AND LOWER(COALESCE(disease_events.source_type, '')) IN ('skdr', 'skdr_api')))
-             ORDER BY year DESC",
-            &[src],
-        ).await.map_err(internal_error)?
-    } else {
-        client.query(
-            "SELECT DISTINCT EXTRACT(YEAR FROM published_at)::int AS year
-             FROM disease_events
-             WHERE published_at IS NOT NULL
-              AND (is_health_related = TRUE OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
-               AND disease_classification IS NOT NULL
-               AND UPPER(disease_classification) <> 'UNKNOWN'
-               AND UPPER(disease_classification) NOT LIKE 'NEGATIVE%'
-                AND (COALESCE(confidence, 0) >= 0.15 OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
+               AND (COALESCE(confidence, 0) >= 0.15 OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
              ORDER BY year DESC",
             &[],
-        ).await.map_err(internal_error)?
-    }.into_iter().map(|row| row.get::<_, i32>(0)).collect::<Vec<_>>();
+        )
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| row.get::<_, i32>(0))
+        .collect::<Vec<_>>();
 
-    let rows = if let Some(ref src) = selected_source {
-        client.query(
-            "SELECT COALESCE(e.location_name, 'Unknown') AS location_name,
-                    e.disease_classification,
-                    CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                        WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                        WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                          THEN INITCAP(LOWER(e.location_name))
-                        ELSE 'OUTSIDE ASEAN' END) END AS country,
-                    COALESCE(ST_Y(ST_Centroid(ST_Collect(e.geom))), l.latitude) AS latitude,
-                    COALESCE(ST_X(ST_Centroid(ST_Collect(e.geom))), l.longitude) AS longitude,
-                    SUM(GREATEST(COALESCE(e.case_count, 0), 0)) AS cases,
-                    SUM(GREATEST(COALESCE(e.death_count, 0), 0)) AS deaths,
-                    COUNT(*) AS event_count,
-                    MAX(e.confidence::float8) AS confidence,
-                    BOOL_OR(COALESCE(e.outbreak_alert, FALSE)) AS model_alert,
-                    COALESCE(MAX(r.min_case_count), 1) AS threshold,
-                    MAX(e.published_at)::text AS latest_date,
-                    (JSONB_AGG(JSONB_BUILD_OBJECT(
-                      'event_id', e.id::text, 'raw_report_id', e.raw_report_id::text,
-                      'url', e.report_url, 'content', e.original_text, 'language', e.language,
-                      'source_type', e.source_type, 'source_name', e.source_name,
-                      'published_at', e.published_at::text, 'symptoms', e.symptoms,
-                      'disease_extracted', e.disease_extracted, 'sentiment', e.sentiment,
-                      'event_type', e.event_type, 'event_confidence', e.event_confidence,
-                      'relevance_score', e.relevance_score, 'relevance_confidence', e.relevance_confidence,
-                      'source_credibility', e.source_credibility,
-                      'source_credibility_label', e.source_credibility_label,
-                      'needs_review', e.needs_review, 'is_health_related', e.is_health_related,
-                      'outbreak_alert', e.outbreak_alert
-                    ) ORDER BY e.published_at DESC, e.confidence DESC)->0) AS detail
-                FROM (
-                  SELECT e0.*, rr.url AS report_url,
-                         ROW_NUMBER() OVER (
-                           PARTITION BY COALESCE(NULLIF(rr.url, ''), e0.raw_report_id::text, e0.id::text)
-                           ORDER BY e0.confidence DESC NULLS LAST, e0.created_at DESC
-                         ) AS dedup_rank
-                  FROM disease_events e0
-                  LEFT JOIN raw_reports rr ON rr.id = e0.raw_report_id
-                   WHERE (e0.is_health_related = TRUE OR LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))
-                    AND e0.disease_classification IS NOT NULL
-                    AND UPPER(e0.disease_classification) <> 'UNKNOWN'
-                    AND UPPER(e0.disease_classification) NOT LIKE 'NEGATIVE%'
-                     AND (e0.confidence >= 0.15 OR LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))
-                    AND e0.published_at IS NOT NULL
-                    AND e0.published_at >= make_date($1, 1, 1)
-                    AND e0.published_at < make_date($1 + 1, 1, 1)
-                    AND (EXISTS (
-                      SELECT 1 FROM skdr_reports sr
-                      WHERE sr.raw_report_id = e0.raw_report_id
-                        AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
-                    ) OR ($3::text = 'skdr' AND LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api')))
-                ) e
-             LEFT JOIN LATERAL (
-               SELECT l0.* FROM locations l0
-               WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
-               ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
-               LIMIT 1
-             ) l ON TRUE
-             LEFT JOIN disease_outbreak_rules r
-               ON LOWER(r.disease_name) = LOWER(e.disease_classification) AND r.is_active = TRUE
-              WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-               AND e.disease_classification IS NOT NULL
-               AND UPPER(e.disease_classification) <> 'UNKNOWN'
-               AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-                 AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-               AND e.dedup_rank = 1
-               AND e.published_at IS NOT NULL
-                AND e.published_at >= make_date($1, 1, 1)
-                AND e.published_at < make_date($1 + 1, 1, 1)
-                AND ($2::text IS NULL OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                  WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                  WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) = LOWER($2))
-             GROUP BY COALESCE(e.location_name, 'Unknown'), e.disease_classification,
-                       CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                         WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                         WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                           THEN INITCAP(LOWER(e.location_name))
-                         ELSE 'OUTSIDE ASEAN' END) END, l.latitude, l.longitude
-             ORDER BY cases DESC, latest_date DESC
-             LIMIT 100",
-            &[&selected_year, &selected_country, src],
-        ).await.map_err(internal_error)?
-    } else {
-        client.query(
-            "SELECT COALESCE(e.location_name, 'Unknown') AS location_name,
-                    e.disease_classification,
-                    CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                        WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                        WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                          THEN INITCAP(LOWER(e.location_name))
-                        ELSE 'OUTSIDE ASEAN' END) END AS country,
-                    COALESCE(ST_Y(ST_Centroid(ST_Collect(e.geom))), l.latitude) AS latitude,
-                    COALESCE(ST_X(ST_Centroid(ST_Collect(e.geom))), l.longitude) AS longitude,
-                    SUM(GREATEST(COALESCE(e.case_count, 0), 0)) AS cases,
-                    SUM(GREATEST(COALESCE(e.death_count, 0), 0)) AS deaths,
-                    COUNT(*) AS event_count,
-                    MAX(e.confidence::float8) AS confidence,
-                    BOOL_OR(COALESCE(e.outbreak_alert, FALSE)) AS model_alert,
-                    COALESCE(MAX(r.min_case_count), 1) AS threshold,
-                    MAX(e.published_at)::text AS latest_date,
-                    (JSONB_AGG(JSONB_BUILD_OBJECT(
-                      'event_id', e.id::text, 'raw_report_id', e.raw_report_id::text,
-                      'url', e.report_url, 'content', e.original_text, 'language', e.language,
-                      'source_type', e.source_type, 'source_name', e.source_name,
-                      'published_at', e.published_at::text, 'symptoms', e.symptoms,
-                      'disease_extracted', e.disease_extracted, 'sentiment', e.sentiment,
-                      'event_type', e.event_type, 'event_confidence', e.event_confidence,
-                      'relevance_score', e.relevance_score, 'relevance_confidence', e.relevance_confidence,
-                      'source_credibility', e.source_credibility,
-                      'source_credibility_label', e.source_credibility_label,
-                      'needs_review', e.needs_review, 'is_health_related', e.is_health_related,
-                      'outbreak_alert', e.outbreak_alert
-                    ) ORDER BY e.published_at DESC, e.confidence DESC)->0) AS detail
-                FROM (
-                  SELECT e0.*, rr.url AS report_url,
-                         ROW_NUMBER() OVER (
-                           PARTITION BY COALESCE(NULLIF(rr.url, ''), e0.raw_report_id::text, e0.id::text)
-                           ORDER BY e0.confidence DESC NULLS LAST, e0.created_at DESC
-                         ) AS dedup_rank
-                  FROM disease_events e0
-                  LEFT JOIN raw_reports rr ON rr.id = e0.raw_report_id
-                   WHERE (e0.is_health_related = TRUE OR LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))
-                    AND e0.disease_classification IS NOT NULL
-                    AND UPPER(e0.disease_classification) <> 'UNKNOWN'
-                    AND UPPER(e0.disease_classification) NOT LIKE 'NEGATIVE%'
-                     AND (e0.confidence >= 0.15 OR LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))
-                    AND e0.published_at IS NOT NULL
-                    AND e0.published_at >= make_date($1, 1, 1)
-                    AND e0.published_at < make_date($1 + 1, 1, 1)
-                ) e
-             LEFT JOIN LATERAL (
-               SELECT l0.* FROM locations l0
-               WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
-               ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
-               LIMIT 1
-             ) l ON TRUE
-             LEFT JOIN disease_outbreak_rules r
-               ON LOWER(r.disease_name) = LOWER(e.disease_classification) AND r.is_active = TRUE
-              WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-               AND e.disease_classification IS NOT NULL
-               AND UPPER(e.disease_classification) <> 'UNKNOWN'
-               AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-                 AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-               AND e.dedup_rank = 1
-               AND e.published_at IS NOT NULL
-                AND e.published_at >= make_date($1, 1, 1)
-                AND e.published_at < make_date($1 + 1, 1, 1)
-                AND ($2::text IS NULL OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                  WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                  WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) = LOWER($2))
-             GROUP BY COALESCE(e.location_name, 'Unknown'), e.disease_classification,
-                       CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                         WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                         WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                           THEN INITCAP(LOWER(e.location_name))
-                         ELSE 'OUTSIDE ASEAN' END) END, l.latitude, l.longitude
-             ORDER BY cases DESC, latest_date DESC
-             LIMIT 100",
-            &[&selected_year, &selected_country],
-        ).await.map_err(internal_error)?
-    };
+    let available_diseases = client
+        .query(
+            "SELECT DISTINCT disease_classification
+             FROM disease_events
+             WHERE published_at IS NOT NULL
+               AND (is_health_related = TRUE OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
+               AND disease_classification IS NOT NULL
+               AND UPPER(disease_classification) <> 'UNKNOWN'
+               AND UPPER(disease_classification) NOT LIKE 'NEGATIVE%'
+               AND (COALESCE(confidence, 0) >= 0.15 OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
+             ORDER BY disease_classification ASC",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|row| row.get::<_, String>(0))
+        .collect::<Vec<_>>();
 
-    let trend_row = if let Some(ref src) = selected_source {
-        client.query_one(
-            "WITH ranked AS (
-               SELECT e.*, rr.url AS report_url,
-                      ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(NULLIF(rr.url, ''), e.raw_report_id::text, e.id::text)
-                        ORDER BY e.confidence DESC NULLS LAST, e.created_at DESC
-                      ) AS dedup_rank
-               FROM disease_events e
-               LEFT JOIN raw_reports rr ON rr.id = e.raw_report_id
-               WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-                 AND e.disease_classification IS NOT NULL
-                 AND UPPER(e.disease_classification) <> 'UNKNOWN'
-                 AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-                   AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-                 AND e.published_at IS NOT NULL
-                 AND e.published_at >= make_date($1, 1, 1)
-                 AND e.published_at < make_date($1 + 1, 1, 1)
-                  AND (EXISTS (
-                    SELECT 1 FROM skdr_reports sr
-                    WHERE sr.raw_report_id = e.raw_report_id
-                      AND ($3::text = 'skdr' OR sr.endpoint_name = $3::text)
-                  ) OR ($3::text = 'skdr' AND LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api')))
-             ), valid AS (
-               SELECT ranked.*, l.latitude AS resolved_latitude, l.longitude AS resolved_longitude,
-                       CASE WHEN LOWER(COALESCE(ranked.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(ranked.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                  WHEN LOWER(ranked.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                  WHEN LOWER(ranked.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                   THEN INITCAP(LOWER(ranked.location_name)) ELSE 'OUTSIDE ASEAN' END) END AS resolved_country
-               FROM ranked
-               LEFT JOIN LATERAL (
-                 SELECT l0.* FROM locations l0
-                 WHERE LOWER(l0.name) = LOWER(ranked.location_name) AND l0.is_active = TRUE
-                 ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
-                 LIMIT 1
-               ) l ON TRUE
-               WHERE ranked.dedup_rank = 1
-             ), bounds AS (
-              SELECT CASE WHEN $1 = EXTRACT(YEAR FROM CURRENT_DATE)::int
-                       THEN date_trunc('month', CURRENT_DATE)::date
-                       ELSE make_date($1, 12, 1) END AS current_start,
-                     CASE WHEN $1 = EXTRACT(YEAR FROM CURRENT_DATE)::int
-                       THEN (date_trunc('month', CURRENT_DATE) - interval '1 month')::date
-                       ELSE make_date($1, 11, 1) END AS previous_start
-            )
-            SELECT
-              COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
-              COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
-              COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
-              COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
-              COUNT(*) FILTER (WHERE published_at>=b.current_start)::bigint,
-              COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
-              COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.current_start)::bigint,
-              COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
-               COUNT(*) FILTER (WHERE published_at>=b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
-               COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
-              TO_CHAR(b.current_start,'YYYY-MM'), TO_CHAR(b.previous_start,'YYYY-MM')
-             FROM bounds b
-             LEFT JOIN valid ON ($2::text IS NULL OR LOWER(valid.resolved_country) = LOWER($2))
-            GROUP BY b.current_start,b.previous_start",
-           &[&selected_year, &selected_country, src],
-       ).await.map_err(internal_error)?
-    } else {
-        client.query_one(
-            "WITH ranked AS (
-               SELECT e.*, rr.url AS report_url,
-                      ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(NULLIF(rr.url, ''), e.raw_report_id::text, e.id::text)
-                        ORDER BY e.confidence DESC NULLS LAST, e.created_at DESC
-                      ) AS dedup_rank
-               FROM disease_events e
-               LEFT JOIN raw_reports rr ON rr.id = e.raw_report_id
-               WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-                 AND e.disease_classification IS NOT NULL
-                 AND UPPER(e.disease_classification) <> 'UNKNOWN'
-                 AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-                   AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-                 AND e.published_at IS NOT NULL
-                 AND e.published_at >= make_date($1, 1, 1)
-                 AND e.published_at < make_date($1 + 1, 1, 1)
-             ), valid AS (
-               SELECT ranked.*, l.latitude AS resolved_latitude, l.longitude AS resolved_longitude,
-                       CASE WHEN LOWER(COALESCE(ranked.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(ranked.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                  WHEN LOWER(ranked.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                  WHEN LOWER(ranked.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                   THEN INITCAP(LOWER(ranked.location_name)) ELSE 'OUTSIDE ASEAN' END) END AS resolved_country
-               FROM ranked
-               LEFT JOIN LATERAL (
-                 SELECT l0.* FROM locations l0
-                 WHERE LOWER(l0.name) = LOWER(ranked.location_name) AND l0.is_active = TRUE
-                 ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
-                 LIMIT 1
-               ) l ON TRUE
-               WHERE ranked.dedup_rank = 1
-             ), bounds AS (
-              SELECT CASE WHEN $1 = EXTRACT(YEAR FROM CURRENT_DATE)::int
-                       THEN date_trunc('month', CURRENT_DATE)::date
-                       ELSE make_date($1, 12, 1) END AS current_start,
-                     CASE WHEN $1 = EXTRACT(YEAR FROM CURRENT_DATE)::int
-                       THEN (date_trunc('month', CURRENT_DATE) - interval '1 month')::date
-                       ELSE make_date($1, 11, 1) END AS previous_start
-            )
-            SELECT
-              COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
-              COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
-              COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
-              COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
-              COUNT(*) FILTER (WHERE published_at>=b.current_start)::bigint,
-              COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
-              COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.current_start)::bigint,
-              COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
-               COUNT(*) FILTER (WHERE published_at>=b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
-               COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
-              TO_CHAR(b.current_start,'YYYY-MM'), TO_CHAR(b.previous_start,'YYYY-MM')
-             FROM bounds b
-             LEFT JOIN valid ON ($2::text IS NULL OR LOWER(valid.resolved_country) = LOWER($2))
-            GROUP BY b.current_start,b.previous_start",
-           &[&selected_year, &selected_country],
-       ).await.map_err(internal_error)?
-    };
+    let rows = client.query(
+        "SELECT COALESCE(e.location_name, 'Unknown') AS location_name,
+                e.disease_classification,
+                CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+                    WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+                    WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                      THEN INITCAP(LOWER(e.location_name))
+                    ELSE 'OUTSIDE ASEAN' END) END AS country,
+                COALESCE(ST_Y(ST_Centroid(ST_Collect(e.geom))), l.latitude) AS latitude,
+                COALESCE(ST_X(ST_Centroid(ST_Collect(e.geom))), l.longitude) AS longitude,
+                SUM(GREATEST(COALESCE(e.case_count, 0), 0)) AS cases,
+                SUM(GREATEST(COALESCE(e.death_count, 0), 0)) AS deaths,
+                COUNT(*) AS event_count,
+                MAX(e.confidence::float8) AS confidence,
+                BOOL_OR(COALESCE(e.outbreak_alert, FALSE)) AS model_alert,
+                COALESCE(MAX(r.min_case_count), 1) AS threshold,
+                MAX(e.published_at)::text AS latest_date,
+                COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT(
+                  'url', e.report_url, 'source_name', e.source_name,
+                  'source_type', e.source_type, 'published_at', e.published_at::text
+                ) ORDER BY e.published_at DESC, e.confidence DESC) FILTER (WHERE e.report_url IS NOT NULL), '[]'::jsonb) AS sources,
+                COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'), 0)::bigint AS recent_cases,
+                COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '14 days' AND e.published_at < CURRENT_TIMESTAMP - INTERVAL '7 days'), 0)::bigint AS previous_period_cases,
+                COUNT(*) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::bigint AS recent_event_count,
+                COUNT(DISTINCT COALESCE(NULLIF(LOWER(TRIM(e.source_name)), ''), NULLIF(e.report_url, ''), e.raw_report_id::text, e.id::text)) FILTER (WHERE e.published_at >= CURRENT_TIMESTAMP - INTERVAL '7 days')::bigint AS recent_source_count,
+                (JSONB_AGG(JSONB_BUILD_OBJECT(
+                  'event_id', e.id::text, 'raw_report_id', e.raw_report_id::text,
+                  'url', e.report_url, 'content', e.original_text, 'language', e.language,
+                  'source_type', e.source_type, 'source_name', e.source_name,
+                  'published_at', e.published_at::text, 'symptoms', e.symptoms,
+                  'disease_extracted', e.disease_extracted, 'sentiment', e.sentiment,
+                  'event_type', e.event_type, 'event_confidence', e.event_confidence,
+                  'relevance_score', e.relevance_score, 'relevance_confidence', e.relevance_confidence,
+                  'source_credibility', e.source_credibility,
+                  'source_credibility_label', e.source_credibility_label,
+                  'needs_review', e.needs_review, 'is_health_related', e.is_health_related,
+                  'outbreak_alert', e.outbreak_alert
+                ) ORDER BY e.published_at DESC, e.confidence DESC)->0) AS detail
+            FROM (
+              SELECT e0.*, rr.url AS report_url,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY COALESCE(NULLIF(rr.url, ''), e0.raw_report_id::text, e0.id::text)
+                       ORDER BY e0.confidence DESC NULLS LAST, e0.created_at DESC
+                     ) AS dedup_rank
+              FROM disease_events e0
+              LEFT JOIN raw_reports rr ON rr.id = e0.raw_report_id
+               WHERE (e0.is_health_related = TRUE OR LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))
+                AND e0.disease_classification IS NOT NULL
+                AND UPPER(e0.disease_classification) <> 'UNKNOWN'
+                AND UPPER(e0.disease_classification) NOT LIKE 'NEGATIVE%'
+                 AND (e0.confidence >= 0.15 OR LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))
+                AND e0.published_at IS NOT NULL
+                AND e0.published_at::date >= $1
+                AND e0.published_at::date <= $2
+                AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e0.disease_classification) = LOWER($4) OR LOWER(e0.disease_classification) LIKE '%' || LOWER($4) || '%')
+                AND ($5::text IS NULL OR (EXISTS (
+                  SELECT 1 FROM skdr_reports sr
+                  WHERE sr.raw_report_id = e0.raw_report_id
+                    AND ($5::text = 'skdr' OR sr.endpoint_name = $5::text)
+                ) OR ($5::text = 'skdr' AND LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))))
+            ) e
+         LEFT JOIN LATERAL (
+           SELECT l0.* FROM locations l0
+           WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
+           ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+           LIMIT 1
+         ) l ON TRUE
+         LEFT JOIN disease_outbreak_rules r
+           ON LOWER(r.disease_name) = LOWER(e.disease_classification) AND r.is_active = TRUE
+          WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+           AND e.disease_classification IS NOT NULL
+           AND UPPER(e.disease_classification) <> 'UNKNOWN'
+           AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
+           AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+           AND e.dedup_rank = 1
+           AND e.published_at IS NOT NULL
+           AND e.published_at::date >= $1
+           AND e.published_at::date <= $2
+           AND ($3::text IS NULL OR $3::text = 'all' OR ($3::text = 'ASEAN' AND LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+             WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+             WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+               THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) <> 'outside asean') OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+             WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+             WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+               THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) = LOWER($3))
+         GROUP BY COALESCE(e.location_name, 'Unknown'), e.disease_classification,
+                   CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+                     WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+                     WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                       THEN INITCAP(LOWER(e.location_name))
+                     ELSE 'OUTSIDE ASEAN' END) END, l.latitude, l.longitude
+         ORDER BY cases DESC, latest_date DESC
+         LIMIT 100",
+        &[&start_date, &end_date, &selected_country, &selected_disease, &selected_source],
+    ).await.map_err(internal_error)?;
+
+    let trend_row = client.query_one(
+        "WITH ranked AS (
+           SELECT e.*, rr.url AS report_url,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(NULLIF(rr.url, ''), e.raw_report_id::text, e.id::text)
+                    ORDER BY e.confidence DESC NULLS LAST, e.created_at DESC
+                  ) AS dedup_rank
+           FROM disease_events e
+           LEFT JOIN raw_reports rr ON rr.id = e.raw_report_id
+           WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+             AND e.disease_classification IS NOT NULL
+             AND UPPER(e.disease_classification) <> 'UNKNOWN'
+             AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
+             AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+             AND e.published_at IS NOT NULL
+             AND e.published_at::date >= $1
+             AND e.published_at::date <= $2
+             AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%')
+             AND ($5::text IS NULL OR (EXISTS (
+                SELECT 1 FROM skdr_reports sr
+                WHERE sr.raw_report_id = e.raw_report_id
+                  AND ($5::text = 'skdr' OR sr.endpoint_name = $5::text)
+             ) OR ($5::text = 'skdr' AND LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))))
+         ), valid AS (
+           SELECT ranked.*, l.latitude AS resolved_latitude, l.longitude AS resolved_longitude,
+                   CASE WHEN LOWER(COALESCE(ranked.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(ranked.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+              WHEN LOWER(ranked.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+              WHEN LOWER(ranked.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+               THEN INITCAP(LOWER(ranked.location_name)) ELSE 'OUTSIDE ASEAN' END) END AS resolved_country
+           FROM ranked
+           LEFT JOIN LATERAL (
+             SELECT l0.* FROM locations l0
+             WHERE LOWER(l0.name) = LOWER(ranked.location_name) AND l0.is_active = TRUE
+             ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+             LIMIT 1
+           ) l ON TRUE
+           WHERE ranked.dedup_rank = 1
+         ), bounds AS (
+          SELECT CASE WHEN $2 >= CURRENT_DATE - interval '30 days'
+                   THEN date_trunc('month', CURRENT_DATE)::date
+                   ELSE date_trunc('month', $2)::date END AS current_start,
+                 CASE WHEN $2 >= CURRENT_DATE - interval '30 days'
+                   THEN (date_trunc('month', CURRENT_DATE) - interval '1 month')::date
+                   ELSE (date_trunc('month', $2) - interval '1 month')::date END AS previous_start
+        )
+        SELECT
+          COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
+          COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
+          COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
+          COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
+          COUNT(*) FILTER (WHERE published_at>=b.current_start)::bigint,
+          COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
+          COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.current_start)::bigint,
+          COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
+           COUNT(*) FILTER (WHERE published_at>=b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
+           COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
+          TO_CHAR(b.current_start,'YYYY-MM'), TO_CHAR(b.previous_start,'YYYY-MM')
+         FROM bounds b
+         LEFT JOIN valid ON ($3::text IS NULL OR $3::text = 'all' OR ($3::text = 'ASEAN' AND LOWER(valid.resolved_country) <> 'outside asean') OR LOWER(valid.resolved_country) = LOWER($3))
+        GROUP BY b.current_start, b.previous_start",
+        &[&start_date, &end_date, &selected_country, &selected_disease, &selected_source],
+    ).await.map_err(internal_error)?;
 
     let trends = json!({
         "current_month": trend_row.get::<_, Option<String>>(10).unwrap_or_default(),
@@ -3044,56 +3537,56 @@ async fn public_dashboard(
         "alerts": {"current": trend_row.get::<_, i64>(8), "previous": trend_row.get::<_, i64>(9)}
     });
 
-    let weekly_trend = if selected_source.is_some() {
-        client.query(
-            "SELECT COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int) AS epidemiological_week,
-                    COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)), 0)::bigint AS cases,
-                    COALESCE(SUM(GREATEST(COALESCE(e.death_count, 0), 0)), 0)::bigint AS deaths,
-                    COUNT(*)::bigint AS events,
-                    COUNT(*) FILTER (WHERE e.outbreak_alert = TRUE)::bigint AS alerts
-             FROM disease_events e
-             LEFT JOIN skdr_reports sr ON sr.raw_report_id = e.raw_report_id
-             LEFT JOIN LATERAL (
-               SELECT l0.* FROM locations l0
-               WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
-               ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
-               LIMIT 1
-             ) l ON TRUE
-             WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-               AND e.disease_classification IS NOT NULL
-               AND UPPER(e.disease_classification) <> 'UNKNOWN'
-               AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-               AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
-               AND e.published_at IS NOT NULL
-               AND e.published_at >= make_date($1, 1, 1)
-               AND e.published_at < make_date($1 + 1, 1, 1)
-                AND (($3::text = 'skdr' AND (sr.id IS NOT NULL OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api')))
-                     OR ($3::text IN ('ibs', 'ebs') AND LOWER(COALESCE(sr.endpoint_name, '')) = $3::text))
-                AND ($2::text IS NULL OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
-                  WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
-                  WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
-                    THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) = LOWER($2))
-             GROUP BY COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int)
-             ORDER BY epidemiological_week",
-            &[&selected_year, &selected_country, &selected_source],
-        ).await.map_err(internal_error)?
-        .into_iter()
-        .map(|row| json!({
-            "week": row.get::<_, i32>(0),
-            "cases": row.get::<_, i64>(1),
-            "deaths": row.get::<_, i64>(2),
-            "events": row.get::<_, i64>(3),
-            "alerts": row.get::<_, i64>(4),
-        }))
-        .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
+    let weekly_trend = client.query(
+        "SELECT COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int) AS epidemiological_week,
+                COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)), 0)::bigint AS cases,
+                COALESCE(SUM(GREATEST(COALESCE(e.death_count, 0), 0)), 0)::bigint AS deaths,
+                COUNT(*)::bigint AS events,
+                COUNT(*) FILTER (WHERE e.outbreak_alert = TRUE)::bigint AS alerts
+         FROM disease_events e
+         LEFT JOIN skdr_reports sr ON sr.raw_report_id = e.raw_report_id
+         LEFT JOIN LATERAL (
+           SELECT l0.* FROM locations l0
+           WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
+           ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+           LIMIT 1
+         ) l ON TRUE
+         WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+           AND e.disease_classification IS NOT NULL
+           AND UPPER(e.disease_classification) <> 'UNKNOWN'
+           AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
+           AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+           AND e.published_at IS NOT NULL
+           AND e.published_at::date >= $1
+           AND e.published_at::date <= $2
+           AND ($3::text IS NULL OR $3::text = 'all' OR ($3::text = 'ASEAN' AND LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+              WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+              WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) <> 'outside asean') OR LOWER(CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE COALESCE(CASE WHEN LOWER(e.location_name) IN ('sudan','south sudan') THEN 'OUTSIDE ASEAN' ELSE l.country END, CASE
+              WHEN LOWER(e.location_name) IN ('brunei','brunei darussalam') THEN 'Brunei'
+              WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                THEN INITCAP(LOWER(e.location_name)) ELSE 'OUTSIDE ASEAN' END) END) = LOWER($3))
+           AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%')
+           AND ($5::text IS NULL OR ($5::text = 'skdr' AND (sr.id IS NOT NULL OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api')))
+                OR ($5::text IN ('ibs', 'ebs') AND LOWER(COALESCE(sr.endpoint_name, '')) = $5::text))
+         GROUP BY COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int)
+         ORDER BY epidemiological_week",
+        &[&start_date, &end_date, &selected_country, &selected_disease, &selected_source],
+    ).await.map_err(internal_error)?
+    .into_iter()
+    .map(|row| json!({
+        "week": row.get::<_, i32>(0),
+        "cases": row.get::<_, i64>(1),
+        "deaths": row.get::<_, i64>(2),
+        "events": row.get::<_, i64>(3),
+        "alerts": row.get::<_, i64>(4),
+    }))
+    .collect::<Vec<_>>();
 
     let mut locations = Vec::new();
     let mut alerts = Vec::new();
     let mut disease_totals = std::collections::HashMap::<String, (i64, i64, i64)>::new();
-    let mut country_totals = std::collections::HashMap::<String, i64>::new();
+    let mut country_totals = std::collections::HashMap::<String, (i64, i64)>::new();
     let mut location_keys = std::collections::HashSet::<String>::new();
     let mut total_cases = 0i64;
     let mut total_deaths = 0i64;
@@ -3112,11 +3605,14 @@ async fn public_dashboard(
         let model_alert: bool = row.get(9);
         let threshold: i32 = row.get(10);
         let latest_date: String = row.get::<_, Option<String>>(11).unwrap_or_default();
-        let detail: Value = row.get::<_, Option<Value>>(12).unwrap_or(Value::Null);
+        let sources: Value = row.get::<_, Option<Value>>(12).unwrap_or_else(|| json!([]));
+        let recent_cases: i64 = row.get(13);
+        let previous_period_cases: i64 = row.get(14);
+        let recent_event_count: i64 = row.get(15);
+        let recent_source_count: i64 = row.get(16);
+        let detail: Value = row.get::<_, Option<Value>>(17).unwrap_or(Value::Null);
         let threshold_i64 = i64::from(threshold.max(1));
         let ratio = cases as f64 / threshold_i64 as f64;
-        // A threshold alone is not an outbreak signal. Require the NLP event
-        // to be explicitly marked as an outbreak before EWS can escalate it.
         let candidate_severity = if !model_alert { "NORMAL" }
             else if cases >= threshold_i64 * 2 || deaths > 0 { "AWAS" }
             else if cases >= threshold_i64 || model_alert { "SIAGA" }
@@ -3128,6 +3624,11 @@ async fn public_dashboard(
             && longitude.is_some();
         let severity = if ews_verified { candidate_severity } else { "NORMAL" };
         let is_alert = severity != "NORMAL";
+        let is_recent = recent_event_count > 0;
+        let has_case_surge = recent_cases >= 2
+            && (previous_period_cases == 0 || recent_cases * 2 >= previous_period_cases * 3);
+        let high_case_volume = recent_cases >= threshold_i64.saturating_mul(2);
+        let is_hot = is_recent && (has_case_surge || high_case_volume);
 
         total_cases += cases;
         total_deaths += deaths;
@@ -3135,14 +3636,20 @@ async fn public_dashboard(
         location_keys.insert(location.trim().to_lowercase());
         let entry = disease_totals.entry(disease.clone()).or_insert((0, 0, 0));
         entry.0 += cases; entry.1 += deaths; entry.2 += event_count;
-        *country_totals.entry(country.clone()).or_insert(0) += cases;
+        let country_entry = country_totals.entry(country.clone()).or_insert((0, 0));
+        country_entry.0 += cases;
+        country_entry.1 += deaths;
 
         let item = json!({
             "location_name": location, "disease": disease, "country": country,
             "latitude": latitude, "longitude": longitude, "cases": cases,
             "deaths": deaths, "event_count": event_count, "confidence": confidence,
             "threshold": threshold_i64, "severity": severity, "has_alert": is_alert,
-            "latest_date": latest_date, "detail": detail
+            "latest_date": latest_date, "sources": sources, "recent_cases": recent_cases,
+            "previous_period_cases": previous_period_cases,
+            "recent_event_count": recent_event_count,
+            "recent_source_count": recent_source_count,
+            "is_recent": is_recent, "is_hot": is_hot, "detail": detail
         });
         if is_alert { alerts.push(item.clone()); }
         locations.push(item);
@@ -3158,27 +3665,46 @@ async fn public_dashboard(
         json!({"name": name, "cases": v.0, "deaths": v.1, "events": v.2})
     ).collect();
     by_disease.sort_by(|a, b| b["cases"].as_i64().cmp(&a["cases"].as_i64()));
-    let mut by_country: Vec<Value> = country_totals.into_iter().map(|(name, cases)|
-        json!({"name": name, "cases": cases})
+    let mut by_country: Vec<Value> = country_totals.into_iter().map(|(name, (cases, deaths))|
+        json!({"name": name, "cases": cases, "deaths": deaths})
     ).collect();
     by_country.sort_by(|a, b| b["cases"].as_i64().cmp(&a["cases"].as_i64()));
 
     let active_alerts = alerts.len();
-    let top_alert = alerts.first();
-    let summary_text = match top_alert {
-        Some(a) => format!(
-            "There are {} active surveillance signal(s). Current priority is {} in {} with {} cases and status {}. Verify the source and coordinate the appropriate response.",
-            active_alerts, a["disease"].as_str().unwrap_or("disease"),
-            a["location_name"].as_str().unwrap_or("detected location"),
-            a["cases"].as_i64().unwrap_or(0), a["severity"].as_str().unwrap_or("SIAGA")
-        ),
-        None => "No active surveillance signals from validated data. ASEAN regional monitoring remains active.".to_string(),
+    let summary_text = if let Some(ref dis) = selected_disease {
+        format!(
+            "Surveilans epidemiologi untuk {} di wilayah {} periode {} hingga {} mencatat {} kasus dan {} kejadian kesehatan di {} lokasi terdeteksi, dengan {} sinyal peringatan aktif.",
+            dis,
+            selected_country.as_deref().unwrap_or("ASEAN"),
+            start_date,
+            end_date,
+            total_cases,
+            total_events,
+            location_keys.len(),
+            active_alerts
+        )
+    } else {
+        "Based on the overall dashboard visualizations, the ASEAN region has shown increased infectious disease activity over the past month, with cases concentrated in several countries and priority locations. Weekly trends indicate rising morbidity for certain diseases, accompanied by increased mortality in several areas. Several new hotspots have been detected, requiring strengthened surveillance, source verification, rapid response, cross-border coordination, and continuous monitoring of crawling data quality to support faster and more measurable epidemiological decision-making.".to_string()
     };
 
     Ok(Json(json!({"success": true, "data": {
          "updated_at": chrono::Utc::now().to_rfc3339(),
          "available_years": available_years,
-         "filters": {"country": selected_country, "year": selected_year, "source": selected_source},
+         "available_diseases": available_diseases,
+         "current_epi_week": current_epi_week,
+         "current_epi_year": current_epi_year,
+         "filters": {
+             "country": selected_country,
+             "year": selected_year,
+             "disease": selected_disease,
+             "source": selected_source,
+             "start_year": start_year,
+             "start_week": start_week_val,
+             "end_year": end_year,
+             "end_week": end_week_val,
+             "start_date": start_date.to_string(),
+             "end_date": end_date.to_string(),
+         },
          "kpis": {"cases": total_cases, "deaths": total_deaths, "events": total_events,
                   "locations": location_keys.len(), "active_alerts": active_alerts},
          "alerts": alerts, "locations": locations, "by_disease": by_disease, "trends": trends,

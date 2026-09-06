@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import {
   AlertTriangle,
@@ -9,6 +10,7 @@ import {
   CalendarDays,
   Clock3,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Database,
   Filter,
@@ -45,6 +47,8 @@ import CrawlingEnginePerformance from "@/components/CrawlingEnginePerformance";
 import CaseLocationHeatmap from "@/components/CaseLocationHeatmap";
 import DiseaseTrendOverview from "@/components/DiseaseTrendOverview";
 import MorbidityMortalitySection from "@/components/MorbidityMortalitySection";
+import EpiFilterBar, { EpiFilterState } from "@/components/EpiFilterBar";
+
 import type { OutbreakLocation, PublicDashboard } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
@@ -192,12 +196,21 @@ function CrawlingInfoModal({
     this_month: number;
     last_month: number;
     total_processed: number;
+    stored_in_db?: number;
+    nlp_processing?: number;
+    current_live_crawl?: number;
+    total_crawled_all_time?: number;
     current_month: string;
     previous_month: string;
     by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
   } | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const { t } = useTranslation();
   if (!crawlingStats) return null;
 
@@ -214,7 +227,7 @@ function CrawlingInfoModal({
   // Older backend deployments may return a partial crawling-stats payload.
   // Normalize numeric fields here so the dashboard never crashes while the
   // API is being upgraded or a source row is incomplete.
-  const totalCrawled = Number(crawlingStats.total ?? 0) || 0;
+  const totalCrawled = Number(crawlingStats.total_crawled_all_time ?? crawlingStats.total ?? 0) || 0;
   const thisMonth = Number(crawlingStats.this_month ?? 0) || 0;
   const totalProcessed = Number(crawlingStats.total_processed ?? 0) || 0;
 
@@ -247,29 +260,24 @@ function CrawlingInfoModal({
         <Info className="h-3.5 w-3.5" />
       </button>
 
-      {open && (
+      {mounted && open && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 sm:p-6 transition-all duration-300 animate-in fade-in"
           onClick={() => setOpen(false)}
         >
           <div
-            className="relative w-full max-w-lg rounded-3xl border border-emerald-200/90 bg-white shadow-[0_25px_70px_rgba(5,150,105,.22)] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            className="relative flex max-h-[90vh] w-full max-w-3xl sm:max-w-4xl flex-col overflow-hidden rounded-3xl border border-emerald-200/90 bg-white shadow-2xl transition-all duration-300 animate-in zoom-in-95"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between bg-gradient-to-r from-emerald-50 via-teal-50/50 to-white px-6 py-4 border-b border-emerald-100">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/20">
-                  <Database className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-900 leading-tight">
-                    {t("crawling.infoTitle")}
-                  </h3>
-                  <p className="text-[11px] font-bold text-emerald-700">
-                    {t("crawling.infoSubtitle")}
-                  </p>
-                </div>
+            {/* Modal Header - Clean Title without Icon */}
+            <div className="flex shrink-0 items-center justify-between border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-teal-50/50 to-white px-6 py-4 sm:px-7">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 tracking-tight leading-tight">
+                  {t("crawling.infoTitle")}
+                </h3>
+                <p className="text-xs font-semibold text-emerald-700 mt-0.5">
+                  {t("crawling.infoSubtitle")}
+                </p>
               </div>
               <button
                 onClick={() => setOpen(false)}
@@ -280,7 +288,7 @@ function CrawlingInfoModal({
               </button>
             </div>
 
-            <div className="p-6 space-y-5 max-h-[78vh] overflow-y-auto">
+            <div className="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6">
               {/* Hero Stat Box - 100% Synchronized */}
               <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white p-4 text-center shadow-xs">
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/80 px-2.5 py-0.5 text-[10px] font-black text-emerald-800 uppercase tracking-wider mb-1.5">
@@ -298,8 +306,7 @@ function CrawlingInfoModal({
               {/* User-friendly explanations */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
-                  <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                    <span className="text-emerald-600">💡</span>
+                  <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
                     <span>{t("crawling.whatItMeans")}</span>
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11.5px]">
@@ -307,8 +314,7 @@ function CrawlingInfoModal({
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
-                  <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                    <span className="text-emerald-600">⚙️</span>
+                  <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
                     <span>{t("crawling.processingFlow")}</span>
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11.5px]">
@@ -414,7 +420,8 @@ function CrawlingInfoModal({
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
@@ -447,7 +454,13 @@ function KpiInfoModal({
   matrixTitle: string;
   matrix: { label: string; value: number; sub?: string }[];
 }) {
-  if (!open) return null;
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!open || !mounted) return null;
 
   // Normalization guarantees that row values sum up exactly to kpiValue
   const normalizedRows = normalizeMatrixToTarget(matrix, kpiValue);
@@ -509,27 +522,22 @@ function KpiInfoModal({
       : "bg-blue-50/80 text-blue-950 border-blue-200",
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 sm:p-6 transition-all duration-300 animate-in fade-in"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-lg rounded-3xl border border-slate-200 bg-white shadow-[0_25px_70px_rgba(0,0,0,.18)] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="relative flex max-h-[90vh] w-full max-w-3xl sm:max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl transition-all duration-300 animate-in zoom-in-95"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* Header - Clean Title without Icon */}
         <div
-          className={`flex items-center justify-between bg-gradient-to-r ${theme.headerGradient} px-6 py-4 border-b ${theme.headerBorder}`}
+          className={`flex shrink-0 items-center justify-between border-b ${theme.headerBorder} bg-gradient-to-r ${theme.headerGradient} px-6 py-4 sm:px-7`}
         >
-          <div className="flex items-center gap-3">
-            <div className={`flex h-10 w-10 items-center justify-center rounded-2xl shadow-md ${theme.iconBg}`}>
-              {icon || <Info className="h-5 w-5" />}
-            </div>
-            <div>
-              <h3 className="text-base font-black text-slate-900 leading-tight">{title}</h3>
-              <p className="text-[11px] font-bold text-slate-500">{label}</p>
-            </div>
+          <div>
+            <h3 className="text-lg font-black text-slate-900 leading-tight tracking-tight">{title}</h3>
+            <p className="text-xs font-semibold text-slate-500 mt-0.5">{label}</p>
           </div>
           <button
             onClick={onClose}
@@ -541,7 +549,7 @@ function KpiInfoModal({
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-5 max-h-[78vh] overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6">
           {/* Hero Value - 100% Matched with Card */}
           <div className={`rounded-2xl border ${theme.heroBorder} p-4 text-center shadow-xs`}>
             <div className={`inline-flex items-center gap-1.5 rounded-full ${theme.badge} px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider mb-1.5`}>
@@ -559,8 +567,7 @@ function KpiInfoModal({
           {/* User-friendly explanations */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
-              <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                <span>💡</span>
+              <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
                 <span>What does it mean?</span>
               </div>
               <p className="text-slate-600 leading-relaxed text-[11.5px]">
@@ -568,8 +575,7 @@ function KpiInfoModal({
               </p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
-              <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                <span>⚙️</span>
+              <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
                 <span>How is it calculated?</span>
               </div>
               <p className="text-slate-600 leading-relaxed text-[11.5px]">
@@ -654,7 +660,8 @@ function KpiInfoModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -775,11 +782,18 @@ function Kpi({
 }
 
 export default function DashboardPage() {
+  const [mounted, setMounted] = useState(false);
   const { t, locale, translateDisease, translateSeverity } = useTranslation();
   const numLocale = locale === "en" ? "en-US" : "id-ID";
   const currentYear = new Date().getFullYear();
-  const [country, setCountry] = useState("all");
-  const [year, setYear] = useState(currentYear);
+  const [filters, setFilters] = useState<EpiFilterState>({
+    disease: "all",
+    country: "all",
+    startYear: 2026,
+    startWeek: 1,
+    endYear: 2026,
+    endWeek: 36,
+  });
   const [data, setData] = useState<PublicDashboard | null>(null);
   const [selected, setSelected] = useState<OutbreakLocation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -789,9 +803,13 @@ export default function DashboardPage() {
     this_month: number;
     last_month: number;
     total_processed: number;
+    stored_in_db?: number;
+    nlp_processing?: number;
     current_month: string;
     previous_month: string;
     live_crawled: number;
+    current_live_crawl?: number;
+    total_crawled_all_time?: number;
     active_run_count: number;
     active_since: string | null;
     collector_status: "RUNNING" | "IDLE" | string;
@@ -799,16 +817,29 @@ export default function DashboardPage() {
     by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
   } | null>(null);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const refreshCrawlingStats = useCallback(async () => {
     const crawlData = await fetchCrawlingStats().catch(() => null);
     if (crawlData) setCrawlingStats(crawlData);
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (customFilters?: EpiFilterState) => {
+    const active = customFilters || filters;
     try {
       setError("");
       const [dashData, crawlData] = await Promise.all([
-        fetchPublicDashboard({ country, year }),
+        fetchPublicDashboard({
+          country: active.country,
+          disease: active.disease,
+          start_year: active.startYear,
+          start_week: active.startWeek,
+          end_year: active.endYear,
+          end_week: active.endWeek,
+          year: active.endYear,
+        }),
         fetchCrawlingStats().catch(() => null),
       ]);
       setData(dashData);
@@ -818,7 +849,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [country, year, t]);
+  }, [filters, t]);
 
   useEffect(() => {
     load();
@@ -835,8 +866,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const available = data?.available_years;
-    if (available?.length && !available.includes(year)) setYear(available[0]);
-  }, [data?.available_years, year]);
+    if (available?.length && !available.includes(filters.endYear)) {
+      setFilters(prev => ({ ...prev, endYear: available[0], startYear: available[0] }));
+    }
+  }, [data?.available_years, filters.endYear]);
 
   const countryData = data?.by_country ?? [];
 
@@ -860,7 +893,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={load}
+            onClick={() => void load()}
             className="inline-flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0060A9] transition hover:bg-blue-100"
           >
             <RefreshCw className="h-4 w-4" />
@@ -869,77 +902,19 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-3 shadow-[0_6px_18px_rgba(0,96,169,.06)]">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="flex items-center gap-2 px-1 text-[#0060A9]">
-            <Filter className="h-4 w-4" />
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-wider">
-                {t("dashboard.filterTitle")}
-              </p>
-              <p className="text-[10px] text-slate-500">
-                {t("dashboard.filterSub")}
-              </p>
-            </div>
-          </div>
-          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <Globe2 className="h-4 w-4 shrink-0 text-[#0060A9]" />
-            <span className="text-[10px] font-bold uppercase text-slate-500">
-              {t("dashboard.country")}
-            </span>
-            <select
-              value={country}
-              onChange={(event) => setCountry(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-xs font-bold text-slate-800 outline-none"
-            >
-              <option value="all">{t("dashboard.allAsean")}</option>
-              {[
-                "Brunei",
-                "Cambodia",
-                "Indonesia",
-                "Laos",
-                "Malaysia",
-                "Myanmar",
-                "Philippines",
-                "Singapore",
-                "Thailand",
-                "Timor-Leste",
-                "Vietnam",
-              ].map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 lg:w-56">
-            <CalendarDays className="h-4 w-4 shrink-0 text-[#0060A9]" />
-            <span className="text-[10px] font-bold uppercase text-slate-500">
-              {t("dashboard.year")}
-            </span>
-            <select
-              value={year}
-              onChange={(event) => setYear(Number(event.target.value))}
-              className="flex-1 bg-transparent text-xs font-bold text-slate-800 outline-none"
-            >
-              {(data?.available_years?.length
-                ? data.available_years
-                : [currentYear]
-              ).map((availableYear) => (
-                <option key={availableYear} value={availableYear}>
-                  {availableYear}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            onClick={load}
-            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-[#0060A9] transition hover:bg-blue-100"
-          >
-            {t("dashboard.filterApply")}
-          </button>
-        </div>
-      </section>
+      <EpiFilterBar
+        availableDiseases={data?.available_diseases}
+        availableYears={data?.available_years}
+        currentEpiWeek={data?.current_epi_week}
+        currentEpiYear={data?.current_epi_year}
+        value={filters}
+        onChange={(newFilters) => setFilters(newFilters)}
+        onApply={(newFilters) => {
+          setFilters(newFilters);
+          load(newFilters);
+        }}
+        isLoading={loading}
+      />
 
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">
@@ -961,7 +936,7 @@ export default function DashboardPage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2 pr-7">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
-                  Live Crawled
+                  Total Crawled (All-Time)
                 </p>
                 <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide ${crawlingStats?.collector_status === "RUNNING" ? "text-emerald-600" : "text-slate-400"}`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${crawlingStats?.collector_status === "RUNNING" ? "animate-pulse bg-emerald-500" : "bg-slate-300"}`} />
@@ -969,19 +944,23 @@ export default function DashboardPage() {
                 </span>
               </div>
               <p className="mt-1 truncate text-[30px] font-bold leading-none text-emerald-600">
-                {formatNumber(crawlingStats?.live_crawled ?? 0)}
+                {formatNumber(crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 0)}
               </p>
               <p className="mt-1 text-[9px] font-semibold text-slate-400">
-                Current active collector run
+                Cumulative collector total, updated while crawling is live
               </p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-3 gap-2">
                 <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
-                  <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">Stored in DB</p>
-                  <p className="mt-0.5 text-sm font-black text-slate-700">{formatNumber(crawlingStats?.total ?? 0)}</p>
+                  <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">Current Live Crawl</p>
+                  <p className="mt-0.5 text-sm font-black text-slate-700">{formatNumber(crawlingStats?.current_live_crawl ?? crawlingStats?.live_crawled ?? 0)}</p>
                 </div>
                 <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-2 py-1.5">
-                  <p className="text-[8px] font-black uppercase tracking-wide text-blue-500">Processed by NLP</p>
-                  <p className="mt-0.5 text-sm font-black text-[#0060A9]">{formatNumber(crawlingStats?.total_processed ?? 0)}</p>
+                  <p className="text-[8px] font-black uppercase tracking-wide text-blue-500">NLP Processing</p>
+                  <p className="mt-0.5 text-sm font-black text-[#0060A9]">{formatNumber(crawlingStats?.nlp_processing ?? 0)}</p>
+                </div>
+                <div className="rounded-lg border border-violet-100 bg-violet-50/60 px-2 py-1.5">
+                  <p className="text-[8px] font-black uppercase tracking-wide text-violet-500">Stored in DB</p>
+                  <p className="mt-0.5 text-sm font-black text-violet-700">{formatNumber(crawlingStats?.stored_in_db ?? crawlingStats?.total_processed ?? 0)}</p>
                 </div>
               </div>
             </div>
@@ -989,7 +968,7 @@ export default function DashboardPage() {
         </article>
         <Kpi
           label={t("dashboard.kpiDetectedCases")}
-          value={data?.trends?.cases.current ?? data?.kpis.cases ?? 0}
+          value={data?.kpis.cases ?? 0}
           icon={<Bug className="h-5 w-5" />}
           tone="blue"
           trend={data?.trends?.cases}
@@ -1009,7 +988,7 @@ export default function DashboardPage() {
         />
         <Kpi
           label={t("dashboard.kpiDeaths")}
-          value={data?.trends?.deaths.current ?? data?.kpis.deaths ?? 0}
+          value={data?.kpis.deaths ?? 0}
           icon={<Skull className="h-5 w-5" />}
           tone="red"
           trend={data?.trends?.deaths}
@@ -1101,7 +1080,7 @@ export default function DashboardPage() {
                       key={`${a.location_name}-${a.disease}-${i}`}
                       type="button"
                       onClick={() => setSelected(a)}
-                      className="w-full rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/60"
+                      className="group w-full rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/60"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -1113,9 +1092,10 @@ export default function DashboardPage() {
                           </p>
                         </div>
                         <span
-                          className={`rounded-full px-2 py-1 text-[10px] font-black ${severityClass[a.severity]}`}
+                          className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-[#0060A9] border border-blue-200/80 transition group-hover:bg-[#0060A9] group-hover:text-white shrink-0"
                         >
-                          {translateSeverity(a.severity)}
+                          <span>View Details</span>
+                          <ChevronRight className="h-3 w-3" />
                         </span>
                       </div>
                       <p className="mt-2 text-xs text-slate-600">
@@ -1170,13 +1150,13 @@ export default function DashboardPage() {
       <CrawlingEnginePerformance crawlingStats={crawlingStats} />
 
       {/* ?? Case Location Summary Heatmap Section (Spatial-Temporal Matrix) ?? */}
-      <CaseLocationHeatmap />
+      <CaseLocationHeatmap filters={filters} />
 
       {/* ?? Disease Trend Overview (Peringatan Prioritas & Multi-Day Trend) ?? */}
-      <DiseaseTrendOverview />
+      <DiseaseTrendOverview filters={filters} />
 
       {/* ?? Morbidity & Mortality Section (Weekly Trend & Cases vs Deaths) ?? */}
-      <MorbidityMortalitySection />
+      <MorbidityMortalitySection filters={filters} />
 
       {/* Temporarily hidden: Case Distribution by Health Topic and Country Distribution. */}
       {false && (
@@ -1300,32 +1280,29 @@ export default function DashboardPage() {
       </section>
       )}
 
-      {selected && (
+      {mounted && selected && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 p-4 sm:p-6 backdrop-blur-xs transition-all duration-300 animate-in fade-in"
           onClick={() => setSelected(null)}
         >
           <section
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-[#f8fbff] shadow-2xl"
+            className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-[#f8fbff] shadow-2xl transition-all duration-300 animate-in zoom-in-95"
           >
             <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur-md">
-              <div className="flex items-center gap-3">
-                <FileText className="mt-1 h-5 w-5 shrink-0 text-[#0060A9]" />
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-[#0060A9]">
-                    {t("dashboard.eventModal.badgeDetails")}
-                  </p>
-                  <h2 className="text-lg font-black uppercase text-slate-900">
-                    {translateDisease(selected.disease)} - {selected.location_name}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {selected.detail?.source_name ||
-                      selected.detail?.source_type ||
-                      t("dashboard.modalCollectedSource")}{" "}
-                    • {formatPublishDate(selected.latest_date || selected.detail?.published_at, numLocale)}
-                  </p>
-                </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#0060A9]">
+                  {t("dashboard.eventModal.badgeDetails")}
+                </p>
+                <h2 className="text-lg font-black uppercase text-slate-900">
+                  {translateDisease(selected.disease)} - {selected.location_name}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {selected.detail?.source_name ||
+                    selected.detail?.source_type ||
+                    t("dashboard.modalCollectedSource")}{" "}
+                  • {formatPublishDate(selected.latest_date || selected.detail?.published_at, numLocale)}
+                </p>
               </div>
               <button
                 onClick={() => setSelected(null)}
@@ -1483,7 +1460,8 @@ export default function DashboardPage() {
               </article>
             </div>
           </section>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

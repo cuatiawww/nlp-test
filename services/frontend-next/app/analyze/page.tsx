@@ -19,6 +19,7 @@ export default function AnalyzePage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
   const [error, setError] = useState('')
+  const [partial, setPartial] = useState<{content?: string; job_id?: string} | null>(null)
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -76,8 +77,15 @@ export default function AnalyzePage() {
     setLoading(true)
     setError('')
     setResult(null)
+    setPartial(null)
     try {
       const data = await analyzeUrl(value)
+      if (data.analysis_status === 'partial') {
+        setPartial(data)
+        setError((data.analysis_warnings || ['Analysis incomplete; please retry']).join('. '))
+        toast.warning('Partial analysis retained for review')
+        return
+      }
       setResult(data)
       toast.success(t('pages.analyze.done'))
     } catch (e: any) {
@@ -133,6 +141,13 @@ export default function AnalyzePage() {
         </div>
       )}
 
+      {partial && (
+        <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <h2 className="font-semibold">Source retained — analysis needs review</h2>
+          <p className="text-xs">Job: {partial.job_id}</p>
+          <p className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-sm">{partial.content}</p>
+        </section>
+      )}
       {result && (
         <div className="mt-8 space-y-6">
           <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-700">{t('dashboard.eventModal.title')}</h2>

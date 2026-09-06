@@ -1,12 +1,13 @@
 'use client'
 
-import { Info, Layers, MapPin, Settings, Wind, X } from "lucide-react";
+import { Layers, MapPin, Settings, Wind, X } from "lucide-react";
 import { useState } from "react";
 import AseanMap from "./AseanMap";
 import type { OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
 type Base = "osm" | "terrain" | "satellite" | "light" | "dark";
+type MarkerLookbackDays = 7 | 14 | 30 | 90;
 
 const Toggle = ({
   value,
@@ -30,21 +31,20 @@ export default function SpatialOutbreakMap({
   locations,
   highlightCountry,
 }: {
-  countries: { name: string; cases: number }[];
+  countries: { name: string; cases: number; deaths?: number }[];
   locations: OutbreakLocation[];
   embedded?: boolean;
   highlightCountry?: string;
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState(false),
-    [legend, setLegend] = useState(true),
     [windLegend, setWindLegend] = useState(true),
     [base, setBase] = useState<Base>("osm"),
     [markers, setMarkers] = useState(true),
+    [markerLookbackDays, setMarkerLookbackDays] = useState<MarkerLookbackDays>(30),
     [admin, setAdmin] = useState(true),
     [choropleth, setChoropleth] = useState(true),
     [wind, setWind] = useState(true),
-    [radius, setRadius] = useState<number | null>(null),
     [bnpb, setBnpb] = useState({
       flood: false,
       earthquake: false,
@@ -57,11 +57,11 @@ export default function SpatialOutbreakMap({
   const reset = () => {
     setBase("osm");
     setMarkers(true);
+    setMarkerLookbackDays(30);
     setAdmin(true);
     setChoropleth(true);
     setWind(true);
     setWindLegend(true);
-    setRadius(null);
     setBnpb({
       flood: false,
       earthquake: false,
@@ -70,7 +70,6 @@ export default function SpatialOutbreakMap({
       hillshade: false,
       population: false,
     });
-    setLegend(true);
   };
 
   return (
@@ -82,11 +81,10 @@ export default function SpatialOutbreakMap({
         showAdmin={admin}
         countryData={choropleth ? countries : undefined}
         outbreakLocations={locations}
+        markerLookbackDays={markerLookbackDays}
         bnpbLayers={bnpb}
         showWind={wind}
-        ewsRadiusKm={radius}
         highlightCountry={highlightCountry}
-        hideLegend
       />
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         <button
@@ -100,18 +98,17 @@ export default function SpatialOutbreakMap({
         </button>
       </div>
 
-      {(legend || (windLegend && wind)) && (
+      {windLegend && wind && (
         <div className="absolute bottom-4 left-4 z-10 max-w-[320px] space-y-3 rounded-2xl border border-blue-200/90 bg-white/95 p-3.5 shadow-[0_8px_30px_rgba(0,96,169,.12)] backdrop-blur-md">
           <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
             <div className="flex items-center gap-1.5">
-              <Info className="h-3.5 w-3.5 text-[#0060A9]" />
+              <Wind className="h-3.5 w-3.5 text-[#0060A9]" />
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-800">
-                {t("map.legend")}
+                {t("map.windFlow")} (GFS)
               </span>
             </div>
             <button
               onClick={() => {
-                setLegend(false);
                 setWindLegend(false);
               }}
               className="rounded p-0.5 text-slate-400 hover:text-slate-600"
@@ -120,69 +117,15 @@ export default function SpatialOutbreakMap({
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          {legend && (
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <p className="text-[10px] font-extrabold uppercase tracking-widest text-[#0060A9]">
-                  {t("dashboard.labelEwsStatus")}
-                </p>
-                <span className="text-[9px] font-semibold text-slate-400">{t("map.pulsatingRadius")}</span>
-              </div>
-              <div className="space-y-1.5 text-[10px] font-medium text-slate-700">
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-3 w-3 items-center justify-center">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-                  </span>
-                  <span className="font-semibold text-slate-800">{t("map.legendAwas")}</span>
-                  <span className="ml-auto rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[8.5px] font-black text-red-600">CRITICAL</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-3 w-3 items-center justify-center">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-60" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-orange-500" />
-                  </span>
-                  <span className="font-semibold text-slate-800">{t("map.legendSiaga")}</span>
-                  <span className="ml-auto rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[8.5px] font-black text-orange-600">HIGH</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-3 w-3 items-center justify-center">
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-400" />
-                  </span>
-                  <span className="font-semibold text-slate-800">{t("map.legendWaspada")}</span>
-                  <span className="ml-auto rounded border border-yellow-200 bg-yellow-50 px-1.5 py-0.5 text-[8.5px] font-black text-yellow-700">WARNING</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-3 w-3 items-center justify-center">
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                  </span>
-                  <span className="font-semibold text-slate-800">{t("severity.NORMAL")}</span>
-                  <span className="ml-auto rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[8.5px] font-black text-emerald-700">SIGNAL</span>
-                </div>
-              </div>
+          <div className="space-y-1.5">
+            <div className="h-2 w-full rounded-full bg-gradient-to-r from-[rgb(15,60,140)] via-[rgb(85,160,115)] via-[rgb(215,195,60)] via-[rgb(210,125,35)] to-[rgb(185,35,10)] shadow-inner" />
+            <div className="flex justify-between px-0.5 text-[8.5px] font-bold text-slate-500">
+              <span>0 km/h</span>
+              <span>20 km/h</span>
+              <span>40 km/h</span>
+              <span>&gt;60 km/h</span>
             </div>
-          )}
-          {legend && radius && (
-            <div className="border-t border-slate-100 pt-2 text-[10px] font-semibold text-red-700">
-              <span className="mr-2 inline-block h-3 w-3 rounded-full border-2 border-red-500 bg-red-100 align-middle" />
-              {t("map.activeEwsRadius")} {radius} km
-            </div>
-          )}
-          {windLegend && wind && (
-            <div className="space-y-1.5 border-t border-slate-100 pt-2">
-              <p className="flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#0060A9]">
-                <Wind className="h-3 w-3" />
-                {t("map.windFlow")} (GFS)
-              </p>
-              <div className="h-2 w-full rounded-full bg-gradient-to-r from-[rgb(15,60,140)] via-[rgb(85,160,115)] via-[rgb(215,195,60)] via-[rgb(210,125,35)] to-[rgb(185,35,10)] shadow-inner" />
-              <div className="flex justify-between px-0.5 text-[8.5px] font-bold text-slate-500">
-                <span>0 km/h</span>
-                <span>20 km/h</span>
-                <span>40 km/h</span>
-                <span>&gt;60 km/h</span>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -210,7 +153,7 @@ export default function SpatialOutbreakMap({
               </button>
             </div>
             <div className="flex-1 space-y-5 overflow-y-auto p-4">
-              <Group title={t("map.legend")}>
+              <Group title="Map Layers">
                 <Row
                   icon={<MapPin className="h-4 w-4" />}
                   title={t("map.outbreakMarkers")}
@@ -218,6 +161,21 @@ export default function SpatialOutbreakMap({
                   value={markers}
                   set={setMarkers}
                 />
+                <div className="ml-10 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Marker time range</p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    {([7, 14, 30, 90] as const).map((days) => (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => setMarkerLookbackDays(days)}
+                        className={`rounded-lg border px-2 py-1.5 text-[10px] font-bold transition ${markerLookbackDays === days ? "border-[#0060A9] bg-blue-50 text-[#0060A9]" : "border-slate-200 bg-white text-slate-500 hover:border-blue-200"}`}
+                      >
+                        {days === 90 ? "3 Months" : `${days} Days`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Row
                   icon={<Layers className="h-4 w-4" />}
                   title={t("map.adminBoundaries")}
@@ -231,13 +189,6 @@ export default function SpatialOutbreakMap({
                   sub={t("map.casesChoroplethSub")}
                   value={choropleth}
                   set={setChoropleth}
-                />
-                <Row
-                  icon={<Info className="h-4 w-4" />}
-                  title={t("map.legend")}
-                  sub={t("map.spatialControlsSub")}
-                  value={legend}
-                  set={setLegend}
                 />
                 <Row
                   icon={<Wind className="h-4 w-4" />}
@@ -293,32 +244,6 @@ export default function SpatialOutbreakMap({
                 ))}
                </Group>
 
-              <Group title={t("map.activeEwsRadius")}>
-                <Row
-                  icon={<MapPin className="h-4 w-4" />}
-                  title={t("map.activeEwsRadius")}
-                  sub={t("map.activeEwsRadiusSub")}
-                  value={radius != null}
-                  set={(v) => setRadius(v ? 25 : null)}
-                />
-                {radius && (
-                  <div className="mt-2">
-                    <div className="flex justify-between text-[10px] font-bold text-slate-600">
-                      <span>{t("map.impactRadius")}</span>
-                      <span>{radius} km</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="5"
-                      max="250"
-                      step="5"
-                      value={radius}
-                      onChange={(e) => setRadius(+e.target.value)}
-                      className="mt-1 w-full accent-[#0060A9]"
-                    />
-                  </div>
-                )}
-               </Group>
             </div>
             <div className="border-t border-slate-100 p-3">
               <button

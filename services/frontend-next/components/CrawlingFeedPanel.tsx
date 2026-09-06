@@ -27,15 +27,20 @@ type Props = {
   onToggle: () => void;
   t: Translation;
   translateDisease: (name?: string | null) => string;
+  onItemsChange?: (items: CrawlingFeedItem[]) => void;
 };
 
-export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDisease }: Props) {
+export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDisease, onItemsChange }: Props) {
   const { items, loading, connected } = useCrawlingFeed();
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<FeedViewMode>("all");
   const [now, setNow] = useState(() => Date.now());
   const feedRef = useRef<HTMLDivElement>(null);
   const previousRects = useRef<Map<string, DOMRect>>(new Map());
+
+  useEffect(() => {
+    onItemsChange?.(items);
+  }, [items, onItemsChange]);
 
   const hasRecentActivity = useMemo(
     () => items.some((item) => {
