@@ -672,6 +672,7 @@ function Kpi({
   icon,
   tone = "blue",
   trend,
+  currentMonth,
   previousMonth,
   infoModal,
 }: {
@@ -680,6 +681,7 @@ function Kpi({
   icon: React.ReactNode;
   tone?: string;
   trend?: { current: number; previous: number };
+  currentMonth?: string;
   previousMonth?: string;
   infoModal?: {
     title: string;
@@ -703,7 +705,12 @@ function Kpi({
         : 0
     : 0;
   const isUp = difference >= 0;
-  const monthLabel = previousMonth
+  const currentMonthLabel = currentMonth
+    ? new Intl.DateTimeFormat(numLocale, { month: "long" }).format(
+        new Date(`${currentMonth}-01T00:00:00Z`),
+      )
+    : t("dashboard.thisMonth");
+  const previousMonthLabel = previousMonth
     ? new Intl.DateTimeFormat(numLocale, { month: "long" }).format(
         new Date(`${previousMonth}-01T00:00:00Z`),
       )
@@ -760,8 +767,11 @@ function Kpi({
             {formatNumber(value, numLocale)}
           </p>
           <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
-            <p className="uppercase">
-              {monthLabel} ({formatNumber(trend?.previous ?? 0, numLocale)})
+            <p className="uppercase text-slate-700">
+              Current month: {currentMonthLabel} ({formatNumber(trend?.current ?? 0, numLocale)})
+            </p>
+            <p className="mt-0.5 uppercase">
+              Previous month: {previousMonthLabel} ({formatNumber(trend?.previous ?? 0, numLocale)})
             </p>
             <p
               className={`mt-1 flex items-center gap-0.5 ${isUp ? "text-emerald-600" : "text-red-600"}`}
@@ -972,6 +982,7 @@ export default function DashboardPage() {
           icon={<Bug className="h-5 w-5" />}
           tone="blue"
           trend={data?.trends?.cases}
+          currentMonth={data?.trends?.current_month}
           previousMonth={data?.trends?.previous_month}
           infoModal={{
             title: t("dashboard.kpiInfo.casesTitle"),
@@ -992,6 +1003,7 @@ export default function DashboardPage() {
           icon={<Skull className="h-5 w-5" />}
           tone="red"
           trend={data?.trends?.deaths}
+          currentMonth={data?.trends?.current_month}
           previousMonth={data?.trends?.previous_month}
           infoModal={{
             title: t("dashboard.kpiInfo.deathsTitle"),
@@ -1016,6 +1028,7 @@ export default function DashboardPage() {
           icon={<MapPin className="h-5 w-5" />}
           tone="blue"
           trend={data?.trends?.locations}
+          currentMonth={data?.trends?.current_month}
           previousMonth={data?.trends?.previous_month}
           infoModal={{
             title: t("dashboard.kpiInfo.locationsTitle"),
