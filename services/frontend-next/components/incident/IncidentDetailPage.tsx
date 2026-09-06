@@ -5599,7 +5599,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <span className="text-xs font-semibold text-slate-500">rata-rata</span>
                 </div>
                 <div className="mt-1">
-                  <span className="text-xs font-semibold text-slate-600">Level: <span className="font-bold text-slate-800">Rendah</span></span>
+                      <span className="text-xs font-semibold text-slate-600">Level: <span className="font-bold text-slate-800">Low</span></span>
                 </div>
               </div>
 
@@ -5645,7 +5645,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <span className="text-xs font-semibold text-slate-500">rata-rata</span>
                 </div>
                 <div className="mt-1">
-                  <span className="text-xs font-semibold text-slate-600">Total Periksa: <span className="font-bold text-slate-800">16.065</span></span>
+                      <span className="text-xs font-semibold text-slate-600">Total Tests: <span className="font-bold text-slate-800">16,065</span></span>
                 </div>
               </div>
 
