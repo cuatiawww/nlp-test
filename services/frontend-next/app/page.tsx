@@ -1150,13 +1150,13 @@ export default function DashboardPage() {
       <CrawlingEnginePerformance crawlingStats={crawlingStats} />
 
       {/* ?? Case Location Summary Heatmap Section (Spatial-Temporal Matrix) ?? */}
-      <CaseLocationHeatmap />
+      <CaseLocationHeatmap filters={filters} />
 
       {/* ?? Disease Trend Overview (Peringatan Prioritas & Multi-Day Trend) ?? */}
-      <DiseaseTrendOverview />
+      <DiseaseTrendOverview filters={filters} />
 
       {/* ?? Morbidity & Mortality Section (Weekly Trend & Cases vs Deaths) ?? */}
-      <MorbidityMortalitySection />
+      <MorbidityMortalitySection filters={filters} />
 
       {/* Temporarily hidden: Case Distribution by Health Topic and Country Distribution. */}
       {false && (

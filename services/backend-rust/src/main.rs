@@ -68,6 +68,13 @@ mod analysis_contract_tests {
         assert!(validate_candidate_review("pending", None).is_err());
         assert!(validate_candidate_review("unknown", None).is_err());
     }
+
+    #[test]
+    fn unified_dashboard_filter_uses_iso_week_boundaries() {
+        let (start, end) = resolve_dashboard_dates(2026, Some(2025), Some(1), Some(2026), Some(36));
+        assert_eq!(start, NaiveDate::from_ymd_opt(2024, 12, 30).unwrap());
+        assert_eq!(end, NaiveDate::from_ymd_opt(2026, 9, 6).unwrap());
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -203,16 +210,33 @@ struct LoginRequest {
 struct MorbidityQuery {
     disease: Option<String>,
     weeks: Option<i32>,
+    country: Option<String>,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
 struct TrendOverviewQuery {
     days: Option<i32>,
+    country: Option<String>,
+    disease: Option<String>,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
 struct HeatmapQuery {
     year: Option<i32>,
+    country: Option<String>,
+    disease: Option<String>,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,6 +249,29 @@ struct PublicDashboardQuery {
     start_week: Option<u32>,
     end_year: Option<i32>,
     end_week: Option<u32>,
+}
+
+/// Resolve the same ISO-week date boundaries used by the main dashboard.
+/// Optional fields preserve the legacy year-only behavior of the supporting
+/// dashboard endpoints when callers do not send the unified filter.
+fn resolve_dashboard_dates(
+    default_year: i32,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
+) -> (NaiveDate, NaiveDate) {
+    let start_year = start_year.unwrap_or(default_year);
+    let end_year = end_year.unwrap_or(default_year);
+    let start_date = start_week
+        .and_then(|week| NaiveDate::from_isoywd_opt(start_year, week, Weekday::Mon))
+        .or_else(|| NaiveDate::from_ymd_opt(start_year, 1, 1))
+        .unwrap();
+    let end_date = end_week
+        .and_then(|week| NaiveDate::from_isoywd_opt(end_year, week, Weekday::Sun))
+        .or_else(|| NaiveDate::from_ymd_opt(end_year, 12, 31))
+        .unwrap();
+    (start_date, end_date)
 }
 
 #[derive(Debug, Deserialize)]
@@ -2180,6 +2227,17 @@ async fn spatial_heatmap(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     let selected_year = query.year.unwrap_or_else(|| chrono::Utc::now().year());
+    let (start_date, end_date) = resolve_dashboard_dates(
+        selected_year,
+        query.start_year,
+        query.start_week,
+        query.end_year,
+        query.end_week,
+    );
+    let selected_country = query.country.filter(|value| {
+        !value.trim().is_empty() && value != "all" && value != "ASEAN"
+    });
+    let selected_disease = query.disease.filter(|value| !value.trim().is_empty() && value != "all");
 
     let rows = client
         .query(
@@ -2197,7 +2255,7 @@ async fn spatial_heatmap(
                  AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
                  AND (e.confidence >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
                  AND e.published_at IS NOT NULL
-                 AND e.published_at >= make_date($1, 1, 1) AND e.published_at < make_date($1 + 1, 1, 1)
+                 AND e.published_at::date >= $1 AND e.published_at::date <= $2
              ), valid AS (
                SELECT ranked.*,
                       CASE 
@@ -2230,9 +2288,11 @@ async fn spatial_heatmap(
                     COUNT(*) FILTER (WHERE outbreak_alert = TRUE)::bigint AS alert_count
              FROM valid
              WHERE resolved_country IN ('Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam')
+               AND ($3::text IS NULL OR LOWER(resolved_country) = LOWER($3))
+               AND ($4::text IS NULL OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
              GROUP BY resolved_country, 2, 3
              ORDER BY resolved_country, month_num",
-            &[&selected_year],
+            &[&start_date, &end_date, &selected_country, &selected_disease],
         )
         .await
         .map_err(internal_error)?;
@@ -2357,6 +2417,25 @@ async fn disease_trend_overview(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     let days_count = query.days.unwrap_or(7).clamp(3, 90);
+    let current_date = chrono::Utc::now().date_naive();
+    let (start_date, end_date) = if query.start_year.is_some() || query.start_week.is_some()
+        || query.end_year.is_some() || query.end_week.is_some()
+    {
+        resolve_dashboard_dates(
+            current_date.year(),
+            query.start_year,
+            query.start_week,
+            query.end_year,
+            query.end_week,
+        )
+    } else {
+        (current_date - chrono::Duration::days(i64::from(days_count)), current_date)
+    };
+    let selected_country = query.country.filter(|value| {
+        !value.trim().is_empty() && value != "all" && value != "ASEAN"
+    });
+    let selected_disease = query.disease.filter(|value| !value.trim().is_empty() && value != "all");
+    let trend_days = (end_date - start_date).num_days().saturating_add(1) as i32;
 
     let rows = client.query(
         "WITH ranked AS (
@@ -2422,30 +2501,33 @@ async fn disease_trend_overview(
                 COUNT(*) FILTER (WHERE outbreak_alert = TRUE)::bigint as alert_count
          FROM valid
          WHERE resolved_country IN ('Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam')
+           AND published_at::date >= $1 AND published_at::date <= $2
+           AND ($3::text IS NULL OR LOWER(resolved_country) = LOWER($3))
+           AND ($4::text IS NULL OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
          GROUP BY standard_disease, resolved_country
          ORDER BY standard_disease, total_cases DESC, event_count DESC;",
-        &[],
+        &[&start_date, &end_date, &selected_country, &selected_disease],
     ).await.map_err(internal_error)?;
 
     // Daily multi-line trends
     let trend_rows = client.query(
-        "WITH max_d AS (
-           SELECT COALESCE(MAX(published_at::date), CURRENT_DATE) as end_date FROM disease_events
-         )
-         SELECT (published_at::date)::text as date_str,
+        "SELECT (e.published_at::date)::text as date_str,
                 TO_CHAR(published_at, 'DD Mon') as date_label,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%dengue%' OR UPPER(disease_classification) = 'DBD' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as dbd,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%measles%' OR LOWER(disease_classification) LIKE '%campak%' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as campak,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%covid%' OR LOWER(disease_classification) LIKE '%corona%' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as covid,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%rabies%' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as rabies,
-                SUM(CASE WHEN LOWER(disease_classification) LIKE '%hand foot%' OR LOWER(disease_classification) LIKE '%hfmd%' THEN GREATEST(COALESCE(case_count, 0), 0) ELSE 0 END)::bigint as hfmd
-         FROM disease_events, max_d
-         WHERE published_at::date >= (max_d.end_date - make_interval(days => $1))
-           AND published_at::date <= max_d.end_date
-           AND (is_health_related = TRUE OR LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api'))
-         GROUP BY (published_at::date)::text, TO_CHAR(published_at, 'DD Mon')
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%dengue%' OR UPPER(e.disease_classification) = 'DBD' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as dbd,
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%measles%' OR LOWER(e.disease_classification) LIKE '%campak%' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as campak,
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%covid%' OR LOWER(e.disease_classification) LIKE '%corona%' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as covid,
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%rabies%' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as rabies,
+                SUM(CASE WHEN LOWER(e.disease_classification) LIKE '%hand foot%' OR LOWER(e.disease_classification) LIKE '%hfmd%' THEN GREATEST(COALESCE(e.case_count, 0), 0) ELSE 0 END)::bigint as hfmd
+         FROM disease_events e
+         WHERE e.published_at::date >= $1
+           AND e.published_at::date <= $2
+           AND (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+           AND ($3::text IS NULL OR LOWER(e.disease_classification) = LOWER($3) OR LOWER(e.disease_classification) LIKE '%' || LOWER($3) || '%')
+           AND ($4::text IS NULL OR (LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($4) = 'indonesia')
+             OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(e.location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($4)))
+         GROUP BY (e.published_at::date)::text, TO_CHAR(e.published_at, 'DD Mon')
          ORDER BY date_str ASC;",
-        &[&days_count],
+        &[&start_date, &end_date, &selected_disease, &selected_country],
     ).await.map_err(internal_error)?;
 
     // Aggregate into disease structures
@@ -2586,7 +2668,7 @@ async fn disease_trend_overview(
                 "top_burden_disease": top_disease,
                 "top_burden_country": top_country,
                 "total_cases_tracked": grand_cases,
-                "trend_days": days_count,
+                "trend_days": trend_days,
             },
             "priority_alerts": priority_alerts,
             "daily_trends": daily_trends,
@@ -2602,6 +2684,17 @@ async fn morbidity_mortality_handler(
     let client = state.db.get().await.map_err(internal_error)?;
     let selected_disease = query.disease.unwrap_or_else(|| "all".to_string()).to_lowercase();
     let weeks_count = query.weeks.unwrap_or(12).clamp(4, 52);
+    let default_year = query.end_year.or(query.start_year).unwrap_or_else(|| chrono::Utc::now().year());
+    let (start_date, end_date) = resolve_dashboard_dates(
+        default_year,
+        query.start_year,
+        query.start_week,
+        query.end_year,
+        query.end_week,
+    );
+    let selected_country = query.country.filter(|value| {
+        !value.trim().is_empty() && value != "all" && value != "ASEAN"
+    });
 
     // 1. Overall summary
     let summary_row = client.query_one(
@@ -2611,6 +2704,10 @@ async fn morbidity_mortality_handler(
            COALESCE(ROUND((SUM(GREATEST(COALESCE(death_count, 0), 0))::numeric / NULLIF(SUM(GREATEST(COALESCE(case_count, 0), 0)), 0)) * 100, 2), 0)::float8 as cfr_pct
          FROM disease_events e
          WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+           AND COALESCE(e.published_at, e.created_at::date) >= $2
+           AND COALESCE(e.published_at, e.created_at::date) <= $3
+           AND ($4::text IS NULL OR (LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($4) = 'indonesia')
+             OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(e.location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($4)))
            AND (
              $1 = 'all' OR
              ($1 = 'dbd' AND (LOWER(e.disease_classification) LIKE '%dengue%' OR UPPER(e.disease_classification) = 'DBD')) OR
@@ -2622,7 +2719,7 @@ async fn morbidity_mortality_handler(
              ($1 = 'cholera' AND (LOWER(e.disease_classification) LIKE '%cholera%' OR LOWER(e.disease_classification) LIKE '%kolera%')) OR
              LOWER(e.disease_classification) LIKE '%' || $1 || '%'
            );",
-        &[&selected_disease],
+        &[&selected_disease, &start_date, &end_date, &selected_country],
     ).await.map_err(internal_error)?;
 
     let total_morbidity: i64 = summary_row.get("total_morbidity");
@@ -2639,8 +2736,11 @@ async fn morbidity_mortality_handler(
              SUM(GREATEST(COALESCE(e.case_count, 0), 0))::bigint as morbidity,
              SUM(GREATEST(COALESCE(e.death_count, 0), 0))::bigint as mortality
            FROM disease_events e
-           WHERE COALESCE(e.published_at, e.created_at::date) >= '2026-01-01'
+           WHERE COALESCE(e.published_at, e.created_at::date) >= $2
+             AND COALESCE(e.published_at, e.created_at::date) <= $3
              AND (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+             AND ($4::text IS NULL OR (LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($4) = 'indonesia')
+               OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(e.location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($4)))
              AND (
                $1 = 'all' OR
                ($1 = 'dbd' AND (LOWER(e.disease_classification) LIKE '%dengue%' OR UPPER(e.disease_classification) = 'DBD')) OR
@@ -2661,7 +2761,7 @@ async fn morbidity_mortality_handler(
                 morbidity, mortality,
                 COALESCE(ROUND((mortality::numeric / NULLIF(morbidity, 0)) * 100, 2), 0)::float8 as cfr_pct
          FROM monthly;",
-        &[&selected_disease],
+        &[&selected_disease, &start_date, &end_date, &selected_country],
     ).await.map_err(internal_error)?;
 
     let mut weekly_trends = Vec::new();
@@ -2729,10 +2829,15 @@ async fn morbidity_mortality_handler(
                 COALESCE(ROUND((SUM(GREATEST(COALESCE(death_count, 0), 0))::numeric / NULLIF(SUM(GREATEST(COALESCE(case_count, 0), 0)), 0)) * 100, 2), 0)::float8 as cfr_pct,
                 COUNT(*)::bigint as event_count
          FROM valid
+         WHERE COALESCE(published_at, created_at::date) >= $1
+           AND COALESCE(published_at, created_at::date) <= $2
+           AND ($3::text IS NULL OR (LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($3) = 'indonesia')
+             OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($3)))
+           AND ($4::text IS NULL OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
          GROUP BY standard_disease
          ORDER BY total_cases DESC
          LIMIT 12;",
-        &[],
+        &[&start_date, &end_date, &selected_country, &selected_disease],
     ).await.map_err(internal_error)?;
 
     let mut disease_breakdowns = Vec::new();

@@ -24,6 +24,7 @@ import {
   DiseaseTrendOverviewData,
   PriorityDiseaseAlert,
 } from '@/lib/api';
+import { EpiFilterState } from './EpiFilterBar';
 import {
   ResponsiveContainer,
   LineChart,
@@ -35,11 +36,14 @@ import {
   Legend,
 } from 'recharts';
 
-export default function DiseaseTrendOverview() {
+interface DiseaseTrendOverviewProps {
+  filters: EpiFilterState;
+}
+
+export default function DiseaseTrendOverview({ filters }: DiseaseTrendOverviewProps) {
   const [data, setData] = useState<DiseaseTrendOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDays, setSelectedDays] = useState<number>(7);
   const [showAllAlerts, setShowAllAlerts] = useState<boolean>(false);
   const [expandedDisease, setExpandedDisease] = useState<string | null>(null);
   const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({
@@ -50,11 +54,18 @@ export default function DiseaseTrendOverview() {
     hfmd: true,
   });
 
-  const loadData = async (days: number) => {
+  const loadData = async (activeFilters: EpiFilterState) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchDiseaseTrendOverview(days);
+      const res = await fetchDiseaseTrendOverview({
+        country: activeFilters.country,
+        disease: activeFilters.disease,
+        start_year: activeFilters.startYear,
+        start_week: activeFilters.startWeek,
+        end_year: activeFilters.endYear,
+        end_week: activeFilters.endWeek,
+      });
       setData(res);
     } catch (err: any) {
       console.error('Failed to load disease trend overview:', err);
@@ -65,8 +76,8 @@ export default function DiseaseTrendOverview() {
   };
 
   useEffect(() => {
-    loadData(selectedDays);
-  }, [selectedDays]);
+    loadData(filters);
+  }, [filters]);
 
   const formatCompact = (num: number): string => {
     const value = Number(num);
@@ -128,51 +139,6 @@ export default function DiseaseTrendOverview() {
           </p>
         </div>
 
-        {/* ?? Controls: Day Filter & Refresh ?? */}
-        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
-          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100/80 p-1 text-xs font-semibold">
-            <button
-              onClick={() => setSelectedDays(7)}
-              className={`rounded-lg px-3 py-1.5 transition-all ${
-                selectedDays === 7
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Last 7 Days
-            </button>
-            <button
-              onClick={() => setSelectedDays(14)}
-              className={`rounded-lg px-3 py-1.5 transition-all ${
-                selectedDays === 14
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              14 Days
-            </button>
-            <button
-              onClick={() => setSelectedDays(30)}
-              className={`rounded-lg px-3 py-1.5 transition-all ${
-                selectedDays === 30
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              30 Days
-            </button>
-          </div>
-
-          <button
-            onClick={() => loadData(selectedDays)}
-            disabled={loading}
-            title="Reload Trend Summary"
-            aria-label="Reload Trend Summary"
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
-          </button>
-        </div>
       </div>
 
       {/* ?? Quick KPI Stat Highlights ?? */}
@@ -438,7 +404,7 @@ export default function DiseaseTrendOverview() {
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
                 <h3 className="text-sm font-black text-slate-900">
-                  Detected Case Trend ({selectedDays} Days)
+                  Detected Case Trend ({data?.summary.trend_days ?? 0} Days)
                 </h3>
                 <p className="text-[11px] text-slate-500">
                   Daily detected-case fluctuation for priority health topics

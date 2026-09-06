@@ -8,13 +8,11 @@ import {
   ArrowRight,
   Calendar,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Filter,
   Flame,
   HelpCircle,
   Info,
-  Layers,
   Percent,
   RefreshCw,
   Skull,
@@ -27,6 +25,7 @@ import {
   WeeklyMorbidityMortality,
   DiseaseMorbidityMortality,
 } from '@/lib/api';
+import { EpiFilterState } from './EpiFilterBar';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -39,29 +38,26 @@ import {
   Legend,
 } from 'recharts';
 
-const DISEASE_FILTER_OPTIONS = [
-  { label: 'All Health Topics', value: 'all' },
-  { label: 'Demam Berdarah (DBD)', value: 'dbd' },
-  { label: 'Campak (Measles)', value: 'campak' },
-  { label: 'HFMD (Flu Singapura)', value: 'hfmd' },
-  { label: 'COVID-19', value: 'covid' },
-  { label: 'Influenza', value: 'influenza' },
-  { label: 'Rabies', value: 'rabies' },
-  { label: 'Kolera (Cholera)', value: 'cholera' },
-];
+interface MorbidityMortalitySectionProps {
+  filters: EpiFilterState;
+}
 
-export default function MorbidityMortalitySection() {
+export default function MorbidityMortalitySection({ filters }: MorbidityMortalitySectionProps) {
   const [data, setData] = useState<MorbidityMortalityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDisease, setSelectedDisease] = useState<string>('all');
-  const [selectedWeeks, setSelectedWeeks] = useState<number>(12);
-
-  const loadData = async (disease: string, weeks: number) => {
+  const loadData = async (activeFilters: EpiFilterState) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchMorbidityMortality({ disease, weeks });
+      const res = await fetchMorbidityMortality({
+        country: activeFilters.country,
+        disease: activeFilters.disease,
+        start_year: activeFilters.startYear,
+        start_week: activeFilters.startWeek,
+        end_year: activeFilters.endYear,
+        end_week: activeFilters.endWeek,
+      });
       setData(res);
     } catch (err: any) {
       console.error('Failed to load morbidity and mortality:', err);
@@ -72,8 +68,8 @@ export default function MorbidityMortalitySection() {
   };
 
   useEffect(() => {
-    loadData(selectedDisease, selectedWeeks);
-  }, [selectedDisease, selectedWeeks]);
+    loadData(filters);
+  }, [filters]);
 
   const formatCompact = (num: number): string => {
     const value = Number(num);
@@ -112,70 +108,6 @@ export default function MorbidityMortalitySection() {
           </p>
         </div>
 
-        {/* ?? Controls: Health Topic Filter & Weeks Selector ?? */}
-        <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-auto">
-          {/* Health Topic Selector Dropdown */}
-          <div className="relative inline-flex items-center">
-            <select
-              value={selectedDisease}
-              onChange={(e) => setSelectedDisease(e.target.value)}
-              aria-label="Health Topic Filter"
-              className="appearance-none rounded-xl border border-slate-200 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-700 shadow-xs hover:border-slate-300 focus:border-sky-500 focus:outline-none"
-            >
-              {DISEASE_FILTER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-slate-400" />
-          </div>
-
-          {/* Weeks Selector Pills */}
-          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100/80 p-1 text-xs font-semibold">
-            <button
-              onClick={() => setSelectedWeeks(8)}
-              className={`rounded-lg px-2.5 py-1 transition-all ${
-                selectedWeeks === 8
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              8 Weeks
-            </button>
-            <button
-              onClick={() => setSelectedWeeks(12)}
-              className={`rounded-lg px-2.5 py-1 transition-all ${
-                selectedWeeks === 12
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              12 Weeks
-            </button>
-            <button
-              onClick={() => setSelectedWeeks(16)}
-              className={`rounded-lg px-2.5 py-1 transition-all ${
-                selectedWeeks === 16
-                  ? 'bg-white text-blue-700 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              16 Weeks
-            </button>
-          </div>
-
-          {/* Refresh Button */}
-          <button
-            onClick={() => loadData(selectedDisease, selectedWeeks)}
-            disabled={loading}
-            title="Reload Morbidity & Mortality"
-            aria-label="Reload Morbidity & Mortality"
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
-          </button>
-        </div>
       </div>
 
       {/* ?? 3 Big Stat KPI Cards (Image format: TOTAL MORBIDITY, TOTAL MORTALITY, CFR) ?? */}
@@ -247,7 +179,7 @@ export default function MorbidityMortalitySection() {
                 </h3>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Monthly case dynamics (left axis) versus deaths (right axis) - Tahun 2026
+                Monthly case dynamics (left axis) versus deaths (right axis) within the selected range
               </p>
             </div>
 
@@ -369,14 +301,9 @@ export default function MorbidityMortalitySection() {
         <div className="lg:col-span-5 flex flex-col rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-700 font-bold">
-                  <Layers className="h-4 w-4" />
-                </div>
                 <h3 className="text-sm font-black text-slate-900">
                   Top Health Topics by Cases & Deaths
                 </h3>
-              </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 Comparative case-versus-death ratio by health topic
               </p>
@@ -399,15 +326,7 @@ export default function MorbidityMortalitySection() {
               return (
                 <div
                   key={d.disease}
-                  onClick={() => {
-                    // Match to filter option if exists
-                    const opt = DISEASE_FILTER_OPTIONS.find((o) =>
-                      d.disease.toLowerCase().includes(o.value)
-                    );
-                    if (opt) setSelectedDisease(opt.value);
-                  }}
-                  className="py-2 px-1 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors"
-                      title="Click to filter the weekly trend to this health topic"
+                  className="py-2 px-1 hover:bg-slate-50 rounded-lg transition-colors"
                 >
                   {/* Top row: Health topic name + CFR badge */}
                   <div className="flex items-center justify-between text-xs font-bold text-slate-900">
@@ -459,7 +378,7 @@ export default function MorbidityMortalitySection() {
           </div>
 
           <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-2">
-            <span>Click a health topic row to filter the weekly trend.</span>
+            <span>Health topics are scoped by the integrated filter above.</span>
           </div>
         </div>
       </div>

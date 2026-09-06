@@ -400,9 +400,17 @@ export interface SpatialHeatmapResponse {
   };
 }
 
-export const fetchSpatialHeatmap = (year?: number) => {
-  const query = year ? `?year=${year}` : '';
-  return fetchFrom<SpatialHeatmapResponse>(`/api/v1/spatial-heatmap${query}`);
+export const fetchSpatialHeatmap = (filters?: PublicDashboardApiParams) => {
+  const params = new URLSearchParams();
+  if (filters?.year) params.set('year', String(filters.year));
+  if (filters?.country && filters.country !== 'all') params.set('country', filters.country);
+  if (filters?.disease && filters.disease !== 'all') params.set('disease', filters.disease);
+  if (filters?.start_year) params.set('start_year', String(filters.start_year));
+  if (filters?.start_week) params.set('start_week', String(filters.start_week));
+  if (filters?.end_year) params.set('end_year', String(filters.end_year));
+  if (filters?.end_week) params.set('end_week', String(filters.end_week));
+  const query = params.toString();
+  return fetchFrom<SpatialHeatmapResponse>(`/api/v1/spatial-heatmap${query ? `?${query}` : ''}`);
 };
 
 // ?? Disease Trend Overview ????????????????????????
@@ -453,8 +461,16 @@ export interface DiseaseTrendOverviewData {
   daily_trends: DiseaseDailyTrend[];
 }
 
-export const fetchDiseaseTrendOverview = (days?: number) => {
-  const query = days ? `?days=${days}` : '';
+export const fetchDiseaseTrendOverview = (filters?: PublicDashboardApiParams & { days?: number }) => {
+  const params = new URLSearchParams();
+  if (filters?.days) params.set('days', String(filters.days));
+  if (filters?.country && filters.country !== 'all') params.set('country', filters.country);
+  if (filters?.disease && filters.disease !== 'all') params.set('disease', filters.disease);
+  if (filters?.start_year) params.set('start_year', String(filters.start_year));
+  if (filters?.start_week) params.set('start_week', String(filters.start_week));
+  if (filters?.end_year) params.set('end_year', String(filters.end_year));
+  if (filters?.end_week) params.set('end_week', String(filters.end_week));
+  const query = params.toString() ? `?${params.toString()}` : '';
   return fetchFrom<DiseaseTrendOverviewData>(`/api/v1/disease-trend-overview${query}`);
 };
 
@@ -489,10 +505,15 @@ export interface MorbidityMortalityResponse {
   top_diseases: DiseaseMorbidityMortality[];
 }
 
-export const fetchMorbidityMortality = (params?: { disease?: string; weeks?: number }) => {
+export const fetchMorbidityMortality = (params?: PublicDashboardApiParams & { weeks?: number }) => {
   const q = new URLSearchParams();
   if (params?.disease && params.disease !== 'all') q.set('disease', params.disease);
   if (params?.weeks) q.set('weeks', String(params.weeks));
+  if (params?.country && params.country !== 'all') q.set('country', params.country);
+  if (params?.start_year) q.set('start_year', String(params.start_year));
+  if (params?.start_week) q.set('start_week', String(params.start_week));
+  if (params?.end_year) q.set('end_year', String(params.end_year));
+  if (params?.end_week) q.set('end_week', String(params.end_week));
   const queryStr = q.toString();
   return fetchFrom<MorbidityMortalityResponse>(`/api/v1/morbidity-mortality${queryStr ? `?${queryStr}` : ''}`);
 };

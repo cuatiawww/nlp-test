@@ -11,9 +11,6 @@ import {
   RotateCcw,
   ArrowRight,
   ChevronDown,
-  Clock,
-  Layers,
-  Activity,
   AlertCircle
 } from 'lucide-react';
 import { getEpiWeekDateRange, getCurrentEpiWeek, formatEpiRangeDescription } from '@/lib/epi-week';
@@ -167,15 +164,11 @@ export default function EpiFilterBar({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                Filter Surveilans Epidemiologi Terpadu
+                Integrated Epidemiological Surveillance Filter
               </h2>
-              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100/70 px-2 py-0.5 text-[10px] font-bold text-[#0060A9]">
-                <Activity className="h-2.5 w-2.5" />
-                Dinamis & Terverifikasi
-              </span>
             </div>
             <p className="text-[11px] text-slate-500">
-              Pilih penyakit, negara/wilayah ASEAN, dan rentang Epidemiological Week (ISO 8601)
+              Select a disease, ASEAN country or region, and an Epidemiological Week range (ISO 8601)
             </p>
           </div>
         </div>
@@ -207,7 +200,7 @@ export default function EpiFilterBar({
           <div className="lg:col-span-3 flex flex-col gap-1">
             <label className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1">
               <Bug className="h-3 w-3 text-red-500" />
-              Penyakit / Diseases
+              Disease
             </label>
             <div className="relative rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-50 focus-within:border-[#0060A9] focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 transition shadow-2xs">
               <select
@@ -216,7 +209,7 @@ export default function EpiFilterBar({
                 onChange={(e) => setDraft({ ...draft, disease: e.target.value })}
                 className="w-full bg-transparent px-3 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer pr-8"
               >
-                <option value="all">Semua Penyakit (All Diseases)</option>
+                <option value="all">All Diseases</option>
                 {diseaseOptions.map((dis) => (
                   <option key={dis} value={dis}>
                     {dis}
@@ -227,8 +220,8 @@ export default function EpiFilterBar({
             </div>
             <p className="text-[10px] text-slate-400 px-1 truncate">
               {draft.disease === 'all'
-                ? 'Semua klasifikasi terverifikasi'
-                : `Filter spesifik: ${draft.disease}`}
+                ? 'All validated classifications'
+                : `Selected disease: ${draft.disease}`}
             </p>
           </div>
 
@@ -236,7 +229,7 @@ export default function EpiFilterBar({
           <div className="lg:col-span-3 flex flex-col gap-1">
             <label className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1">
               <Globe2 className="h-3 w-3 text-[#0060A9]" />
-              Wilayah / Country
+              Country / Region
             </label>
             <div className="relative rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-50 focus-within:border-[#0060A9] focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100 transition shadow-2xs">
               <select
@@ -245,8 +238,8 @@ export default function EpiFilterBar({
                 onChange={(e) => setDraft({ ...draft, country: e.target.value })}
                 className="w-full bg-transparent px-3 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer pr-8"
               >
-                <option value="all">ASEAN (Seluruh Kawasan)</option>
-                <option value="ASEAN">ASEAN (Khusus Negara Anggota)</option>
+                <option value="all">ASEAN (All countries)</option>
+                <option value="ASEAN">ASEAN (Member countries)</option>
                 {ASEAN_COUNTRIES.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -257,8 +250,8 @@ export default function EpiFilterBar({
             </div>
             <p className="text-[10px] text-slate-400 px-1 truncate">
               {draft.country === 'all' || draft.country === 'ASEAN'
-                ? 'Wilayah regional Asia Tenggara'
-                : `Fokus nasional: ${draft.country}`}
+                ? 'Southeast Asia regional scope'
+                : `Selected country: ${draft.country}`}
             </p>
           </div>
 
@@ -266,7 +259,7 @@ export default function EpiFilterBar({
           <div className="lg:col-span-2 flex flex-col gap-1">
             <label className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1">
               <CalendarDays className="h-3 w-3 text-emerald-600" />
-              Mulai: Week & Year
+              Start: Week & Year
             </label>
             <div className="flex gap-1.5">
               {/* Start Week */}
@@ -310,7 +303,7 @@ export default function EpiFilterBar({
           <div className="lg:col-span-2 flex flex-col gap-1">
             <label className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1">
               <CalendarDays className="h-3 w-3 text-blue-600" />
-              Selesai: Week & Year
+              End: Week & Year
             </label>
             <div className="flex gap-1.5">
               {/* End Week */}
@@ -361,12 +354,12 @@ export default function EpiFilterBar({
               {isLoading ? (
                 <>
                   <div className="h-3.5 w-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Memuat...</span>
+                  <span>Loading...</span>
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span>Terapkan</span>
+                  <span>Apply</span>
                 </>
               )}
             </button>
@@ -374,7 +367,7 @@ export default function EpiFilterBar({
               type="button"
               id="btn-reset-filter"
               onClick={handleReset}
-              title="Reset ke Default"
+              title="Reset to default"
               className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition active:scale-95 shadow-2xs cursor-pointer shrink-0"
             >
               <RotateCcw className="h-3.5 w-3.5" />
@@ -387,7 +380,7 @@ export default function EpiFilterBar({
           <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-200 p-2 text-xs text-red-700">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>
-              Rentang minggu tidak valid: Minggu Mulai harus lebih awal atau sama dengan Minggu Selesai.
+              Invalid week range: the start week must be earlier than or equal to the end week.
             </span>
           </div>
         )}

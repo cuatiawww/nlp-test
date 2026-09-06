@@ -6,7 +6,6 @@ import {
   Activity,
   AlertTriangle,
   Calendar,
-  ChevronDown,
   ChevronRight,
   Globe,
   HelpCircle,
@@ -25,6 +24,7 @@ import {
   HeatmapCountryData,
   HeatmapMonthData,
 } from '@/lib/api';
+import { EpiFilterState } from './EpiFilterBar';
 import {
   ResponsiveContainer,
   BarChart,
@@ -39,12 +39,15 @@ import {
 
 export type HeatmapMetric = 'cases' | 'deaths' | 'cfr';
 
-export default function CaseLocationHeatmap() {
+interface CaseLocationHeatmapProps {
+  filters: EpiFilterState;
+}
+
+export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProps) {
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<SpatialHeatmapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [activeMetric, setActiveMetric] = useState<HeatmapMetric>('cases');
   const [selectedCountry, setSelectedCountry] = useState<HeatmapCountryData | null>(null);
   const [showScaleInfo, setShowScaleInfo] = useState(false);
@@ -53,11 +56,19 @@ export default function CaseLocationHeatmap() {
     month: HeatmapMonthData;
   } | null>(null);
 
-  const loadData = async (year: number) => {
+  const loadData = async (activeFilters: EpiFilterState) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchSpatialHeatmap(year);
+      const res = await fetchSpatialHeatmap({
+        country: activeFilters.country,
+        disease: activeFilters.disease,
+        year: activeFilters.endYear,
+        start_year: activeFilters.startYear,
+        start_week: activeFilters.startWeek,
+        end_year: activeFilters.endYear,
+        end_week: activeFilters.endWeek,
+      });
       setData(res);
     } catch (err: any) {
       console.error('Failed to load spatial heatmap:', err);
@@ -69,8 +80,10 @@ export default function CaseLocationHeatmap() {
 
   useEffect(() => {
     setMounted(true);
-    loadData(selectedYear);
-  }, [selectedYear]);
+    loadData(filters);
+  }, [filters]);
+
+  const selectedYear = data?.year ?? filters.endYear;
 
   // Calculate maximum values for relative coloring
   const metricStats = useMemo(() => {
@@ -215,31 +228,6 @@ export default function CaseLocationHeatmap() {
             </button>
           </div>
 
-          {/* Year Selector */}
-          <div className="relative inline-flex items-center">
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              aria-label="Heatmap Year Filter"
-              className="appearance-none rounded-xl border border-slate-200 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-700 shadow-xs hover:border-slate-300 focus:border-sky-500 focus:outline-none"
-            >
-              <option value={2026}>Year 2026</option>
-              <option value={2025}>Year 2025</option>
-              <option value={2024}>Year 2024</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-slate-400" />
-          </div>
-
-          {/* Refresh Button */}
-          <button
-            onClick={() => loadData(selectedYear)}
-            disabled={loading}
-            title="Reload Heatmap Data"
-            aria-label="Reload Heatmap Data"
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
-          </button>
         </div>
       </div>
 
@@ -708,7 +696,7 @@ export default function CaseLocationHeatmap() {
                     Formula Normalisasi Relatif Bulanan
                   </span>
                   <span className="text-[11px] font-bold text-slate-500">
-                    Adaptif Per Tahun Pantauan ({selectedYear})
+                    Adaptive scale for the selected period ({selectedYear})
                   </span>
                 </div>
                 <div className="rounded-xl border border-blue-200/80 bg-white p-4 font-mono text-center shadow-2xs">
@@ -716,7 +704,7 @@ export default function CaseLocationHeatmap() {
                     Intensity Ratio (R) = <span className="text-blue-700">Monthly Value</span> / <span className="text-indigo-700">Peak Monthly Value in Year (Vmax)</span>
                   </div>
                   <p className="mt-1 font-sans text-xs text-slate-500">
-                    Dimana <span className="font-semibold text-slate-700">Monthly Value</span> adalah nilai kasus / kematian bulan tersebut, dan <span className="font-semibold text-slate-700">Vmax</span> adalah rekor bulanan tertinggi di kawasan ASEAN pada tahun {selectedYear}.
+                    <span className="font-semibold text-slate-700">Monthly Value</span> is the case or death count for that month, while <span className="font-semibold text-slate-700">Vmax</span> is the highest monthly value in the ASEAN region during {selectedYear}.
                   </p>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
