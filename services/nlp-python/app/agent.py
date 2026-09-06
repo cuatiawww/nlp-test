@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import urllib.request
+import urllib.error
 from typing import Any
 
 from . import config
@@ -48,40 +49,81 @@ def _providers() -> list[tuple[str, str, str, str]]:
     return providers
 
 
+def _is_openai_model(provider: str, base_url: str, model: str) -> bool:
+    if provider == "openai" or "api.openai.com" in base_url.lower():
+        return True
+    m = model.lower()
+    if m.startswith(("gpt-", "o1", "o3", "chatgpt")):
+        return True
+    return False
+
+
 def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> dict[str, Any]:
     """Ask configured agents in order and return the first valid JSON object."""
     if not config.AGENT_ENABLED:
         return {}
-    body_base = {
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-    }
     now = time.time()
     for provider, api_key, base_url, model in _providers():
         if provider in _PROVIDER_FAILURES and now < _PROVIDER_FAILURES[provider]:
             continue
         url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
-        body = {**body_base, "model": model}
-        # DeepSeek's OpenAI-compatible endpoint accepts the legacy field;
-        # OpenAI's current Chat Completions reference uses the newer field.
-        body["max_tokens" if provider == "deepseek" else "max_completion_tokens"] = max_tokens
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "disease-surveillance-nlp/1.0",
-            },
-            method="POST",
-        )
+        is_openai = _is_openai_model(provider, base_url, model)
+        tok_key = "max_completion_tokens" if is_openai else "max_tokens"
+
+        body = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            tok_key: max_tokens,
+        }
+        # OpenAI reasoning models (e.g. gpt-5.6-luna, o1, o3) reject temperature: 0
+        if not is_openai:
+            body["temperature"] = 0
+
+        def _send(payload_dict):
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload_dict).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "disease-surveillance-nlp/1.0",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=config.AGENT_TIMEOUT_SECONDS) as response:
+                return json.loads(response.read())
+
         try:
-            with urllib.request.urlopen(request, timeout=config.AGENT_TIMEOUT_SECONDS) as response:
-                payload = json.loads(response.read())
+            try:
+                payload = _send(body)
+            except urllib.error.HTTPError as http_err:
+                err_body = ""
+                try:
+                    err_body = http_err.read().decode("utf-8")
+                except Exception:
+                    pass
+                # Handle parameter incompatibility gracefully
+                retried = False
+                if http_err.code == 400:
+                    if "temperature" in err_body and "temperature" in body:
+                        body.pop("temperature", None)
+                        retried = True
+                    if "max_tokens" in err_body or "max_completion_tokens" in err_body:
+                        alt_key = "max_completion_tokens" if tok_key == "max_tokens" else "max_tokens"
+                        body.pop(tok_key, None)
+                        body[alt_key] = max_tokens
+                        retried = True
+                    if retried:
+                        payload = _send(body)
+                    else:
+                        raise
+                else:
+                    raise
+
             content = payload["choices"][0]["message"].get("content") or ""
             result = _json_response(content)
             if result:

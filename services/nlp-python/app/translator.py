@@ -50,22 +50,46 @@ def _deepseek(text: str, lang: str):
         return None
     import requests
     limit = int(os.getenv("TRANSLATION_MAX_CHARS", "7000"))
+    base = config.DEEPSEEK_BASE_URL.rstrip("/")
+    url = f"{base}/chat/completions" if not base.endswith("/chat/completions") else base
+    model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    is_openai = "api.openai.com" in base.lower() or model.lower().startswith(("gpt-", "o1", "o3", "chatgpt"))
+    tok_key = "max_completion_tokens" if is_openai else "max_tokens"
+    max_tok = int(os.getenv("TRANSLATION_MAX_TOKENS", "1800"))
+    body = {
+        "model": model,
+        "messages": [{"role": "user", "content": (
+            "Translate this ASEAN health article to concise English and extract facts. "
+            "Return JSON only with translated_text, diseases(array), locations(array of "
+            "{original,latin_name,country}), case_count, death_count, event_type, "
+            "is_health_related. Use null when absent; never invent facts. Source language: "
+            f"{lang}. Article:\n{text[:limit]}"
+        )}],
+        "response_format": {"type": "json_object"},
+        tok_key: max_tok,
+    }
+    if not is_openai:
+        body["temperature"] = 0
+
     response = requests.post(
-        "https://api.deepseek.com/chat/completions",
-        headers={"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
-        json={
-            "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
-            "messages": [{"role": "user", "content": (
-                "Translate this ASEAN health article to concise English and extract facts. "
-                "Return JSON only with translated_text, diseases(array), locations(array of "
-                "{original,latin_name,country}), case_count, death_count, event_type, "
-                "is_health_related. Use null when absent; never invent facts. Source language: "
-                f"{lang}. Article:\n{text[:limit]}"
-            )}],
-            "response_format": {"type": "json_object"}, "temperature": 0,
-            "max_tokens": int(os.getenv("TRANSLATION_MAX_TOKENS", "1800")),
-        }, timeout=45,
+        url,
+        headers={"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+        json=body,
+        timeout=30,
     )
+    if not response.ok and response.status_code == 400 and ("max_tokens" in response.text or "max_completion_tokens" in response.text or "temperature" in response.text):
+        if "temperature" in response.text:
+            body.pop("temperature", None)
+        if "max_tokens" in response.text or "max_completion_tokens" in response.text:
+            alt_key = "max_completion_tokens" if tok_key == "max_tokens" else "max_tokens"
+            body.pop(tok_key, None)
+            body[alt_key] = max_tok
+        response = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+            json=body,
+            timeout=30,
+        )
     response.raise_for_status()
     return json.loads(response.json()["choices"][0]["message"]["content"])
 

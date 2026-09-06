@@ -74,7 +74,7 @@ def analyze_article(extracted, fallback=False):
               "source_type": "web", "source_name": "URL Analyzer",
               "source_country": extracted.get("source_country"),
               "published_at": extracted.get("published_at"), "rules_only": fallback},
-        timeout=(3, 25))
+        timeout=(5, 45))
     response.raise_for_status()
     return response.json()
 
