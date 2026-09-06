@@ -2545,8 +2545,14 @@ async fn skdr_summary(
         .query(
             "SELECT payload, epidemiological_week
              FROM skdr_reports
-             WHERE endpoint_name=$1 AND report_year=$2",
-            &[&endpoint_name, &selected_year],
+             WHERE endpoint_name=$1 AND report_year=$2
+               AND ($3::text IS NULL OR LOWER(COALESCE(
+                   NULLIF(payload->>'provinsi', ''),
+                   NULLIF(payload->>'propinsi', ''),
+                   NULLIF(payload->>'nama_provinsi', ''),
+                   NULLIF(payload->>'province', '')
+               )) = $3)",
+            &[&endpoint_name, &selected_year, &province_filter],
         )
         .await
         .map_err(internal_error)?;
