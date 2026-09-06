@@ -47,8 +47,7 @@ export const sidebarMenu: SidebarGroup[] = [
     title: 'DOCUMENTATION',
     titleKey: 'sidebar.sections.documentation',
     items: [
-      { label: 'Hardcode Audit 1', labelKey: 'sidebar.items.hardcode1', icon: FileText, href: '/audit/hardcode-1' },
-      { label: 'Hardcode Audit 2', labelKey: 'sidebar.items.hardcode2', icon: FileText, href: '/audit/hardcode-2' },
+      { label: 'Business Process', icon: BookText, href: '/business-process' },
     ],
   },
 ]
