@@ -223,8 +223,14 @@ export interface CrawlingStats {
   by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
 }
 
-export const fetchCrawlingStats = () =>
-  fetchFrom<CrawlingStats>("/api/v1/crawling-stats");
+export const fetchCrawlingStats = (filters?: { country?: string }) => {
+  const params = new URLSearchParams();
+  if (filters?.country && filters.country !== "all" && filters.country !== "ASEAN") {
+    params.set("country", filters.country);
+  }
+  const query = params.toString();
+  return fetchFrom<CrawlingStats>(`/api/v1/crawling-stats${query ? `?${query}` : ""}`);
+};
 
 // ── Events ────────────────────────────────────────
 

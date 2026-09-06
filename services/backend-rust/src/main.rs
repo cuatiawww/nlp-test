@@ -251,6 +251,11 @@ struct PublicDashboardQuery {
     end_week: Option<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+struct CrawlingStatsQuery {
+    country: Option<String>,
+}
+
 /// Resolve the same ISO-week date boundaries used by the main dashboard.
 /// Optional fields preserve the legacy year-only behavior of the supporting
 /// dashboard endpoints when callers do not send the unified filter.
@@ -2094,12 +2099,39 @@ async fn dashboard_stats(
 
 async fn crawling_stats(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<CrawlingStatsQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    let selected_country = query
+        .country
+        .filter(|value| !value.trim().is_empty() && value != "all" && value != "ASEAN");
 
     let summary_row = client
         .query_one(
-            "WITH active_runs AS (
+            "WITH report_scope AS (
+               SELECT DISTINCT rr.id, rr.created_at, rr.processing_status, rr.source_type
+               FROM raw_reports rr
+               LEFT JOIN disease_events e ON e.raw_report_id = rr.id
+               LEFT JOIN LATERAL (
+                 SELECT l0.country
+                 FROM locations l0
+                 WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
+                 ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+                 LIMIT 1
+               ) l ON TRUE
+               WHERE $1::text IS NULL OR LOWER(
+                 CASE
+                   WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia'
+                   ELSE COALESCE(l.country, CASE
+                     WHEN LOWER(e.location_name) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
+                     WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                       THEN INITCAP(LOWER(e.location_name))
+                     ELSE 'OUTSIDE ASEAN'
+                   END)
+                 END
+               ) = LOWER($1)
+             ),
+             active_runs AS (
                SELECT
                  COUNT(*)::BIGINT AS active_run_count,
                  COALESCE(SUM(records_found), 0)::BIGINT AS active_records_found,
@@ -2114,7 +2146,7 @@ async fn crawling_stats(
              ),
              active_received AS (
                SELECT COUNT(*)::BIGINT AS current_live_crawl
-               FROM raw_reports rr
+               FROM report_scope rr
                WHERE EXISTS (
                  SELECT 1
                  FROM collector_runs cr
@@ -2134,18 +2166,24 @@ async fn crawling_stats(
                TO_CHAR(date_trunc('month', NOW()) - INTERVAL '1 month', 'YYYY-MM') AS previous_month_label,
                ar.active_run_count,
                ar.active_since,
-               GREATEST(ar.active_records_found, received.current_live_crawl) AS live_crawled,
+               CASE WHEN $1::text IS NULL
+                 THEN GREATEST(ar.active_records_found, received.current_live_crawl)
+                 ELSE received.current_live_crawl
+               END AS live_crawled,
                received.current_live_crawl,
-               totals.historical_crawled + received.current_live_crawl AS total_crawled_all_time,
+               CASE WHEN $1::text IS NULL
+                 THEN totals.historical_crawled + received.current_live_crawl
+                 ELSE COUNT(*)
+               END AS total_crawled_all_time,
                CASE WHEN ar.active_run_count > 0 THEN 'RUNNING' ELSE 'IDLE' END AS collector_status,
                MAX(created_at)::text AS last_report_at
-             FROM raw_reports
+             FROM report_scope
              CROSS JOIN active_runs ar
              CROSS JOIN active_received received
              CROSS JOIN run_totals totals
              GROUP BY ar.active_run_count, ar.active_since, ar.active_records_found,
                       received.current_live_crawl, totals.historical_crawled",
-            &[],
+            &[&selected_country],
         )
         .await
         .map_err(internal_error)?;
@@ -2172,15 +2210,33 @@ async fn crawling_stats(
 
     let by_source_rows = client
         .query(
-            "SELECT
-               COALESCE(source_type, 'unknown') AS source_type,
+            "WITH report_scope AS (
+               SELECT DISTINCT rr.id, rr.created_at, rr.processing_status, rr.source_type
+               FROM raw_reports rr
+               LEFT JOIN disease_events e ON e.raw_report_id = rr.id
+               LEFT JOIN LATERAL (
+                 SELECT l0.country FROM locations l0
+                 WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
+                 ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+                 LIMIT 1
+               ) l ON TRUE
+               WHERE $1::text IS NULL OR LOWER(
+                 CASE WHEN LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia'
+                 ELSE COALESCE(l.country, CASE
+                   WHEN LOWER(e.location_name) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
+                   WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
+                     THEN INITCAP(LOWER(e.location_name))
+                   ELSE 'OUTSIDE ASEAN' END) END
+               ) = LOWER($1)
+             )
+             SELECT COALESCE(source_type, 'unknown') AS source_type,
                COUNT(*) AS total,
                COUNT(*) FILTER (WHERE processing_status = 'PROCESSED') AS processed,
                COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW())) AS this_month
-             FROM raw_reports
+             FROM report_scope
              GROUP BY source_type
              ORDER BY total DESC",
-            &[],
+            &[&selected_country],
         )
         .await
         .map_err(internal_error)?;

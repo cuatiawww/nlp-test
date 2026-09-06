@@ -63,12 +63,14 @@ import {
   Table2,
   Calendar,
   FileSpreadsheet,
-  Layers
+  Layers,
+  Radio
 } from 'lucide-react'
 import TimelineCalendarModal from './TimelineCalendarModal'
 import VolunteerMobilizationTab from './VolunteerMobilizationTab'
 import { useAuthStore } from '@/lib/authStore'
-import { fetchEbsSummary, fetchIbsSummary, fetchPublicDashboard } from '@/lib/api'
+import { fetchCrawlingStats, fetchEbsSummary, fetchIbsSummary, fetchPublicDashboard } from '@/lib/api'
+import type { CrawlingStats } from '@/lib/api'
 import type { IbsSummary, OutbreakLocation, PublicDashboard } from '@/types'
 import {
   ResponsiveContainer,
@@ -673,6 +675,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   const [regionalIbsSummary, setRegionalIbsSummary] = useState<IbsSummary | null>(null)
   const [regionalEbsSummary, setRegionalEbsSummary] = useState<IbsSummary | null>(null)
   const [regionalEbsData, setRegionalEbsData] = useState<PublicDashboard | null>(null)
+  const [regionalCrawlingStats, setRegionalCrawlingStats] = useState<CrawlingStats | null>(null)
   const [loadingRegionalSkdr, setLoadingRegionalSkdr] = useState(false)
   const [upayaSelectedSubKlaster, setUpayaSelectedSubKlaster] = useState<string>('all')
   const [upayaSelectedKabupaten, setUpayaSelectedKabupaten] = useState<string>('all')
@@ -867,12 +870,13 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           }
           return data
         }
-        const [all, ibs, ebs, directIbs, directEbs] = await Promise.allSettled([
+        const [all, ibs, ebs, directIbs, directEbs, crawling] = await Promise.allSettled([
           loadSource('skdr', currentYear, country),
           loadSource('ibs', currentYear, country),
           loadSource('ebs', currentYear, country),
           loadDirectIbs(),
           loadDirectEbs(),
+          fetchCrawlingStats({ country }),
         ])
         if (active) {
           if (all.status === 'fulfilled') setRegionalSkdrData(all.value)
@@ -880,6 +884,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           if (ebs.status === 'fulfilled') setRegionalEbsData(ebs.value)
           if (directIbs.status === 'fulfilled') setRegionalIbsSummary(directIbs.value)
           if (directEbs.status === 'fulfilled') setRegionalEbsSummary(directEbs.value)
+          if (crawling.status === 'fulfilled') setRegionalCrawlingStats(crawling.value)
         }
       } catch (error) {
         if (active) console.warn('[Regional SKDR Fetch Error]', error)
@@ -3520,26 +3525,26 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
       return [
         {
-          label: 'Minggu Epidemiologi Aktif',
-          value: latestWeek ? `Minggu ${latestWeek} / ${selectedYear}` : 'Belum tersedia',
+          label: 'Current Epidemiological Week',
+          value: latestWeek ? `Week ${latestWeek} / ${selectedYear}` : 'Not available',
           icon: Calendar,
           color: 'text-[#0060A9]'
         },
         {
-          label: 'Sinyal Dominan (Tertinggi)',
-          value: `${topDiseaseName} (${Number(topDiseaseCases).toLocaleString('id-ID')} Kasus)`,
+          label: 'Leading Disease Signal',
+          value: `${topDiseaseName} (${Number(topDiseaseCases).toLocaleString('en-US')} Cases)`,
           icon: HeartPulse,
           color: 'text-rose-600'
         },
         {
-          label: 'Status Kewaspadaan Dini (EWS)',
-          value: `${activeAlerts} Sinyal Alert EWS Aktif`,
+          label: 'Active Surveillance Signals',
+          value: `${activeAlerts} Active Signals`,
           icon: AlertTriangle,
           color: 'text-amber-600'
         },
         {
-          label: 'Tren Kasus Mingguan',
-          value: 'Terkendali (Stabil ±2.4%)',
+          label: 'Weekly Case Trend',
+          value: 'Stable',
           icon: TrendingUp,
           color: 'text-emerald-600'
         }
@@ -5164,7 +5169,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
             <span>{isRegionalTemplate ? 'Surveillance Dashboard' : 'Incident Dashboard'}</span>
             <span>/</span>
-            <span className="font-bold text-teal-800">{isRegionalTemplate ? 'Regional Surveillance (Indonesia)' : 'Incident Detail'}</span>
+            <span className="font-bold text-teal-800">{isRegionalTemplate ? `Regional Surveillance (${displayRegion})` : 'Incident Detail'}</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 sm:justify-end shrink-0">
@@ -5373,7 +5378,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <div>
                         <div className="flex items-start justify-between text-teal-100">
                           <span className="text-[10px] sm:text-[10.5px] font-black uppercase tracking-wider text-white leading-tight">
-                            POSITIVITY RATE INFLUENZA TERKINI
+                            LATEST INFLUENZA POSITIVITY RATE
                           </span>
                           <Info className="h-3.5 w-3.5 text-teal-200/80 hover:text-white cursor-pointer shrink-0 ml-1" />
                         </div>
@@ -5390,7 +5395,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           <span className="text-[#f87171] font-black">▲</span>
                         </div>
                         <div className="text-[10px] sm:text-[10.5px] font-semibold text-teal-100/80 mt-0.5">
-                          29 Aug (Minggu 34)
+                          29 Aug (Week 34)
                         </div>
                       </div>
                     </div>
@@ -5400,7 +5405,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <div>
                         <div className="flex items-start justify-between text-teal-100">
                           <span className="text-[10px] sm:text-[10.5px] font-black uppercase tracking-wider text-white leading-tight">
-                            POSITIVITY RATE COVID-19 TERKINI
+                            LATEST COVID-19 POSITIVITY RATE
                           </span>
                           <Info className="h-3.5 w-3.5 text-teal-200/80 hover:text-white cursor-pointer shrink-0 ml-1" />
                         </div>
@@ -5417,7 +5422,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           <span className="text-[#34d399] font-black">▼</span>
                         </div>
                         <div className="text-[10px] sm:text-[10.5px] font-semibold text-teal-100/80 mt-0.5">
-                          29 Aug (Minggu 34)
+                          29 Aug (Week 34)
                         </div>
                       </div>
                     </div>
@@ -5445,14 +5450,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
                       <div className="pt-1.5 border-t border-teal-500/30">
                         <div className="text-[11px] sm:text-xs font-bold text-white">
-                          Multipatogen: <span className="font-black">18%</span>
+                          Multipathogen: <span className="font-black">18%</span>
                         </div>
                         <div className="flex items-center gap-1 text-[10.5px] font-bold text-white/80 mt-0.5">
                           <span>M33/2026: 41%</span>
                           <span className="text-[#34d399] font-black">▼</span>
                         </div>
                         <div className="text-[10px] sm:text-[10.5px] font-semibold text-teal-100/80 mt-0.5">
-                          29 Aug (Minggu 34)
+                          29 Aug (Week 34)
                         </div>
                       </div>
                     </div>
@@ -5554,15 +5559,15 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <div className="mt-3.5 rounded-xl border border-teal-200/80 bg-gradient-to-r from-teal-50/90 via-sky-50/80 to-emerald-50/70 p-3 flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
                 <div className="flex items-center gap-2">
                   <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="font-bold text-slate-700">Status Sistem: <span className="text-emerald-800 font-black">API SKDR IBS &amp; EBS Aktif Terkoneksi</span></span>
+                  <span className="font-bold text-slate-700">System Status: <span className="text-emerald-800 font-black">SKDR IBS &amp; EBS API Connected</span></span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-teal-600" />
-                  <span className="font-bold text-slate-700">Cakupan Deteksi: <span className="text-teal-900 font-black">38 Provinsi / 514 Kab-Kota Nasional</span></span>
+                  <span className="font-bold text-slate-700">Detection Coverage: <span className="text-teal-900 font-black">38 Provinces / 514 Districts and Cities</span></span>
                 </div>
                 <div className="flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 text-amber-600" />
-                  <span className="font-bold text-slate-700">Respons Sinyal EWS: <span className="text-amber-900 font-black">&lt; 24 Jam Verifikasi PE</span></span>
+                  <span className="font-bold text-slate-700">Signal Response: <span className="text-amber-900 font-black">PE Verification in &lt; 24 Hours</span></span>
                 </div>
               </div>
             ) : eocNarrative ? (
@@ -5613,7 +5618,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   </svg>
                 </div>
                 <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100">
-                  <span className="text-[10px] font-medium text-slate-400">Tren 50 minggu</span>
+                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -5622,7 +5627,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     }}
                     className="inline-flex items-center gap-0.5 text-xs font-bold text-amber-600 hover:text-amber-700 cursor-pointer transition-colors"
                   >
-                    Detail ▸
+                    Details ▸
                   </button>
                 </div>
               </div>
@@ -5659,7 +5664,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   </svg>
                 </div>
                 <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100">
-                  <span className="text-[10px] font-medium text-slate-400">Tren 50 minggu</span>
+                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -5668,7 +5673,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     }}
                     className="inline-flex items-center gap-0.5 text-xs font-bold text-teal-600 hover:text-teal-700 cursor-pointer transition-colors"
                   >
-                    Detail ▸
+                    Details ▸
                   </button>
                 </div>
               </div>
@@ -5686,8 +5691,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <span className="text-xs font-semibold text-slate-500">RSV</span>
                 </div>
                 <div className="mt-1 space-y-0.5">
-                  <div className="text-xs font-semibold text-slate-600">Multipatogen: <span className="font-bold text-slate-800">48.3%</span></div>
-                  <div className="text-[11px] font-semibold text-slate-500">29 Aug (Minggu 34)</div>
+                  <div className="text-xs font-semibold text-slate-600">Multipathogen: <span className="font-bold text-slate-800">48.3%</span></div>
+                  <div className="text-[11px] font-semibold text-slate-500">29 Aug (Week 34)</div>
                 </div>
               </div>
 
@@ -5706,7 +5711,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   </svg>
                 </div>
                 <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100">
-                  <span className="text-[10px] font-medium text-slate-400">Tren 50 minggu</span>
+                  <span className="text-[10px] font-medium text-slate-400">50-week trend</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -5715,7 +5720,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     }}
                     className="inline-flex items-center gap-0.5 text-xs font-bold text-purple-600 hover:text-purple-700 cursor-pointer transition-colors"
                   >
-                    Detail ▸
+                    Details ▸
                   </button>
                 </div>
               </div>
@@ -5726,12 +5731,84 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         </div>
       )}
 
+      {isRegionalTemplate && (
+        <>
+          <section aria-label={`Indikator surveilans ${displayRegion}`} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: 'Total Crawled (All-Time)',
+                value: regionalCrawlingStats?.total_crawled_all_time ?? regionalCrawlingStats?.total ?? 0,
+                note: `Unique reports mapped to ${displayRegion}`,
+                icon: Radio,
+                tone: 'border-emerald-200 bg-emerald-50 text-emerald-600',
+              },
+              {
+                label: 'Detected Cases',
+                value: regionalSkdrData?.kpis.cases ?? 0,
+                note: `Reporting period ${regionalSkdrData?.filters?.year ?? new Date().getFullYear()}`,
+                icon: HeartPulse,
+                tone: 'border-sky-200 bg-sky-50 text-[#0060A9]',
+              },
+              {
+                label: 'Deaths',
+                value: regionalSkdrData?.kpis.deaths ?? 0,
+                note: `${displayRegion} surveillance results`,
+                icon: ShieldAlert,
+                tone: 'border-rose-200 bg-rose-50 text-rose-600',
+              },
+              {
+                label: 'Detected Locations',
+                value: regionalSkdrData?.kpis.locations ?? 0,
+                note: 'Unique locations with validated data',
+                icon: MapPin,
+                tone: 'border-amber-200 bg-amber-50 text-amber-600',
+              },
+            ].map((card) => {
+              const Icon = card.icon
+              return (
+                <article key={card.label} className="min-h-[142px] rounded-[17px_17px_22px_17px] border border-slate-200 bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,.06)] transition hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex items-start gap-3">
+                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border ${card.tone}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">{card.label}</p>
+                      <p className="mt-2 text-3xl font-black leading-none text-slate-900">
+                        {loadingRegionalSkdr ? '…' : Number(card.value).toLocaleString('id-ID')}
+                      </p>
+                      <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-400">{card.note}</p>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </section>
+
+          <section className="rounded-2xl border border-[#0060A9]/20 bg-gradient-to-r from-blue-50 via-sky-50 to-[#fdfbf5] p-5 shadow-sm">
+            <div className="flex gap-3">
+              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#0060A9]" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-[#0060A9]">AI Summary — {displayRegion}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  {regionalSkdrData?.ai_summary?.text || (loadingRegionalSkdr
+                    ? 'Preparing a summary from regional surveillance data…'
+                    : `There is not enough validated data to prepare a surveillance summary for ${displayRegion}.`)}
+                </p>
+                <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">
+                  Generated only from surveillance data for the selected country; not a clinical diagnosis.
+                </p>
+              </div>
+            </div>
+          </section>
+        </>
+      )}
+
       {error && (
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-2xl text-xs font-semibold">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
           <div>
-            <p className="font-bold">Gagal memuat detail lengkap dari server</p>
-            <p className="text-[11px] text-amber-700/90 mt-0.5">{error}. Menampilkan data ringkasan cadangan.</p>
+            <p className="font-bold">{isRegionalTemplate ? 'Unable to load complete data from the server' : 'Gagal memuat detail lengkap dari server'}</p>
+            <p className="text-[11px] text-amber-700/90 mt-0.5">{error}. {isRegionalTemplate ? 'Displaying fallback summary data.' : 'Menampilkan data ringkasan cadangan.'}</p>
           </div>
         </div>
       )}
@@ -5787,7 +5864,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           const totalAlerts = regionalSkdrData?.kpis.active_alerts ?? 0;
           const topDiseaseObj = [...(regionalIbsSummary?.by_disease || []), ...(regionalEbsSummary?.by_disease || [])]
             .sort((a, b) => b.cases - a.cases)[0];
-          const topDiseaseName = topDiseaseObj ? formatDisasterName(topDiseaseObj.name) : 'Belum ada data';
+          const topDiseaseName = topDiseaseObj ? formatDisasterName(topDiseaseObj.name) : 'No data available';
           const topDiseaseCases = topDiseaseObj ? topDiseaseObj.cases : 0;
           const cfrRate = ((totalKematian / (totalKasus || 1)) * 100).toFixed(2);
 
@@ -5838,9 +5915,9 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             totalMaster: data?.totals.reports ?? 0,
             color,
             pieData: [
-              { name: 'Kasus', value: data?.totals.cases ?? 0, fill: fills[0] },
-              { name: 'Laporan', value: data?.totals.reports ?? 0, fill: fills[1] },
-              { name: 'Provinsi', value: data?.by_province.length ?? 0, fill: fills[2] },
+              { name: 'Cases', value: data?.totals.cases ?? 0, fill: fills[0] },
+              { name: 'Reports', value: data?.totals.reports ?? 0, fill: fills[1] },
+              { name: 'Provinces', value: data?.by_province.length ?? 0, fill: fills[2] },
             ],
           });
 
@@ -5916,7 +5993,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           const toRegionChart = (data: PublicDashboard | null) => {
             const grouped = new globalThis.Map<string, number>();
             (data?.locations || []).forEach((location) => {
-              const name = location.location_name || 'Wilayah tidak diketahui';
+              const name = location.location_name || 'Unknown region';
               grouped.set(name, (grouped.get(name) || 0) + safeParseInt(location.cases));
             });
             return Array.from(grouped, ([province, cases]) => ({ province, cases }))
@@ -5956,10 +6033,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               {/* ── Section Header ── */}
               <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs">
                 <h3 className="text-xl sm:text-2xl font-black text-slate-900 m-0">
-                  Analisis Tren &amp; Dinamika Surveilans Nasional (SKDR IBS &amp; EBS) - {displayRegion}
+                  National Surveillance Trends &amp; Dynamics (SKDR IBS &amp; EBS) - {displayRegion}
                 </h3>
                 <p className="text-sm sm:text-base text-slate-600 font-normal mt-1.5 mb-0">
-                  Visualisasi pergerakan data dari tanggal deteksi awal hingga perkembangan terkini berdasarkan laporan terverifikasi SKDR IBS &amp; EBS Kemenkes RI
+                  Data trends from initial detection through the latest update, based on verified Ministry of Health SKDR IBS and EBS reports.
                 </p>
               </div>
 
@@ -5970,10 +6047,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div>
                     <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0 flex items-center gap-2">
                       <Activity className="h-5 w-5 text-[#0060A9]" />
-                      Tren Pemantauan Penyakit Berdasarkan IBS &amp; EBS
+                      IBS &amp; EBS Disease Monitoring Trends
                     </h4>
                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0">
-                      Pemantauan tren kasus per provinsi berdasarkan hasil Indikator Based Surveillance (IBS) dan Event Based Surveillance (EBS).
+                      Provincial case trends based on Indicator-Based Surveillance (IBS) and Event-Based Surveillance (EBS) results.
                     </p>
                   </div>
 
@@ -5988,7 +6065,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      Semua Surveilans
+                      All Surveillance
                     </button>
                     <button
                       type="button"
@@ -6023,25 +6100,25 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <div className="mb-3">
                         <div className="flex items-center justify-between">
                           <h5 className="text-sm sm:text-base font-black text-slate-900 m-0">
-                            Pemantauan Penyakit Berdasarkan IBS
+                            Disease Monitoring Based on IBS
                           </h5>
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
-                            SKDR Rutin
+                            Routine SKDR
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 font-medium mt-0.5 m-0">
-                          (Data Terintegrasi Dengan SKDR SURVEILANS)
+                          (Data Integrated with SKDR Surveillance)
                         </p>
                       </div>
 
                       <div className="w-full h-[240px] sm:h-[260px]">
                         {loadingRegionalSkdr ? (
                           <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-500">
-                            Memuat agregasi langsung SKDR IBS…
+                            Loading direct SKDR IBS aggregation…
                           </div>
                         ) : ibsChartData.length === 0 ? (
                           <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-sky-200 bg-sky-50/40 px-6 text-center text-sm font-semibold text-slate-500">
-                            Belum ada laporan IBS pada tahun yang tersedia.
+                            No IBS reports are available for the selected year.
                           </div>
                         ) : (
                         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -6067,7 +6144,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                     <div className="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs shadow-lg border border-slate-700">
                                       <div className="font-bold">{d.province}</div>
                                       <div className="text-emerald-400 font-extrabold mt-0.5">
-                                        {ibsUsesReportCount ? 'laporan' : 'kasus'} : {Number(d.value).toLocaleString('id-ID')}
+                                        {ibsUsesReportCount ? 'reports' : 'cases'}: {Number(d.value).toLocaleString('en-US')}
                                       </div>
                                     </div>
                                   );
@@ -6093,25 +6170,25 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <div className="mb-3">
                         <div className="flex items-center justify-between">
                           <h5 className="text-sm sm:text-base font-black text-slate-900 m-0">
-                            Pemantauan Penyakit Berdasarkan EBS
+                            Disease Monitoring Based on EBS
                           </h5>
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                            Verifikasi Rumor &amp; Sinyal
+                            Rumor &amp; Signal Verification
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 font-medium mt-0.5 m-0">
-                          (Event-Based Surveillance &amp; Verifikasi Rumor)
+                          (Event-Based Surveillance &amp; Rumor Verification)
                         </p>
                       </div>
 
                       <div className="w-full h-[240px] sm:h-[260px]">
                         {loadingRegionalSkdr ? (
                           <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-500">
-                            Memuat agregasi langsung SKDR EBS…
+                            Loading direct SKDR EBS aggregation…
                           </div>
                         ) : ebsChartData.length === 0 ? (
                           <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-blue-200 bg-blue-50/40 px-6 text-center text-sm font-semibold text-slate-500">
-                            Belum ada laporan EBS pada tahun yang tersedia.
+                            No EBS reports are available for the selected year.
                           </div>
                         ) : (
                         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -6137,7 +6214,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                     <div className="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs shadow-lg border border-slate-700">
                                       <div className="font-bold">{d.province}</div>
                                       <div className="text-sky-400 font-extrabold mt-0.5">
-                                        {ebsUsesReportCount ? 'laporan' : 'kejadian / kasus'} : {Number(d.value).toLocaleString('id-ID')}
+                                        {ebsUsesReportCount ? 'reports' : 'events / cases'}: {Number(d.value).toLocaleString('en-US')}
                                       </div>
                                     </div>
                                   );
@@ -6169,10 +6246,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <div className="flex items-center justify-between gap-2.5">
                         <div>
                           <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0">
-                            Tren Kasus &amp; Surveilans Epidemiologi
+                            Case Trends &amp; Epidemiological Surveillance
                           </h4>
                           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0 leading-relaxed">
-                            Dinamika kasus mingguan dari laporan resmi SKDR IBS dan EBS, rasio fatalitas (CFR), serta sebaran penyakit di {displayRegion}.
+                            Weekly case dynamics from official SKDR IBS and EBS reports, case fatality ratio (CFR), and disease distribution in {displayRegion}.
                           </p>
                         </div>
                         <button
@@ -6182,37 +6259,37 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                             setShowKabupatenMatrixModal(true);
                           }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#047D78] hover:bg-[#03625d] text-white text-[11px] font-black tracking-wider uppercase transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer shrink-0 border border-teal-600/30 group"
-                          title="Buka Matriks Surveilans Penyakit"
+                          title="Open Disease Surveillance Matrix"
                         >
                           <Table2 className="h-3.5 w-3.5 text-teal-100 group-hover:scale-110 transition-transform" />
-                          <span>LIHAT MATRIKS</span>
+                          <span>VIEW MATRIX</span>
                         </button>
                       </div>
 
                       {/* 4 Stat Cards Berwarna (Adaptasi Penuh Surveilans SKDR IBS & EBS) */}
                       <div className="grid grid-cols-2 gap-3 mt-4">
                         <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-rose-800 block">Kematian / CFR</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-rose-800 block">Deaths / CFR</span>
                           <span className="text-xl sm:text-2xl font-black text-rose-950">
-                            {totalKematian.toLocaleString('id-ID')} <span className="text-xs sm:text-sm font-bold text-rose-700">Jiwa ({cfrRate}%)</span>
+                            {totalKematian.toLocaleString('en-US')} <span className="text-xs sm:text-sm font-bold text-rose-700">Deaths ({cfrRate}%)</span>
                           </span>
                         </div>
                         <div className="p-3.5 rounded-xl bg-orange-50/70 border border-orange-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-orange-800 block">Kasus Mingguan ({currentWeekLabel})</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-orange-800 block">Weekly Cases ({currentWeekLabel})</span>
                           <span className="text-xl sm:text-2xl font-black text-orange-950">
-                            {currentWeekCases.toLocaleString('id-ID')} <span className="text-xs sm:text-sm font-bold text-orange-700">Kasus Baru</span>
+                            {currentWeekCases.toLocaleString('en-US')} <span className="text-xs sm:text-sm font-bold text-orange-700">New Cases</span>
                           </span>
                         </div>
                         <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-amber-800 block">Sinyal Alert EWS</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-amber-800 block">Active Signals</span>
                           <span className="text-xl sm:text-2xl font-black text-amber-950">
-                            {totalAlerts.toLocaleString('id-ID')} <span className="text-xs sm:text-sm font-bold text-amber-700">Sinyal Aktif</span>
+                            {totalAlerts.toLocaleString('en-US')} <span className="text-xs sm:text-sm font-bold text-amber-700">Active Signals</span>
                           </span>
                         </div>
                         <div className="p-3.5 rounded-xl bg-teal-50/70 border border-teal-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-teal-800 block">Total Kasus Kumulatif</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-teal-800 block">Cumulative Cases</span>
                           <span className="text-xl sm:text-2xl font-black text-teal-950">
-                            {totalKasus.toLocaleString('id-ID')} <span className="text-xs sm:text-sm font-bold text-teal-700">Terdeteksi</span>
+                            {totalKasus.toLocaleString('en-US')} <span className="text-xs sm:text-sm font-bold text-teal-700">Detected</span>
                           </span>
                         </div>
                       </div>
@@ -6222,10 +6299,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <div className="rounded-xl bg-teal-50/90 border border-teal-200 p-4 text-xs sm:text-sm text-teal-950 leading-relaxed font-medium">
                       <div className="flex items-center gap-2 text-teal-900 font-black text-sm mb-1.5">
                         <Activity className="h-4 w-4 text-[#047d78]" />
-                        <span>Insight Surveilans Epidemiologi:</span>
+                        <span>Epidemiological Surveillance Insight:</span>
                       </div>
                       <p className="text-teal-950 font-medium m-0 text-xs sm:text-sm leading-relaxed">
-                        Dinamika pelaporan surveilans SKDR IBS &amp; EBS menunjukkan konsentrasi kasus tertinggi pada {topDiseaseName}. Saat ini terdapat {totalAlerts} alert aktif berdasarkan aturan EWS pada API.
+                        SKDR IBS and EBS reporting indicates that the highest concentration of cases is associated with {topDiseaseName}. There are currently {totalAlerts} active signals according to the API validation rules.
                       </p>
                     </div>
                   </div>
@@ -6235,7 +6312,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-200/80">
                       {/* Interactive Series Toggle Pills */}
                       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                        <span className="text-[11px] font-bold text-slate-500 mr-1 hidden sm:inline">Filter Baris:</span>
+                        <span className="text-[11px] font-bold text-slate-500 mr-1 hidden sm:inline">Series:</span>
                         <button
                           type="button"
                           onClick={() => toggleLine('Kasus Baru')}
@@ -6246,7 +6323,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#f97316]" />
-                          Kasus IBS
+                          IBS Cases
                         </button>
                         <button
                           type="button"
@@ -6258,7 +6335,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#047d78]" />
-                          Kasus EBS
+                          EBS Cases
                         </button>
                         <button
                           type="button"
@@ -6270,7 +6347,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#e11d48]" />
-                          Kematian
+                          Deaths
                         </button>
                         <button
                           type="button"
@@ -6282,7 +6359,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full bg-[#1e293b]" />
-                          Total Kumulatif
+                          Cumulative Total
                         </button>
                         <button
                           type="button"
@@ -6332,7 +6409,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                               yAxisId="left"
                               type="monotone"
                               dataKey="cases"
-                              name="Kasus IBS"
+                              name="IBS Cases"
                               stroke="#f97316"
                               strokeWidth={2.5}
                               dot={{ r: 3.5, fill: '#f97316' }}
@@ -6344,7 +6421,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                               yAxisId="left"
                               type="monotone"
                               dataKey="terkonfirmasi"
-                              name="Kasus EBS"
+                              name="EBS Cases"
                               stroke="#047d78"
                               strokeWidth={2.5}
                               dot={{ r: 3.5, fill: '#047d78' }}
@@ -6356,7 +6433,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                               yAxisId="left"
                               type="monotone"
                               dataKey="deaths"
-                              name="Kematian"
+                              name="Deaths"
                               stroke="#e11d48"
                               strokeWidth={2}
                               dot={{ r: 3.5, fill: '#e11d48' }}
@@ -6368,7 +6445,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                               yAxisId="right"
                               type="monotone"
                               dataKey="cumulative"
-                              name="Total Kumulatif"
+                              name="Cumulative Total"
                               stroke="#1e293b"
                               strokeWidth={2}
                               strokeDasharray="4 4"
@@ -6399,10 +6476,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <div className="flex items-center justify-between gap-2.5">
                         <div>
                           <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0">
-                            Ringkasan Kanal Data SKDR
+                            SKDR Data Channel Summary
                           </h4>
                           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0">
-                            Ringkasan dinamis data IBS dan EBS yang tersedia dari API SKDR di {displayRegion}.
+                            Dynamic summary of IBS and EBS data available from the SKDR API in {displayRegion}.
                           </p>
                         </div>
                         <button
@@ -6412,25 +6489,25 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                             setShowKabupatenMatrixModal(true);
                           }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#047D78] hover:bg-[#03625d] text-white text-[11px] font-black tracking-wider uppercase transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer shrink-0 border border-teal-600/30 group"
-                          title="Buka Matriks Data SKDR"
+                          title="Open SKDR Data Matrix"
                         >
                           <Table2 className="h-3.5 w-3.5 text-teal-100 group-hover:scale-110 transition-transform" />
-                          <span>LIHAT MATRIKS</span>
+                          <span>VIEW MATRIX</span>
                         </button>
                       </div>
 
                       {/* Top Metric Strip dari API */}
                       <div className="grid grid-cols-3 gap-2 mt-4 text-center">
                         <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Laporan</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Reports</span>
                           <span className="text-base sm:text-lg font-black text-slate-900 block mt-0.5">{((regionalIbsSummary?.totals.reports ?? 0) + (regionalEbsSummary?.totals.reports ?? 0)).toLocaleString('id-ID')}</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/70">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">Total Kasus</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">Total Cases</span>
                           <span className="text-base sm:text-lg font-black text-blue-900 block mt-0.5">{totalKasus.toLocaleString('id-ID')}</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200/70">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">Lokasi</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">Locations</span>
                           <span className="text-base sm:text-lg font-black text-emerald-900 block mt-0.5">{new Set([...(regionalIbsSummary?.by_province || []).map(item => item.name), ...(regionalEbsSummary?.by_province || []).map(item => item.name)]).size}</span>
                         </div>
                       </div>
@@ -6440,48 +6517,48 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <div className="rounded-2xl bg-slate-50/80 border border-slate-200/90 p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs sm:text-sm font-black text-slate-900">
-                          Status Pemantauan
+                          Monitoring Status
                         </span>
                         <span className="px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[11px] font-black text-amber-700 flex items-center gap-1.5">
                           <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                          {monitoringStatus.klb.toLocaleString('id-ID')} Penanda KLB
+                          {monitoringStatus.klb.toLocaleString('en-US')} Outbreak Markers
                         </span>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 text-center">
                         <div className="p-2.5 rounded-xl bg-white border border-amber-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-amber-700 uppercase block">Dalam Investigasi</span>
+                          <span className="text-[10px] font-bold text-amber-700 uppercase block">Under Investigation</span>
                           <span className="text-lg font-black text-amber-900 leading-tight block mt-0.5">{monitoringStatus.investigation.toLocaleString('id-ID')}</span>
                           <span className="text-[9px] font-semibold text-amber-600 block mt-0.5">IBS &amp; EBS</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-white border border-emerald-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-emerald-700 uppercase block">Terverifikasi</span>
+                          <span className="text-[10px] font-bold text-emerald-700 uppercase block">Verified</span>
                           <span className="text-lg font-black text-emerald-900 leading-tight block mt-0.5">{monitoringStatus.verified.toLocaleString('id-ID')}</span>
-                          <span className="text-[9px] font-semibold text-emerald-600 block mt-0.5">Laporan resmi</span>
+                          <span className="text-[9px] font-semibold text-emerald-600 block mt-0.5">Official reports</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-white border border-slate-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-slate-600 uppercase block">Negatif / Discarded</span>
+                          <span className="text-[10px] font-bold text-slate-600 uppercase block">Negative / Discarded</span>
                           <span className="text-lg font-black text-slate-900 leading-tight block mt-0.5">{monitoringStatus.negativeDiscarded.toLocaleString('id-ID')}</span>
-                          <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">Ditutup / negatif</span>
+                          <span className="text-[9px] font-semibold text-slate-500 block mt-0.5">Closed / negative</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-white border border-rose-200 shadow-2xs">
-                          <span className="text-[10px] font-bold text-rose-700 uppercase block">Dengan Kematian</span>
+                          <span className="text-[10px] font-bold text-rose-700 uppercase block">Reports with Deaths</span>
                           <span className="text-lg font-black text-rose-900 leading-tight block mt-0.5">{monitoringStatus.withDeaths.toLocaleString('id-ID')}</span>
-                          <span className="text-[9px] font-semibold text-rose-600 block mt-0.5">Laporan, bukan alert</span>
+                          <span className="text-[9px] font-semibold text-rose-600 block mt-0.5">Reports, not alerts</span>
                         </div>
                       </div>
 
                       {/* Kinerja Surveilans SKDR Footer (Ketepatan, Kelengkapan, Respon PE) */}
                       <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] font-bold text-slate-600">
-                        <div className="flex items-center gap-1" title="Status koneksi API SKDR">
+                        <div className="flex items-center gap-1" title="SKDR API connection status">
                           <Clock className="h-3.5 w-3.5 text-blue-600" />
-                          <span>API: <b className="text-slate-900">{regionalIbsSummary || regionalEbsSummary ? 'Terhubung' : 'Belum tersedia'}</b></span>
+                          <span>API: <b className="text-slate-900">{regionalIbsSummary || regionalEbsSummary ? 'Connected' : 'Not available'}</b></span>
                         </div>
-                        <div className="flex items-center gap-1" title="Jumlah laporan resmi IBS dan EBS">
+                        <div className="flex items-center gap-1" title="Number of official IBS and EBS reports">
                           <ClipboardCheck className="h-3.5 w-3.5 text-emerald-600" />
-                          <span>Laporan: <b className="text-slate-900">{((regionalIbsSummary?.totals.reports ?? 0) + (regionalEbsSummary?.totals.reports ?? 0)).toLocaleString('id-ID')}</b></span>
+                          <span>Reports: <b className="text-slate-900">{((regionalIbsSummary?.totals.reports ?? 0) + (regionalEbsSummary?.totals.reports ?? 0)).toLocaleString('en-US')}</b></span>
                         </div>
-                        <div className="flex items-center gap-1" title="Penanda KLB dari data resmi SKDR">
+                        <div className="flex items-center gap-1" title="Outbreak markers from official SKDR data">
                           <ShieldCheck className="h-3.5 w-3.5 text-teal-600" />
                           <span>KLB: <b className="text-slate-900">{monitoringStatus.klb.toLocaleString('id-ID')}</b></span>
                         </div>
@@ -6493,12 +6570,12 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div className="lg:col-span-8 flex flex-col justify-between">
                     <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
                       <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                        Ringkasan per Kanal Surveilans
+                        Summary by Surveillance Channel
                       </span>
                       <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Kasus</span>
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Laporan</span>
-                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Provinsi</span>
+                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Cases</span>
+                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Reports</span>
+                        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Provinces</span>
                       </div>
                     </div>
 
@@ -6520,7 +6597,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                 </span>
                               </div>
                               <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md shrink-0 border border-slate-200/60">
-                                {cat.totalMaster.toLocaleString('id-ID')} Laporan
+                                {cat.totalMaster.toLocaleString('en-US')} Reports
                               </span>
                             </div>
 
@@ -6557,13 +6634,13 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                 <div className="flex items-baseline justify-center gap-0.5">
                                   <span className="block text-rose-600 font-black leading-none text-xs">{cat.pieData[0].value}</span>
                                 </div>
-                                <span className="text-[8px] font-semibold text-slate-500 block mt-0.5">Kasus</span>
+                                <span className="text-[8px] font-semibold text-slate-500 block mt-0.5">Cases</span>
                               </div>
                               <div className="border-x border-slate-150 px-0.5 text-blue-700">
                                 <div className="flex items-baseline justify-center gap-0.5">
                                   <span className="block text-blue-600 font-black leading-none text-xs">{cat.pieData[1].value}</span>
                                 </div>
-                                <span className="text-[8px] font-semibold text-blue-600 block mt-0.5">Laporan</span>
+                                <span className="text-[8px] font-semibold text-blue-600 block mt-0.5">Reports</span>
                               </div>
                               <div className="text-emerald-700">
                                 <div className="flex items-baseline justify-center gap-0.5">
@@ -8883,7 +8960,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   INSIGHT POSITIVITY RATE
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 font-normal mt-1 m-0 leading-normal">
-                  Ringkasan insight dan peringatan dini dari data surveilans mingguan.
+                  Summary of insights and early signals from weekly surveillance data.
                 </p>
               </div>
 
@@ -8899,7 +8976,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   }`}
                 >
                   <Sparkles className="h-3.5 w-3.5 text-teal-600" />
-                  INSIGHT TERKINI
+                  LATEST INSIGHTS
                 </button>
                 <button
                   type="button"
@@ -8911,7 +8988,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   }`}
                 >
                   <Bell className="h-3.5 w-3.5 text-teal-600" />
-                  PERINGATAN DINI
+                  EARLY SIGNALS
                 </button>
               </div>
 
@@ -8925,10 +9002,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
-                        Positivity Rate Influenza minggu ini 23% (+7.0% dari minggu lalu)
+                        This week&apos;s influenza positivity rate is 23% (+7.0% from last week)
                       </p>
                       <p className="text-xs text-rose-600 font-semibold mt-0.5 m-0 flex items-center gap-1">
-                        ⚠️ Perlu pemantauan ketat.
+                        ⚠️ Close monitoring is required.
                       </p>
                     </div>
                   </div>
@@ -8940,10 +9017,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
-                        Rata-rata Multipatogen 48.3%
+                        Average multipathogen positivity: 48.3%
                       </p>
                       <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
-                        Multipatogen dalam batas wajar
+                        Multipathogen indicator is within the expected range
                       </p>
                     </div>
                   </div>
@@ -8955,10 +9032,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
-                        Total kasus positif COVID-19 kumulatif 4 dari 16065 pemeriksaan
+                        Cumulative COVID-19 positives: 4 from 16,065 tests
                       </p>
                       <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
-                        Kasus COVID-19 terkendali.
+                        COVID-19 cases remain under control.
                       </p>
                     </div>
                   </div>
@@ -8970,10 +9047,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
-                        Rata-rata Proporsi ILI keseluruhan 0.20%
+                        Overall average ILI proportion: 0.20%
                       </p>
                       <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
-                        Proporsi ILI dalam batas normal.
+                        ILI proportion is within the normal range.
                       </p>
                     </div>
                   </div>
@@ -8985,10 +9062,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
-                        Rata-rata Insidens Influenza PR COVID-19: 0.0%, PR Influenza: 23% (COVID -4.3%)
+                        Average incidence — COVID-19 PR: 0.0%, Influenza PR: 23% (COVID -4.3%)
                       </p>
                       <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
-                        Lanjutkan surveilans.
+                        Continue surveillance.
                       </p>
                     </div>
                   </div>
@@ -9000,10 +9077,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug m-0">
-                        Peringatan terbaru PR Influenza meningkat minggu ini
+                        Latest signal: influenza PR increased this week
                       </p>
                       <p className="text-xs text-teal-700 font-medium mt-0.5 m-0">
-                        Pantau dashboard secara berkala.
+                        Review the dashboard regularly.
                       </p>
                     </div>
                   </div>
@@ -9015,7 +9092,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
                       <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
-                        PR Influenza (rata-rata 17.8%) — SEDANG
+                        Influenza PR (17.8% average) — MODERATE
                       </span>
                     </div>
                     <span className="px-3 py-1 rounded-lg bg-[#d97706] text-white font-black text-xs shrink-0 shadow-2xs">
@@ -9028,7 +9105,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0" />
                       <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
-                        Multipatogen (rata-rata 48.3%) — TINGGI
+                        Multipathogen (48.3% average) — HIGH
                       </span>
                     </div>
                     <span className="px-3 py-1 rounded-lg bg-[#dc2626] text-white font-black text-xs shrink-0 shadow-2xs">
@@ -9041,7 +9118,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
                       <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
-                        RSV (rata-rata 11.3%) — SEDANG
+                        RSV (11.3% average) — MODERATE
                       </span>
                     </div>
                     <span className="px-3 py-1 rounded-lg bg-[#d97706] text-white font-black text-xs shrink-0 shadow-2xs">
@@ -9054,7 +9131,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0" />
                       <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
-                        Proporsi ILI (rata-rata 0.2%) — RENDAH
+                        ILI proportion (0.2% average) — LOW
                       </span>
                     </div>
                     <span className="px-3 py-1 rounded-lg bg-[#059669] text-white font-black text-xs shrink-0 shadow-2xs">
@@ -9063,7 +9140,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   </div>
 
                   <p className="text-xs text-slate-400 mt-5 italic font-normal">
-                    *Data diperbarui secara berkala berdasarkan laporan masuk.
+                    *Data is updated periodically as new reports are received.
                   </p>
                 </div>
               )}
@@ -9076,10 +9153,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               {/* Header */}
               <div className="mb-4">
                 <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-tight m-0">
-                  TREN &amp; PERBANDINGAN TAHUNAN
+                  ANNUAL TRENDS &amp; COMPARISON
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 font-normal mt-1 m-0 leading-normal">
-                  Perbandingan rata-rata indikator 2025 vs 2026 untuk melihat perubahan tahunan.
+                  Comparison of average 2025 and 2026 indicators to assess annual changes.
                 </p>
               </div>
 
@@ -9087,7 +9164,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="rounded-xl border border-emerald-200 bg-[#f0fdf4] p-3 flex flex-col justify-between">
                   <span className="text-[10px] font-black uppercase tracking-wider text-[#16a34a] block">
-                    PENURUNAN TERBESAR
+                    LARGEST DECREASE
                   </span>
                   <div className="mt-1">
                     <span className="text-xs font-bold text-slate-900 block leading-tight">
@@ -9101,11 +9178,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
                 <div className="rounded-xl border border-rose-200 bg-[#fff1f2] p-3 flex flex-col justify-between">
                   <span className="text-[10px] font-black uppercase tracking-wider text-[#e11d48] block">
-                    KENAIKAN TERBESAR
+                    LARGEST INCREASE
                   </span>
                   <div className="mt-1">
                     <span className="text-xs font-bold text-slate-900 block leading-tight">
-                      Multipatogen Lainnya
+                      Other Multipathogens
                     </span>
                     <span className="text-xs font-bold text-[#e11d48] block mt-0.5">
                       38.0% → 55.5% [▲ 46.1%]
@@ -9134,7 +9211,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 shrink-0 ml-2">
-                    SEDANG
+                    MODERATE
                   </span>
                 </div>
 
@@ -9156,7 +9233,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 ml-2">
-                    RENDAH
+                    LOW
                   </span>
                 </div>
 
@@ -9168,7 +9245,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </span>
                     <div className="min-w-0">
                       <div className="text-xs font-bold text-slate-900 leading-tight truncate">
-                        Proporsi RSV
+                        RSV Proportion
                       </div>
                       <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
                         <span>2025: <strong className="font-semibold text-slate-700">12.2%</strong></span>
@@ -9178,7 +9255,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 shrink-0 ml-2">
-                    SEDANG
+                    MODERATE
                   </span>
                 </div>
 
@@ -9190,7 +9267,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </span>
                     <div className="min-w-0">
                       <div className="text-xs font-bold text-slate-900 leading-tight truncate">
-                        Multipatogen Lainnya
+                        Other Multipathogens
                       </div>
                       <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
                         <span>2025: <strong className="font-semibold text-slate-700">38.0%</strong></span>
@@ -9200,7 +9277,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-rose-50 text-rose-700 border border-rose-200 shrink-0 ml-2">
-                    TINGGI
+                    HIGH
                   </span>
                 </div>
 
@@ -9212,7 +9289,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </span>
                     <div className="min-w-0">
                       <div className="text-xs font-bold text-slate-900 leading-tight truncate">
-                        Proporsi ILI
+                        ILI Proportion
                       </div>
                       <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
                         <span>2025: <strong className="font-semibold text-slate-700">0.2%</strong></span>
@@ -9222,7 +9299,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 ml-2">
-                    RENDAH
+                    LOW
                   </span>
                 </div>
 
@@ -9234,7 +9311,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </span>
                     <div className="min-w-0">
                       <div className="text-xs font-bold text-slate-900 leading-tight truncate">
-                        Proporsi SARI
+                        SARI Proportion
                       </div>
                       <div className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
                         <span>2025: <strong className="font-semibold text-slate-700">0.9%</strong></span>
@@ -9244,7 +9321,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 ml-2">
-                    RENDAH
+                    LOW
                   </span>
                 </div>
               </div>
@@ -9257,10 +9334,10 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               {/* Header */}
               <div className="mb-4">
                 <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-tight m-0">
-                  REKOMENDASI TINDAKAN
+                  RECOMMENDED ACTIONS
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 font-normal mt-1 m-0 leading-normal">
-                  Rekomendasi prioritas pemantauan berdasarkan indikator surveilans.
+                  Priority monitoring recommendations based on surveillance indicators.
                 </p>
               </div>
 
@@ -9271,14 +9348,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-4 text-xs font-black text-slate-400 shrink-0">1</span>
-                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Multipatogen Lainnya</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Other Multipathogens</span>
                     </div>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-rose-50 text-rose-700 border border-rose-200 shrink-0">
-                      TINGGI
+                      HIGH
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
-                    Tingkatkan frekuensi pemantauan dan evaluasi. Cek tren peningkatan tahunan.
+                    Increase monitoring and evaluation frequency. Review the annual upward trend.
                   </p>
                   <div className="flex items-center gap-2.5 pl-6 pt-0.5">
                     <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -9296,11 +9373,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Positivity Rate Influenza</span>
                     </div>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
-                      SEDANG
+                      MODERATE
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
-                    Perkuat pemantauan dan evaluasi berkala. Cek tren penurunan tahunan.
+                    Strengthen monitoring and periodic evaluation. Review the annual downward trend.
                   </p>
                   <div className="flex items-center gap-2.5 pl-6 pt-0.5">
                     <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -9315,14 +9392,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-4 text-xs font-black text-slate-400 shrink-0">3</span>
-                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Proporsi RSV</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">RSV Proportion</span>
                     </div>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
-                      SEDANG
+                      MODERATE
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
-                    Perkuat pemantauan dan evaluasi berkala. Cek tren penurunan tahunan.
+                    Strengthen monitoring and periodic evaluation. Review the annual downward trend.
                   </p>
                   <div className="flex items-center gap-2.5 pl-6 pt-0.5">
                     <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -9340,11 +9417,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Positivity Rate COVID-19</span>
                     </div>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                      RENDAH
+                      LOW
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
-                    Pemantauan rutin sesuai prosedur. Cek tren penurunan tahunan.
+                    Continue routine monitoring and review the annual downward trend.
                   </p>
                   <div className="flex items-center gap-2.5 pl-6 pt-0.5">
                     <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -9359,14 +9436,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-4 text-xs font-black text-slate-400 shrink-0">5</span>
-                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Proporsi SARI</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">SARI Proportion</span>
                     </div>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                      RENDAH
+                      LOW
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
-                    Pemantauan rutin sesuai prosedur. Cek tren peningkatan tahunan.
+                    Continue routine monitoring and review the annual upward trend.
                   </p>
                   <div className="flex items-center gap-2.5 pl-6 pt-0.5">
                     <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -9381,14 +9458,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-4 text-xs font-black text-slate-400 shrink-0">6</span>
-                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">Proporsi ILI</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">ILI Proportion</span>
                     </div>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                      RENDAH
+                      LOW
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-normal pl-6 m-0 leading-tight">
-                    Pemantauan rutin sesuai prosedur.
+                    Continue routine monitoring according to procedure.
                   </p>
                   <div className="flex items-center gap-2.5 pl-6 pt-0.5">
                     <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -9404,17 +9481,17 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             <div className="pt-3 border-t border-slate-100 mt-3 space-y-1.5">
               <div className="flex items-center gap-3 text-[10px] font-bold">
                 <span className="flex items-center gap-1 text-emerald-700">
-                  <span className="w-2.5 h-1 rounded-xs bg-[#10b981]" /> RENDAH (0-10%)
+                  <span className="w-2.5 h-1 rounded-xs bg-[#10b981]" /> LOW (0-10%)
                 </span>
                 <span className="flex items-center gap-1 text-amber-700">
-                  <span className="w-2.5 h-1 rounded-xs bg-[#f59e0b]" /> SEDANG (10-20%)
+                  <span className="w-2.5 h-1 rounded-xs bg-[#f59e0b]" /> MODERATE (10-20%)
                 </span>
                 <span className="flex items-center gap-1 text-rose-700">
-                  <span className="w-2.5 h-1 rounded-xs bg-[#ef4444]" /> TINGGI (&gt;20%)
+                  <span className="w-2.5 h-1 rounded-xs bg-[#ef4444]" /> HIGH (&gt;20%)
                 </span>
               </div>
               <p className="text-[10px] text-slate-400 font-normal m-0 leading-tight">
-                Kategori berdasarkan distribusi data surveilans per indikator. Ambang batas indikatif, bukan standar baku.
+                Categories are based on surveillance-data distribution by indicator. Thresholds are indicative and are not formal standards.
               </p>
             </div>
           </div>
@@ -9435,28 +9512,28 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-lg sm:text-xl font-black text-slate-900 leading-tight">
-                    Matriks Distribusi Kasus Penyakit &amp; Surveilans SKDR
+                    Disease Case Distribution &amp; SKDR Surveillance Matrix
                   </h3>
                   <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-teal-100 text-teal-800 border border-teal-200">
-                    Nasional (Indonesia)
+                    National ({displayRegion})
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-sky-100 text-sky-800 border border-sky-200">
-                    SKDR Terintegrasi (IBS &amp; EBS)
+                    Integrated SKDR (IBS &amp; EBS)
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                    Data SKDR Aktual
+                    Current SKDR Data
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm font-semibold text-slate-500">
-                  Rincian surveilans penyakit menular potensial KLB, respons verifikasi rumor kejadian (EBS), dan laporan indikator rutin mingguan (IBS) Kemenkes RI.
+                  Details of potentially outbreak-prone communicable diseases, event-rumor verification responses (EBS), and routine weekly indicator reports (IBS) from the Ministry of Health.
                 </p>
               </div>
 
               <button
                 onClick={() => setShowKabupatenMatrixModal(false)}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors cursor-pointer border-none shrink-0 ml-3"
-                title="Tutup Modal"
+                title="Close Modal"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -9465,35 +9542,35 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
             {/* 4 Stat Highlights Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
               <div className="bg-gradient-to-br from-teal-50 to-teal-100/40 p-3.5 rounded-2xl border border-teal-200/80 shadow-2xs">
-                <div className="text-[10px] font-black uppercase text-teal-800 tracking-wider">Total Kasus Terpantau</div>
+                <div className="text-[10px] font-black uppercase text-teal-800 tracking-wider">Total Monitored Cases</div>
                 <div className="text-2xl font-black text-teal-950 mt-1">
-                  {Number(regionalSkdrData?.kpis.cases ?? 0).toLocaleString('id-ID')} <span className="text-xs font-bold text-teal-700">Kasus</span>
+                  {Number(regionalSkdrData?.kpis.cases ?? 0).toLocaleString('en-US')} <span className="text-xs font-bold text-teal-700">Cases</span>
                 </div>
-                <div className="text-[11px] font-bold text-teal-700 mt-0.5">Surveilans SKDR (IBS &amp; EBS)</div>
+                <div className="text-[11px] font-bold text-teal-700 mt-0.5">SKDR Surveillance (IBS &amp; EBS)</div>
               </div>
 
               <div className="bg-gradient-to-br from-amber-50 to-amber-100/40 p-3.5 rounded-2xl border border-amber-200/80 shadow-2xs">
-                <div className="text-[10px] font-black uppercase text-amber-800 tracking-wider">Penyakit Dominan</div>
-                <div className="text-xl sm:text-2xl font-black text-amber-950 mt-1 truncate" title={regionalSkdrData?.by_disease?.[0]?.name || 'Belum ada data'}>
-                  {regionalSkdrData?.by_disease?.[0]?.name || 'Belum ada data'}
+                <div className="text-[10px] font-black uppercase text-amber-800 tracking-wider">Leading Disease</div>
+                <div className="text-xl sm:text-2xl font-black text-amber-950 mt-1 truncate" title={regionalSkdrData?.by_disease?.[0]?.name || 'No data available'}>
+                  {regionalSkdrData?.by_disease?.[0]?.name || 'No data available'}
                 </div>
-                <div className="text-[11px] font-bold text-amber-700 mt-0.5">{Number(regionalSkdrData?.by_disease?.[0]?.cases ?? 0).toLocaleString('id-ID')} Kasus • Tertinggi</div>
+                <div className="text-[11px] font-bold text-amber-700 mt-0.5">{Number(regionalSkdrData?.by_disease?.[0]?.cases ?? 0).toLocaleString('en-US')} Cases • Highest</div>
               </div>
 
               <div className="bg-gradient-to-br from-sky-50 to-sky-100/40 p-3.5 rounded-2xl border border-sky-200/80 shadow-2xs">
-                <div className="text-[10px] font-black uppercase text-sky-800 tracking-wider">Penanda KLB SKDR</div>
+                <div className="text-[10px] font-black uppercase text-sky-800 tracking-wider">SKDR Outbreak Markers</div>
                 <div className="text-2xl font-black text-sky-950 mt-1">
-                  {((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)).toLocaleString('id-ID')} <span className="text-xs font-bold text-sky-700">Laporan</span>
+                  {((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)).toLocaleString('en-US')} <span className="text-xs font-bold text-sky-700">Reports</span>
                 </div>
-                <div className="text-[11px] font-bold text-sky-700 mt-0.5">Berdasarkan penanda resmi pada data SKDR</div>
+                <div className="text-[11px] font-bold text-sky-700 mt-0.5">Based on official markers in SKDR data</div>
               </div>
 
               <div className="bg-gradient-to-br from-purple-50 to-purple-100/40 p-3.5 rounded-2xl border border-purple-200/80 shadow-2xs">
-                <div className="text-[10px] font-black uppercase text-purple-800 tracking-wider">Status SKDR Wilayah</div>
+                <div className="text-[10px] font-black uppercase text-purple-800 tracking-wider">Regional SKDR Status</div>
                 <div className="text-xl sm:text-2xl font-black text-purple-950 mt-1">
-                  {((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)) > 0 ? 'Perlu Perhatian' : 'Terkendali'} <span className="text-xs font-bold text-purple-700">{((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)) > 0 ? 'Ada Penanda KLB' : 'Tanpa Penanda KLB'}</span>
+                  {((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)) > 0 ? 'Attention Required' : 'Under Control'} <span className="text-xs font-bold text-purple-700">{((regionalIbsSummary?.status?.klb ?? 0) + (regionalEbsSummary?.status?.klb ?? 0)) > 0 ? 'Outbreak Markers Present' : 'No Outbreak Markers'}</span>
                 </div>
-                <div className="text-[11px] font-bold text-purple-700 mt-0.5">Status dihitung dari data API SKDR</div>
+                <div className="text-[11px] font-bold text-purple-700 mt-0.5">Status calculated from SKDR API data</div>
               </div>
             </div>
 
@@ -9510,7 +9587,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Semua Surveilans ({regionalSkdrMatrixList.length})
+                  All Surveillance ({regionalSkdrMatrixList.length})
                 </button>
                 <button
                   type="button"
@@ -9521,7 +9598,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  IBS (Indikator Rutin)
+                  IBS (Routine Indicators)
                 </button>
                 <button
                   type="button"
@@ -9543,7 +9620,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Prioritas KLB ({regionalSkdrMatrixList.filter(r => r.isAlert).length})
+                  Outbreak Priority ({regionalSkdrMatrixList.filter(r => r.isAlert).length})
                 </button>
               </div>
 
@@ -9554,7 +9631,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   onChange={(e) => setSkdrMatrixProvinsi(e.target.value)}
                   className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 outline-none cursor-pointer focus:bg-white"
                 >
-                  <option value="all">Semua Wilayah</option>
+                  <option value="all">All Regions</option>
                   {Array.from(new Set(regionalSkdrMatrixList.map((row) => row.kabupaten)))
                     .sort((a, b) => a.localeCompare(b))
                     .map((wilayah) => (
@@ -9580,7 +9657,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Cari penyakit, faskes, no EBS..."
+                    placeholder="Search disease, reporting facility, or EBS number..."
                     className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                     value={skdrMatrixSearch}
                     onChange={(e) => setSkdrMatrixSearch(e.target.value)}
@@ -9594,14 +9671,14 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <table className="w-full text-left border-collapse text-xs">
                 <thead className="sticky top-0 z-10 bg-slate-100 border-b border-slate-200 shadow-2xs">
                   <tr className="text-slate-700 font-black uppercase text-[11px]">
-                    <th className="py-3 px-3 text-center w-10">No</th>
-                    <th className="py-3 px-3">Wilayah Pelaporan</th>
-                    <th className="py-3 px-3">Fasilitas Pelapor</th>
-                    <th className="py-3 px-3">Diagnosis &amp; Penyakit (ICD-11)</th>
-                    <th className="py-3 px-3 text-center">Kanal Surveilans</th>
-                    <th className="py-3 px-3 text-center">Jumlah Kasus</th>
-                    <th className="py-3 px-3 text-center">Status Respon</th>
-                    <th className="py-3 px-3">ID Laporan &amp; Tindakan</th>
+                    <th className="py-3 px-3 text-center w-10">No.</th>
+                    <th className="py-3 px-3">Reporting Region</th>
+                    <th className="py-3 px-3">Reporting Facility</th>
+                    <th className="py-3 px-3">Diagnosis &amp; Disease (ICD-11)</th>
+                    <th className="py-3 px-3 text-center">Surveillance Channel</th>
+                    <th className="py-3 px-3 text-center">Case Count</th>
+                    <th className="py-3 px-3 text-center">Response Status</th>
+                    <th className="py-3 px-3">Report ID &amp; Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -9609,7 +9686,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-slate-400 font-semibold text-xs space-y-2">
                         <Activity className="h-8 w-8 mx-auto text-slate-300 animate-pulse" />
-                        <div>Tidak ada data surveilans penyakit yang cocok dengan filter.</div>
+                        <div>No disease surveillance data matches the selected filters.</div>
                         <button
                           type="button"
                           onClick={() => {
@@ -9635,7 +9712,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                         <td className="py-3 px-3">
                           <div className="font-extrabold text-slate-900">{row.kabupaten}</div>
                           <div className="text-[10px] text-slate-500 font-semibold flex items-center gap-1">
-                            <span>Sumber: {row.provinsi}</span>
+                            <span>Source: {row.provinsi}</span>
                             {row.distrik && (
                               <>
                                 <span>•</span>
@@ -9653,7 +9730,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                         <td className="py-3 px-3">
                           <div className="font-black text-slate-900">{row.diagnosa}</div>
                           <span className="inline-block mt-0.5 px-2 py-0.2 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                            ICD-11: {row.icd11 || 'Belum dipetakan'}
+                            ICD-11: {row.icd11 || 'Not mapped'}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-center">
@@ -9664,20 +9741,20 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                 : 'bg-teal-50 text-teal-800 border-teal-200'
                             }`}
                           >
-                            {row.kanal === 'EBS' ? 'EBS (Event)' : 'IBS (Rutin)'}
+                            {row.kanal === 'EBS' ? 'EBS (Event)' : 'IBS (Routine)'}
                           </span>
                           {row.isAlert && (
                             <div className="mt-1">
                               <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-[9px] font-black bg-rose-100 text-rose-700 border border-rose-200 animate-pulse">
                                 <span className="h-1 w-1 rounded-full bg-rose-600" />
-                                Prioritas KLB
+                                Outbreak Priority
                               </span>
                             </div>
                           )}
                         </td>
                         <td className="py-3 px-3 text-center">
                           <span className="font-black text-slate-900 text-sm">{row.kasus}</span>
-                          <span className="text-[10px] text-slate-500 font-semibold ml-1">Kasus</span>
+                          <span className="text-[10px] text-slate-500 font-semibold ml-1">Cases</span>
                           {row.kematian > 0 && (
                             <div className="text-[10px] font-bold text-rose-600">({row.kematian} meninggal)</div>
                           )}
@@ -9695,7 +9772,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                             ) : (
                               <AlertTriangle className="h-3 w-3 text-amber-600" />
                             )}
-                            {row.status}
+                            {row.status === 'Terdata' ? 'Recorded' : row.status === 'Perlu Review' ? 'Needs Review' : row.status}
                           </span>
                         </td>
                         <td className="py-3 px-3">
@@ -9707,7 +9784,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           </div>
                           {selectedSkdrRowId === row.id && row.kronologi && (
                             <div className="mt-2 p-2 rounded-xl bg-slate-100/90 border border-slate-200 text-[11px] space-y-1 animate-in fade-in">
-                              <div className="font-bold text-slate-700">Kronologi &amp; Info Klinis:</div>
+                              <div className="font-bold text-slate-700">Timeline &amp; Clinical Information:</div>
                               <div className="text-slate-600">{row.kronologi}</div>
                               {row.informasi && <div className="text-slate-500 italic">{row.informasi}</div>}
                             </div>
@@ -9733,16 +9810,16 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                       <span className="font-black text-slate-900 text-sm">
                         {filteredRegionalSkdrList.reduce((s, r) => s + (Number(r.kasus) || 0), 0).toLocaleString('id-ID')}
                       </span>
-                      <span className="text-[10px] text-slate-500 font-bold ml-1">Kasus</span>
+                      <span className="text-[10px] text-slate-500 font-bold ml-1">Cases</span>
                     </td>
                     <td className="py-3 px-3 text-center">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        100% Direspon
+                        100% Responded
                       </span>
                     </td>
                     <td className="py-3 px-3 text-right">
                       <span className="text-[10px] font-bold text-slate-500">
-                        {filteredRegionalSkdrList.filter(r => r.isAlert).length} Prioritas KLB
+                        {filteredRegionalSkdrList.filter(r => r.isAlert).length} Outbreak Priority
                       </span>
                     </td>
                   </tr>
@@ -9755,7 +9832,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                 <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
                 <span>
-                  Data terintegrasi langsung dengan Sistem Kewaspadaan Dini dan Respon (SKDR) &amp; Surveilans Penyakit Kemenkes RI.
+                  Data integrated directly with the Ministry of Health Early Warning and Response System (SKDR) and disease surveillance platform.
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -9763,7 +9840,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   onClick={() => setShowKabupatenMatrixModal(false)}
                   className="px-5 py-2.5 rounded-xl bg-[#047D78] hover:bg-[#03625d] text-white text-xs font-black uppercase tracking-wider transition-all duration-200 shadow-md shadow-teal-900/15 hover:shadow-lg hover:-translate-y-0.5 cursor-pointer border border-teal-600/30"
                 >
-                  Tutup Matriks
+                  Close Matrix
                 </button>
               </div>
             </div>
