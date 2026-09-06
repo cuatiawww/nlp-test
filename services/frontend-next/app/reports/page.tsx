@@ -35,6 +35,7 @@ import {
   Activity,
   Layers,
   TrendingUp,
+  Percent,
   SlidersHorizontal,
   Table as TableIcon,
   CalendarDays,
@@ -70,6 +71,18 @@ export type SurveillanceReportRow = {
   sentiment?: string | null
   eventConfidence?: number | null
   sourceCredibility?: number | null
+}
+
+// CFR is a percentage and must remain within its valid epidemiological range.
+function normalizeCfrPercent(value: number | null | undefined): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return 0
+  return Math.min(100, Math.max(0, numeric))
+}
+
+function calculateCfr(cases: number, deaths: number): number {
+  if (!Number.isFinite(cases) || cases <= 0 || !Number.isFinite(deaths)) return 0
+  return Number(normalizeCfrPercent((deaths / cases) * 100).toFixed(2))
 }
 
 // Master ASEAN country definitions for standardized flags & metadata
@@ -251,7 +264,7 @@ export default function ReportsPage() {
           const diseaseFormatted = formatDiseaseName(loc.disease)
           const cases = Number(loc.cases) || 0
           const deaths = Number(loc.deaths) || 0
-          const cfr = cases > 0 ? Number(((deaths / cases) * 100).toFixed(2)) : 0
+          const cfr = calculateCfr(cases, deaths)
 
           combined.push({
             id: rowId,
@@ -295,7 +308,7 @@ export default function ReportsPage() {
           const diseaseFormatted = formatDiseaseName(ev.disease_classification)
           const cases = Number(ev.case_count) || 0
           const deaths = Number(ev.death_count) || 0
-          const cfr = cases > 0 ? Number(((deaths / cases) * 100).toFixed(2)) : 0
+          const cfr = calculateCfr(cases, deaths)
 
           combined.push({
             id: rowId,
@@ -639,18 +652,17 @@ export default function ReportsPage() {
     activeDiseases.forEach((dis) => {
       const dt = diseaseTotals[dis]
       if (dt && dt.cases > 0) {
-        dt.cfr = Number(((dt.deaths / dt.cases) * 100).toFixed(2))
+        dt.cfr = calculateCfr(dt.cases, dt.deaths)
       }
       activeCountries.forEach((ctr) => {
         if (matrix[dis] && matrix[dis][ctr]) {
           const c = matrix[dis][ctr]
-          c.cfr = c.cases > 0 ? Number(((c.deaths / c.cases) * 100).toFixed(2)) : 0
+          c.cfr = calculateCfr(c.cases, c.deaths)
         }
       })
     })
 
-    const grandCfr =
-      grandCases > 0 ? Number(((grandDeaths / grandCases) * 100).toFixed(2)) : 0
+    const grandCfr = calculateCfr(grandCases, grandDeaths)
 
     return {
       diseases: activeDiseases,
@@ -709,7 +721,7 @@ export default function ReportsPage() {
     const totalCases = filteredData.reduce((acc, curr) => acc + curr.cases, 0)
     const totalDeaths = filteredData.reduce((acc, curr) => acc + curr.deaths, 0)
     const affectedCountries = new Set(filteredData.map((d) => d.country)).size
-    const avgCfr = totalCases > 0 ? Number(((totalDeaths / totalCases) * 100).toFixed(2)) : 0
+    const avgCfr = calculateCfr(totalCases, totalDeaths)
 
     return {
       totalReports,
@@ -841,7 +853,7 @@ export default function ReportsPage() {
 
       <div className="w-full px-4 md:px-6 pt-3 space-y-4">
         {/* ==================== TOP KPI STAT CARDS ==================== */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 print:grid-cols-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 print:grid-cols-3">
           {/* Card 1: Total Cases */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
             <div className="flex items-center justify-between">
@@ -863,18 +875,16 @@ export default function ReportsPage() {
             </p>
           </div>
 
-          {/* Card 2: Deaths & CFR */}
+          {/* Card 2: Deaths */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs md:text-sm font-black uppercase tracking-wider text-slate-500">
-                  Deaths & CFR
+                  Total Deaths
                 </p>
                 <h3 className="mt-1.5 text-3xl lg:text-4xl font-black text-rose-600 tracking-tight">
                   {loading ? '...' : metrics.totalDeaths.toLocaleString()}{' '}
-                  <span className="text-sm lg:text-base font-bold text-slate-500">
-                    ({metrics.avgCfr}% CFR)
-                  </span>
+                  <span className="text-sm lg:text-base font-bold text-slate-500">Deaths</span>
                 </h3>
               </div>
               <div className="grid h-12 w-12 place-items-center rounded-xl bg-rose-50 text-rose-600 border border-rose-100 shadow-2xs">
@@ -882,10 +892,30 @@ export default function ReportsPage() {
               </div>
             </div>
             <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
-              Epidemiological Case Fatality Rate
+              Cumulative reported mortalities
             </p>
           </div>
 
+          {/* Card 3: CFR */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 lg:p-5 shadow-xs transition hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs md:text-sm font-black uppercase tracking-wider text-slate-500">
+                  Case Fatality Rate (CFR)
+                </p>
+                <h3 className="mt-1.5 text-3xl lg:text-4xl font-black text-amber-600 tracking-tight">
+                  {loading ? '...' : `${metrics.avgCfr}%`}{' '}
+                  <span className="text-sm lg:text-base font-bold text-slate-500">CFR</span>
+                </h3>
+              </div>
+              <div className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-amber-600 border border-amber-100 shadow-2xs">
+                <Percent className="h-6 w-6" />
+              </div>
+            </div>
+            <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
+              Epidemiological Case Fatality Rate
+            </p>
+          </div>
         </div>
 
         {/* ==================== MAIN EQUAL-HEIGHT LAYOUT: FILTER SIDEBAR + DATA MATRIX ==================== */}
@@ -1605,7 +1635,7 @@ export default function ReportsPage() {
                                       {rowTotals?.deaths.toLocaleString() || 0}
                                     </td>
                                     <td className="py-3 px-3.5 text-center font-black text-amber-700 bg-amber-50/30 font-mono text-sm md:text-base">
-                                      {rowTotals?.cfr || 0}%
+                                      {normalizeCfrPercent(rowTotals?.cfr)}%
                                     </td>
                                   </tr>
                                 )
@@ -1648,7 +1678,7 @@ export default function ReportsPage() {
                                 {crossTabMatrix.grandDeaths.toLocaleString()}
                               </td>
                               <td className="py-3.5 px-3.5 text-center font-black text-amber-800 bg-amber-50 font-mono text-sm md:text-base">
-                                {crossTabMatrix.grandCfr}%
+                                {normalizeCfrPercent(crossTabMatrix.grandCfr)}%
                               </td>
                             </tr>
                           </tfoot>
@@ -1840,7 +1870,7 @@ export default function ReportsPage() {
                                   </td>
 
                                   <td className="py-3 px-3.5 text-center font-mono font-black text-amber-700 text-sm md:text-base whitespace-nowrap">
-                                    {item.cfr}%
+                                    {normalizeCfrPercent(item.cfr)}%
                                   </td>
 
                                   <td className="py-3 px-3.5 whitespace-nowrap">
@@ -2059,7 +2089,7 @@ export default function ReportsPage() {
               <div>
                 <p className="text-xs font-black text-slate-500 uppercase">CFR Rate</p>
                 <p className="text-xl md:text-2xl font-black text-amber-700 mt-1">
-                  {selectedDetailItem.cfr}%
+                  {normalizeCfrPercent(selectedDetailItem.cfr)}%
                 </p>
               </div>
               <div>

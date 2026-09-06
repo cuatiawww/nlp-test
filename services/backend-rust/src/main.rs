@@ -30,6 +30,14 @@ struct AppState {
     dashboard_api_token: String,
 }
 
+fn normalize_cfr_percent(value: f64) -> f64 {
+    if !value.is_finite() {
+        0.0
+    } else {
+        value.clamp(0.0, 100.0)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct IngestRequest {
     source_type: String,
@@ -74,6 +82,14 @@ mod analysis_contract_tests {
         let (start, end) = resolve_dashboard_dates(2026, Some(2025), Some(1), Some(2026), Some(36));
         assert_eq!(start, NaiveDate::from_ymd_opt(2024, 12, 30).unwrap());
         assert_eq!(end, NaiveDate::from_ymd_opt(2026, 9, 6).unwrap());
+    }
+
+    #[test]
+    fn cfr_percentage_is_normalized_to_valid_range() {
+        assert_eq!(normalize_cfr_percent(-1.0), 0.0);
+        assert_eq!(normalize_cfr_percent(17_800.0), 100.0);
+        assert_eq!(normalize_cfr_percent(12.345), 12.345);
+        assert_eq!(normalize_cfr_percent(f64::NAN), 0.0);
     }
 }
 
@@ -2559,7 +2575,7 @@ async fn disease_trend_overview(
          WHERE resolved_country IN ('Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam')
            AND published_at::date >= $1 AND published_at::date <= $2
            AND ($3::text IS NULL OR LOWER(resolved_country) = LOWER($3))
-           AND ($4::text IS NULL OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
+           AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
          GROUP BY standard_disease, resolved_country
          ORDER BY standard_disease, total_cases DESC, event_count DESC;",
         &[&start_date, &end_date, &selected_country, &selected_disease],
@@ -2757,7 +2773,7 @@ async fn morbidity_mortality_handler(
         "SELECT 
            SUM(GREATEST(COALESCE(case_count, 0), 0))::bigint as total_morbidity,
            SUM(GREATEST(COALESCE(death_count, 0), 0))::bigint as total_mortality,
-           COALESCE(ROUND((SUM(GREATEST(COALESCE(death_count, 0), 0))::numeric / NULLIF(SUM(GREATEST(COALESCE(case_count, 0), 0)), 0)) * 100, 2), 0)::float8 as cfr_pct
+           LEAST(100.0, GREATEST(0.0, COALESCE(ROUND((SUM(GREATEST(COALESCE(death_count, 0), 0))::numeric / NULLIF(SUM(GREATEST(COALESCE(case_count, 0), 0)), 0)) * 100, 2), 0)))::float8 as cfr_pct
          FROM disease_events e
          WHERE (e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
            AND COALESCE(e.published_at, e.created_at::date) >= $2
@@ -2780,7 +2796,7 @@ async fn morbidity_mortality_handler(
 
     let total_morbidity: i64 = summary_row.get("total_morbidity");
     let total_mortality: i64 = summary_row.get("total_mortality");
-    let cfr_pct: f64 = summary_row.get("cfr_pct");
+    let cfr_pct = normalize_cfr_percent(summary_row.get("cfr_pct"));
 
     // 2. Monthly trends (converted to monthly aggregation per user request)
     let monthly_rows = client.query(
@@ -2815,7 +2831,7 @@ async fn morbidity_mortality_handler(
                 (month_str || ' ' || year_num::text) as month_label,
                 month_str,
                 morbidity, mortality,
-                COALESCE(ROUND((mortality::numeric / NULLIF(morbidity, 0)) * 100, 2), 0)::float8 as cfr_pct
+                LEAST(100.0, GREATEST(0.0, COALESCE(ROUND((mortality::numeric / NULLIF(morbidity, 0)) * 100, 2), 0)))::float8 as cfr_pct
          FROM monthly;",
         &[&selected_disease, &start_date, &end_date, &selected_country],
     ).await.map_err(internal_error)?;
@@ -2828,7 +2844,7 @@ async fn morbidity_mortality_handler(
         let month_str: String = row.get("month_str");
         let morbidity: i64 = row.get("morbidity");
         let mortality: i64 = row.get("mortality");
-        let cfr: f64 = row.get("cfr_pct");
+        let cfr = normalize_cfr_percent(row.get("cfr_pct"));
 
         weekly_trends.push(json!({
             "year": year_num,
@@ -2882,14 +2898,14 @@ async fn morbidity_mortality_handler(
          SELECT standard_disease,
                 SUM(GREATEST(COALESCE(case_count, 0), 0))::bigint as total_cases,
                 SUM(GREATEST(COALESCE(death_count, 0), 0))::bigint as total_deaths,
-                COALESCE(ROUND((SUM(GREATEST(COALESCE(death_count, 0), 0))::numeric / NULLIF(SUM(GREATEST(COALESCE(case_count, 0), 0)), 0)) * 100, 2), 0)::float8 as cfr_pct,
+                LEAST(100.0, GREATEST(0.0, COALESCE(ROUND((SUM(GREATEST(COALESCE(death_count, 0), 0))::numeric / NULLIF(SUM(GREATEST(COALESCE(case_count, 0), 0)), 0)) * 100, 2), 0)))::float8 as cfr_pct,
                 COUNT(*)::bigint as event_count
          FROM valid
          WHERE COALESCE(published_at, created_at::date) >= $1
            AND COALESCE(published_at, created_at::date) <= $2
            AND ($3::text IS NULL OR (LOWER(COALESCE(source_type, '')) IN ('skdr', 'skdr_api') AND LOWER($3) = 'indonesia')
              OR EXISTS (SELECT 1 FROM locations lx WHERE lx.is_active = TRUE AND LOWER(lx.name) = LOWER(location_name) AND LOWER(COALESCE(lx.country, '')) = LOWER($3)))
-           AND ($4::text IS NULL OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
+           AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(disease_classification) = LOWER($4) OR LOWER(disease_classification) LIKE '%' || LOWER($4) || '%')
          GROUP BY standard_disease
          ORDER BY total_cases DESC
          LIMIT 12;",
@@ -2901,7 +2917,7 @@ async fn morbidity_mortality_handler(
         let d_name: String = row.get("standard_disease");
         let cases: i64 = row.get("total_cases");
         let deaths: i64 = row.get("total_deaths");
-        let cfr: f64 = row.get("cfr_pct");
+        let cfr = normalize_cfr_percent(row.get("cfr_pct"));
         let events: i64 = row.get("event_count");
 
         disease_breakdowns.push(json!({

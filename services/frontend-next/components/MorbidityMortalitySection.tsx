@@ -79,6 +79,13 @@ export default function MorbidityMortalitySection({ filters }: MorbidityMortalit
     return value.toLocaleString('id-ID');
   };
 
+  // CFR is a percentage: keep stale or inconsistent source values display-safe.
+  const normalizeCfr = (value: number): number => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.min(100, Math.max(0, numeric));
+  };
+
   // Max values for relative horizontal bars in top diseases list
   const maxCasesInList = useMemo(() => {
     if (!data?.top_diseases || data.top_diseases.length === 0) return 1;
@@ -158,7 +165,7 @@ export default function MorbidityMortalitySection({ filters }: MorbidityMortalit
               Case Fatality Rate (CFR)
             </div>
             <div className="text-2xl font-black text-amber-900">
-              {data ? `${data.summary.cfr_pct.toFixed(2)}%` : '...'}
+              {data ? `${normalizeCfr(data.summary?.cfr_pct).toFixed(2)}%` : '...'}
             </div>
             <div className="text-[11px] font-semibold text-slate-500">
               Case Fatality Ratio
@@ -322,6 +329,7 @@ export default function MorbidityMortalitySection({ filters }: MorbidityMortalit
             {data?.top_diseases.map((d) => {
               const casesPct = Math.max(Math.round((d.total_cases / maxCasesInList) * 100), 2);
               const deathsPct = Math.max(Math.round((d.total_deaths / maxDeathsInList) * 100), 2);
+              const cfr = normalizeCfr(d.cfr_pct);
 
               return (
                 <div
@@ -333,14 +341,14 @@ export default function MorbidityMortalitySection({ filters }: MorbidityMortalit
                     <span className="truncate max-w-[170px]">{d.disease}</span>
                     <span
                       className={`rounded px-1.5 py-0.2 text-[10px] font-black ${
-                        d.cfr_pct > 5
+                        cfr > 5
                           ? 'bg-rose-100 text-rose-700'
-                          : d.cfr_pct > 0
+                          : cfr > 0
                           ? 'bg-amber-100 text-amber-800'
                           : 'bg-slate-100 text-slate-500'
                       }`}
                     >
-                      CFR: {d.cfr_pct.toFixed(2)}%
+                      CFR: {cfr.toFixed(2)}%
                     </span>
                   </div>
 

@@ -43,6 +43,14 @@ interface CaseLocationHeatmapProps {
   filters: EpiFilterState;
 }
 
+// CFR is a percentage: keep inconsistent source values within 0–100%.
+const normalizeCfr = (cases: number, deaths: number): number => {
+  const caseCount = Number(cases);
+  const deathCount = Number(deaths);
+  if (!Number.isFinite(caseCount) || !Number.isFinite(deathCount) || caseCount <= 0) return 0;
+  return Math.min(100, Math.max(0, (deathCount / caseCount) * 100));
+};
+
 export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProps) {
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<SpatialHeatmapResponse | null>(null);
@@ -102,7 +110,7 @@ export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProp
       c.months.forEach((m) => {
         if (m.cases > maxCases) maxCases = m.cases;
         if (m.deaths > maxDeaths) maxDeaths = m.deaths;
-        const cfr = m.cases > 0 ? (m.deaths / m.cases) * 100 : 0;
+        const cfr = normalizeCfr(m.cases, m.deaths);
         if (cfr > maxCfr && cfr <= 100) maxCfr = cfr;
 
         monthTotals[m.month_name] = (monthTotals[m.month_name] || 0) + m.cases;
@@ -143,7 +151,7 @@ export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProp
       displayVal = m.deaths > 0 ? formatCompact(m.deaths) : '?';
       ratio = metricStats.maxDeaths > 0 ? m.deaths / metricStats.maxDeaths : 0;
     } else if (activeMetric === 'cfr') {
-      const cfr = m.cases > 0 ? (m.deaths / m.cases) * 100 : 0;
+      const cfr = normalizeCfr(m.cases, m.deaths);
       rawVal = cfr;
       displayVal = cfr > 0 ? `${cfr.toFixed(1)}%` : '?';
       ratio = metricStats.maxCfr > 0 ? Math.min(cfr / 15, 1) : 0;
@@ -342,7 +350,7 @@ export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProp
                     ? c.total_deaths
                     : activeMetric === 'cfr'
                     ? c.total_cases > 0
-                      ? ((c.total_deaths / c.total_cases) * 100).toFixed(1) + '%'
+                      ? normalizeCfr(c.total_cases, c.total_deaths).toFixed(1) + '%'
                       : '0.0%'
                     : c.total_events;
 
@@ -463,9 +471,7 @@ export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProp
             <div className="rounded-lg bg-white px-3 py-1.5 border border-slate-200/80 shadow-xs">
               <div className="text-[10px] font-bold text-slate-600 uppercase">Case Fatality Rate</div>
               <div className="text-sm font-black text-amber-700">
-                {hoveredCell.month.cases > 0
-                  ? ((hoveredCell.month.deaths / hoveredCell.month.cases) * 100).toFixed(2)
-                  : '0.00'}
+                {normalizeCfr(hoveredCell.month.cases, hoveredCell.month.deaths).toFixed(2)}
                 %
               </div>
             </div>
@@ -582,9 +588,7 @@ export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProp
                   Case Fatality Rate (CFR)
                 </div>
                 <div className="mt-1 text-lg font-black text-amber-900">
-                  {selectedCountry.total_cases > 0
-                    ? ((selectedCountry.total_deaths / selectedCountry.total_cases) * 100).toFixed(2)
-                    : '0.00'}
+                  {normalizeCfr(selectedCountry.total_cases, selectedCountry.total_deaths).toFixed(2)}
                   %
                 </div>
               </div>
