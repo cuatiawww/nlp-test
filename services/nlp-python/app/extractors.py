@@ -185,16 +185,23 @@ def extract_country_hint(text: str) -> Optional[str]:
         if not matches:
             continue
         score = float(len(matches) * 3)
-        if any(m.start() < 200 for m in matches):
-            score += 4.0
+        if any(m.start() < 300 for m in matches):
+            score += 10.0
         for m in matches:
             pos = m.start()
             if contextual.search(lower_text[max(0, pos - 80):pos]):
                 score -= 3.0
-        country_scores[standard_country] = score
+        # Accumulate score across aliases for the same country (do not clobber)
+        country_scores[standard_country] = country_scores.get(standard_country, 0.0) + score
 
     if not country_scores:
         return None
+
+    # ASEAN surveillance platform bonus: prioritize ASEAN member states
+    for c in list(country_scores.keys()):
+        if c in config.ASEAN_COUNTRIES:
+            country_scores[c] += 5.0
+
     return max(country_scores.keys(), key=lambda k: country_scores[k])
 
 

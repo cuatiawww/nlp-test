@@ -290,16 +290,28 @@ export const deleteLanguageModel = (id: string) =>
 
 export const fetchDashboardStats = () =>
   fetchFrom<DashboardStats>("/api/v1/events/stats");
-export const fetchPublicDashboard = (filters?: {
+export interface PublicDashboardApiParams {
   country?: string;
   year?: number;
-  source?: "ibs" | "ebs" | "skdr";
-}) => {
+  source?: "ibs" | "ebs" | "skdr" | string;
+  disease?: string;
+  start_year?: number;
+  start_week?: number;
+  end_year?: number;
+  end_week?: number;
+}
+
+export const fetchPublicDashboard = (filters?: PublicDashboardApiParams) => {
   const params = new URLSearchParams();
   if (filters?.country && filters.country !== "all")
     params.set("country", filters.country);
   if (filters?.year) params.set("year", String(filters.year));
-  if (filters?.source) params.set("source", filters.source);
+  if (filters?.source && filters.source !== "all") params.set("source", filters.source);
+  if (filters?.disease && filters.disease !== "all") params.set("disease", filters.disease);
+  if (filters?.start_year) params.set("start_year", String(filters.start_year));
+  if (filters?.start_week) params.set("start_week", String(filters.start_week));
+  if (filters?.end_year) params.set("end_year", String(filters.end_year));
+  if (filters?.end_week) params.set("end_week", String(filters.end_week));
   const query = params.toString();
   return fetchFrom<PublicDashboard>(
     `/api/v1/public-dashboard${query ? `?${query}` : ""}`,
@@ -330,8 +342,17 @@ export const fetchEbsSummary = (filters?: { year?: number; province?: string }) 
 
 // ── URL Analyze ──────────────────────────────────
 
-export const analyzeUrl = (url: string) =>
-  postTo<any>("/api/v1/analyze-url", { url });
+export const analyzeUrl = async (url: string) => {
+  const { waitForAnalysis } = await import("./analysis-job.mjs");
+  const initial = await postTo<any>("/api/v1/analyze-url", { url, async: true });
+  return waitForAnalysis(initial, async (id: string) => {
+    const res = await fetch(baseURL() + "/api/v1/analysis-jobs/" + encodeURIComponent(id),
+      { cache: "no-store", signal: AbortSignal.timeout(10000) });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(formatApiError(res, json));
+    return json.data;
+  });
+};
 
 // ── Pagination helper ────────────────────────────
 

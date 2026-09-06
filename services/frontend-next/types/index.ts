@@ -121,10 +121,26 @@ export type OutbreakLocation = {
   };
 };
 
+export type PublicDashboardFilters = {
+  country?: string | null;
+  year?: number;
+  disease?: string | null;
+  source?: string | null;
+  start_year?: number;
+  start_week?: number;
+  end_year?: number;
+  end_week?: number;
+  start_date?: string;
+  end_date?: string;
+};
+
 export type PublicDashboard = {
   updated_at: string;
   available_years?: number[];
-  filters?: { country: string | null; year: number };
+  available_diseases?: string[];
+  current_epi_week?: number;
+  current_epi_year?: number;
+  filters?: PublicDashboardFilters;
   kpis: {
     cases: number;
     deaths: number;

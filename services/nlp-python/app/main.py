@@ -11,6 +11,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Disease NLP Service", version="0.3.0")
+from .bounded_analysis import router as bounded_analysis_router
+app.include_router(bounded_analysis_router)
 
 
 @app.on_event("startup")

@@ -42,6 +42,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Disease Collector Service", lifespan=lifespan)
+from .analysis_jobs import router as analysis_jobs_router
+app.include_router(analysis_jobs_router)
 
 
 @app.get("/health")

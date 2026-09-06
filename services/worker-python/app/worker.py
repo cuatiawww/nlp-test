@@ -9,6 +9,8 @@ import psycopg
 from psycopg.rows import dict_row
 import requests
 
+from .entity_relations import disease_relation_rows, location_relation_rows
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("worker")
 
@@ -19,6 +21,12 @@ RABBITMQ_SKDR_QUEUE = os.getenv("RABBITMQ_SKDR_QUEUE", "disease.skdr")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
 CURRENT_YEAR_ONLY = os.getenv("CURRENT_YEAR_ONLY", "true").lower() in {"1", "true", "yes", "on"}
+ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
+    "ENTITY_LOCATION_STORAGE_ENABLED", "true"
+).lower() in {"1", "true", "yes", "on"}
+ENTITY_DISEASE_STORAGE_ENABLED = os.getenv(
+    "ENTITY_DISEASE_STORAGE_ENABLED", "true"
+).lower() in {"1", "true", "yes", "on"}
 
 
 def env_year(name: str = "CURRENT_YEAR") -> int:
@@ -46,6 +54,69 @@ HEALTH_HINTS = (
 
 def get_db():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def persist_location_relations(conn, event_id, nlp: dict) -> None:
+    if not ENTITY_LOCATION_STORAGE_ENABLED:
+        return
+    for relation in location_relation_rows(nlp):
+        conn.execute(
+            """INSERT INTO disease_event_locations
+               (disease_event_id, location_ref, location_name, role, country,
+                latitude, longitude, case_count, death_count, evidence)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (disease_event_id, location_ref, role) DO UPDATE SET
+                 country = EXCLUDED.country,
+                 latitude = EXCLUDED.latitude,
+                 longitude = EXCLUDED.longitude,
+                 case_count = EXCLUDED.case_count,
+                 death_count = EXCLUDED.death_count,
+                 evidence = EXCLUDED.evidence""",
+            (
+                event_id,
+                relation["location_ref"],
+                relation["location_name"],
+                relation["role"],
+                relation.get("country"),
+                relation.get("latitude"),
+                relation.get("longitude"),
+                relation.get("case_count"),
+                relation.get("death_count"),
+                relation.get("evidence"),
+            ),
+        )
+
+
+def persist_disease_relations(conn, event_id, nlp: dict) -> None:
+    if not ENTITY_DISEASE_STORAGE_ENABLED:
+        return
+    for relation in disease_relation_rows(nlp):
+        conn.execute(
+            """INSERT INTO disease_event_diseases
+               (disease_event_id, surface_form, disease_name, role, icd11_code,
+                confidence, case_count, death_count, evidence, resolution_source)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (disease_event_id, disease_name, role) DO UPDATE SET
+                 surface_form = EXCLUDED.surface_form,
+                 icd11_code = EXCLUDED.icd11_code,
+                 confidence = EXCLUDED.confidence,
+                 case_count = EXCLUDED.case_count,
+                 death_count = EXCLUDED.death_count,
+                 evidence = EXCLUDED.evidence,
+                 resolution_source = EXCLUDED.resolution_source""",
+            (
+                event_id,
+                relation["surface_form"],
+                relation["disease_name"],
+                relation["role"],
+                relation.get("icd11_code"),
+                relation.get("confidence"),
+                relation.get("case_count"),
+                relation.get("death_count"),
+                relation.get("evidence"),
+                relation.get("resolution_source"),
+            ),
+        )
 
 
 def mark_message_processing(msg: dict) -> None:
@@ -429,7 +500,7 @@ def callback(ch, method, properties, body):
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
-            conn.execute(
+            event_cursor = conn.execute(
                 """INSERT INTO disease_events
                    (raw_report_id, source_type, source_name, published_at, original_text, language,
                          location_name, geom, symptoms, disease_extracted, disease_mentions, disease_classification,
@@ -440,7 +511,8 @@ def callback(ch, method, properties, body):
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
-                            %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)""",
+                            %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                   RETURNING id""",
                 (
                     raw_id,
                     msg.get("source_type"),
@@ -468,6 +540,9 @@ def callback(ch, method, properties, body):
                     nlp.get("source_credibility_label", ""),
                 ),
             )
+            event_id = event_cursor.fetchone()["id"]
+            persist_location_relations(conn, event_id, nlp)
+            persist_disease_relations(conn, event_id, nlp)
             conn.commit()
 
         logger.info("Processed successfully: raw_id=%s", raw_id)

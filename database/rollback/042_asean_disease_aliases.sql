@@ -1,0 +1,3 @@
+-- Rollback is intentionally non-destructive. The aliases are valid local
+-- knowledge and may already have been reused by later reviews. Disable the
+-- migration by stopping its deployment; do not delete learned terminology.

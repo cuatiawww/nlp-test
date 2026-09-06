@@ -47,6 +47,8 @@ import CrawlingEnginePerformance from "@/components/CrawlingEnginePerformance";
 import CaseLocationHeatmap from "@/components/CaseLocationHeatmap";
 import DiseaseTrendOverview from "@/components/DiseaseTrendOverview";
 import MorbidityMortalitySection from "@/components/MorbidityMortalitySection";
+import EpiFilterBar, { EpiFilterState } from "@/components/EpiFilterBar";
+
 import type { OutbreakLocation, PublicDashboard } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
@@ -784,8 +786,14 @@ export default function DashboardPage() {
   const { t, locale, translateDisease, translateSeverity } = useTranslation();
   const numLocale = locale === "en" ? "en-US" : "id-ID";
   const currentYear = new Date().getFullYear();
-  const [country, setCountry] = useState("all");
-  const [year, setYear] = useState(currentYear);
+  const [filters, setFilters] = useState<EpiFilterState>({
+    disease: "all",
+    country: "all",
+    startYear: 2026,
+    startWeek: 1,
+    endYear: 2026,
+    endWeek: 36,
+  });
   const [data, setData] = useState<PublicDashboard | null>(null);
   const [selected, setSelected] = useState<OutbreakLocation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -818,11 +826,20 @@ export default function DashboardPage() {
     if (crawlData) setCrawlingStats(crawlData);
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (customFilters?: EpiFilterState) => {
+    const active = customFilters || filters;
     try {
       setError("");
       const [dashData, crawlData] = await Promise.all([
-        fetchPublicDashboard({ country, year }),
+        fetchPublicDashboard({
+          country: active.country,
+          disease: active.disease,
+          start_year: active.startYear,
+          start_week: active.startWeek,
+          end_year: active.endYear,
+          end_week: active.endWeek,
+          year: active.endYear,
+        }),
         fetchCrawlingStats().catch(() => null),
       ]);
       setData(dashData);
@@ -832,7 +849,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [country, year, t]);
+  }, [filters, t]);
 
   useEffect(() => {
     load();
@@ -849,8 +866,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const available = data?.available_years;
-    if (available?.length && !available.includes(year)) setYear(available[0]);
-  }, [data?.available_years, year]);
+    if (available?.length && !available.includes(filters.endYear)) {
+      setFilters(prev => ({ ...prev, endYear: available[0], startYear: available[0] }));
+    }
+  }, [data?.available_years, filters.endYear]);
 
   const countryData = data?.by_country ?? [];
 
@@ -874,7 +893,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={load}
+            onClick={() => void load()}
             className="inline-flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0060A9] transition hover:bg-blue-100"
           >
             <RefreshCw className="h-4 w-4" />
@@ -883,77 +902,19 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-3 shadow-[0_6px_18px_rgba(0,96,169,.06)]">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="flex items-center gap-2 px-1 text-[#0060A9]">
-            <Filter className="h-4 w-4" />
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-wider">
-                {t("dashboard.filterTitle")}
-              </p>
-              <p className="text-[10px] text-slate-500">
-                {t("dashboard.filterSub")}
-              </p>
-            </div>
-          </div>
-          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <Globe2 className="h-4 w-4 shrink-0 text-[#0060A9]" />
-            <span className="text-[10px] font-bold uppercase text-slate-500">
-              {t("dashboard.country")}
-            </span>
-            <select
-              value={country}
-              onChange={(event) => setCountry(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-xs font-bold text-slate-800 outline-none"
-            >
-              <option value="all">{t("dashboard.allAsean")}</option>
-              {[
-                "Brunei",
-                "Cambodia",
-                "Indonesia",
-                "Laos",
-                "Malaysia",
-                "Myanmar",
-                "Philippines",
-                "Singapore",
-                "Thailand",
-                "Timor-Leste",
-                "Vietnam",
-              ].map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 lg:w-56">
-            <CalendarDays className="h-4 w-4 shrink-0 text-[#0060A9]" />
-            <span className="text-[10px] font-bold uppercase text-slate-500">
-              {t("dashboard.year")}
-            </span>
-            <select
-              value={year}
-              onChange={(event) => setYear(Number(event.target.value))}
-              className="flex-1 bg-transparent text-xs font-bold text-slate-800 outline-none"
-            >
-              {(data?.available_years?.length
-                ? data.available_years
-                : [currentYear]
-              ).map((availableYear) => (
-                <option key={availableYear} value={availableYear}>
-                  {availableYear}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            onClick={load}
-            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-[#0060A9] transition hover:bg-blue-100"
-          >
-            {t("dashboard.filterApply")}
-          </button>
-        </div>
-      </section>
+      <EpiFilterBar
+        availableDiseases={data?.available_diseases}
+        availableYears={data?.available_years}
+        currentEpiWeek={data?.current_epi_week}
+        currentEpiYear={data?.current_epi_year}
+        value={filters}
+        onChange={(newFilters) => setFilters(newFilters)}
+        onApply={(newFilters) => {
+          setFilters(newFilters);
+          load(newFilters);
+        }}
+        isLoading={loading}
+      />
 
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">
@@ -1007,7 +968,7 @@ export default function DashboardPage() {
         </article>
         <Kpi
           label={t("dashboard.kpiDetectedCases")}
-          value={data?.trends?.cases.current ?? data?.kpis.cases ?? 0}
+          value={data?.kpis.cases ?? 0}
           icon={<Bug className="h-5 w-5" />}
           tone="blue"
           trend={data?.trends?.cases}
@@ -1027,7 +988,7 @@ export default function DashboardPage() {
         />
         <Kpi
           label={t("dashboard.kpiDeaths")}
-          value={data?.trends?.deaths.current ?? data?.kpis.deaths ?? 0}
+          value={data?.kpis.deaths ?? 0}
           icon={<Skull className="h-5 w-5" />}
           tone="red"
           trend={data?.trends?.deaths}

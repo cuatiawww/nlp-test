@@ -8,6 +8,7 @@ import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronUp, Globe2
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchCrawlingStats, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
 import type { OutbreakLocation, PublicDashboard } from '@/types'
+import type { CrawlingFeedItem } from '@/lib/crawling-feed'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
@@ -15,6 +16,7 @@ import CrawlingFeedPanel from '@/components/CrawlingFeedPanel'
 import AnalyticsSituationPanel from '@/components/AnalyticsSituationPanel'
 import CountryFlag from '@/components/CountryFlag'
 import SurveillanceDetailModal from '@/components/SurveillanceDetailModal'
+import CrawlModeOverlay from '@/components/CrawlModeOverlay'
 
 const AseanMap = dynamic(() => import('@/components/AseanMap'), { ssr: false })
 type BaseMap = 'osm'|'terrain'|'satellite'|'light'|'dark'
@@ -34,7 +36,8 @@ export default function TvPage() {
   const { t, locale, translateDisease, translateSeverity } = useTranslation()
   const numLocale = locale === 'en' ? 'en-US' : 'id-ID'
 
-  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [selectedEvent,setSelectedEvent]=useState<OutbreakLocation|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
+  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [crawlItems,setCrawlItems]=useState<CrawlingFeedItem[]>([]), [selectedEvent,setSelectedEvent]=useState<OutbreakLocation|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
+  const [mapMode,setMapMode]=useState<'map'|'crawl'>('map')
   const [drawer,setDrawer]=useState(false), [sound,setSound]=useState(false), [fullscreen,setFullscreen]=useState(false), [kpiHidden,setKpiHidden]=useState(false), [leftHidden,setLeftHidden]=useState(false), [rightHidden,setRightHidden]=useState(false)
   const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [markerLookbackDays,setMarkerLookbackDays]=useState<MarkerLookbackDays>(30), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
   const [bnpb,setBnpb]=useState({flood:false,earthquake:false,landslide:false,forestFire:false,hillshade:false,population:false}), [wind,setWind]=useState(false)
@@ -118,10 +121,10 @@ export default function TvPage() {
         <AseanMap
           fullBleed
           baseMap={baseMap}
-          showAdmin={admin}
-          showMarkers={markers}
+          showAdmin={mapMode === 'map' && admin}
+          showMarkers={mapMode === 'map' && markers}
           markerLookbackDays={markerLookbackDays}
-          countryData={choropleth?data?.by_country:undefined}
+          countryData={mapMode === 'map' && choropleth ? data?.by_country : undefined}
           outbreakLocations={data?.locations}
           locationsData={data?.locations?.map((l) => ({
             name: l.location_name || l.disease || "Kasus Terpantau",
@@ -132,6 +135,7 @@ export default function TvPage() {
           showWind={wind}
           hideLegend
         />
+        <CrawlModeOverlay active={mapMode === 'crawl'} items={crawlItems} locale={numLocale} />
       </div>
 
       <header className="pointer-events-none fixed left-2 right-2 top-2 z-40 flex items-center justify-between gap-3 sm:left-3 sm:right-3 sm:top-3">
@@ -168,6 +172,22 @@ export default function TvPage() {
 
         <div className="pointer-events-auto flex items-center gap-2">
           <LanguageSwitcher compact />
+          <div className="hidden items-center gap-0.5 rounded-xl border border-blue-200 bg-blue-50 p-0.5 sm:flex" role="group" aria-label="Map display mode">
+            <button
+              type="button"
+              onClick={() => setMapMode('map')}
+              className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide transition ${mapMode === 'map' ? 'bg-white text-[#0060A9] shadow-sm' : 'text-slate-500 hover:text-[#0060A9]'}`}
+            >
+              Map
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapMode('crawl')}
+              className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide transition ${mapMode === 'crawl' ? 'bg-slate-900 text-cyan-200 shadow-sm' : 'text-slate-500 hover:text-[#0060A9]'}`}
+            >
+              Crawl
+            </button>
+          </div>
           <button onClick={()=>setDrawer(v=>!v)} className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-extrabold ${drawer?'border-[#0060A9] bg-[#0060A9] text-white':'border-blue-200 bg-blue-50 text-[#0060A9]'}`}>
             <Layers className="h-4 w-4"/>
             <span className="hidden sm:inline">{t('tv.controls')}</span>
@@ -309,6 +329,7 @@ export default function TvPage() {
           onToggle={() => setLeftHidden((value) => !value)}
           t={t}
           translateDisease={translateDisease}
+          onItemsChange={setCrawlItems}
         />
       </div>
 

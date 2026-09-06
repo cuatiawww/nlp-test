@@ -1,0 +1,3 @@
+-- Non-destructive rollback marker for 044.
+-- Keep relation data for audit; disable the additive writer/reader through
+-- deployment configuration instead of dropping the table.

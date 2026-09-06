@@ -47,6 +47,9 @@ def who_token() -> str | None:
     client_id = config.WHO_ICD_CLIENT_ID
     client_secret = config.WHO_ICD_CLIENT_SECRET
     if not client_id or not client_secret:
+        logger.warning(
+            "WHO ICD-11 OAuth token unavailable: reason=missing_credentials"
+        )
         return None
 
     now = time.time()
@@ -74,7 +77,10 @@ def who_token() -> str | None:
             _TOKEN_CACHE["expires_at"] = now + expires_in
             return token
     except Exception as e:
-        logger.warning("Failed to acquire WHO ICD-11 access token: %s", e)
+        logger.warning(
+            "WHO ICD-11 OAuth token request failed: reason=request_error error=%s",
+            e,
+        )
         # Negative cache for 120s so we do not block every article on network/bad credentials
         _TOKEN_CACHE["token"] = None
         _TOKEN_CACHE["expires_at"] = now + 120
@@ -146,7 +152,11 @@ def who_search(term: str, token: str | None = None) -> dict[str, Any] | None:
             data = json.loads(resp.read().decode("utf-8"))
         return _parse_who_search_response(term, data)
     except Exception as e:
-        logger.warning("WHO ICD-11 search failed for query '%s': %s", term, e)
+        logger.warning(
+            "WHO ICD-11 search failed: reason=request_error query=%s error=%s",
+            term,
+            e,
+        )
         return None
 
 
