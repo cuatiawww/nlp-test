@@ -4,13 +4,13 @@ import { useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, BarChart3, Brain, CheckCircle2,
   Database, FileText, Globe2, Languages, MapPin, Network, Radio,
-  RefreshCw, Search, Server, ShieldCheck, Sparkles, Table2, Workflow,
+  RefreshCw, Search, ShieldCheck, Sparkles, Table2, Workflow,
 } from 'lucide-react'
 
 const sections = [
   ['overview', 'Overview'], ['flow', 'Process Flow'], ['nlp', 'NLP Pipeline'],
   ['surveillance', 'Surveillance Data'], ['dashboard', 'Dashboard & EWS'],
-  ['operations', 'Operations'], ['api', 'API Reference'],
+  ['metrics', 'Metrics & Labels'], ['accuracy', 'Test Accuracy'],
 ]
 
 function Step({ icon: Icon, title, children, tone = 'sky' }: { icon: any; title: string; children: React.ReactNode; tone?: string }) {
@@ -68,8 +68,14 @@ export default function BusinessProcessPage() {
         <h2 className="text-xl font-black text-slate-900">2. Operational Process Flow</h2>
         <div className="mt-5 grid gap-3 lg:grid-cols-7">
           {[
-            [Radio, 'Sources', 'Configured sources and schedules'], [Search, 'Collector', 'Clean main content'], [Network, 'RabbitMQ', 'Asynchronous queue'], [Brain, 'NLP', 'Classify and extract'], [Database, 'PostgreSQL', 'Store normalized data'], [Activity, 'Aggregation', 'IBS/EBS and dashboard'], [ShieldCheck, 'Action', 'Review and response'],
-          ].map(([Icon, title, text], index) => <div key={title as string} className="relative flex flex-col items-center rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0060A9]/10 text-[#0060A9]"><Icon className="h-5 w-5" /></div><p className="mt-2 text-xs font-black text-slate-900">{title as string}</p><p className="mt-1 text-[11px] leading-4 text-slate-500">{text as string}</p>{index < 6 && <ArrowRight className="absolute -right-3 top-8 z-10 hidden h-5 w-5 text-slate-300 lg:block" />}</div>)}
+            [Radio, 'Sources', 'Configured sources and schedules', 'sky'], [Search, 'Collector', 'Clean main content', 'violet'], [Network, 'RabbitMQ', 'Asynchronous queue', 'emerald'], [Brain, 'NLP', 'Classify and extract', 'amber'], [Database, 'PostgreSQL', 'Store normalized data', 'rose'], [Activity, 'Aggregation', 'IBS/EBS and dashboard', 'teal'], [ShieldCheck, 'Action', 'Review and response', 'blue'],
+          ].map(([Icon, title, text, tone], index) => {
+            const flowStyles: Record<string, string> = {
+              sky: 'border-sky-200 bg-sky-50/70 text-sky-700', violet: 'border-violet-200 bg-violet-50/70 text-violet-700', emerald: 'border-emerald-200 bg-emerald-50/70 text-emerald-700', amber: 'border-amber-200 bg-amber-50/70 text-amber-700', rose: 'border-rose-200 bg-rose-50/70 text-rose-700', teal: 'border-teal-200 bg-teal-50/70 text-teal-700', blue: 'border-blue-200 bg-blue-50/70 text-blue-700',
+            }
+            const style = flowStyles[tone as string] || flowStyles.sky
+            return <div key={title as string} className={`relative flex flex-col items-center rounded-2xl border p-4 text-center shadow-sm ${style}`}><div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/80"><Icon className="h-5 w-5" /></div><p className="mt-2 text-xs font-black text-slate-900">{title as string}</p><p className="mt-1 text-[11px] leading-4 text-slate-600">{text as string}</p>{index < 6 && <ArrowRight className="absolute -right-3 top-8 z-10 hidden h-5 w-5 text-slate-300 lg:block" />}</div>
+          })}
         </div>
         <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50/60 p-4 text-xs leading-5 text-blue-900"><b>Failure handling:</b> the collector retries with Scrapling/stealth; the worker retries RabbitMQ/NLP; analyze-url can create an asynchronous analysis job; if RabbitMQ is unavailable, the backend falls back to synchronous processing.</div>
       </section>
@@ -105,29 +111,49 @@ export default function BusinessProcessPage() {
         </div>
       </section>
 
-      <section id="operations" className="scroll-mt-16 pt-9">
-        <h2 className="text-xl font-black text-slate-900">6. Deployment &amp; Operations</h2>
-        <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Step icon={Server} title="Services" tone="sky">frontend-next, backend-rust, nlp-python, collector-python, worker-python, RabbitMQ, and MinIO run through Docker Compose.</Step>
-          <Step icon={Languages} title="Startup initialization" tone="emerald">NLP models are preloaded during startup. The backend runs every SQL file in <code>database/init</code> idempotently before listening.</Step>
-          <Step icon={Database} title="Storage" tone="violet">PostgreSQL/PostGIS stores raw reports, normalized events, SKDR reports, locations, labels, rules, translation cache, and analysis jobs.</Step>
-          <Step icon={RefreshCw} title="Scheduled jobs" tone="amber">Collector and SKDR sync can run from cron or a scheduler. Keep duplicate-safe dedupe keys and monitor worker/RabbitMQ health.</Step>
+      <section id="metrics" className="scroll-mt-16 pt-9">
+        <h2 className="text-xl font-black text-slate-900">6. Metrics, Values &amp; Labels</h2>
+        <p className="mt-1 text-sm text-slate-500">Definitions used consistently by Home, TV, Reports, Dashboard, and detail-region.</p>
+        <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Metric / label</th><th className="px-4 py-3">Value</th><th className="px-4 py-3">Meaning and display rule</th></tr></thead><tbody className="divide-y divide-slate-100">
+            {[
+              ['Total Crawled (All-Time)', 'integer ≥ 0', 'All raw reports collected for the selected country; not the same as processed events.'],
+              ['Total Processed / Events', 'integer ≥ 0', 'Reports that have a normalized disease event or completed analysis.'],
+              ['Total Cases / Deaths', 'integer ≥ 0 or 0', 'Sum of extracted or structured counts. Zero means no count was reported, not necessarily zero incidence.'],
+              ['Confidence', '0.00–1.00', 'Model certainty. The UI renders it as a percentage; values below 0.50 are marked for review by the NLP service.'],
+              ['Outbreak Alert', 'true / false', 'Boolean signal, not a severity level. It requires health relevance, explicit outbreak wording, a disease, a threshold match, and no negative reference.'],
+              ['Critical / Warning / Normal', 'display label', 'Dashboard presentation of validated signals. A label is shown only after location, coordinates, confidence, and published-date period gates pass.'],
+              ['published_at', 'ISO date or empty', 'Source publication date used for year/month filters and EWS. Missing dates are excluded from period alerts to avoid false positives.'],
+              ['Disease / Location / Source', 'canonical label', 'Normalized ontology and location labels; UNKNOWN or empty values remain visible for data-quality review.'],
+              ['IBS / EBS', 'report channel', 'Indicator-Based Surveillance and Event-Based Surveillance. Their charts aggregate skdr_reports directly and do not require disease_events.'],
+            ].map(([label, value, meaning]) => <tr key={label}><td className="px-4 py-3 font-bold text-slate-800">{label}</td><td className="px-4 py-3 font-mono text-[#0060A9]">{value}</td><td className="px-4 py-3 leading-5 text-slate-600">{meaning}</td></tr>)}
+          </tbody></table>
         </div>
-        <pre className="mt-5 overflow-x-auto rounded-2xl bg-slate-900 p-5 text-xs leading-5 text-slate-100"><code>{`# build and start
-docker compose up -d --build
-
-# migrations normally run automatically at backend startup
-docker compose up disease-init
-
-# trigger collection from the API
-curl -X POST /nlp/api/v1/sources/collect-all`}</code></pre>
+        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900"><b>Threshold note:</b> known diseases use the disease-specific rule stored in <code>disease_outbreak_rules</code>; when no rule exists, explicit outbreak wording uses <code>EXPLICIT_KNOWN_DISEASE_MIN_CASES=25</code> unless overridden by environment configuration. Unknown-disease rules are loaded from the database.</p>
       </section>
 
-      <section id="api" className="scroll-mt-16 pt-9">
-        <h2 className="text-xl font-black text-slate-900">7. API Reference</h2>
-        <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm"><table className="w-full min-w-[680px] text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Endpoint</th><th className="px-4 py-3">Purpose</th><th className="px-4 py-3">Consumer</th></tr></thead><tbody className="divide-y divide-slate-100">{[
-          ['/api/v1/analyze-url', 'Analyze a URL; supports asynchronous jobs', 'Analyze URL page'], ['/api/v1/analysis-jobs/:id', 'Poll an asynchronous analysis result', 'Analyze URL page'], ['/api/v1/public-dashboard', 'Country/year/source dashboard aggregation', 'Home and detail-region'], ['/api/v1/crawling-stats?country=...', 'Country-scoped crawling KPI', 'Regional KPI cards'], ['/api/v1/skdr/ibs-summary', 'Direct IBS report aggregation', 'IBS chart and matrix'], ['/api/v1/skdr/ebs-summary', 'Direct EBS report aggregation', 'EBS chart and matrix'], ['/api/v1/spatial-heatmap', 'Spatial country/month aggregation', 'Map and analytics'],
-        ].map(([endpoint, purpose, consumer]) => <tr key={endpoint}><td className="px-4 py-3 font-mono font-bold text-[#0060A9]">{endpoint}</td><td className="px-4 py-3 text-slate-600">{purpose}</td><td className="px-4 py-3 text-slate-500">{consumer}</td></tr>)}</tbody></table></div>
+      <section id="accuracy" className="scroll-mt-16 pt-9">
+        <h2 className="text-xl font-black text-slate-900">7. Test Accuracy Results</h2>
+        <p className="mt-1 text-sm text-slate-500">Current repository tests validate deterministic behavior and data contracts. They are not a statistical model-accuracy benchmark.</p>
+        <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {[
+            ['Main-content extraction', 'COVERED', 'Navigation, footer, scripts, and feed snippets are removed while article text is retained.', 'sky'],
+            ['Cloudflare / fetch fallback', 'COVERED', 'Challenge pages are detected and Scrapling/stealth fallback is selected.', 'violet'],
+            ['Published date extraction', 'COVERED', 'Structured and page metadata dates are normalized for period filtering.', 'emerald'],
+            ['Case and death extraction', 'COVERED', 'Separators, Indonesian/English phrases, and case/death pairs are covered.', 'amber'],
+            ['Outbreak rules', 'COVERED', 'Explicit signals pass; historical, policy-only, and negative references are rejected.', 'rose'],
+            ['PDF routing and OCR fallback', 'COVERED', 'URL/content-type/magic-byte routing and extraction failure handling are covered.', 'teal'],
+            ['Async analyze-url contract', 'COVERED', 'Completed, partial, failed, timeout, and fetch-failure job states are covered.', 'blue'],
+            ['Entity relations', 'COVERED', 'Canonical disease and location relations are persisted from analyzed reports.', 'indigo'],
+            ['Local translation startup', 'SMOKE', 'NLLB-200 is preloaded when enabled; translation quality is monitored separately from rule tests.', 'cyan'],
+          ].map(([name, status, detail, tone]) => {
+            const testStyles: Record<string, string> = {
+              sky: 'border-sky-200 bg-sky-50/60', violet: 'border-violet-200 bg-violet-50/60', emerald: 'border-emerald-200 bg-emerald-50/60', amber: 'border-amber-200 bg-amber-50/60', rose: 'border-rose-200 bg-rose-50/60', teal: 'border-teal-200 bg-teal-50/60', blue: 'border-blue-200 bg-blue-50/60', indigo: 'border-indigo-200 bg-indigo-50/60', cyan: 'border-cyan-200 bg-cyan-50/60',
+            }
+            return <div key={name} className={`rounded-2xl border p-4 shadow-sm ${testStyles[tone as string] || testStyles.sky}`}><div className="flex items-center justify-between gap-2"><h3 className="text-xs font-black text-slate-900">{name}</h3><span className={`rounded-full px-2 py-1 text-[10px] font-black ${status === 'PASS' ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700'}`}>{status}</span></div><p className="mt-2 text-xs leading-5 text-slate-600">{detail}</p></div>
+          })}
+        </div>
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600"><b>Latest local verification:</b> NLP unit tests <code>37/37 passed</code>; frontend analyze-url contract tests <code>5/5 passed</code>. Collector tests are covered in the repository but require its service dependencies (for example <code>bs4</code> and <code>pdfplumber</code>). No single percentage is claimed because the repository does not contain a labeled benchmark dataset; production quality should be measured with a reviewed sample and confusion matrix.</div>
       </section>
 
       <footer className="mt-12 border-t border-slate-200 pt-5 text-xs text-slate-400"><p>Business Process Documentation — generated from the current NLP-PENYAKIT implementation.</p><p className="mt-1">Source of truth: service code, Docker Compose, REST routes, and database/init migrations.</p></footer>
