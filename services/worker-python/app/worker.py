@@ -566,8 +566,25 @@ def callback(ch, method, properties, body):
         else:
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
     except psycopg.Error as e:
-        logger.error("Database error: %s — requeueing", e)
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        diagnostic = getattr(e, "diag", None)
+        table_name = getattr(diagnostic, "table_name", None) if diagnostic else None
+        column_name = getattr(diagnostic, "column_name", None) if diagnostic else None
+        data_type = getattr(diagnostic, "datatype_name", None) if diagnostic else None
+        msg_key = str(msg.get("raw_report_id") or msg.get("skdr_report_id") or msg.get("url") or hash(msg.get("text", "")[:120])) if "msg" in locals() else str(method.delivery_tag)
+        attempts = _DELIVERY_ATTEMPTS.get(msg_key, 0) + 1
+        _DELIVERY_ATTEMPTS[msg_key] = attempts
+        logger.error(
+            "Database error attempt=%d key=%s table=%s column=%s datatype=%s: %s",
+            attempts, msg_key, table_name or "?", column_name or "?", data_type or "?", e,
+        )
+        if attempts >= 3:
+            logger.error("Database poison pill failed %d times; marking failed and acknowledging key=%s", attempts, msg_key)
+            if "msg" in locals():
+                mark_message_failed(msg)
+            _DELIVERY_ATTEMPTS.pop(msg_key, None)
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+        else:
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
     except Exception as e:
         logger.exception("Unexpected error: %s — discarding", e)
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
