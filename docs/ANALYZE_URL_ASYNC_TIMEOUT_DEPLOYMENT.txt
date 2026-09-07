@@ -1,0 +1,106 @@
+SERVER EDIT ONLY — ASYNC ANALYZE URL
+====================================
+
+1. Edit /home/nlpdev/docker/nlp-penyakit-git/.env
+--------------------------------------------------
+
+ANALYZE_URL_ASYNC_ENABLED=true
+TRANSLATION_STAGE_TIMEOUT_SECONDS=45
+INFERENCE_STAGE_TIMEOUT_SECONDS=90
+NLP_REQUEST_TIMEOUT_SECONDS=180
+
+
+2. Edit docker-compose.yml
+--------------------------
+
+Hapus service `analysis-job-worker` dari docker-compose.yml utama.
+
+Service tersebut dipindahkan ke file overlay di bawah.
+
+
+3. Buat docker-compose.analysis-jobs.yml
+----------------------------------------
+
+services:
+  analysis-job-worker:
+    build:
+      context: ./services/worker-python
+    container_name: disease-analysis-job-worker
+    command: ["python", "-m", "app.analysis_jobs"]
+    init: true
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NLP_SERVICE_URL: http://disease-nlp-python:8000
+      COLLECTOR_URL: http://disease-collector-python:8002
+      RABBITMQ_URL: ${RABBITMQ_URL_DISEASE:-amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@disease-rabbitmq:5672/%2f}
+      NLP_REQUEST_TIMEOUT_SECONDS: ${NLP_REQUEST_TIMEOUT_SECONDS:-180}
+    volumes:
+      - ./services/worker-python/app:/app/app:ro
+    depends_on:
+      disease-nlp-python:
+        condition: service_healthy
+      disease-collector-python:
+        condition: service_started
+      disease-rabbitmq:
+        condition: service_healthy
+    networks:
+      - default
+      - db_db
+
+
+4. Validasi konfigurasi
+------------------------
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose-prod.override.yml \
+  -f docker-compose.analysis-jobs.yml config --quiet
+
+
+5. Build dan jalankan worker async
+----------------------------------
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose-prod.override.yml \
+  -f docker-compose.analysis-jobs.yml build analysis-job-worker
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose-prod.override.yml \
+  -f docker-compose.analysis-jobs.yml up -d analysis-job-worker
+
+
+6. Cek container/log
+--------------------
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose-prod.override.yml \
+  -f docker-compose.analysis-jobs.yml ps
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose-prod.override.yml \
+  -f docker-compose.analysis-jobs.yml logs --tail=100 analysis-job-worker
+
+
+7. Update workflow deploy
+-------------------------
+
+Tambahkan file overlay pada perintah build dan up:
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose-prod.override.yml \
+  -f docker-compose.analysis-jobs.yml build
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose-prod.override.yml \
+  -f docker-compose.analysis-jobs.yml up -d --remove-orphans
+
+
+Jangan gunakan --profile analysis setelah service dipindahkan ke overlay.
+Jangan menaruh credential production di file ini.
