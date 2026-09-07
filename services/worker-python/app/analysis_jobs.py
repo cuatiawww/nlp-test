@@ -9,7 +9,7 @@ from .entity_relations import disease_relation_rows, location_relation_rows
 
 logger = logging.getLogger(__name__)
 QUEUE = "disease.analysis-url"
-NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "120"))
+NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "180"))
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
 ).lower() in {"1", "true", "yes", "on"}
