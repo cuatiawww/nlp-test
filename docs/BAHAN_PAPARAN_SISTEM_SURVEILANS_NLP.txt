@@ -1,0 +1,181 @@
+================================================================================
+BAHAN PAPARAN EKSEKUTIF & TEKNIS SISTEM SURVEILANS KESEHATAN BERBASIS NLP
+Platform: https://abvc-surveillance.org/nlp
+Sasaran Audiens: Stakeholder, Pejabat Kemenkes, Pimpinan ASEAN, & Tim Teknis
+Format: Poin Paparan Singkat, Padat, & Straight-to-the-Point
+================================================================================
+
+[BAGIAN 1: RINGKASAN EKSEKUTIF (ELEVATOR PITCH UNTUK PIMPINAN)]
+--------------------------------------------------------------------------------
+1. LATAR BELAKANG & TANTANGAN:
+   - Surveilans konvensional sering mengalami jeda waktu (time lag) 1-2 minggu
+     karena menunggu rekapitulasi data fasilitas kesehatan secara berjenjang.
+   - Platform ini hadir sebagai Sistem Intelijen Kesiapsiagaan Dini (Early Warning System)
+     berbasis Kecerdasan Buatan (AI) & Pemrosesan Bahasa Alami (NLP) yang bekerja
+     24/7 memantau sinyal wabah penyakit menular di 10 negara ASEAN.
+
+2. NILAI STRATEGIS UNTUK STAKEHOLDER:
+   - Kecepatan: Deteksi indikasi wabah dalam hitungan jam sejak berita terbit,
+     sehingga tim respon cepat Kemenkes dapat segera melakukan verifikasi lapangan.
+   - Efisiensi & Skalabilitas: Mengotomatisasi pemantauan ribuan artikel berita online
+     dan sinyal media sosial dalam berbagai bahasa daerah & nasional tanpa memerlukan
+     ratusan staf pemantau manual.
+   - Kesiapsiagaan Lintas Batas (Cross-Border Alert): Memberikan gambaran sebaran
+     penyakit menular di negara-negara tetangga ASEAN untuk memperketat deteksi dini
+     di pintu masuk negara (Kantor Kesehatan Pelabuhan / KKP).
+
+
+[BAGIAN 2: ARSITEKTUR TEKNIS & ALUR KERJA SISTEM (PLAIN LANGUAGE)]
+--------------------------------------------------------------------------------
+Sistem bekerja melalui 4 lapisan pemrosesan otomatis:
+
+1. PENGUMPULAN MULTI-SUMBER (Data Ingestion):
+   - Media Daring & RSS: Ratusan portal berita nasional, regional, dan lokal se-ASEAN.
+   - Media Sosial: Sinyal keluhan dan rumor masyarakat (Facebook, Instagram, dll.).
+   - Data Resmi SKDR Kemenkes RI: Terintegrasi langsung dengan API SKDR IBS
+     (Indicator-Based Surveillance) dan EBS (Event-Based Surveillance).
+   - Input On-Demand: URL Analyzer mandiri untuk verifikasi cepat artikel pilihan analis.
+
+2. OTAK AI & NLP PIPELINE:
+   - Deteksi Bahasa & Penerjemahan: Mendeteksi bahasa sumber secara otomatis (Indonesia,
+     Melayu, Thai, Vietnam, Tagalog, dll.) dan menerjemahkan teks ke bahasa standar.
+   - Standardisasi Penyakit (WHO ICD-11): AI memetakan nama penyakit (termasuk sinonim,
+     bahasa daerah, atau singkatan lokal) langsung ke kode standar baku WHO ICD-11.
+   - Ekstraksi Angka Presisi: Membedakan secara ketat antara angka Kasus (Morbidity)
+     dan angka Kematian (Mortality) menggunakan model Named Entity Recognition & Regex.
+   - Geocoding Wilayah: Mengidentifikasi entitas lokasi (Provinsi/Kabupaten/Kota)
+     dan memetakannya ke koordinat spasial GPS yang valid di kawasan ASEAN.
+   - Filter Kredibilitas & Outbreak Rules: Memberikan pembobotan kredibilitas sumber
+     dan menandai "Outbreak Alert" jika terjadi lonjakan kasus signifikan.
+
+3. PENYIMPANAN & KETERTELUSURAN DATA (Audit Trail):
+   - Database spasial PostGIS & PostgreSQL berkinerja tinggi.
+   - Setiap angka metrik memiliki bukti kalimat asli (evidence snippet) dan tautan
+     sumber aslinya, sehingga data tidak berupa "black box" dan dapat diaudit penuh.
+
+4. DISTRIBUSI LAYANAN BERPERFORMA TINGGI:
+   - Didukung backend Rust mikro-layanan cepat, RabbitMQ broker antrean pesan,
+     dan frontend interaktif Next.js 15.
+
+
+[BAGIAN 3: BEDAH 3 MODA UTAMA PLATFORM]
+--------------------------------------------------------------------------------
+
+A. MODA 1: DASHBOARD UTAMA (/nlp) - UNTUK ANALISIS OPERASIONAL TIM SURVEILANS
+Tujuan: Ruang kerja harian epidemiolog, analis data, dan tim surveilans penyakit.
+Fitur Kunci yang Dipaparkan:
+1. Filter Interaktif Dinamis:
+   - Filter rentang waktu (Tahun, Bulan, Hari), Negara ASEAN, Komoditas Penyakit,
+     dan Tipe Sumber (Berita, Medsos, SKDR).
+2. Peta Spasial Klaster Sebaran Kasus:
+   - Peta interaktif ASEAN yang memvisualisasikan konsentrasi episentrum wabah
+     dan radius penyebaran penyakit secara geografis.
+3. Heatmap Matriks Bulanan:
+   - Visualisasi intensitas warna per bulan untuk setiap negara, memudahkan melihat
+     pola musiman (misal: siklus tahunan puncak demam berdarah).
+4. Grafik Tren Mingguan Morbiditas vs Mortalitas:
+   - Grafik sumbu ganda (dual-axis) yang memperlihatkan tren naik/turun kasus
+     berdampingan dengan jumlah fatalitas.
+5. Peringkat Top Health Topics:
+   - Peringkat penyakit dengan jumlah kasus terbanyak (DBD, HFMD, COVID-19, dll.).
+6. Live Surveillance Signal Feed:
+   - Aliran siaran berita real-time dengan label penyakit, lokasi, sentimen, dan skor
+     keyakinan NLP (Confidence Score).
+7. Modal Audit Bukti:
+   - Analis dapat mengklik sinyal apa pun untuk membaca potongan berita asli, alasan AI,
+     dan rujukan kode ICD-11 tanpa meninggalkan dashboard.
+
+B. MODA 2: TV DISPLAY (/nlp/tv) - UNTUK RUANG PIMPINAN / WAR ROOM / COMMAND CENTER
+Tujuan: Pemantauan situasi darurat tanpa perlu pengoperasian manual (Hands-Free Monitoring).
+Fitur Kunci yang Dipaparkan:
+1. Tampilan Layar Penuh (Dark-Mode Kontras Tinggi):
+   - Dirancang khusus untuk videowall / monitor besar di ruang rapat Menteri,
+     Dirjen P2P, maupun Crisis Management Center.
+2. Big Stat KPI Cards:
+   - Angka metrik kumulatif kasus, total kematian terdeteksi sinyal, dan rata-rata CFR
+     yang mudah terbaca dari jarak jauh.
+3. Ticker Bar Siaga Darurat (Outbreak Alert Banner):
+   - Menampilkan berjalan berita mendesak dan peringatan dini lonjakan kasus yang
+     memerlukan perhatian cepat pengambil kebijakan.
+4. Radar Visualisasi Live Crawl:
+   - Animasi pemantauan sumber berita yang sedang ditarik secara langsung detik demi detik.
+5. Pembaruan Otomatis (Auto-Refresh):
+   - Layar otomatis diperbarui secara berkala tanpa perlu intervensi operator.
+
+C. MODA 3: LAPORAN & MATRIKS EPIDEMIOLOGI (/nlp/reports) - UNTUK KEBIJAKAN & AUDIT
+Tujuan: Pembuatan laporan berkala pimpinan, evaluasi lintas negara, dan data sharing.
+Fitur Kunci yang Dipaparkan:
+1. Tiga Kartu Ringkasan Terstandarisasi (1 Baris 3 Kartu):
+   - Card 1: Total Cases Detected (Total beban kesakitan yang terdeteksi).
+   - Card 2: Total Deaths (Total kematian yang dilaporkan).
+   - Card 3: Case Fatality Rate / CFR (%) (Rasio fatalitas kasus epidemiologi).
+2. Matriks Tabulasi Silang (Cross-Tabulation Matrix):
+   - Tabel pivot komparatif: Baris berisi daftar penyakit, Kolom berisi 10 negara ASEAN.
+   - Memudahkan pimpinan membandingkan beban penyakit antarnegara dalam satu lembar tampilan.
+3. Ekspor Data Resmi Siap Pakai:
+   - Ekspor Excel/CSV 1-Klik: Data terstruktur lengkap dengan format UTF-8 rapi untuk
+     analisis statistik lanjutan.
+   - Format Cetak Resmi (Print/PDF Ready): Tata letak otomatis menyesuaikan ukuran A4
+     siap cetak sebagai lampiran berkas rapat koordinasi.
+4. Tabel Audit Catatan Terperinci:
+   - Data log tabular yang dapat dicari dan disortir berdasarkan tanggal, penyakit,
+     wilayah, kasus, kematian, nilai CFR, dan tingkat keyakinan AI.
+
+D. FITUR ANALYZER URL CEPAT (/nlp/analyze):
+Tujuan: Uji coba dan telaah cepat satu tautan berita spesifik.
+- Pengguna cukup menempelkan URL berita -> dalam ~3-7 detik sistem otomatis mengambil isi,
+  menerjemahkan, mengidentifikasi penyakit, menghitung angka kasus & kematian, serta
+  memetakan titik lokasi secara presisi.
+
+
+[BAGIAN 4: HUBUNGAN DENGAN DATA RESMI PEMERINTAH (SKDR KEMENKES)]
+--------------------------------------------------------------------------------
+PENTING DIPAHAMI OLEH STAKEHOLDER:
+1. Sinergi EBS (Event-Based) dan IBS (Indicator-Based):
+   - Sinyal Media/Medsos (EBS): Berfungsi sebagai "Radar Deteksi Dini Rumor di Komunitas".
+     Bukan pengganti data fasilitas kesehatan, melainkan alarm awal sebelum laporan
+     Puskesmas/RS selesai direkapitulasi secara berjenjang.
+   - Data SKDR (IBS): Data konfirmasi klinis resmi dari fasilitas pelayanan kesehatan.
+2. Keunggulan Integrasi:
+   - Sistem ini tidak berdiri terisolasi, melainkan mengawinkan data EBS dari berita
+     publik dengan aliran data resmi SKDR Kemenkes, sehingga pimpinan mendapatkan
+     gambaran epidemiologi 360 derajat (rumor lapangan vs konfirmasi faskes).
+
+
+[BAGIAN 5: PANDUAN MENJAWAB PERTANYAAN KRUSIAL STAKEHOLDER (FAQ)]
+--------------------------------------------------------------------------------
+T: "Apakah data di dashboard ini langsung dapat dianggap sebagai data statistik resmi?"
+J: "Angka yang bersumber dari media adalah sinyal intelijen surveilans berbasis kejadian
+    (EBS) untuk keperluan Deteksi Dini dan Respon Cepat. Setiap angka diverifikasi
+    dengan bukti kutipan teks asli agar tim epidemiolog dapat segera menindaklanjuti
+    ke lapangan."
+
+T: "Bagaimana sistem menyaring berita palsu (hoaks) atau judul berita yang sensasional?"
+J: "Sistem menerapkan tiga lapis penyaringan:
+    1. Pembobotan Kredibilitas Sumber (Source Credibility Scoring).
+    2. Validasi istilah penyakit dengan konsep baku WHO ICD-11.
+    3. Skor Keyakinan NLP (Confidence Threshold). Berita tanpa indikator klinis jelas
+       atau dari sumber tidak terverifikasi otomatis diberi skor rendah atau ditandai
+       untuk review manual."
+
+T: "Apa manfaat strategis pemantauan kawasan ASEAN bagi Indonesia?"
+J: "Penyakit menular tidak mengenal batas administrasi negara. Arus mobilitas barang dan
+    orang di ASEAN sangat tinggi. Pemantauan regional memungkinkan Kemenkes RI menyiapkan
+    kesiapsiagaan lebih awal di pintu-pintu masuk negara (Bandara, Pelabuhan) sebelum
+    terjadi penularan impor ke dalam negeri."
+
+
+[BAGIAN 6: KESIMPULAN & PESAN KUNCI UNTUK PIMPINAN]
+--------------------------------------------------------------------------------
+1. Transformasi Digital Surveilans:
+   - Mengubah paradigma dari sebelumnya "menunggu laporan mingguan yang lambat" menjadi
+     "proaktif menjemput sinyal wabah secara otomatis dalam hitungan jam".
+2. Efisiensi Pengambilan Keputusan:
+   - Menyediakan 3 tingkatan pemantauan terintegrasi:
+     * Tingkat Eksekutif/Menteri: Melalui TV Command Center & KPI CFR.
+     * Tingkat Analis/Epidemiolog: Melalui Peta Spasial, Heatmap, dan Bukti Teks Asli.
+     * Tingkat Pelaporan & Koordinasi: Melalui Matriks Cross-Tabulation & Ekspor Dokumen.
+3. Keandalan Teknologi:
+   - Telah menggunakan pemrosesan NLP modern berkecepatan tinggi (<5 detik), interoperabel
+     dengan standar medis global (WHO ICD-11), dan siap mendukung ketahanan kesehatan nasional.
+================================================================================
