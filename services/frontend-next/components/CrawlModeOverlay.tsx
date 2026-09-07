@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import { Database, ExternalLink, Globe2, Radio } from 'lucide-react'
 import type { CrawlingFeedItem } from '@/lib/crawling-feed'
 
@@ -28,6 +29,9 @@ const COUNTRY_POINTS: Record<string, Point> = {
 
 const FALLBACK_POINT: Point = { x: '50%', y: '42%' }
 const HUB_POINT = { x: '50%', y: '79%' }
+const RELEASE_INTERVAL_MS = 5_000
+const RELEASE_BATCH_SIZE = 6
+const MAX_ACTIVE_FLIGHTS = 18
 
 function sourceLabel(item: CrawlingFeedItem) {
   return item.source || item.platform || item.countryName
@@ -38,10 +42,61 @@ function formatNumber(value: number, locale: string) {
 }
 
 export default function CrawlModeOverlay({ active, items, locale = 'en-US' }: Props) {
+  const pendingItemsRef = useRef<Map<string, CrawlingFeedItem>>(new Map())
+  const knownItemIdsRef = useRef<Set<string>>(new Set())
+  const animationCycleRef = useRef(0)
+  const [activeFlights, setActiveFlights] = useState<Array<{ item: CrawlingFeedItem; key: string }>>([])
+
+  useEffect(() => {
+    if (!active) {
+      pendingItemsRef.current.clear()
+      knownItemIdsRef.current.clear()
+      animationCycleRef.current = 0
+      setActiveFlights([])
+      return
+    }
+
+    for (const item of items) {
+      if (!item.sourceUrl || knownItemIdsRef.current.has(item.id)) continue
+      knownItemIdsRef.current.add(item.id)
+      pendingItemsRef.current.set(item.id, item)
+    }
+
+    // Keep the visual queue bounded when the feed is busy or has been open for a long time.
+    while (pendingItemsRef.current.size > MAX_ACTIVE_FLIGHTS * 2) {
+      const oldestId = pendingItemsRef.current.keys().next().value
+      if (!oldestId) break
+      pendingItemsRef.current.delete(oldestId)
+    }
+  }, [active, items])
+
+  useEffect(() => {
+    if (!active) return
+
+    const releaseBatch = () => {
+      const batch = Array.from(pendingItemsRef.current.values()).slice(0, RELEASE_BATCH_SIZE)
+      if (batch.length === 0) return
+
+      for (const item of batch) pendingItemsRef.current.delete(item.id)
+      const cycle = animationCycleRef.current++
+
+      setActiveFlights((current) => [
+        ...current,
+        ...batch.map((item, index) => ({
+          item,
+          key: `${item.id}-${cycle}-${index}`,
+        })),
+      ].slice(-MAX_ACTIVE_FLIGHTS))
+    }
+
+    const interval = window.setInterval(releaseBatch, RELEASE_INTERVAL_MS)
+    return () => window.clearInterval(interval)
+  }, [active])
+
   if (!active) return null
 
-  const visibleItems = items.filter((item) => item.sourceUrl).slice(0, 18)
-  const processedCount = items.length
+  const queuedCount = pendingItemsRef.current.size
+  const processedCount = activeFlights.length
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
@@ -66,11 +121,11 @@ export default function CrawlModeOverlay({ active, items, locale = 'en-US' }: Pr
         />
       ))}
 
-      {visibleItems.map((item, index) => {
+      {activeFlights.map(({ item, key }, index) => {
         const point = COUNTRY_POINTS[item.countryCode] || FALLBACK_POINT
         return (
           <a
-            key={`${item.id}-${index}`}
+            key={key}
             href={item.sourceUrl || '#'}
             target="_blank"
             rel="noopener noreferrer"
@@ -78,10 +133,11 @@ export default function CrawlModeOverlay({ active, items, locale = 'en-US' }: Pr
             style={{
               left: point.x,
               top: point.y,
-              animationDelay: `${(index % 9) * 420}ms`,
+              animationDelay: `${(index % RELEASE_BATCH_SIZE) * 180}ms`,
               ['--source-x' as string]: point.x,
               ['--source-y' as string]: point.y,
             }}
+            onAnimationEnd={() => setActiveFlights((current) => current.filter((flight) => flight.key !== key))}
             title={`Open source: ${item.title}`}
           >
             <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-cyan-200/30 bg-cyan-400/15 text-cyan-200">
@@ -110,8 +166,13 @@ export default function CrawlModeOverlay({ active, items, locale = 'en-US' }: Pr
             NLP Processing Hub
           </div>
           <p className="mt-1 text-[9px] font-semibold text-slate-300">
-            {formatNumber(processedCount, locale)} live feed item{processedCount === 1 ? '' : 's'}
+            {formatNumber(processedCount, locale)} item{processedCount === 1 ? '' : 's'} in visual processing
           </p>
+          {queuedCount > 0 && (
+            <p className="mt-1 text-[8px] font-semibold text-amber-200">
+              {formatNumber(queuedCount, locale)} queued for next release
+            </p>
+          )}
           <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-300/30 bg-emerald-400/15 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-200">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
             Processing stream
@@ -121,7 +182,7 @@ export default function CrawlModeOverlay({ active, items, locale = 'en-US' }: Pr
 
       <style jsx>{`
         .crawl-flight {
-          animation: crawl-flight 5.8s cubic-bezier(.22, 1, .36, 1) infinite;
+          animation: crawl-flight 5.8s cubic-bezier(.22, 1, .36, 1) 1 both;
         }
 
         .crawl-hub-pulse {
