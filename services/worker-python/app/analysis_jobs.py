@@ -9,6 +9,7 @@ from .entity_relations import disease_relation_rows, location_relation_rows
 
 logger = logging.getLogger(__name__)
 QUEUE = "disease.analysis-url"
+NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "120"))
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
 ).lower() in {"1", "true", "yes", "on"}
@@ -74,7 +75,7 @@ def analyze_article(extracted, fallback=False):
               "source_type": "web", "source_name": "URL Analyzer",
               "source_country": extracted.get("source_country"),
               "published_at": extracted.get("published_at"), "rules_only": fallback},
-        timeout=(5, 45))
+        timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS))
     response.raise_for_status()
     return response.json()
 

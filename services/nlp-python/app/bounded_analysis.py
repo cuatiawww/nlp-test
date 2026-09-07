@@ -1,5 +1,6 @@
 """Opt-in endpoint for interactive jobs only; legacy /nlp/analyze is unchanged."""
 import logging
+import os
 import threading
 from fastapi import APIRouter, HTTPException
 from .schemas import AnalyzeRequest
@@ -8,6 +9,8 @@ from .stage_budget import bounded_call
 logger = logging.getLogger(__name__)
 router = APIRouter()
 slots = threading.BoundedSemaphore(1)
+TRANSLATION_STAGE_TIMEOUT_SECONDS = int(os.getenv("TRANSLATION_STAGE_TIMEOUT_SECONDS", "45"))
+INFERENCE_STAGE_TIMEOUT_SECONDS = int(os.getenv("INFERENCE_STAGE_TIMEOUT_SECONDS", "90"))
 
 class BoundedRequest(AnalyzeRequest):
     rules_only: bool = False
@@ -48,13 +51,19 @@ def analyze_bounded(payload: BoundedRequest):
     try:
         if not payload.rules_only:
             try:
-                translation = bounded_call(translate_stage, (payload.text,), 12)
+                translation = bounded_call(
+                    translate_stage, (payload.text,), TRANSLATION_STAGE_TIMEOUT_SECONDS
+                )
             except Exception as e:
                 logger.warning("Translation stage failed or timed out: %s", e)
-                warnings.append("Translation unavailable within 12s; original text used")
+                warnings.append(
+                    f"Translation unavailable within {TRANSLATION_STAGE_TIMEOUT_SECONDS}s; original text used"
+                )
         try:
             result = bounded_call(inference_stage,
-                (payload.model_dump(), translation, payload.rules_only), 30)
+                (payload.model_dump(), translation, payload.rules_only),
+                INFERENCE_STAGE_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             logger.warning("Inference stage failed: %s", exc)
             raise HTTPException(503, f"NLP stage exceeded budget or failed: {exc}")
