@@ -8,7 +8,9 @@ import AppShell from '@/components/layout/AppShell'
 export default function LayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isLoginPage = pathname === '/login'
-  const isPublicPage = pathname === '/' || pathname === '/tv' || pathname === '/reports' || pathname.startsWith('/reports') || pathname === '/laporan' || pathname.startsWith('/laporan') || pathname === '/detail-region'
+  // The base dashboard (/nlp, represented as / here because Next basePath is stripped)
+  // must require authentication. TV/reports remain public monitoring views.
+  const isPublicPage = pathname === '/tv' || pathname === '/reports' || pathname.startsWith('/reports') || pathname === '/laporan' || pathname.startsWith('/laporan') || pathname === '/detail-region'
   const isConsolePage = pathname.startsWith('/console')
 
   if (isLoginPage) {
