@@ -176,7 +176,7 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
     soup_probe = BeautifulSoup(html, "lxml")
     for node in soup_probe.select("script, style, noscript, svg, template, nav, footer, header, aside, .advertisement, .ads, .social-share, .related, .recommended, .social, .share, .tags, .author"):
         node.decompose()
-    
+
     primary_article_node = soup_probe.select_one(
         "article.news-content, .news-content, .article__body, .cms-body, .article-body, .detail__content, .detail-content, .entry-content, .post-content, .article-content, #article-content, article"
     )
@@ -469,17 +469,37 @@ class WebScraperCollector(BaseCollector):
         if outcome is None:
             raise RuntimeError(f"Gagal mengambil konten dari URL: {url}")
 
+        # Safety check: if response is actually a binary PDF
+        if outcome.html.startswith("%PDF-") or (len(outcome.html) > 10 and "%PDF-" in outcome.html[:30]):
+            from .pdf_document import extract_pdf
+            from ..minio_client import upload_file
+            pdf_bytes = outcome.html.encode("utf-8", "surrogateescape")
+            pdf_data = await asyncio.to_thread(extract_pdf, pdf_bytes, url, upload_file)
+            pdf_data["source_country"] = _country_hint_from_url(url)
+            return pdf_data
+
         try:
             title, content = _extract_main_content(outcome.html)
         except Exception as exc:
             logger.warning("Main content extraction failed for %s: %s, falling back to clean text", url, exc)
             title, content = "", ""
         if not content and outcome.html:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(outcome.html, "lxml")
-            for node in soup.select("script, style, noscript, svg, nav, footer, header"):
-                node.decompose()
-            content = soup.get_text(" ", strip=True)[:10000]
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(outcome.html, "lxml")
+                for node in soup.select("script, style, noscript, svg, nav, footer, header"):
+                    node.decompose()
+                content = soup.get_text(" ", strip=True)[:10000]
+            except Exception as bs_exc:
+                logger.warning("BeautifulSoup lxml parsing failed for %s: %s, trying html.parser", url, bs_exc)
+                try:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(outcome.html, "html.parser")
+                    for node in soup.select("script, style, noscript, svg, nav, footer, header"):
+                        node.decompose()
+                    content = soup.get_text(" ", strip=True)[:10000]
+                except Exception:
+                    content = ""
 
         return {
             "url": url,

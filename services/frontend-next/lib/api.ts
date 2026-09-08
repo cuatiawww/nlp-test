@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   Source,
   Run,
   SummaryRow,
@@ -103,6 +103,20 @@ async function postAuth<T>(path: string, body?: unknown): Promise<T> {
   return json.data as T;
 }
 
+async function putAuth<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${baseURL()}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new Error(formatApiError(res, json));
+  }
+  const json = await res.json().catch(() => null);
+  return (json?.data ?? json) as T;
+}
+
 async function delAuth(path: string): Promise<void> {
   const res = await fetch(`${baseURL()}${path}`, {
     method: "DELETE",
@@ -180,6 +194,7 @@ export const deleteOutbreakRule = (id: string) =>
 
 export const fetchUsers = () => fetchAuth<any[]>("/api/v1/users");
 export const createUser = (data: any) => postAuth("/api/v1/users", data);
+export const updateUser = (id: string, data: any) => postAuth(`/api/v1/users/${id}/edit`, data);
 export const deleteUser = (id: string) => delAuth(`/api/v1/users/${id}`);
 
 // ── Locations ────────────────────────────────────

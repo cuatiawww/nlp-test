@@ -61,7 +61,7 @@ async def extract_url(payload: ExtractUrlRequest):
     if payload.fetch_mode not in {"auto", "http", "stealth"}:
         raise HTTPException(status_code=400, detail="fetch_mode tidak valid")
 
-    timeout_ms = min(max(payload.timeout_ms, 1_000), 20_000)
+    timeout_ms = min(max(payload.timeout_ms, 1_000), 30_000)
     collector = WebScraperCollector({
         "id": "interactive-analyzer",
         "name": "URL Analyzer",
@@ -75,8 +75,8 @@ async def extract_url(payload: ExtractUrlRequest):
     })
     try:
         async with _get_extract_semaphore():
-            # Hard timeout on extraction so interactive analysis never exceeds 20s
-            data = await asyncio.wait_for(collector.extract_url(url), timeout=(timeout_ms / 1000.0) + 2.0)
+            # Timeout buffer on extraction for large documents and PDFs
+            data = await asyncio.wait_for(collector.extract_url(url), timeout=(timeout_ms / 1000.0) + 5.0)
         if not data.get("content") and not data.get("title"):
             raise HTTPException(
                 status_code=404,
@@ -98,6 +98,11 @@ async def extract_url(payload: ExtractUrlRequest):
             raise HTTPException(
                 status_code=408,
                 detail="Waktu ekstraksi URL habis (timeout). Website sumber artikel lambat atau memblokir akses crawler."
+            )
+        if "ocr" in err_msg.lower():
+            raise HTTPException(
+                status_code=422,
+                detail="Dokumen PDF ini merupakan hasil scan atau gambar tanpa teks digital sehingga memerlukan OCR."
             )
         raise HTTPException(
             status_code=422,
@@ -157,11 +162,11 @@ async def upload_asset(req: UploadAssetRequest):
         # Strip data:image/...;base64, prefix if present
         b64_str = re.sub(r"^data:[^;]+;base64,", "", req.content_base64)
         raw_bytes = base64.b64decode(b64_str)
-        
+
         # Clean filename
         clean_fn = re.sub(r"[^a-zA-Z0-9._-]", "_", req.filename)
         safe_name = f"branding/{uuid.uuid4().hex[:8]}_{clean_fn}"
-        
+
         minio_client.upload_file(safe_name, raw_bytes, req.content_type)
         logger.info(f"Uploaded asset {safe_name} to MinIO bucket {config.MINIO_BUCKET}")
         return {

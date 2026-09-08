@@ -645,7 +645,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
         .route("/api/v1/users", get(list_users).post(create_user))
-        .route("/api/v1/users/:id", get(get_user).delete(delete_user))
+        .route("/api/v1/users/:id", get(get_user).put(update_user).patch(update_user).delete(delete_user))
         .route("/api/v1/users/:id/edit", post(update_user))
         .route("/api/v1/outbreak-rules", get(list_rules).post(create_rule))
         .route("/api/v1/outbreak-rules/:id", get(get_rule).delete(delete_rule))
@@ -4580,7 +4580,7 @@ async fn update_user(
         Err(e) => return Json(json!({"success": false, "error": format!("DB: {}", e)})),
     };
 
-    let hash = payload.password.map(|pw| hash_password!(&pw));
+    let hash = payload.password.filter(|pw| !pw.trim().is_empty()).map(|pw| hash_password!(&pw));
 
     let result = client
         .query_one(
