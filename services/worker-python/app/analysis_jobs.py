@@ -170,6 +170,72 @@ def process_job(job_id):
             row = lock_conn.execute("SELECT * FROM analysis_jobs WHERE id=%s",(job_id,)).fetchone()
             if not row or row["status"] in {"completed","partial","failed"}:
                 return
+
+            # Fast-path: Check if URL was already analyzed in database (Cache hit)
+            cached_event = lock_conn.execute(
+                """SELECT de.id as event_id, de.raw_report_id, de.original_text, de.language,
+                          de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude,
+                          de.symptoms, de.disease_extracted, de.disease_mentions,
+                          de.disease_classification, de.case_count, de.death_count, de.confidence,
+                          de.outbreak_alert, de.sentiment, de.needs_review, de.event_type,
+                          de.relevance_score, de.source_credibility, de.source_credibility_label,
+                          de.is_health_related, COALESCE(de.published_at, rr.published_at) as published_at
+                   FROM disease_events de
+                   JOIN raw_reports rr ON de.raw_report_id = rr.id
+                   WHERE rr.url = %s
+                     AND de.disease_classification IS NOT NULL
+                     AND de.disease_classification != 'UNKNOWN'
+                     AND de.disease_classification != 'Unknown Disease'
+                     AND de.confidence >= 0.50
+                   ORDER BY de.created_at DESC
+                   LIMIT 1""",
+                (row["url"],),
+            ).fetchone()
+
+            if cached_event:
+                logger.info("URL %s found in DB cache, completing job %s immediately", row["url"], job_id)
+                original_text = cached_event.get("original_text") or ""
+                if ".\n" in original_text:
+                    cached_title, cached_content = original_text.split(".\n", 1)
+                else:
+                    cached_title, cached_content = "", original_text
+
+                res = {
+                    "title": cached_title,
+                    "content": cached_content,
+                    "url": row["url"],
+                    "published_at": str(cached_event["published_at"]) if cached_event.get("published_at") else None,
+                    "language": cached_event.get("language") or "id",
+                    "location_name": cached_event.get("location_name"),
+                    "latitude": cached_event.get("latitude"),
+                    "longitude": cached_event.get("longitude"),
+                    "symptoms": cached_event.get("symptoms") or [],
+                    "disease_extracted": cached_event.get("disease_extracted") or [],
+                    "disease_mentions": cached_event.get("disease_mentions") or [],
+                    "disease_classification": cached_event.get("disease_classification"),
+                    "case_count": cached_event.get("case_count", 0),
+                    "death_count": cached_event.get("death_count", 0),
+                    "confidence": cached_event.get("confidence", 0.0),
+                    "outbreak_alert": cached_event.get("outbreak_alert", False),
+                    "sentiment": cached_event.get("sentiment"),
+                    "event_type": cached_event.get("event_type"),
+                    "relevance_score": cached_event.get("relevance_score"),
+                    "source_credibility": cached_event.get("source_credibility"),
+                    "source_credibility_label": cached_event.get("source_credibility_label"),
+                    "is_health_related": cached_event.get("is_health_related", True),
+                    "raw_report_id": str(cached_event["raw_report_id"]),
+                    "event_id": str(cached_event["event_id"]),
+                    "cached": True,
+                }
+                lock_conn.execute(
+                    """UPDATE analysis_jobs
+                       SET status='completed', stage='finished', event_id=%s, result=%s,
+                           warnings='["Data retrieved from database cache"]'::jsonb, updated_at=NOW()
+                       WHERE id=%s""",
+                    (cached_event["event_id"], Jsonb(res), job_id),
+                )
+                return
+
             def progress(stage):
                 lock_conn.execute("UPDATE analysis_jobs SET status='processing',stage=%s,updated_at=NOW() WHERE id=%s",
                                   (stage, job_id))

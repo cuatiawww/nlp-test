@@ -277,22 +277,30 @@ def fast_non_health_result(msg: dict) -> dict | None:
 
 def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
              source_language: str = "", source_country: str = "") -> dict:
-    url = f"{NLP_SERVICE_URL}/nlp/analyze"
-    resp = requests.post(
-        url,
-        json={
-            "text": text,
-            "source_type": source_type,
-            "source_name": source_name,
-            "published_at": published_at,
-            "source_language": source_language,
-            "source_country": source_country,
-            "historical_fast": HISTORICAL_FAST_NON_HEALTH,
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    if source_type == "skdr_api":
+        endpoint = "/nlp/process/skdr"
+    else:
+        endpoint = "/nlp/analyze/raw"
+    url = f"{NLP_SERVICE_URL}{endpoint}"
+    payload = {
+        "text": text,
+        "source_type": source_type,
+        "source_name": source_name,
+        "published_at": published_at,
+        "source_language": source_language,
+        "source_country": source_country,
+        "historical_fast": HISTORICAL_FAST_NON_HEALTH,
+    }
+    try:
+        resp = requests.post(url, json=payload, timeout=120)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.warning("Call to %s failed (%s), attempting fallback to /nlp/analyze", url, e)
+        fallback_url = f"{NLP_SERVICE_URL}/nlp/analyze"
+        resp = requests.post(fallback_url, json=payload, timeout=120)
+        resp.raise_for_status()
+        return resp.json()
 
 
 def callback(ch, method, properties, body):

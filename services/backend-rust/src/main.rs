@@ -52,6 +52,8 @@ struct AnalyzeUrlRequest {
     url: String,
     #[serde(default, rename = "async")]
     asynchronous: bool,
+    #[serde(default)]
+    force_refresh: bool,
 }
 
 #[cfg(test)]
@@ -61,6 +63,12 @@ mod analysis_contract_tests {
     fn old_request_remains_synchronous() {
         let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org"})).unwrap();
         assert!(!request.asynchronous);
+        assert!(!request.force_refresh);
+    }
+    #[test]
+    fn force_refresh_is_explicit_opt_in() {
+        let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org","force_refresh":true})).unwrap();
+        assert!(request.force_refresh);
     }
     #[test]
     fn async_is_explicit_opt_in() {
@@ -577,7 +585,14 @@ async fn main() -> anyhow::Result<()> {
             FieldTable::default(),
         )
         .await?;
-    tracing::info!("connected to RabbitMQ");
+    amqp_channel
+        .queue_declare(
+            "disease.skdr",
+            QueueDeclareOptions { durable: true, ..Default::default() },
+            FieldTable::default(),
+        )
+        .await?;
+    tracing::info!("connected to RabbitMQ (queues: disease.raw, disease.skdr)");
 
     let state = Arc::new(AppState {
         db: pool,
@@ -591,6 +606,8 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/ingest", post(ingest))
+        .route("/api/v1/ingest/raw", post(ingest))
+        .route("/api/v1/ingest/skdr", post(ingest_skdr))
         .route("/api/v1/analyze-url", post(analyze_url))
         .route("/api/v1/analysis-jobs/:id", get(analysis_job_status))
         .route("/api/v1/events", get(list_events))
@@ -822,6 +839,157 @@ async fn ingest(
     }
 }
 
+async fn ingest_skdr(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<IngestRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let source_type = if payload.source_type.is_empty() {
+        "skdr_api".to_string()
+    } else {
+        payload.source_type.clone()
+    };
+    let source_name = payload
+        .source_name
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "SKDR Official".to_string());
+
+    let raw_id: Uuid = client
+        .query_one(
+            "INSERT INTO raw_reports (source_type, source_name, published_at, original_text, url, processing_status)
+             VALUES ($1, $2, $3, $4, $5, 'NEW') RETURNING id",
+            &[
+                &source_type,
+                &source_name,
+                &parse_date(payload.published_at.as_deref()),
+                &payload.text,
+                &payload.url,
+            ],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    let message = json!({
+        "raw_report_id": raw_id,
+        "source_type": source_type,
+        "source_name": source_name,
+        "published_at": payload.published_at,
+        "text": payload.text,
+        "url": payload.url,
+        "object_path": Value::Null,
+    });
+
+    let publish_result = state
+        .amqp_channel
+        .basic_publish(
+            "",
+            "disease.skdr",
+            BasicPublishOptions::default(),
+            &message.to_string().as_bytes(),
+            BasicProperties::default(),
+        )
+        .await;
+
+    match publish_result {
+        Ok(_) => Ok(Json(ApiResponse {
+            success: true,
+            data: json!({ "raw_report_id": raw_id, "status": "queued", "queue": "disease.skdr" }),
+            total: None, page: None, per_page: None, total_pages: None,
+        })),
+        Err(e) => {
+            tracing::warn!("RabbitMQ unavailable for SKDR, processing synchronously: {:?}", e);
+            let nlp_url = format!("{}/nlp/process/skdr", state.nlp_service_url.trim_end_matches('/'));
+            let nlp: NlpResponse = state
+                .http
+                .post(nlp_url)
+                .json(&json!({
+                    "text": payload.text,
+                    "source_type": source_type,
+                    "source_name": source_name,
+                    "published_at": payload.published_at
+                }))
+                .send()
+                .await
+                .map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "success": false, "error": "RabbitMQ unavailable and SKDR processor unreachable" })),
+                    )
+                })?
+                .json()
+                .await
+                .map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "success": false, "error": "RabbitMQ unavailable and SKDR processor response invalid" })),
+                    )
+                })?;
+
+            let _ = client
+                .execute(
+                    "UPDATE raw_reports SET processing_status='PROCESSED' WHERE id=$1",
+                    &[&raw_id],
+                )
+                .await;
+
+            client
+                .execute(
+                    "INSERT INTO disease_events (
+                raw_report_id, source_type, source_name, published_at, original_text, language,
+                location_name, geom, symptoms, disease_extracted, disease_classification,
+                case_count, death_count, confidence, outbreak_alert,
+                sentiment, event_type, relevance_score, is_health_related
+             ) VALUES (
+                $1, $2, $3, $4, $5, $6,
+                $7,
+                CASE WHEN $8::float8 IS NULL OR $9::float8 IS NULL THEN NULL
+                     ELSE ST_SetSRID(ST_MakePoint($9, $8), 4326)
+                END,
+                $10::jsonb, $11::jsonb, $12,
+                $13, $14, $15, $16,
+                $17, $18, $19, TRUE
+             )",
+            &[
+                        &raw_id,
+                        &source_type,
+                        &source_name,
+                        &parse_date(payload.published_at.as_deref()),
+                        &payload.text,
+                        &nlp.language,
+                        &nlp.location_name,
+                        &nlp.latitude,
+                        &nlp.longitude,
+                        &json!(nlp.symptoms),
+                        &json!(nlp.disease_extracted),
+                        &nlp.disease_classification,
+                        &nlp.case_count,
+                        &nlp.death_count,
+                        &nlp.confidence,
+                        &nlp.outbreak_alert,
+                        &nlp.sentiment,
+                        &nlp.event_type,
+                        &nlp.relevance_score,
+                    ],
+                )
+                .await
+                .map_err(|err| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "success": false, "error": format!("Sync SKDR processing failed: {}", err) })),
+                    )
+                })?;
+
+            Ok(Json(ApiResponse {
+                success: true,
+                data: json!({ "raw_report_id": raw_id, "nlp": nlp, "status": "processed_sync", "queue": "disease.skdr" }),
+                total: None, page: None, per_page: None, total_pages: None,
+            }))
+        }
+    }
+}
+
 fn extract_title_from_html(html: &str) -> String {
     let lower = html.to_lowercase();
     let tag_start = lower.find("<title>").or_else(|| lower.find("<title "));
@@ -1032,6 +1200,10 @@ async fn analyze_url(
     Json(payload): Json<AnalyzeUrlRequest>,
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
     let url = payload.url.trim().to_string();
+    if url.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "URL tidak boleh kosong" }))));
+    }
+
     let entity_location_storage_enabled = env::var("ENTITY_LOCATION_STORAGE_ENABLED")
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(true);
@@ -1039,67 +1211,52 @@ async fn analyze_url(
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(true);
 
-    if payload.asynchronous && env::var("ANALYZE_URL_ASYNC_ENABLED").map(|v| v == "true").unwrap_or(false) {
-        let response = state.http.post(format!("{}/analysis-jobs", state.collector_url))
-            .json(&json!({"url": url})).timeout(std::time::Duration::from_secs(8))
-            .send().await.map_err(internal_error)?;
-        let status = response.status();
-        let body: Value = response.json().await.map_err(internal_error)?;
-        if !status.is_success() {
-            return Err((StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), Json(body)));
-        }
-        return Ok(Json(ApiResponse { success: true, data: body["data"].clone(),
-            total: None, page: None, per_page: None, total_pages: None }));
-    }
-
-    if url.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "URL tidak boleh kosong" }))));
-    }
-
     let client = state.db.get().await.map_err(internal_error)?;
-    // URL analysis must reflect the current pipeline. A stale cached event
-    // can otherwise keep returning a previous wrong classification after the
-    // NLP rules/model have been fixed. Caching remains opt-in.
-    let use_analysis_cache = env::var("ANALYZE_URL_USE_CACHE")
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false);
 
-    let row = client
-        .query_opt(
-            "SELECT de.id, de.raw_report_id, de.original_text, de.language,
-                    COALESCE(de.published_at, rr.published_at) AS published_at,
-                    COALESCE(
-                        CASE WHEN LOWER(de.location_name) IN ('sudan', 'south sudan')
-                             THEN 'OUTSIDE ASEAN' ELSE l.country END,
-                        CASE
-                            WHEN LOWER(de.location_name) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
-                            WHEN LOWER(de.location_name) IN ('cambodia', 'indonesia', 'laos', 'malaysia', 'myanmar', 'philippines', 'singapore', 'thailand', 'timor-leste', 'vietnam')
-                              THEN INITCAP(LOWER(de.location_name))
-                            ELSE 'OUTSIDE ASEAN'
-                        END
-                    ) AS country,
-                    de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude,
-                    de.symptoms, de.disease_extracted, de.disease_mentions,
-                    de.disease_classification, de.case_count, de.death_count, de.confidence,
-                    de.outbreak_alert, de.sentiment, de.needs_review, de.event_type,
-                    de.event_confidence::float8, de.relevance_score, de.relevance_confidence::float8,
-                    de.source_credibility::float8, de.source_credibility_label, de.is_health_related
-             FROM disease_events de
-             JOIN raw_reports rr ON de.raw_report_id = rr.id
-             LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
-             WHERE rr.url = $1
-                AND de.created_at > NOW() - INTERVAL '7 days'
-                AND $2::boolean = TRUE
-               AND de.disease_classification IS NOT NULL
-               AND de.disease_classification != 'UNKNOWN'
-               AND de.disease_classification != 'Unknown Disease'
-               AND de.confidence >= 0.50
-             ORDER BY de.created_at DESC
-             LIMIT 1",
-             &[&url, &use_analysis_cache],
-        )
-        .await
-        .map_err(internal_error)?;
+    // URL analysis caching: enabled by default unless ANALYZE_URL_USE_CACHE=false or force_refresh is requested
+    let env_use_cache = env::var("ANALYZE_URL_USE_CACHE")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(true);
+    let use_analysis_cache = env_use_cache && !payload.force_refresh;
+
+    let row = if use_analysis_cache {
+        client
+            .query_opt(
+                "SELECT de.id, de.raw_report_id, de.original_text, de.language,
+                        COALESCE(de.published_at, rr.published_at) AS published_at,
+                        COALESCE(
+                            CASE WHEN LOWER(de.location_name) IN ('sudan', 'south sudan')
+                                 THEN 'OUTSIDE ASEAN' ELSE l.country END,
+                            CASE
+                                WHEN LOWER(de.location_name) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
+                                WHEN LOWER(de.location_name) IN ('cambodia', 'indonesia', 'laos', 'malaysia', 'myanmar', 'philippines', 'singapore', 'thailand', 'timor-leste', 'vietnam')
+                                  THEN INITCAP(LOWER(de.location_name))
+                                ELSE 'OUTSIDE ASEAN'
+                            END
+                        ) AS country,
+                        de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude,
+                        de.symptoms, de.disease_extracted, de.disease_mentions,
+                        de.disease_classification, de.case_count, de.death_count, de.confidence,
+                        de.outbreak_alert, de.sentiment, de.needs_review, de.event_type,
+                        de.event_confidence::float8, de.relevance_score, de.relevance_confidence::float8,
+                        de.source_credibility::float8, de.source_credibility_label, de.is_health_related
+                 FROM disease_events de
+                 JOIN raw_reports rr ON de.raw_report_id = rr.id
+                 LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
+                 WHERE rr.url = $1
+                   AND de.disease_classification IS NOT NULL
+                   AND de.disease_classification != 'UNKNOWN'
+                   AND de.disease_classification != 'Unknown Disease'
+                   AND de.confidence >= 0.50
+                 ORDER BY de.created_at DESC
+                 LIMIT 1",
+                 &[&url],
+            )
+            .await
+            .map_err(internal_error)?
+    } else {
+        None
+    };
 
     if let Some(row) = row {
         let original_text: String = row.get("original_text");
@@ -1192,12 +1349,26 @@ async fn analyze_url(
                 "raw_report_id": raw_report_id,
                 "event_id": event_id,
                 "sources": Value::Object(sources),
+                "cached": true,
             }),
             total: None,
             page: None,
             per_page: None,
             total_pages: None,
         }))
+    }
+
+    if payload.asynchronous && env::var("ANALYZE_URL_ASYNC_ENABLED").map(|v| v == "true").unwrap_or(false) {
+        let response = state.http.post(format!("{}/analysis-jobs", state.collector_url))
+            .json(&json!({"url": url})).timeout(std::time::Duration::from_secs(8))
+            .send().await.map_err(internal_error)?;
+        let status = response.status();
+        let body: Value = response.json().await.map_err(internal_error)?;
+        if !status.is_success() {
+            return Err((StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), Json(body)));
+        }
+        return Ok(Json(ApiResponse { success: true, data: body["data"].clone(),
+            total: None, page: None, per_page: None, total_pages: None }));
     }
 
     let collector_endpoint = format!("{}/extract-url", state.collector_url.trim_end_matches('/'));
@@ -1678,6 +1849,7 @@ async fn analyze_url(
             "raw_report_id": raw_id,
             "event_id": event_id,
             "sources": Value::Object(sources),
+            "cached": false,
         }),
         total: None,
         page: None,

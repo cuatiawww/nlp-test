@@ -83,6 +83,54 @@ def analyze(payload: AnalyzeRequest):
         )
 
 
+@app.post("/nlp/analyze/raw", response_model=AnalyzeResponse)
+def analyze_raw(payload: AnalyzeRequest):
+    """Dedicated endpoint for raw news/unstructured text analysis."""
+    try:
+        return pipeline.run(payload)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to analyze raw payload: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Raw NLP analysis failed: {type(exc).__name__}: {str(exc)}",
+        )
+
+
+@app.post("/nlp/process/skdr", response_model=AnalyzeResponse)
+def process_skdr_endpoint(payload: AnalyzeRequest):
+    """Dedicated, high-efficiency endpoint for SKDR surveillance reports."""
+    from .skdr_processor import process_skdr
+    try:
+        return process_skdr(payload)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to process SKDR payload: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"SKDR processing failed: {type(exc).__name__}: {str(exc)}",
+        )
+
+
+@app.post("/nlp/analyze/url")
+def analyze_url_endpoint(payload: AnalyzeRequest):
+    """Dedicated endpoint for on-demand interactive URL analysis."""
+    from .bounded_analysis import analyze_bounded, BoundedRequest
+    try:
+        bounded_req = BoundedRequest(**payload.model_dump(), rules_only=False)
+        return analyze_bounded(bounded_req)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to analyze URL payload: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"URL NLP analysis failed: {type(exc).__name__}: {str(exc)}",
+        )
+
+
 class ICD11ResolveRequest(BaseModel):
     text: str
     language: Optional[str] = "unknown"
