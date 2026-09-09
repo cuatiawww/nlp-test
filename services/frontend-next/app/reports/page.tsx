@@ -101,6 +101,8 @@ const ASEAN_COUNTRY_MAP: Record<string, { name: string; code: string }> = {
   timor: { name: 'Timor-Leste', code: 'TL' },
 }
 
+const OUTSIDE_ASEAN_LABEL = 'Outside ASEAN'
+
 // Smart disease normalizer to unify NLP variants (e.g., 'dengue fever DBD' & 'DBD' -> 'Dengue Fever')
 function formatDiseaseName(raw?: string | null): string {
   if (!raw || !raw.trim()) return 'Unspecified Health Event'
@@ -261,6 +263,7 @@ export default function ReportsPage() {
             : 'Recent'
 
           const resolved = resolveCountry(loc.country, loc.location_name)
+          const displayCountry = resolved.code === 'GLOBAL' ? OUTSIDE_ASEAN_LABEL : resolved.name
           const diseaseFormatted = formatDiseaseName(loc.disease)
           const cases = Number(loc.cases) || 0
           const deaths = Number(loc.deaths) || 0
@@ -270,7 +273,7 @@ export default function ReportsPage() {
             id: rowId,
             date: dateStr,
             dateFormatted,
-            country: resolved.name,
+            country: displayCountry,
             countryCode: resolved.code,
             locationName: loc.location_name || resolved.name,
             disease: diseaseFormatted,
@@ -305,6 +308,7 @@ export default function ReportsPage() {
             : 'Recent'
 
           const resolved = resolveCountry(ev.country, ev.location_name)
+          const displayCountry = resolved.code === 'GLOBAL' ? OUTSIDE_ASEAN_LABEL : resolved.name
           const diseaseFormatted = formatDiseaseName(ev.disease_classification)
           const cases = Number(ev.case_count) || 0
           const deaths = Number(ev.death_count) || 0
@@ -314,7 +318,7 @@ export default function ReportsPage() {
             id: rowId,
             date: dateStr,
             dateFormatted,
-            country: resolved.name,
+            country: displayCountry,
             countryCode: resolved.code,
             locationName: ev.location_name || resolved.name,
             disease: diseaseFormatted,
@@ -355,7 +359,11 @@ export default function ReportsPage() {
     dataList.forEach((d) => {
       if (d.disease) set.add(d.disease.trim())
     })
-    return Array.from(set).sort((a, b) => a.localeCompare(b))
+    return Array.from(set).sort((a, b) => {
+      if (a === OUTSIDE_ASEAN_LABEL) return 1
+      if (b === OUTSIDE_ASEAN_LABEL) return -1
+      return a.localeCompare(b)
+    })
   }, [dataList])
 
   // Dynamically extract active countries from the real dataset (Zero Hardcoding!)
@@ -559,12 +567,14 @@ export default function ReportsPage() {
     const activeDiseases =
       selectedDiseases.length > 0
         ? selectedDiseases
-        : Array.from(new Set(filteredData.map((d) => d.disease))).sort()
+        : Array.from(new Set(filteredData.map((d) => d.disease))).sort((a, b) => a.localeCompare(b))
 
     const activeCountries =
-      selectedCountries.length > 0
+      (selectedCountries.length > 0
         ? selectedCountries
-        : Array.from(new Set(filteredData.map((d) => d.country))).sort()
+        : Array.from(new Set(filteredData.map((d) => d.country))))
+        .filter((country) => country !== OUTSIDE_ASEAN_LABEL)
+        .sort((a, b) => a.localeCompare(b))
 
     const matrix: Record<
       string,
@@ -589,6 +599,8 @@ export default function ReportsPage() {
       { cases: number; deaths: number; totalReports: number }
     > = {}
 
+    const outsideAsean: Record<string, { cases: number; deaths: number; count: number }> = {}
+
     let grandCases = 0
     let grandDeaths = 0
 
@@ -596,6 +608,7 @@ export default function ReportsPage() {
     activeDiseases.forEach((dis) => {
       matrix[dis] = {}
       diseaseTotals[dis] = { cases: 0, deaths: 0, cfr: 0, totalReports: 0 }
+      outsideAsean[dis] = { cases: 0, deaths: 0, count: 0 }
       activeCountries.forEach((ctr) => {
         matrix[dis][ctr] = {
           cases: 0,
@@ -615,6 +628,7 @@ export default function ReportsPage() {
       if (!matrix[row.disease]) {
         matrix[row.disease] = {}
         diseaseTotals[row.disease] = { cases: 0, deaths: 0, cfr: 0, totalReports: 0 }
+        outsideAsean[row.disease] = { cases: 0, deaths: 0, count: 0 }
         activeCountries.forEach((ctr) => {
           matrix[row.disease][ctr] = {
             cases: 0,
@@ -623,6 +637,13 @@ export default function ReportsPage() {
             count: 0,
           }
         })
+      }
+
+      if (row.country === OUTSIDE_ASEAN_LABEL) {
+        outsideAsean[row.disease].cases += row.cases
+        outsideAsean[row.disease].deaths += row.deaths
+        outsideAsean[row.disease].count += 1
+        return
       }
 
       if (matrix[row.disease] && matrix[row.disease][row.country]) {
@@ -663,6 +684,8 @@ export default function ReportsPage() {
     })
 
     const grandCfr = calculateCfr(grandCases, grandDeaths)
+    const outsideGrandCases = Object.values(outsideAsean).reduce((sum, item) => sum + item.cases, 0)
+    const outsideGrandDeaths = Object.values(outsideAsean).reduce((sum, item) => sum + item.deaths, 0)
 
     return {
       diseases: activeDiseases,
@@ -673,6 +696,9 @@ export default function ReportsPage() {
       grandCases,
       grandDeaths,
       grandCfr,
+      outsideAsean,
+      outsideGrandCases,
+      outsideGrandDeaths,
     }
   }, [filteredData, selectedDiseases, selectedCountries])
 
@@ -700,27 +726,30 @@ export default function ReportsPage() {
       dist[d] = new Array(12).fill(0)
     })
 
-    filteredData.forEach((item) => {
-      const d = new Date(item.date)
-      if (!isNaN(d.getTime())) {
-        const m = d.getMonth()
-        if (!dist[item.disease]) {
-          dist[item.disease] = new Array(12).fill(0)
+    filteredData
+      .filter((item) => item.country !== OUTSIDE_ASEAN_LABEL)
+      .forEach((item) => {
+        const d = new Date(item.date)
+        if (!isNaN(d.getTime())) {
+          const m = d.getMonth()
+          if (!dist[item.disease]) {
+            dist[item.disease] = new Array(12).fill(0)
+          }
+          dist[item.disease][m] += item.cases
+          monthlyTotals[m] += item.cases
         }
-        dist[item.disease][m] += item.cases
-        monthlyTotals[m] += item.cases
-      }
-    })
+      })
 
     return { months, dist, monthlyTotals }
   }, [filteredData, crossTabMatrix.diseases])
 
   // Overall KPIs calculated from real database records
   const metrics = useMemo(() => {
-    const totalReports = filteredData.length
-    const totalCases = filteredData.reduce((acc, curr) => acc + curr.cases, 0)
-    const totalDeaths = filteredData.reduce((acc, curr) => acc + curr.deaths, 0)
-    const affectedCountries = new Set(filteredData.map((d) => d.country)).size
+    const aseanData = filteredData.filter((row) => row.country !== OUTSIDE_ASEAN_LABEL)
+    const totalReports = aseanData.length
+    const totalCases = aseanData.reduce((acc, curr) => acc + curr.cases, 0)
+    const totalDeaths = aseanData.reduce((acc, curr) => acc + curr.deaths, 0)
+    const affectedCountries = new Set(aseanData.map((d) => d.country)).size
     const avgCfr = calculateCfr(totalCases, totalDeaths)
 
     return {
@@ -921,7 +950,7 @@ export default function ReportsPage() {
         {/* ==================== MAIN EQUAL-HEIGHT LAYOUT: FILTER SIDEBAR + DATA MATRIX ==================== */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 items-stretch lg:min-h-[760px]">
           {/* ==================== LEFT MULTI FILTER SIDEBAR (PRINT HIDDEN) ==================== */}
-          <aside className="lg:col-span-3 xl:col-span-3 flex flex-col h-full rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden print:hidden">
+          <aside className="lg:col-span-3 xl:col-span-3 flex min-h-0 flex-col h-full rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden print:hidden">
             {/* Filter Header */}
             <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50/70 flex-shrink-0">
               <div className="flex items-center gap-2.5">
@@ -949,7 +978,7 @@ export default function ReportsPage() {
             </div>
 
             {/* Scrollable Filter Body */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 max-h-[calc(100vh-230px)] lg:max-h-[720px] custom-scrollbar">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 custom-scrollbar">
               {/* SECTION 1: FILTER COUNTRIES (Extracted Dynamically from NLP Data) */}
               <div className="space-y-3">
                 <div
@@ -1289,8 +1318,8 @@ export default function ReportsPage() {
           </aside>
 
           {/* ==================== RIGHT MAIN DATA MATRIX (EQUAL HEIGHT) ==================== */}
-          <main className="lg:col-span-9 xl:col-span-9 flex flex-col h-full">
-            <div className="flex-1 flex flex-col rounded-2xl border border-slate-200 bg-white p-4 lg:p-6 shadow-sm h-full">
+          <main className="lg:col-span-9 xl:col-span-9 flex min-h-0 flex-col h-full">
+            <div className="flex-1 min-h-0 flex flex-col rounded-2xl border border-slate-200 bg-white p-4 lg:p-6 shadow-sm h-full">
               {/* Header Title & Subtitle + Export Actions */}
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-4 border-b border-slate-100 flex-shrink-0">
                 <div>
@@ -1544,13 +1573,16 @@ export default function ReportsPage() {
                                 </th>
                               ))}
                               <th className="py-3.5 px-4 font-black text-center border-r border-[#004b85] whitespace-nowrap bg-[#004b85] text-xs md:text-sm">
-                                TOTAL CASES
+                                ASEAN CASES
                               </th>
                               <th className="py-3.5 px-4 font-black text-center border-r border-[#004b85] whitespace-nowrap bg-[#004b85] text-xs md:text-sm">
-                                TOTAL DEATHS
+                                ASEAN DEATHS
                               </th>
                               <th className="py-3.5 px-4 font-black text-center whitespace-nowrap bg-[#004b85] text-xs md:text-sm">
-                                REGIONAL CFR
+                                ASEAN REGIONAL CFR
+                              </th>
+                              <th className="py-3.5 px-4 font-black text-center whitespace-nowrap bg-slate-800 text-white text-xs md:text-sm">
+                                OUTSIDE ASEAN
                               </th>
                             </tr>
                           </thead>
@@ -1558,7 +1590,7 @@ export default function ReportsPage() {
                             {crossTabMatrix.diseases.length === 0 ? (
                               <tr>
                                 <td
-                                  colSpan={crossTabMatrix.countries.length + 4}
+                                  colSpan={crossTabMatrix.countries.length + 5}
                                   className="py-14 text-center text-slate-400 font-bold text-sm"
                                 >
                                   No surveillance records matched the active filter criteria.
@@ -1567,6 +1599,7 @@ export default function ReportsPage() {
                             ) : (
                               crossTabMatrix.diseases.map((dis, rowIdx) => {
                                 const rowTotals = crossTabMatrix.diseaseTotals[dis]
+                                const outsideTotals = crossTabMatrix.outsideAsean[dis]
                                 return (
                                   <tr
                                     key={dis}
@@ -1637,6 +1670,18 @@ export default function ReportsPage() {
                                     <td className="py-3 px-3.5 text-center font-black text-amber-700 bg-amber-50/30 font-mono text-sm md:text-base">
                                       {normalizeCfrPercent(rowTotals?.cfr)}%
                                     </td>
+                                    <td className="py-3 px-3.5 text-center font-black text-slate-700 bg-slate-100/80 font-mono text-sm md:text-base">
+                                      {outsideTotals?.cases || outsideTotals?.deaths ? (
+                                        <div className="inline-flex flex-col items-center">
+                                          <span>{outsideTotals.cases.toLocaleString()}</span>
+                                          {outsideTotals.deaths > 0 && (
+                                            <span className="text-xs text-rose-600">+{outsideTotals.deaths} dth</span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-300 font-normal">-</span>
+                                      )}
+                                    </td>
                                   </tr>
                                 )
                               })
@@ -1645,7 +1690,7 @@ export default function ReportsPage() {
                           <tfoot className="border-t-2 border-slate-300 bg-slate-100 font-bold text-slate-900">
                             <tr>
                               <td className="py-3.5 px-4 uppercase tracking-wider border-r border-slate-200 text-sm md:text-base font-black">
-                                REGIONAL TOTAL
+                                ASEAN REGIONAL TOTAL
                               </td>
                               {crossTabMatrix.countries.map((ctr) => {
                                 const ct = crossTabMatrix.countryTotals[ctr]
@@ -1679,6 +1724,14 @@ export default function ReportsPage() {
                               </td>
                               <td className="py-3.5 px-3.5 text-center font-black text-amber-800 bg-amber-50 font-mono text-sm md:text-base">
                                 {normalizeCfrPercent(crossTabMatrix.grandCfr)}%
+                              </td>
+                              <td className="py-3.5 px-3.5 text-center font-black text-slate-700 bg-slate-200 font-mono text-sm md:text-base">
+                                {crossTabMatrix.outsideGrandCases.toLocaleString()} Cases
+                                {crossTabMatrix.outsideGrandDeaths > 0 && (
+                                  <span className="block text-xs text-rose-600">
+                                    +{crossTabMatrix.outsideGrandDeaths} deaths
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           </tfoot>
