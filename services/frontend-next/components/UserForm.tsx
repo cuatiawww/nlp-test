@@ -168,12 +168,8 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
           payload.password = password
         }
 
-        const res = await updateUser(initialData.id, payload)
-        if (res?.success) {
-          toast.success(`Akun "${initialData.username}" berhasil diperbarui!`)
-        } else {
-          throw new Error(res?.error || 'Gagal memperbarui akun.')
-        }
+        await updateUser(initialData.id, payload)
+        toast.success(`Akun "${initialData.username}" berhasil diperbarui!`)
       } else {
         const payload = {
           username: username.trim(),
@@ -184,12 +180,8 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
           permissions: finalPermissions,
         }
 
-        const res = await createUser(payload)
-        if (res?.success) {
-          toast.success(`Akun "${username}" berhasil ditambahkan!`)
-        } else {
-          throw new Error(res?.error || 'Gagal menambahkan akun.')
-        }
+        await createUser(payload)
+        toast.success(`Akun "${username}" berhasil ditambahkan!`)
       }
       onSaved()
     } catch (err: any) {
