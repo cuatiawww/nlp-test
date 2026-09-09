@@ -2,7 +2,7 @@
 
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { useState, useEffect } from 'react'
-import { createUser, updateUser } from '@/lib/api'
+import { createUser, updateUser, fetchRoles, RoleItem } from '@/lib/api'
 import {
   Eye,
   EyeOff,
@@ -39,6 +39,7 @@ interface Props {
   initialData?: UserItem | null
   onSaved: () => void
   onCancel: () => void
+  onOpenRoleModal?: () => void
 }
 
 export const USER_ROLES = [
@@ -49,7 +50,8 @@ export const USER_ROLES = [
   { id: 'skk', label: 'SKK', desc: 'Monitoring Feed Sumber Data & Pemrosesan' },
 ]
 
-export default function UserForm({ initialData, onSaved, onCancel }: Props) {
+export default function UserForm({ initialData, onSaved, onCancel, onOpenRoleModal }: Props) {
+  const [availableRoles, setAvailableRoles] = useState<Array<{ id: string; label: string; desc: string; permissions?: string[] }>>(USER_ROLES)
   const { t } = useTranslation()
   const isEditing = Boolean(initialData)
 
@@ -76,6 +78,25 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
     }
     return ROLE_PRESET_MODULES[defaultRole] || ROLE_PRESET_MODULES.data_analyst
   })
+
+  // Load dynamic roles from API
+  useEffect(() => {
+    fetchRoles()
+      .then(roles => {
+        if (roles && roles.length > 0) {
+          const mapped = roles.map(r => ({
+            id: r.id,
+            label: r.name,
+            desc: r.description || 'Level Pengguna',
+            permissions: r.permissions,
+          }))
+          setAvailableRoles(mapped)
+        }
+      })
+      .catch(() => {
+        // Fallback to static USER_ROLES on network/auth error
+      })
+  }, [])
 
   // Sync initialData changes
   useEffect(() => {
@@ -107,8 +128,17 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
     if (newRole === 'admin') {
       setSelectedModules(SYSTEM_MODULES.map(m => m.id))
     } else {
-      const preset = ROLE_PRESET_MODULES[newRole] || []
-      setSelectedModules(preset)
+      const foundRole = availableRoles.find(r => r.id === newRole)
+      if (foundRole?.permissions && foundRole.permissions.length > 0) {
+        if (foundRole.permissions.includes('*')) {
+          setSelectedModules(SYSTEM_MODULES.map(m => m.id))
+        } else {
+          setSelectedModules(foundRole.permissions)
+        }
+      } else {
+        const preset = ROLE_PRESET_MODULES[newRole] || []
+        setSelectedModules(preset)
+      }
     }
   }
 
@@ -135,7 +165,16 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
     if (role === 'admin') {
       setSelectedModules(SYSTEM_MODULES.map(m => m.id))
     } else {
-      setSelectedModules(ROLE_PRESET_MODULES[role] || [])
+      const foundRole = availableRoles.find(r => r.id === role)
+      if (foundRole?.permissions && foundRole.permissions.length > 0) {
+        if (foundRole.permissions.includes('*')) {
+          setSelectedModules(SYSTEM_MODULES.map(m => m.id))
+        } else {
+          setSelectedModules(foundRole.permissions)
+        }
+      } else {
+        setSelectedModules(ROLE_PRESET_MODULES[role] || [])
+      }
     }
   }
 
@@ -296,16 +335,27 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
 
             {/* Peran Pengguna (Role) */}
             <div>
-              <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
-                <Shield className="h-3.5 w-3.5 text-slate-400" />
-                <span>{t('pages.users.colRole') || 'Peran Pengguna (Role)'}</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
+                  <Shield className="h-3.5 w-3.5 text-slate-400" />
+                  <span>{t('pages.users.colRole') || 'Peran Pengguna (Role / Level)'}</span>
+                </label>
+                {onOpenRoleModal && (
+                  <button
+                    type="button"
+                    onClick={onOpenRoleModal}
+                    className="text-[11px] font-bold text-[#0060A9] hover:underline cursor-pointer"
+                  >
+                    + Buat Level Baru
+                  </button>
+                )}
+              </div>
               <select
                 value={role}
                 onChange={e => handleRoleChange(e.target.value)}
                 className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20 cursor-pointer"
               >
-                {USER_ROLES.map(r => (
+                {availableRoles.map(r => (
                   <option key={r.id} value={r.id}>
                     {r.label} — {r.desc}
                   </option>

@@ -197,6 +197,23 @@ export const createUser = (data: any) => postAuth("/api/v1/users", data);
 export const updateUser = (id: string, data: any) => postAuth(`/api/v1/users/${id}/edit`, data);
 export const deleteUser = (id: string) => delAuth(`/api/v1/users/${id}`);
 
+// ── Roles & Levels (auth) ─────────────────────────
+
+export interface RoleItem {
+  id: string;
+  name: string;
+  description?: string;
+  permissions: string[];
+  is_system?: boolean;
+  created_at?: string;
+  user_count?: number;
+}
+
+export const fetchRoles = () => fetchAuth<RoleItem[]>("/api/v1/roles");
+export const createRole = (data: Partial<RoleItem>) => postAuth("/api/v1/roles", data);
+export const updateRole = (id: string, data: Partial<RoleItem>) => putAuth(`/api/v1/roles/${id}`, data);
+export const deleteRole = (id: string) => delAuth(`/api/v1/roles/${id}`);
+
 // ── Locations ────────────────────────────────────
 
 export const fetchLocations = () => fetchFrom<any[]>("/api/v1/locations");

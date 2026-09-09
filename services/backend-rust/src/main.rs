@@ -345,6 +345,20 @@ struct UpdateUserRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CreateRoleRequest {
+    name: String,
+    description: Option<String>,
+    permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateRoleRequest {
+    name: Option<String>,
+    description: Option<String>,
+    permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
 struct CreateRuleRequest {
     disease_name: String,
     display_label: Option<String>,
@@ -649,6 +663,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/users", get(list_users).post(create_user))
         .route("/api/v1/users/:id", get(get_user).put(update_user).patch(update_user).delete(delete_user))
         .route("/api/v1/users/:id/edit", post(update_user))
+        .route("/api/v1/roles", get(list_roles).post(create_role))
+        .route("/api/v1/roles/:id", put(update_role).delete(delete_role))
         .route("/api/v1/outbreak-rules", get(list_rules).post(create_rule))
         .route("/api/v1/outbreak-rules/:id", get(get_rule).delete(delete_rule))
         .route("/api/v1/outbreak-rules/:id/edit", post(update_rule))
@@ -4643,6 +4659,201 @@ async fn delete_user(
     Ok(Json(json!({"success": true, "data": "deleted"})))
 }
 
+async fn list_roles(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query(
+            "SELECT r.id, r.name, r.description, r.permissions, r.is_system, r.created_at::text,
+                    (SELECT COUNT(*)::bigint FROM users u WHERE LOWER(u.role) = LOWER(r.id)) AS user_count
+             FROM user_roles r
+             ORDER BY r.is_system DESC, r.created_at ASC",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let data: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<_, String>(0),
+                "name": r.get::<_, String>(1),
+                "description": r.get::<_, Option<String>>(2),
+                "permissions": r.get::<_, Option<Value>>(3).unwrap_or_else(|| json!([])),
+                "is_system": r.get::<_, bool>(4),
+                "created_at": r.get::<_, Option<String>>(5),
+                "user_count": r.get::<_, i64>(6),
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({ "success": true, "data": data })))
+}
+
+async fn create_role(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateRoleRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let raw_name = payload.name.trim();
+    if raw_name.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "Nama level/peran tidak boleh kosong"})),
+        ));
+    }
+
+    let mut slug = raw_name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect::<String>();
+    while slug.contains("__") {
+        slug = slug.replace("__", "_");
+    }
+    let slug = slug.trim_matches('_').to_string();
+    let role_id = if slug.is_empty() {
+        format!("role_{}", &Uuid::new_v4().to_string()[..8])
+    } else {
+        slug
+    };
+
+    let perms_val: Value = payload.permissions
+        .map(|p| json!(p))
+        .unwrap_or_else(|| json!([]));
+
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "INSERT INTO user_roles (id, name, description, permissions, is_system)
+             VALUES ($1, $2, $3, $4, FALSE)
+             RETURNING id, name, description, permissions, is_system, created_at::text",
+            &[&role_id, &raw_name, &payload.description.as_deref().map(|s| s.trim()), &perms_val],
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("{:?}", e);
+            (
+                StatusCode::CONFLICT,
+                Json(json!({"success": false, "error": "Level/peran dengan nama ini sudah terdaftar"})),
+            )
+        })?;
+
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "id": row.get::<_, String>(0),
+            "name": row.get::<_, String>(1),
+            "description": row.get::<_, Option<String>>(2),
+            "permissions": row.get::<_, Option<Value>>(3).unwrap_or_else(|| json!([])),
+            "is_system": row.get::<_, bool>(4),
+            "created_at": row.get::<_, Option<String>>(5),
+            "user_count": 0,
+        }
+    })))
+}
+
+async fn update_role(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateRoleRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let existing = client
+        .query_opt("SELECT id, is_system FROM user_roles WHERE id = $1", &[&id])
+        .await
+        .map_err(internal_error)?;
+
+    if existing.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"success": false, "error": "Level/peran tidak ditemukan"})),
+        ));
+    }
+
+    let perms_val: Option<Value> = payload.permissions.map(|p| json!(p));
+
+    let row = client
+        .query_one(
+            "UPDATE user_roles
+             SET name = COALESCE($1, name),
+                 description = COALESCE($2, description),
+                 permissions = COALESCE($3, permissions),
+                 updated_at = NOW()
+             WHERE id = $4
+             RETURNING id, name, description, permissions, is_system, created_at::text,
+                       (SELECT COUNT(*)::bigint FROM users u WHERE LOWER(u.role) = LOWER($4)) AS user_count",
+            &[&payload.name.as_deref().map(|s| s.trim()), &payload.description.as_deref().map(|s| s.trim()), &perms_val, &id],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "id": row.get::<_, String>(0),
+            "name": row.get::<_, String>(1),
+            "description": row.get::<_, Option<String>>(2),
+            "permissions": row.get::<_, Option<Value>>(3).unwrap_or_else(|| json!([])),
+            "is_system": row.get::<_, bool>(4),
+            "created_at": row.get::<_, Option<String>>(5),
+            "user_count": row.get::<_, i64>(6),
+        }
+    })))
+}
+
+async fn delete_role(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let existing = client
+        .query_opt("SELECT is_system FROM user_roles WHERE id = $1", &[&id])
+        .await
+        .map_err(internal_error)?;
+
+    match existing {
+        Some(r) => {
+            let is_system: bool = r.get(0);
+            if is_system {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    Json(json!({"success": false, "error": "Peran sistem bawaan tidak dapat dihapus"})),
+                ));
+            }
+        }
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(json!({"success": false, "error": "Level/peran tidak ditemukan"})),
+            ));
+        }
+    }
+
+    let user_count: i64 = client
+        .query_one("SELECT COUNT(*) FROM users WHERE LOWER(role) = LOWER($1)", &[&id])
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    if user_count > 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": format!("Tidak dapat menghapus peran ini karena masih digunakan oleh {} akun pengguna", user_count)})),
+        ));
+    }
+
+    client
+        .execute("DELETE FROM user_roles WHERE id = $1", &[&id])
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(json!({"success": true, "message": "Peran berhasil dihapus"})))
+}
+
 // ─── OUTBREAK RULES ─────────────────────────────────
 
 async fn list_rules(
@@ -5442,6 +5653,25 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
         r#"
         ALTER TABLE disease_events ADD COLUMN IF NOT EXISTS disease_mentions JSONB NOT NULL DEFAULT '[]'::jsonb;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '["*"]'::jsonb;
+
+        CREATE TABLE IF NOT EXISTS user_roles (
+            id VARCHAR(50) PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            description TEXT,
+            permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+            is_system BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        INSERT INTO user_roles (id, name, description, permissions, is_system)
+        VALUES
+        ('admin', 'ADMIN', 'Akses Penuh Seluruh Modul & Konfigurasi Sistem', '["*"]'::jsonb, TRUE),
+        ('data_analyst', 'DATA ANALYST', 'Akses Analisis Data, Kejadian & Laporan Matriks', '["dashboard", "events", "sources", "analyze", "processing", "reports", "locations"]'::jsonb, TRUE),
+        ('epidemiologi', 'EPIDEMIOLOGI', 'Surveilans Penyakit, Aturan KLB & Geospasial', '["dashboard", "events", "analyze", "reports", "locations", "outbreak_rules", "nlp_config"]'::jsonb, TRUE),
+        ('executive', 'EXECUTIVE', 'Ringkasan Eksekutif, TV Center & Matriks Laporan', '["dashboard", "events", "reports", "tv"]'::jsonb, TRUE),
+        ('skk', 'SKK', 'Monitoring Feed Sumber Data & Pemrosesan Queue', '["dashboard", "sources", "reports", "processing"]'::jsonb, TRUE)
+        ON CONFLICT (id) DO NOTHING;
         CREATE TABLE IF NOT EXISTS schema_migrations (
             filename TEXT PRIMARY KEY,
             applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
