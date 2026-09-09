@@ -258,7 +258,7 @@ export default function ConsoleUsersPage() {
 
       <Modal
         open={showModal}
-        maxWidth="max-w-2xl"
+        maxWidth="max-w-4xl xl:max-w-5xl"
         onClose={() => { setShowModal(false); setEditingUser(null) }}
         title={editingUser ? `Edit Akun & Akses: ${editingUser.username}` : "Tambah Pengguna Baru & Hak Akses"}
       >

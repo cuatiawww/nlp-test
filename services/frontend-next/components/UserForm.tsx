@@ -17,7 +17,9 @@ import {
   Layers,
   Activity,
   Sliders,
-  Settings2
+  Settings2,
+  RotateCcw,
+  Check
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { SYSTEM_MODULES, ROLE_PRESET_MODULES, SystemModule } from '@/lib/auth'
@@ -129,6 +131,14 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
     setSelectedModules([])
   }
 
+  const resetToRolePreset = () => {
+    if (role === 'admin') {
+      setSelectedModules(SYSTEM_MODULES.map(m => m.id))
+    } else {
+      setSelectedModules(ROLE_PRESET_MODULES[role] || [])
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!username.trim()) {
@@ -153,7 +163,6 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
 
     setSaving(true)
     try {
-      // Calculate final permissions
       const finalPermissions = role === 'admin' ? ['*'] : selectedModules
 
       if (isEditing && initialData) {
@@ -177,6 +186,7 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
           display_name: displayName.trim(),
           role: role.toUpperCase(),
           email: email.trim(),
+          is_active: isActive,
           permissions: finalPermissions,
         }
 
@@ -191,7 +201,6 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
     }
   }
 
-  // Group modules by category
   const categories: Array<{ name: string; icon: any; modules: SystemModule[] }> = [
     {
       name: 'Surveillance & Monitoring',
@@ -211,176 +220,257 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
   ]
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 pt-1 max-h-[80vh] overflow-y-auto pr-1">
-      {/* Username Field */}
-      <div>
-        <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
-          <UserIcon className="h-3.5 w-3.5 text-slate-400" />
-          {t('pages.users.colUsername') || 'Username'}
-          {isEditing && (
-            <span className="ml-auto text-[10px] font-normal lowercase tracking-normal text-slate-400">
-              (tidak dapat diubah)
-            </span>
-          )}
-        </label>
-        <input
-          type="text"
-          value={username}
-          onChange={e => setUsername(e.target.value)}
-          required
-          disabled={isEditing}
-          placeholder="contoh: joko_analis"
-          className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-sm transition ${
-            isEditing
-              ? 'cursor-not-allowed border-slate-200 bg-slate-100 font-medium text-slate-500 shadow-inner'
-              : 'border-slate-200 bg-white text-slate-900 focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20'
-          }`}
-        />
-      </div>
-
-      {/* Password Field */}
-      <div>
-        <div className="flex items-center justify-between">
-          <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
-            <Lock className="h-3.5 w-3.5 text-slate-400" />
-            {isEditing ? 'Ganti Password (Opsional)' : 'Password'}
-            {!isEditing && <span className="text-rose-500">*</span>}
-          </label>
-          {isEditing && (
-            <span className="text-[11px] text-slate-400 font-normal">
-              Kosongkan bila tetap
-            </span>
-          )}
+    <form onSubmit={handleSubmit} className="space-y-6 pt-1">
+      {/* SECTION 1: Informasi Akun (2 Kolom Responsif) */}
+      <div className="rounded-2xl border border-slate-200/90 bg-slate-50/50 p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-4 border-b border-slate-200/80 pb-2.5">
+          <UserIcon className="h-4 w-4 text-[#0060A9]" />
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+            Informasi Akun Pengguna
+          </h3>
         </div>
-        <div className="relative mt-1.5">
-          <input
-            type={showPassword ? 'text' : 'password'}
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required={!isEditing}
-            placeholder={isEditing ? 'Ketik password baru jika ingin mengubah...' : 'Minimal 6 karakter...'}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 pr-10 text-sm text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer"
-            title={showPassword ? 'Sembunyikan password' : 'Lihat password'}
-            tabIndex={-1}
-          >
-            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-      </div>
 
-      {/* Full Name / Display Name */}
-      <div>
-        <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
-          {t('pages.users.colDisplayName') || 'Nama Lengkap'}
-        </label>
-        <input
-          type="text"
-          value={displayName}
-          onChange={e => setDisplayName(e.target.value)}
-          placeholder="contoh: Dr. Joko Susilo"
-          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20"
-        />
-      </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+          {/* Kolom Kiri */}
+          <div className="space-y-4">
+            {/* Username */}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
+                <span>{t('pages.users.colUsername') || 'Username'}</span>
+                {!isEditing && <span className="text-rose-500">*</span>}
+                {isEditing && (
+                  <span className="ml-auto text-[11px] font-normal lowercase tracking-normal text-slate-400">
+                    (tidak dapat diubah)
+                  </span>
+                )}
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                required
+                disabled={isEditing}
+                placeholder="contoh: joko_analis"
+                className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-sm transition ${
+                  isEditing
+                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 font-medium text-slate-500 shadow-inner'
+                    : 'border-slate-200 bg-white text-slate-900 focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20'
+                }`}
+              />
+            </div>
 
-      {/* Role Selection (5 Roles) */}
-      <div>
-        <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
-          <Shield className="h-3.5 w-3.5 text-slate-400" />
-          {t('pages.users.colRole') || 'Peran Pengguna (Role)'}
-        </label>
-        <select
-          value={role}
-          onChange={e => handleRoleChange(e.target.value)}
-          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20"
-        >
-          {USER_ROLES.map(r => (
-            <option key={r.id} value={r.id}>
-              {r.label} — {r.desc}
-            </option>
-          ))}
-        </select>
-      </div>
+            {/* Password */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
+                  <Lock className="h-3.5 w-3.5 text-slate-400" />
+                  <span>{isEditing ? 'Ganti Password' : 'Password'}</span>
+                  {!isEditing && <span className="text-rose-500">*</span>}
+                </label>
+                {isEditing && (
+                  <span className="text-[11px] text-slate-400 font-normal">
+                    Kosongkan bila tetap
+                  </span>
+                )}
+              </div>
+              <div className="relative mt-1.5">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required={!isEditing}
+                  placeholder={isEditing ? 'Ketik password baru jika ingin mengubah...' : 'Minimal 6 karakter...'}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 pr-10 text-sm text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer"
+                  title={showPassword ? 'Sembunyikan password' : 'Lihat password'}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
 
-      {/* Module Permissions Checklist Section */}
-      <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 space-y-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
-          <div className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-[#0060A9]" />
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
-              Hak Akses Modul Aplikasi
-            </span>
+            {/* Peran Pengguna (Role) */}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
+                <Shield className="h-3.5 w-3.5 text-slate-400" />
+                <span>{t('pages.users.colRole') || 'Peran Pengguna (Role)'}</span>
+              </label>
+              <select
+                value={role}
+                onChange={e => handleRoleChange(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20 cursor-pointer"
+              >
+                {USER_ROLES.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.label} — {r.desc}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+
+          {/* Kolom Kanan */}
+          <div className="space-y-4">
+            {/* Display Name */}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
+                <span>{t('pages.users.colDisplayName') || 'Nama Lengkap'}</span>
+              </label>
+              <input
+                type="text"
+                value={displayName}
+                onChange={e => setDisplayName(e.target.value)}
+                placeholder="contoh: Dr. Joko Susilo"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20"
+              />
+            </div>
+
+            {/* Email Address */}
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
+                <Mail className="h-3.5 w-3.5 text-slate-400" />
+                <span>{t('pages.users.colEmail') || 'Alamat Email'}</span>
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="contoh: joko@dinkes.go.id"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20"
+              />
+            </div>
+
+            {/* Status Akun Toggle */}
+            <div className="pt-0.5">
+              <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600 mb-1.5">
+                <span>Status Akun</span>
+              </label>
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 transition">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${isActive ? 'bg-emerald-500 ring-4 ring-emerald-100' : 'bg-rose-500 ring-4 ring-rose-100'}`} />
+                  <span className="text-xs font-bold text-slate-800">
+                    {isActive ? 'Aktif (Bisa Login)' : 'Nonaktif (Akses Diblokir)'}
+                  </span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    onChange={e => setIsActive(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 2: Hak Akses Modul Aplikasi (Lebar & Rapi) */}
+      <div className="rounded-2xl border border-slate-200/90 bg-slate-50/50 p-4 sm:p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#0060A9]/10 text-[#0060A9]">
+              <Layers className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                Hak Akses Modul Aplikasi
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Pilih modul mana saja yang diizinkan untuk diakses oleh akun pengguna ini.
+              </p>
+            </div>
+          </div>
+
           {role === 'admin' ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-2.5 py-0.5 text-[11px] font-black text-purple-800 border border-purple-200">
-              <Sparkles className="h-3 w-3" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-3 py-1 text-xs font-black text-purple-800 border border-purple-200 shadow-2xs">
+              <Sparkles className="h-3.5 w-3.5 text-purple-600" />
               Full Access (Semua Modul)
             </span>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={selectAllModules}
-                className="text-[11px] font-bold text-[#0060A9] hover:underline cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs font-bold text-[#0060A9] hover:bg-blue-50 px-2.5 py-1 rounded-lg transition cursor-pointer"
               >
-                Pilih Semua
+                <Check className="h-3 w-3" /> Pilih Semua
               </button>
               <span className="text-slate-300">|</span>
               <button
                 type="button"
                 onClick={clearAllModules}
-                className="text-[11px] font-bold text-slate-500 hover:underline cursor-pointer"
+                className="text-xs font-bold text-slate-500 hover:bg-slate-100 px-2.5 py-1 rounded-lg transition cursor-pointer"
               >
                 Kosongkan
               </button>
-              <span className="ml-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-black text-[#0060A9]">
-                {selectedModules.length} dipilih
+              <span className="text-slate-300">|</span>
+              <button
+                type="button"
+                onClick={resetToRolePreset}
+                className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 hover:bg-slate-100 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                title="Kembalikan modul ke rekomendasi bawaan peran ini"
+              >
+                <RotateCcw className="h-3 w-3" /> Rekomendasi Peran
+              </button>
+              <span className="ml-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-black text-[#0060A9] border border-blue-200">
+                {selectedModules.length} / {SYSTEM_MODULES.length} dipilih
               </span>
             </div>
           )}
         </div>
 
         {role === 'admin' ? (
-          <div className="rounded-xl border border-purple-200 bg-purple-50/60 p-3 text-xs text-purple-900 leading-relaxed">
-            Peran <strong>ADMIN</strong> memiliki akses penuh tanpa batas ke seluruh modul dan konfigurasi sistem.
+          <div className="rounded-xl border border-purple-200 bg-purple-50/70 p-4 text-xs text-purple-900 leading-relaxed flex items-start gap-3">
+            <Sparkles className="h-5 w-5 text-purple-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Akses Penuh Tanpa Batas</p>
+              <p className="mt-0.5 text-purple-700 text-[11.5px]">
+                Pengguna dengan peran <strong>ADMIN</strong> otomatis memiliki izin penuh ke seluruh 13 modul sistem dan fitur manajemen tingkat lanjut tanpa perlu memilih secara manual.
+              </p>
+            </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {categories.map(cat => (
-              <div key={cat.name} className="space-y-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-500 uppercase tracking-wider">
-                  <cat.icon className="h-3 w-3 text-slate-400" />
+              <div key={cat.name} className="space-y-2.5">
+                <div className="flex items-center gap-2 text-[11px] font-black text-slate-600 uppercase tracking-wider">
+                  <cat.icon className="h-3.5 w-3.5 text-[#0060A9]" />
                   <span>{cat.name}</span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {/* 3-Kolom Layout pada layar lebar / 2-kolom pada medium */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   {cat.modules.map(mod => {
                     const isChecked = selectedModules.includes(mod.id)
                     return (
                       <label
                         key={mod.id}
                         onClick={() => toggleModule(mod.id)}
-                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition cursor-pointer select-none ${
+                        className={`flex items-start gap-3 p-3 rounded-xl border transition cursor-pointer select-none ${
                           isChecked
-                            ? 'bg-blue-50/60 border-blue-200 shadow-2xs'
-                            : 'bg-white border-slate-200/90 hover:bg-slate-50'
+                            ? 'bg-blue-50/70 border-blue-200 shadow-2xs'
+                            : 'bg-white border-slate-200/90 hover:bg-slate-50/80 hover:border-slate-300'
                         }`}
                       >
                         <div className="mt-0.5 shrink-0 text-[#0060A9]">
                           {isChecked ? (
-                            <CheckSquare className="h-4 w-4 text-[#0060A9]" />
+                            <CheckSquare className="h-4.5 w-4.5 text-[#0060A9]" />
                           ) : (
-                            <Square className="h-4 w-4 text-slate-300" />
+                            <Square className="h-4.5 w-4.5 text-slate-300" />
                           )}
                         </div>
-                        <div className="min-w-0">
-                          <p className={`text-xs font-bold leading-tight ${isChecked ? 'text-slate-900' : 'text-slate-700'}`}>
+                        <div className="min-w-0 flex-1">
+                          <p className={`text-xs font-bold leading-snug ${isChecked ? 'text-slate-900' : 'text-slate-700'}`}>
                             {mod.label}
                           </p>
-                          <p className="text-[10.5px] text-slate-500 leading-tight mt-0.5 truncate">
+                          <p className="text-[11px] text-slate-500 leading-snug mt-0.5">
                             {mod.description}
                           </p>
                         </div>
@@ -394,60 +484,20 @@ export default function UserForm({ initialData, onSaved, onCancel }: Props) {
         )}
       </div>
 
-      {/* Email Address */}
-      <div>
-        <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
-          <Mail className="h-3.5 w-3.5 text-slate-400" />
-          {t('pages.users.colEmail') || 'Alamat Email'}
-        </label>
-        <input
-          type="email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          placeholder="contoh: joko@dinkes.go.id"
-          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20"
-        />
-      </div>
-
-      {/* Active Status (Switch / Toggle) */}
-      {isEditing && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 transition">
-          <label className="flex items-center justify-between cursor-pointer">
-            <div>
-              <span className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-700 block">
-                Status Akun
-              </span>
-              <span className="text-[12px] text-slate-500">
-                {isActive ? 'Akun aktif dan dapat masuk ke sistem' : 'Akun dinonaktifkan (akses diblokir)'}
-              </span>
-            </div>
-            <div className="relative inline-flex items-center">
-              <input
-                type="checkbox"
-                checked={isActive}
-                onChange={e => setIsActive(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-            </div>
-          </label>
-        </div>
-      )}
-
-      {/* Modal Actions */}
-      <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+      {/* FOOTER ACTIONS */}
+      <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
         <button
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition disabled:opacity-50 cursor-pointer"
+          className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition disabled:opacity-50 cursor-pointer"
         >
           {t('common.cancel') || 'Batal'}
         </button>
         <button
           type="submit"
           disabled={saving || !username.trim() || (!isEditing && !password.trim())}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-[#0060A9] px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-[#004b85] shadow-sm transition disabled:opacity-50 cursor-pointer"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-6 py-2.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-[#004b85] shadow-sm transition disabled:opacity-50 cursor-pointer"
         >
           {saving ? (
             <>
