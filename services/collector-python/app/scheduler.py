@@ -23,7 +23,7 @@ COLLECTOR_MAP = {
     "csv": CSVIngestCollector,
     "social_media": SocialMediaCollector,
     "api": SocialMediaCollector,
-    "skdr_api": SKDRCollector,
+    # "skdr_api": SKDRCollector,  # SKDR DISABLED
 }
 
 
@@ -40,6 +40,10 @@ async def run_source_async(source_id: str):
     source = db.fetch_source(source_id)
     if not source:
         logger.warning("Source %s not found", source_id)
+        return
+
+    if source.get("source_type") == "skdr_api":
+        logger.info("SKDR source %s is disabled; skipping run", source_id)
         return
 
     collector_cls = COLLECTOR_MAP.get(source["source_type"])
@@ -72,6 +76,8 @@ async def run_source_async(source_id: str):
 
 
 async def run_skdr_startup(source_id: str):
+    logger.info("SKDR startup sync disabled; skipping")
+    return
     source = db.fetch_source(source_id)
     if not source or source.get("source_type") != "skdr_api":
         return
@@ -127,6 +133,9 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
         logger.exception("Could not load scheduled sources; continuing with CSV watcher: %s", exc)
         sources = []
     for idx, source in enumerate(sources):
+        if source.get("source_type") == "skdr_api":
+            logger.info("SKDR source %s is disabled; skipping schedule", source.get("name"))
+            continue
         schedule = source.get("schedule")
         if not schedule:
             continue

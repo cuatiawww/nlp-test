@@ -893,11 +893,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
       }
     }
 
-    loadRegionalSkdr()
-    const intervalId = window.setInterval(loadRegionalSkdr, 60 * 1000)
+    // loadRegionalSkdr()
+    // const intervalId = window.setInterval(loadRegionalSkdr, 60 * 1000)
     return () => {
       active = false
-      window.clearInterval(intervalId)
+      // window.clearInterval(intervalId)
     }
   }, [isRegionalTemplate, selectedEvent?.provinsi])
 
@@ -3759,7 +3759,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     if (name.includes('wabah') || name.includes('klb') || name.includes('penyakit')) {
       const vectorEnv = floodHydrology?.weather?.currentTemp
         ? `${floodHydrology.weather.currentTemp} °C (Kelembaban ${floodHydrology.weather.humidity}%)`
-        : (eventData.status_penyakit || 'Surveilans SKDR')
+        : (eventData.status_penyakit || 'Surveilans Penyakit')
 
       const ispuWabah = floodHydrology?.airQuality?.aqi
         ? `AQI ${floodHydrology.airQuality.aqi} (${floodHydrology.airQuality.aqiLabel})`
@@ -6467,7 +6467,8 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                 </div>
               </article>
 
-              {/* ─── SECTION 2: RINGKASAN KANAL DATA SKDR ─── */}
+              {/* â”€â”€â”€ SECTION 2: RINGKASAN KANAL DATA SKDR (DISABLED) â”€â”€â”€ */}
+              {false && (
               <article className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-2xs hover:shadow-xs transition-all">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-stretch">
                   {/* Sisi Kiri (4 cols / ~33%): Ringkasan Status & Kesiapan Faskes */}
@@ -6656,6 +6657,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   </div>
                 </div>
               </article>
+              )}
             </section>
           );
         })()}
@@ -9498,7 +9500,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         </section>
       </div>
       {/* ==================== MATRIKS KORBAN & FASKES PER KABUPATEN POPUP MODAL ==================== */}
-      {showKabupatenMatrixModal && (
+      {/* SKDR MODAL DISABLED */ false && showKabupatenMatrixModal && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5 lg:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
           onClick={() => setShowKabupatenMatrixModal(false)}

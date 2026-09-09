@@ -363,7 +363,7 @@ export default function IndonesiaDetailMapClient({
             status: active ? 'TERDETEKSI' : 'BELUM ADA DATA',
             distribusi: active ? active.distribusi : '0.0%',
             keterangan: active
-              ? 'Proporsi dari total kasus surveilans nasional SKDR IBS/EBS.'
+              ? 'Proporsi dari total kasus surveilans nasional.'
               : 'Belum ada sinyal atau laporan fasilitas kesehatan terverifikasi pada periode aktif.',
             cases: active?.cases,
           })
@@ -819,7 +819,7 @@ export default function IndonesiaDetailMapClient({
               </div>
 
               <div className="pt-2 border-t border-slate-100 text-[9.5px] leading-tight text-slate-500">
-                Persentase = proporsi dari total kasus surveilans SKDR nasional, bukan positivity rate.
+                Persentase = proporsi dari total kasus surveilans nasional, bukan positivity rate.
               </div>
             </div>
           )}

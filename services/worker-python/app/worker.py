@@ -308,6 +308,10 @@ def callback(ch, method, properties, body):
         msg = json.loads(body)
         published_at = msg.get("published_at", "")
         source_type = msg.get("source_type", "")
+        if source_type == "skdr_api":
+            logger.info("SKDR processing is disabled. Dropping SKDR message %s", method.delivery_tag)
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
         if source_type != "social_media" and not is_allowed_processing_year(published_at):
             logger.info(
                 "Skipping non-current/undated message: published_at=%s current_year=%s",
@@ -607,16 +611,17 @@ def main():
             channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
             if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
                 channel.queue_declare(queue=RABBITMQ_SOCIAL_QUEUE, durable=True)
-            if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
-                channel.queue_declare(queue=RABBITMQ_SKDR_QUEUE, durable=True)
+            # SKDR queue disabled
+            # if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
+            #     channel.queue_declare(queue=RABBITMQ_SKDR_QUEUE, durable=True)
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
             if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
                 channel.basic_consume(queue=RABBITMQ_SOCIAL_QUEUE, on_message_callback=callback)
-            if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
-                channel.basic_consume(queue=RABBITMQ_SKDR_QUEUE, on_message_callback=callback)
+            # if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
+            #     channel.basic_consume(queue=RABBITMQ_SKDR_QUEUE, on_message_callback=callback)
             queues = [RABBITMQ_QUEUE]
-            for queue in (RABBITMQ_SOCIAL_QUEUE, RABBITMQ_SKDR_QUEUE):
+            for queue in (RABBITMQ_SOCIAL_QUEUE,):
                 if queue not in queues:
                     queues.append(queue)
             if len(queues) > 1:
