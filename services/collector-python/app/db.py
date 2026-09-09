@@ -1,11 +1,47 @@
 import psycopg
 import json
 import hashlib
+import logging
 import threading
 from psycopg.rows import dict_row
 from . import config
 
 _connection_state = threading.local()
+logger = logging.getLogger(__name__)
+
+
+def is_url_already_processed(url: str) -> bool:
+    """Check whether the URL already has a completed NLP record.
+
+    Failed records remain retryable. The worker still performs the final
+    deduplication check after a message is published.
+    """
+    candidate = (url or "").strip()
+    if not candidate:
+        return False
+
+    conn = None
+    try:
+        conn = get_conn()
+        row = conn.execute(
+            """SELECT 1 FROM raw_reports
+               WHERE url = %s
+                 AND processing_status IN ('PROCESSED', 'NON_HEALTH')
+               LIMIT 1""",
+            (candidate,),
+        ).fetchone()
+        conn.commit()
+        return row is not None
+    except Exception:
+        # Do not drop a new item because the pre-check had a transient error;
+        # the worker remains the authoritative deduplication guard.
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.warning("Could not check processed URL: %s", candidate, exc_info=True)
+        return False
 
 
 def get_conn():

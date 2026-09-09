@@ -512,6 +512,8 @@ class WebScraperCollector(BaseCollector):
         }
 
     async def collect(self) -> CollectResult:
+        from .. import db
+
         result = CollectResult()
         urls = self.config.get("urls", [self.config.get("url", "")])
         if isinstance(urls, str):
@@ -524,12 +526,16 @@ class WebScraperCollector(BaseCollector):
         title_selector = self.config.get("title_selector", "h1")
         body_selector = self.config.get("body_selector", "article")
         failures = []
+        published_urls = set()
         async with AsyncExitStack() as stack:
             stealth_session = None
             for url in urls:
                 if not url:
                     continue
                 result.records_found += 1
+                if url in published_urls or db.is_url_already_processed(url):
+                    logger.info("Skipping already processed web URL: %s", url)
+                    continue
                 try:
                     from .pdf_document import try_pdf
                     pdf = await asyncio.to_thread(try_pdf, url)
@@ -543,6 +549,7 @@ class WebScraperCollector(BaseCollector):
                             "collector_source_id": str(self.source["id"]),
                             "source_country": self.config.get("country") or _country_hint_from_url(url),
                         })
+                        published_urls.add(url)
                         result.records_ingested += 1
                         continue
                     outcome, stealth_session = await self._fetch(
@@ -575,6 +582,7 @@ class WebScraperCollector(BaseCollector):
                         "http_status": outcome.status,
                         "source_country": self.config.get("country") or _country_hint_from_url(url),
                     })
+                    published_urls.add(url)
                     result.records_ingested += 1
                     logger.info("Scraped %s mode=%s status=%d", url, outcome.mode, outcome.status)
                 except Exception as exc:

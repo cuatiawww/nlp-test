@@ -1,10 +1,14 @@
 import datetime
 import hashlib
+import logging
 import os
 import feedparser
+from .. import db
 from .base import BaseCollector, CollectResult
 from .. import rabbitmq
 from ..minio_client import upload_file
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_date(raw: str) -> str:
@@ -45,6 +49,7 @@ class RSSNewsCollector(BaseCollector):
             result.error_message = f"Failed to parse feed: {feed.bozo_exception}"
             return result
 
+        published_urls = set()
         for entry in feed.entries:
             result.records_found += 1
             title = entry.get("title", "")
@@ -60,6 +65,10 @@ class RSSNewsCollector(BaseCollector):
 
             text = f"{title}\n\n{summary}" if title else summary
             if not text.strip():
+                continue
+
+            if link and (link in published_urls or db.is_url_already_processed(link)):
+                logger.info("Skipping already processed RSS URL: %s", link)
                 continue
 
             body = text.encode("utf-8")
@@ -83,6 +92,8 @@ class RSSNewsCollector(BaseCollector):
                 "source_language": self.config.get("language", ""),
                 "source_country": self.config.get("country", ""),
             })
+            if link:
+                published_urls.add(link)
             result.records_ingested += 1
 
         return result

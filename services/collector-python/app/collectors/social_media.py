@@ -3,6 +3,7 @@ import hashlib
 import feedparser
 import requests
 
+from .. import db
 from .base import BaseCollector, CollectResult
 from .. import rabbitmq
 from ..minio_client import upload_file
@@ -40,6 +41,9 @@ class SocialMediaCollector(BaseCollector):
                     for tweet in tweets.data:
                         result.records_found += 1
                         text = tweet.text
+                        tweet_url = f"https://x.com/i/web/status/{tweet.id}"
+                        if db.is_url_already_processed(tweet_url):
+                            continue
                         obj_path = f"social/{self.source['id']}/{tweet.id}.json"
                         upload_file(obj_path, text.encode("utf-8"), "application/json")
                         rabbitmq.publish({
@@ -47,7 +51,7 @@ class SocialMediaCollector(BaseCollector):
                             "source_name": self.source.get("name", ""),
                             "published_at": "",
                             "text": text,
-                            "url": f"https://x.com/i/web/status/{tweet.id}",
+                            "url": tweet_url,
                             "object_path": obj_path,
                             "collector_run_id": "",
                             "collector_source_id": str(self.source["id"]),
@@ -73,6 +77,7 @@ class SocialMediaCollector(BaseCollector):
                 return result
 
             max_entries = SOCIAL_RSS_MAX_ENTRIES
+            published_urls = set()
 
             for entry in feed.entries[:max_entries]:
                 result.records_found += 1
@@ -83,6 +88,9 @@ class SocialMediaCollector(BaseCollector):
 
                 text = f"{title}\n\n{summary}" if title else summary
                 if not text.strip():
+                    continue
+
+                if link and (link in published_urls or db.is_url_already_processed(link)):
                     continue
 
                 from .. import config as app_config
@@ -110,6 +118,8 @@ class SocialMediaCollector(BaseCollector):
                     "collector_run_id": "",
                     "collector_source_id": str(self.source["id"]),
                 })
+                if link:
+                    published_urls.add(link)
                 result.records_ingested += 1
 
         except Exception as e:
