@@ -331,6 +331,7 @@ struct CreateUserRequest {
     display_name: Option<String>,
     role: Option<String>,
     email: Option<String>,
+    permissions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -340,6 +341,7 @@ struct UpdateUserRequest {
     role: Option<String>,
     email: Option<String>,
     is_active: Option<bool>,
+    permissions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4403,17 +4405,18 @@ async fn login(
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
         .query_opt(
-            "SELECT id, password_hash, role FROM users WHERE username = $1 AND is_active = TRUE",
+            "SELECT id, password_hash, role, COALESCE(permissions, '[\"*\"]'::jsonb) FROM users WHERE username = $1 AND is_active = TRUE",
             &[&payload.username],
         )
         .await
         .map_err(internal_error)?;
 
-    let (user_id, stored_hash, role) = match row {
+    let (user_id, stored_hash, role, perms) = match row {
         Some(r) => (
             r.get::<_, Uuid>(0),
             r.get::<_, String>(1),
             r.get::<_, String>(2),
+            r.get::<_, Option<Value>>(3),
         ),
         None => {
             return Err((
@@ -4446,6 +4449,7 @@ async fn login(
             "user_id": user_id,
             "username": payload.username,
             "role": role,
+            "permissions": perms.unwrap_or_else(|| json!(["*"])),
         }
     })))
 }
@@ -4481,7 +4485,7 @@ async fn list_users(
 
     let rows = client
         .query(
-            "SELECT id, username, display_name, role, email, is_active, created_at::text FROM users
+            "SELECT id, username, display_name, role, email, is_active, created_at::text, COALESCE(permissions, '[\"*\"]'::jsonb) FROM users
              WHERE ($1::text IS NULL OR username ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%')
              AND ($2::text IS NULL OR role = $2)
              AND ($3::bool IS NULL OR is_active = $3)
@@ -4500,6 +4504,7 @@ async fn list_users(
         "email": r.get::<_, Option<String>>(4),
         "is_active": r.get::<_, bool>(5),
         "created_at": r.get::<_, Option<String>>(6),
+        "permissions": r.get::<_, Option<Value>>(7).unwrap_or_else(|| json!(["*"])),
     })).collect();
 
     let total: i64 = client
@@ -4524,12 +4529,21 @@ async fn create_user(
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let hash = hash_password!(&payload.password);
+    let perms_val: Value = payload.permissions
+        .map(|p| json!(p))
+        .unwrap_or_else(|| {
+            if payload.role.as_deref().unwrap_or("").to_lowercase() == "admin" {
+                json!(["*"])
+            } else {
+                json!([])
+            }
+        });
 
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
         .query_one(
-            "INSERT INTO users (username, password_hash, display_name, role, email) VALUES ($1, $2, $3, $4, $5) RETURNING id, username, display_name, role, email, is_active, created_at::text",
-            &[&payload.username, &hash, &payload.display_name, &payload.role, &payload.email],
+            "INSERT INTO users (username, password_hash, display_name, role, email, permissions) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, display_name, role, email, is_active, created_at::text, COALESCE(permissions, '[\"*\"]'::jsonb)",
+            &[&payload.username, &hash, &payload.display_name, &payload.role, &payload.email, &perms_val],
         )
         .await
         .map_err(|e| {
@@ -4545,6 +4559,7 @@ async fn create_user(
         "email": row.get::<_, Option<String>>(4),
         "is_active": row.get::<_, bool>(5),
         "created_at": row.get::<_, Option<String>>(6),
+        "permissions": row.get::<_, Option<Value>>(7).unwrap_or_else(|| json!(["*"])),
     }})))
 }
 
@@ -4554,7 +4569,7 @@ async fn get_user(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
-        .query_opt("SELECT id, username, display_name, role, email, is_active, created_at::text FROM users WHERE id = $1", &[&id])
+        .query_opt("SELECT id, username, display_name, role, email, is_active, created_at::text, COALESCE(permissions, '[\"*\"]'::jsonb) FROM users WHERE id = $1", &[&id])
         .await
         .map_err(internal_error)?
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "User not found"}))))?;
@@ -4567,6 +4582,7 @@ async fn get_user(
         "email": row.get::<_, Option<String>>(4),
         "is_active": row.get::<_, bool>(5),
         "created_at": row.get::<_, Option<String>>(6),
+        "permissions": row.get::<_, Option<Value>>(7).unwrap_or_else(|| json!(["*"])),
     }})))
 }
 
@@ -4581,6 +4597,7 @@ async fn update_user(
     };
 
     let hash = payload.password.filter(|pw| !pw.trim().is_empty()).map(|pw| hash_password!(&pw));
+    let perms_val: Option<Value> = payload.permissions.map(|p| json!(p));
 
     let result = client
         .query_one(
@@ -4590,10 +4607,11 @@ async fn update_user(
                 role = COALESCE($3, role),
                 email = COALESCE($4, email),
                 is_active = COALESCE($5, is_active),
+                permissions = COALESCE($6, permissions),
                 updated_at = NOW()
-             WHERE id = $6
-             RETURNING id, username, display_name, role, email, is_active, created_at::text",
-            &[&hash, &payload.display_name, &payload.role, &payload.email, &payload.is_active, &id],
+             WHERE id = $7
+             RETURNING id, username, display_name, role, email, is_active, created_at::text, COALESCE(permissions, '[\"*\"]'::jsonb)",
+            &[&hash, &payload.display_name, &payload.role, &payload.email, &payload.is_active, &perms_val, &id],
         )
         .await;
 
@@ -4606,6 +4624,7 @@ async fn update_user(
             "email": row.get::<_, Option<String>>(4),
             "is_active": row.get::<_, bool>(5),
             "created_at": row.get::<_, Option<String>>(6),
+            "permissions": row.get::<_, Option<Value>>(7).unwrap_or_else(|| json!(["*"])),
         }})),
         Err(e) => Json(json!({"success": false, "error": format!("Update failed: {}", e)})),
     }
@@ -5422,6 +5441,7 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
     client.batch_execute(
         r#"
         ALTER TABLE disease_events ADD COLUMN IF NOT EXISTS disease_mentions JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '["*"]'::jsonb;
         CREATE TABLE IF NOT EXISTS schema_migrations (
             filename TEXT PRIMARY KEY,
             applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

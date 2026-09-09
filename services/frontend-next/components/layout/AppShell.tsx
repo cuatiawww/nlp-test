@@ -1,14 +1,14 @@
-﻿'use client'
+'use client'
 
-import { useEffect, useState } from "react";
-import { sidebarMenu, consoleMenu } from "@/lib/menu";
+import { useEffect, useState, useMemo } from "react";
+import { sidebarMenu, consoleMenu, SidebarGroup } from "@/lib/menu";
 import DashboardSidebar from "./DashboardSidebar";
 import DashboardHeader from "./DashboardHeader";
-import { isLoggedIn } from "@/lib/auth";
+import { isLoggedIn, getAuthUser, hasModuleAccess, AuthUser } from "@/lib/auth";
 import Footer from "./Footer";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
-const guestMenu = [
+const guestMenu: SidebarGroup[] = [
   {
     title: "SURVEILLANCE",
     titleKey: "sidebar.sections.monitoring",
@@ -34,19 +34,61 @@ export default function AppShell({
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authenticated, setAuthenticated] = useState(!publicMode);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
   useEffect(() => {
-    setAuthenticated(isLoggedIn());
+    const logged = isLoggedIn();
+    setAuthenticated(logged);
+    if (logged) {
+      setCurrentUser(getAuthUser());
+    } else {
+      setCurrentUser(null);
+    }
+
+    const handleStorageChange = () => {
+      const isLog = isLoggedIn();
+      setAuthenticated(isLog);
+      setCurrentUser(isLog ? getAuthUser() : null);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  // Filter menu groups according to user role and permitted modules
+  const activeMenu = useMemo(() => {
+    if (tvMode) return [];
+    if (!authenticated) return guestMenu;
+
+    const baseGroups = consoleMode ? consoleMenu : sidebarMenu;
+
+    // Admin or wildcard permission has access to everything
+    if (!currentUser || currentUser.role?.toLowerCase() === 'admin' || currentUser.permissions?.includes('*')) {
+      return baseGroups;
+    }
+
+    // Filter items based on module access
+    return baseGroups
+      .map((group) => {
+        const filteredItems = group.items.filter((item) => {
+          if (!item.href) return true;
+          // Business Process doc is accessible
+          if (item.href === '/business-process') return true;
+          return hasModuleAccess(currentUser, item.href);
+        });
+
+        return {
+          ...group,
+          items: filteredItems,
+        };
+      })
+      .filter((group) => group.items.length > 0);
+  }, [tvMode, authenticated, consoleMode, currentUser]);
 
   if (tvMode)
     return (
       <main className="min-h-screen bg-slate-950 text-white">{children}</main>
     );
-
-  // When consoleMode is true, use the dedicated consoleMenu!
-  const activeMenu = consoleMode
-    ? consoleMenu
-    : (authenticated ? sidebarMenu : guestMenu);
 
   return (
     <main className="flex min-h-screen flex-col bg-[#f8fafc] text-slate-900">
