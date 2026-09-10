@@ -149,7 +149,7 @@ export default function DiseaseDirectory() {
   const statusOptions: DiseaseStatus[] = ["all", "validated", "pending", "inactive"];
 
   return (
-    <main className="min-h-screen bg-[#f8fafc] p-0">
+    <main className="min-h-screen bg-[#f8fafc] px-4 py-3 md:px-6 md:py-5">
       <div className="w-full space-y-6">
         <header className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end">
           <div>
