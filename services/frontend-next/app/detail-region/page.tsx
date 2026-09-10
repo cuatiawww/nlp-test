@@ -3,8 +3,8 @@ import { Suspense } from 'react'
 import RegionalIncidentPage from '@/components/incident/RegionalIncidentPage'
 
 export const metadata: Metadata = {
-  title: 'Pemantauan Penyakit IBS & EBS | Dashboard Surveilans Kemenkes',
-  description: 'Pemantauan tren kasus per provinsi berdasarkan hasil Indikator Based Surveillance (IBS) dan Event Based Surveillance (EBS).',
+  title: 'Country Disease Surveillance Profile | Dashboard Surveilans Kemenkes',
+  description: 'Profil negara dengan indikator kasus, perbandingan penyakit, tren surveilans, dan pola musiman dari API surveilans.',
 }
 
 export default function DetailRegionPage() {

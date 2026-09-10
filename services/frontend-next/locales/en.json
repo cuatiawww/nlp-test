@@ -98,7 +98,7 @@
     "subtitle": "Explore country-level surveillance signals and open the complete regional detail workspace.",
     "registered": "Registered countries",
     "directoryTitle": "Country surveillance directory",
-    "directoryDescription": "Select a country to review its map, IBS/EBS trends, disease matrix, alerts, and other available surveillance graphics.",
+    "directoryDescription": "Select a country to review case indicators, disease comparisons, surveillance trends, alerts, and seasonal patterns.",
     "searchPlaceholder": "Search by country name or code",
     "all": "All",
     "withData": "With data",
