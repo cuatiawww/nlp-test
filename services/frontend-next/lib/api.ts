@@ -223,6 +223,31 @@ export const updateLocation = (id: string, data: any) =>
 export const deleteLocation = (id: string) =>
   delFrom(`/api/v1/locations/${id}`);
 
+// ── Disease Master (WHO ICD-11) ───────────────────
+
+export interface DiseaseConcept {
+  id: string;
+  canonical_name: string;
+  ontology_system?: string | null;
+  ontology_code?: string | null;
+  ontology_uri?: string | null;
+  ontology_release?: string | null;
+  source: string;
+  confidence: number;
+  is_active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export const fetchDiseaseConcepts = () =>
+  fetchFrom<DiseaseConcept[]>('/api/v1/disease-concepts');
+export const createDiseaseConcept = (data: Partial<DiseaseConcept>) =>
+  postTo<DiseaseConcept>('/api/v1/disease-concepts', data);
+export const updateDiseaseConcept = (id: string, data: Partial<DiseaseConcept>) =>
+  putTo<DiseaseConcept>(`/api/v1/disease-concepts/${id}`, data);
+export const deleteDiseaseConcept = (id: string) =>
+  delFrom(`/api/v1/disease-concepts/${id}`);
+
 // ── Source Credibility ──────────────────────────
 
 export const fetchCredibility = () =>

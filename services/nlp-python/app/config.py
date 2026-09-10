@@ -31,6 +31,9 @@ WHO_ICD_API_VERSION = os.getenv("WHO_ICD_API_VERSION", "v2")
 WHO_DISCOVERY_ENABLED = os.getenv("WHO_DISCOVERY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 WHO_DISCOVERY_MIN_CONFIDENCE = float(os.getenv("WHO_DISCOVERY_MIN_CONFIDENCE", "0.70"))
 WHO_TERM_RESOLUTION_ENABLED = os.getenv("WHO_TERM_RESOLUTION_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+# Public disease labels must be backed by a WHO ICD-11 code. The original
+# surface form remains available in review evidence when this is enabled.
+ICD11_CANONICAL_OUTPUT_ONLY = os.getenv("ICD11_CANONICAL_OUTPUT_ONLY", "true").lower() in {"1", "true", "yes", "on"}
 
 MODEL_MAP = {
     "xlm-roberta": "xlm-roberta-base",

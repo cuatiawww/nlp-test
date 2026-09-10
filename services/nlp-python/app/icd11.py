@@ -28,6 +28,56 @@ _DISCOVERY_LOCK = threading.Lock()
 _CACHE_TTL_SECONDS = 600  # 10 minutes cache
 
 
+def _mention_value(mention: Any, key: str, default: Any = None) -> Any:
+    if isinstance(mention, dict):
+        return mention.get(key, default)
+    return getattr(mention, key, default)
+
+
+def project_icd11_public_output(
+    primary: str,
+    extracted: list[str],
+    mentions: list[Any],
+) -> dict[str, Any]:
+    """Project disease output to names backed by a valid WHO ICD-11 code.
+
+    The classifier/agent may produce useful surface terms, but those terms are
+    not public disease labels until a WHO concept and code are attached. The
+    caller keeps the original surface form separately for review evidence.
+    """
+    resolved = []
+    unresolved_indexes = []
+    primary_resolved = None
+
+    for index, mention in enumerate(mentions):
+        name = str(_mention_value(mention, "canonical_name", "") or "").strip()
+        code = str(_mention_value(mention, "icd11_code", "") or "").strip()
+        if not name or not code or name.upper() == "UNKNOWN":
+            unresolved_indexes.append(index)
+            continue
+
+        if name not in resolved:
+            resolved.append(name)
+        role = str(_mention_value(mention, "role", "") or "").lower()
+        if role == "primary" and primary_resolved is None:
+            primary_resolved = name
+
+    # If the primary role was not retained, use the first valid WHO-backed
+    # mention only when it is the classifier's selected disease.
+    if primary_resolved is None and primary:
+        primary_norm = primary.strip().casefold()
+        primary_resolved = next(
+            (name for name in resolved if name.casefold() == primary_norm),
+            None,
+        )
+
+    return {
+        "primary": primary_resolved or "UNKNOWN",
+        "extracted": resolved,
+        "unresolved_indexes": unresolved_indexes,
+    }
+
+
 def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s-]", " ", (value or "").lower())).strip()
 

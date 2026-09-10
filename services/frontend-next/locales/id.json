@@ -76,6 +76,7 @@
       "analyze": "Analisis URL",
       "processing": "Processing",
       "locations": "Locations",
+      "diseaseMaster": "Disease Master",
       "credibility": "Credibility",
       "outbreakRules": "Outbreak Rules",
       "nlpLabels": "NLP Labels",
@@ -589,6 +590,12 @@
       "colCountry": "Negara",
       "addTitle": "Tambah Lokasi",
       "editTitle": "Edit Lokasi"
+    },
+    "diseaseMaster": {
+      "title": "Disease Master",
+      "subtitle": "WHO ICD-11 disease concepts used by the NLP pipeline",
+      "addTitle": "Add Disease Concept",
+      "editTitle": "Edit Disease Concept"
     },
     "credibility": {
       "title": "Kredibilitas Sumber",

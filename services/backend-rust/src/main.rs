@@ -10,7 +10,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, env, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, env, net::SocketAddr, sync::Arc, time::Duration};
 use tokio_postgres::{Config, NoTls};
 use lapin::{
     options::{BasicPublishOptions, QueueDeclareOptions},
@@ -74,6 +74,16 @@ mod analysis_contract_tests {
     fn async_is_explicit_opt_in() {
         let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org","async":true})).unwrap();
         assert!(request.asynchronous);
+    }
+
+    #[test]
+    fn disease_master_request_keeps_icd11_fields_optional_for_pending_review() {
+        let request: CreateDiseaseConceptRequest = serde_json::from_value(json!({
+            "canonical_name": "Unresolved local disease term"
+        })).unwrap();
+        assert_eq!(request.canonical_name, "Unresolved local disease term");
+        assert!(request.ontology_code.is_none());
+        assert!(request.is_active.is_none());
     }
 
     #[test]
@@ -546,6 +556,38 @@ struct LocationsQuery {
 }
 
 #[derive(Debug, Deserialize)]
+struct DiseaseConceptQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateDiseaseConceptRequest {
+    canonical_name: String,
+    ontology_code: Option<String>,
+    ontology_uri: Option<String>,
+    ontology_release: Option<String>,
+    ontology_system: Option<String>,
+    source: Option<String>,
+    confidence: Option<f64>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateDiseaseConceptRequest {
+    canonical_name: Option<String>,
+    ontology_code: Option<String>,
+    ontology_uri: Option<String>,
+    ontology_release: Option<String>,
+    ontology_system: Option<String>,
+    source: Option<String>,
+    confidence: Option<f64>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SummaryQuery {
     page: Option<i64>,
     per_page: Option<i64>,
@@ -675,6 +717,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
         .route("/api/v1/locations", get(list_locations).post(create_location))
         .route("/api/v1/locations/:id", put(update_location).delete(delete_location))
+        .route("/api/v1/disease-concepts", get(list_disease_concepts).post(create_disease_concept))
+        .route("/api/v1/disease-concepts/:id", put(update_disease_concept).delete(delete_disease_concept))
         .route("/api/v1/source-credibility", get(list_source_credibility).post(create_source_credibility))
         .route("/api/v1/source-credibility/:id", put(update_source_credibility).delete(delete_source_credibility))
         .route(
@@ -5338,6 +5382,260 @@ async fn delete_location(
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 
+// ─── DISEASE MASTER (WHO ICD-11 CONCEPTS) ───────
+
+async fn list_disease_concepts(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DiseaseConceptQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+    let rows = client
+        .query(
+            "SELECT id, canonical_name, ontology_system, ontology_code, ontology_uri,
+                    ontology_release, source, confidence, is_active,
+                    created_at::text, updated_at::text
+             FROM disease_concepts
+             WHERE ($1::text IS NULL OR canonical_name ILIKE '%'||$1||'%'
+                    OR ontology_code ILIKE '%'||$1||'%'
+                    OR source ILIKE '%'||$1||'%')
+               AND ($2::bool IS NULL OR is_active = $2)
+             ORDER BY canonical_name
+             LIMIT $3 OFFSET $4",
+            &[&query.q, &query.is_active, &per_page, &offset],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let data: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<_, Uuid>(0),
+                "canonical_name": r.get::<_, String>(1),
+                "ontology_system": r.get::<_, Option<String>>(2),
+                "ontology_code": r.get::<_, Option<String>>(3),
+                "ontology_uri": r.get::<_, Option<String>>(4),
+                "ontology_release": r.get::<_, Option<String>>(5),
+                "source": r.get::<_, String>(6),
+                "confidence": r.get::<_, f64>(7),
+                "is_active": r.get::<_, bool>(8),
+                "created_at": r.get::<_, Option<String>>(9),
+                "updated_at": r.get::<_, Option<String>>(10),
+            })
+        })
+        .collect();
+
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM disease_concepts
+             WHERE ($1::text IS NULL OR canonical_name ILIKE '%'||$1||'%'
+                    OR ontology_code ILIKE '%'||$1||'%'
+                    OR source ILIKE '%'||$1||'%')
+               AND ($2::bool IS NULL OR is_active = $2)",
+            &[&query.q, &query.is_active],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: Some(total),
+        page: Some(page),
+        per_page: Some(per_page),
+        total_pages: Some(calc_total_pages(total, per_page)),
+    }))
+}
+
+async fn create_disease_concept(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateDiseaseConceptRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let canonical_name = payload.canonical_name.trim();
+    if canonical_name.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "WHO ICD-11 disease name is required"})),
+        ));
+    }
+
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "INSERT INTO disease_concepts
+                (canonical_name, english_name, ontology_system, ontology_code,
+                 ontology_uri, ontology_release, source, confidence, is_active)
+             VALUES ($1, $1, COALESCE(NULLIF($2, ''), 'WHO ICD-11 MMS'), $3,
+                     $4, $5, COALESCE(NULLIF($6, ''), 'manual'),
+                     COALESCE($7, 1.0), COALESCE($8, TRUE))
+             RETURNING id, canonical_name, ontology_system, ontology_code,
+                       ontology_uri, ontology_release, source, confidence,
+                       is_active, created_at::text, updated_at::text",
+            &[
+                &canonical_name,
+                &payload.ontology_system,
+                &payload.ontology_code,
+                &payload.ontology_uri,
+                &payload.ontology_release,
+                &payload.source,
+                &payload.confidence,
+                &payload.is_active,
+            ],
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::CONFLICT,
+                Json(json!({"success": false, "error": format!("Disease concept already exists or is invalid: {e}")})),
+            )
+        })?;
+
+    reload_nlp_runtime(&state).await;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: disease_concept_json(&row),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+async fn update_disease_concept(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateDiseaseConceptRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    if payload
+        .canonical_name
+        .as_deref()
+        .map(|value| value.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "WHO ICD-11 disease name cannot be empty"})),
+        ));
+    }
+
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "UPDATE disease_concepts
+             SET canonical_name = COALESCE(NULLIF($1, ''), canonical_name),
+                 english_name = COALESCE(NULLIF($1, ''), english_name),
+                 ontology_system = COALESCE(NULLIF($2, ''), ontology_system),
+                 ontology_code = COALESCE(NULLIF($3, ''), ontology_code),
+                 ontology_uri = COALESCE(NULLIF($4, ''), ontology_uri),
+                 ontology_release = COALESCE(NULLIF($5, ''), ontology_release),
+                 source = COALESCE(NULLIF($6, ''), source),
+                 confidence = COALESCE($7, confidence),
+                 is_active = COALESCE($8, is_active),
+                 updated_at = NOW()
+             WHERE id = $9
+             RETURNING id, canonical_name, ontology_system, ontology_code,
+                       ontology_uri, ontology_release, source, confidence,
+                       is_active, created_at::text, updated_at::text",
+            &[
+                &payload.canonical_name,
+                &payload.ontology_system,
+                &payload.ontology_code,
+                &payload.ontology_uri,
+                &payload.ontology_release,
+                &payload.source,
+                &payload.confidence,
+                &payload.is_active,
+                &id,
+            ],
+        )
+        .await
+        .map_err(|e| {
+            if e.code().map(|code| code.code()) == Some("23505") {
+                (
+                    StatusCode::CONFLICT,
+                    Json(json!({"success": false, "error": "WHO ICD-11 disease name already exists"})),
+                )
+            } else {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"success": false, "error": "Disease concept not found"})),
+                )
+            }
+        })?;
+
+    reload_nlp_runtime(&state).await;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: disease_concept_json(&row),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+async fn delete_disease_concept(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let updated = client
+        .execute(
+            "UPDATE disease_concepts SET is_active = FALSE, updated_at = NOW() WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .map_err(internal_error)?;
+    if updated == 0 {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"success": false, "error": "Disease concept not found"})),
+        ));
+    }
+    reload_nlp_runtime(&state).await;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: "deactivated".to_string(),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+async fn reload_nlp_runtime(state: &Arc<AppState>) {
+    let url = format!("{}/reload", state.nlp_service_url.trim_end_matches('/'));
+    if let Err(error) = state
+        .http
+        .post(url)
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+    {
+        // Disease master CRUD remains successful when NLP is restarting or
+        // temporarily unavailable; the next service startup reloads the DB.
+        tracing::warn!("NLP runtime reload after disease master change failed: {error}");
+    }
+}
+
+fn disease_concept_json(row: &tokio_postgres::Row) -> Value {
+    json!({
+        "id": row.get::<_, Uuid>(0),
+        "canonical_name": row.get::<_, String>(1),
+        "ontology_system": row.get::<_, Option<String>>(2),
+        "ontology_code": row.get::<_, Option<String>>(3),
+        "ontology_uri": row.get::<_, Option<String>>(4),
+        "ontology_release": row.get::<_, Option<String>>(5),
+        "source": row.get::<_, String>(6),
+        "confidence": row.get::<_, f64>(7),
+        "is_active": row.get::<_, bool>(8),
+        "created_at": row.get::<_, Option<String>>(9),
+        "updated_at": row.get::<_, Option<String>>(10),
+    })
+}
+
 // ─── SOURCE CREDIBILITY ──────────────────────────
 
 async fn list_source_credibility(
@@ -5667,11 +5965,17 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
         INSERT INTO user_roles (id, name, description, permissions, is_system)
         VALUES
         ('admin', 'ADMIN', 'Akses Penuh Seluruh Modul & Konfigurasi Sistem', '["*"]'::jsonb, TRUE),
-        ('data_analyst', 'DATA ANALYST', 'Akses Analisis Data, Kejadian & Laporan Matriks', '["dashboard", "events", "sources", "analyze", "processing", "reports", "locations"]'::jsonb, TRUE),
-        ('epidemiologi', 'EPIDEMIOLOGI', 'Surveilans Penyakit, Aturan KLB & Geospasial', '["dashboard", "events", "analyze", "reports", "locations", "outbreak_rules", "nlp_config"]'::jsonb, TRUE),
+        ('data_analyst', 'DATA ANALYST', 'Akses Analisis Data, Kejadian & Laporan Matriks', '["dashboard", "events", "sources", "analyze", "processing", "reports", "locations", "disease_master"]'::jsonb, TRUE),
+        ('epidemiologi', 'EPIDEMIOLOGI', 'Surveilans Penyakit, Aturan KLB & Geospasial', '["dashboard", "events", "analyze", "reports", "locations", "disease_master", "outbreak_rules", "nlp_config"]'::jsonb, TRUE),
         ('executive', 'EXECUTIVE', 'Ringkasan Eksekutif, TV Center & Matriks Laporan', '["dashboard", "events", "reports", "tv"]'::jsonb, TRUE),
         ('skk', 'SKK', 'Monitoring Feed Sumber Data & Pemrosesan Queue', '["dashboard", "sources", "reports", "processing"]'::jsonb, TRUE)
         ON CONFLICT (id) DO NOTHING;
+        UPDATE user_roles
+        SET permissions = permissions || '["disease_master"]'::jsonb,
+            updated_at = NOW()
+        WHERE id IN ('data_analyst', 'epidemiologi')
+          AND NOT (permissions ? 'disease_master')
+          AND NOT (permissions ? '*');
         CREATE TABLE IF NOT EXISTS schema_migrations (
             filename TEXT PRIMARY KEY,
             applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -29,6 +29,7 @@ export const SYSTEM_MODULES: SystemModule[] = [
 
   // Master Data & Configuration
   { id: 'locations', label: 'Wilayah / Locations', description: 'Master data wilayah administratif dan koordinat', category: 'Master Data & Configuration', path: '/locations' },
+  { id: 'disease_master', label: 'Disease Master', description: 'WHO ICD-11 disease concepts used by the NLP pipeline', category: 'Master Data & Configuration', path: '/disease-master' },
   { id: 'credibility', label: 'Source Credibility', description: 'Skor kredibilitas dan reputasi media sumber', category: 'Master Data & Configuration', path: '/source-credibility' },
   { id: 'outbreak_rules', label: 'Outbreak Rules', description: 'Konfigurasi ambang batas dan aturan sinyal KLB', category: 'Master Data & Configuration', path: '/outbreak-rules' },
   { id: 'nlp_config', label: 'NLP Labels & Keywords', description: 'Label NER, kamus kata kunci, dan model bahasa', category: 'Master Data & Configuration', path: '/nlp-labels' },
@@ -40,8 +41,8 @@ export const SYSTEM_MODULES: SystemModule[] = [
 
 export const ROLE_PRESET_MODULES: Record<string, string[]> = {
   admin: ['*'],
-  data_analyst: ['dashboard', 'events', 'sources', 'analyze', 'processing', 'reports', 'locations'],
-  epidemiologi: ['dashboard', 'events', 'analyze', 'reports', 'locations', 'outbreak_rules', 'nlp_config'],
+  data_analyst: ['dashboard', 'events', 'sources', 'analyze', 'processing', 'reports', 'locations', 'disease_master'],
+  epidemiologi: ['dashboard', 'events', 'analyze', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
   executive: ['dashboard', 'events', 'reports', 'tv'],
   skk: ['dashboard', 'sources', 'reports', 'processing'],
   // legacy fallbacks
@@ -69,6 +70,7 @@ export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string):
   if ((moduleKeyOrPath.startsWith('/reports') || moduleKeyOrPath.startsWith('/laporan')) && user.permissions?.includes('reports')) return true;
   if (moduleKeyOrPath.startsWith('/tv') && user.permissions?.includes('tv')) return true;
   if (moduleKeyOrPath.startsWith('/locations') && user.permissions?.includes('locations')) return true;
+  if (moduleKeyOrPath.startsWith('/disease-master') && (user.permissions?.includes('disease_master') || user.permissions?.includes('locations') || user.permissions?.includes('nlp_config'))) return true;
   if (moduleKeyOrPath.startsWith('/source-credibility') && user.permissions?.includes('credibility')) return true;
   if (moduleKeyOrPath.startsWith('/outbreak-rules') && user.permissions?.includes('outbreak_rules')) return true;
   if ((moduleKeyOrPath.startsWith('/nlp-labels') || moduleKeyOrPath.startsWith('/nlp-keywords') || moduleKeyOrPath.startsWith('/language-markers') || moduleKeyOrPath.startsWith('/extraction-rules') || moduleKeyOrPath.startsWith('/language-models')) && user.permissions?.includes('nlp_config')) return true;

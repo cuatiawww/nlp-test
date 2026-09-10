@@ -77,6 +77,7 @@
       "processing": "Processing",
       "reports": "Reports & Matrix",
       "locations": "Locations",
+      "diseaseMaster": "Disease Master",
       "credibility": "Credibility",
       "outbreakRules": "Outbreak Rules",
       "nlpLabels": "NLP Labels",
@@ -589,6 +590,12 @@
       "colCountry": "Country",
       "addTitle": "Add Location",
       "editTitle": "Edit Location"
+    },
+    "diseaseMaster": {
+      "title": "Disease Master",
+      "subtitle": "WHO ICD-11 disease concepts used by the NLP pipeline",
+      "addTitle": "Add Disease Concept",
+      "editTitle": "Edit Disease Concept"
     },
     "credibility": {
       "title": "Source Credibility",

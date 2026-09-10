@@ -1,6 +1,9 @@
 ﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, Settings } from 'lucide-react'
 
+import { Stethoscope } from 'lucide-react'
+
 export type SidebarItem = {
+  // Disease master uses the same icon family as the rest of the configuration menu.
   label: string
   labelKey?: string
   icon: any
@@ -34,6 +37,7 @@ export const sidebarMenu: SidebarGroup[] = [
     titleKey: 'sidebar.sections.configuration',
     items: [
       { label: 'Locations', labelKey: 'sidebar.items.locations', icon: MapPin, href: '/locations' },
+      { label: 'Disease Master', labelKey: 'sidebar.items.diseaseMaster', icon: Stethoscope, href: '/disease-master' },
       { label: 'Credibility', labelKey: 'sidebar.items.credibility', icon: ShieldCheck, href: '/source-credibility' },
       { label: 'Outbreak Rules', labelKey: 'sidebar.items.outbreakRules', icon: AlertTriangle, href: '/outbreak-rules' },
       { label: 'NLP Labels', labelKey: 'sidebar.items.nlpLabels', icon: Tags, href: '/nlp-labels' },

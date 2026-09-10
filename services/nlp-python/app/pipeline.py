@@ -344,6 +344,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Resolve every explicit mention, including secondary diseases. The agent
     # chooses the primary disease, but WHO validation is applied to the full
     # mention set so related diseases are not lost.
+    resolved_concept_overrides = {}
     try:
         from .icd11 import resolve_disease_term
         term_resolutions = {}
@@ -354,6 +355,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         for candidate, resolved_term in term_resolutions.items():
             if resolved_term and resolved_term.get("canonical_name"):
                 canonical = resolved_term["canonical_name"]
+                resolved_concept_overrides[canonical.casefold()] = resolved_term
                 extracted = [
                     canonical if value == candidate else value
                     for value in extracted
@@ -374,6 +376,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         normalized = _norm_disease(value)
         if not normalized:
             return None
+        # A concept resolved through the live WHO API may not be in the
+        # startup cache yet. Keep that validated result attached to this
+        # article so the disease mention receives its ICD-11 code now.
+        live_concept = resolved_concept_overrides.get(normalized)
+        if live_concept and live_concept.get("ontology_code"):
+            return {
+                "canonical_name": live_concept.get("canonical_name") or value,
+                "english_name": live_concept.get("english_name") or value,
+                "ontology_code": live_concept.get("ontology_code"),
+                "ontology_uri": live_concept.get("ontology_uri"),
+                "aliases": [],
+            }
         for concept in config.WHO_DISEASE_CONCEPTS:
             names = [concept.get("canonical_name"), concept.get("english_name")]
             names.extend(
@@ -421,6 +435,26 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 resolution_source=("WHO ICD-11" if concept and concept.get("ontology_code") else "keyword/agent"),
             )
         )
+
+    if config.ICD11_CANONICAL_OUTPUT_ONLY:
+        from .icd11 import project_icd11_public_output
+
+        public_projection = project_icd11_public_output(
+            primary=disease,
+            extracted=extracted,
+            mentions=disease_mentions,
+        )
+        for index in public_projection["unresolved_indexes"]:
+            # Keep the surface form/evidence for review, but prevent an
+            # unvalidated classifier or agent label from becoming a public
+            # disease name or dashboard aggregation key.
+            disease_mentions[index].canonical_name = "UNKNOWN"
+            disease_mentions[index].role = "mentioned"
+            disease_mentions[index].resolution_source = "pending_icd11"
+        disease = public_projection["primary"]
+        extracted = public_projection["extracted"]
+        if public_projection["unresolved_indexes"]:
+            needs_review = True
 
     published_at = payload.published_at or extractors.extract_date_from_text(text)
 
