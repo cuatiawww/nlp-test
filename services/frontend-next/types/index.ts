@@ -185,6 +185,7 @@ export type IbsSummary = {
 export type AnalyzeResponse = {
   title: string;
   content: string;
+  summary?: string;
   url: string;
   published_at?: string | null;
   language: string;

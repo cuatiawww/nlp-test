@@ -17,22 +17,76 @@ from . import config
 
 
 def normalize_disease_display(disease: str, language: str = "unknown", text: str = "") -> str:
-    """Normalize raw/zero-shot disease labels to clean clinical/display terms."""
+    """Normalize model/database labels to one stable disease display name.
+
+    Classifier labels are legacy strings (for example ``coronavirus MERS``)
+    while the disease master contains reviewed ICD-11 names.  This function is
+    deliberately deterministic and conservative: taxonomy words such as
+    ``Viral`` are not diseases and therefore become ``UNKNOWN``.
+    """
     raw = (disease or "").strip()
-    lower = raw.lower()
-    text_lower = (text or "").lower()
+    if not raw:
+        return "UNKNOWN"
 
-    # Campak / Measles
-    if "campak" in lower or "measles" in lower or lower == "measles campak":
-        if language in ("id", "ms") or "campak" in text_lower or not language or language == "unknown":
-            return "Campak"
-        return "Measles"
+    key = re.sub(r"[^a-z0-9]+", " ", strip_diacritics(raw).lower()).strip()
+    key = re.sub(r"\s+", " ", key)
+    generic_terms = {
+        "viral", "virus", "bacterial", "bacteria", "infection",
+        "infectious disease", "penyakit menular", "unknown", "unknown disease",
+    }
+    if key in generic_terms or (key and set(key.split()) <= generic_terms):
+        return "UNKNOWN"
 
-    return raw
+    # Reviewed display names. Keep aliases below in one place so old model
+    # labels and multilingual keyword targets converge before persistence.
+    canonical_aliases = {
+        "covid": "COVID-19",
+        "covid 19": "COVID-19",
+        "covid19": "COVID-19",
+        "covid 19 coronavirus": "COVID-19",
+        "covid coronavirus": "COVID-19",
+        "coronavirus": "COVID-19",
+        "coronavirus mers": "Middle East Respiratory Syndrome (MERS)",
+        "mers": "Middle East Respiratory Syndrome (MERS)",
+        "mers cov": "Middle East Respiratory Syndrome (MERS)",
+        "middle east respiratory syndrome": "Middle East Respiratory Syndrome (MERS)",
+        "middle east respiratory syndrome mers": "Middle East Respiratory Syndrome (MERS)",
+        "dengue": "Dengue",
+        "dengue fever dbd": "Dengue",
+        "dbd": "Dengue",
+        "demam berdarah": "Dengue",
+        "acute diarrhea": "Acute diarrhea",
+        "diare akut": "Acute diarrhea",
+        "influenza": "Influenza, virus not identified",
+        "influenza flu": "Influenza, virus not identified",
+        "flu": "Influenza, virus not identified",
+        "tuberculosis": "Tuberculosis",
+        "tuberculosis tb": "Tuberculosis",
+        "tbc": "Tuberculosis",
+        "campak": "Measles",
+        "measles": "Measles",
+        "measles campak": "Measles",
+    }
+    return canonical_aliases.get(key, raw)
+
+def repair_mojibake(text: str) -> str:
+    """Repair UTF-8 bytes that were accidentally decoded as Latin-1."""
+    if not text:
+        return text
+    markers = ("Ã", "Â", "Ä", "Æ", "á»", "áº", "â", "ð")
+    before = sum(text.count(marker) for marker in markers)
+    if before == 0:
+        return text
+    try:
+        candidate = text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    after = sum(candidate.count(marker) for marker in markers)
+    return candidate if after < before else text
 
 
 def normalize_text(text: str) -> str:
-    text = text.lower()
+    text = repair_mojibake(text or "").lower()
     text = re.sub(r"[^\w\s\-/:\.\+%#@]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -157,6 +211,19 @@ COUNTRY_ALIASES = {
     "south africa": "South Africa",
     "egypt": "Egypt",
     "saudi arabia": "Saudi Arabia",
+}
+
+# Publisher shorthand is common in Vietnamese news headlines. Keep these
+# aliases local and deterministic so a title such as "TP.HCM" resolves to the
+# gazetteer city instead of falling back to the country only.
+LOCATION_ALIASES = {
+    "tp.hcm": "Ho Chi Minh City",
+    "tp hcm": "Ho Chi Minh City",
+    "tphcm": "Ho Chi Minh City",
+    "hồ chí minh": "Ho Chi Minh City",
+    "ho chi minh": "Ho Chi Minh City",
+    "thành phố hồ chí minh": "Ho Chi Minh City",
+    "thanh pho ho chi minh": "Ho Chi Minh City",
 }
 
 
@@ -296,7 +363,17 @@ def canonicalize_who_disease_labels(labels: list[str], concepts: list[dict]) -> 
     return sorted(set(matched))
 
 
+def canonical_disease_name(disease: str, concepts: Optional[list[dict]] = None) -> str:
+    """Return the active ICD-11 master name for a legacy/model label."""
+    normalized = normalize_disease_display(disease)
+    if normalized == "UNKNOWN":
+        return normalized
+    active_concepts = config.WHO_DISEASE_CONCEPTS if concepts is None else concepts
+    matched = canonicalize_who_disease_labels([normalized], active_concepts)
+    return matched[0] if matched else normalized
+
 def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
+    text = repair_mojibake(text or "")
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
     hits: list[tuple[str, int]] = []
@@ -310,6 +387,16 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
         # A country hint is a restriction, not permission to select a similarly
         # named place from another country (e.g. Sudan, Indonesia).
         return None
+
+    # Resolve curated publisher abbreviations before matching the generic
+    # gazetteer regex. The canonical target still has to exist in the loaded
+    # location table and match the country restriction.
+    for alias, canonical in LOCATION_ALIASES.items():
+        if canonical not in allowed_names:
+            continue
+        for match in re.finditer(re.escape(alias), compact_text, re.IGNORECASE):
+            hits.append((canonical, match.start()))
+
     folded_names = {
         _fold_location_text(name): name
         for name in config.LOCATION_COORDS
@@ -352,6 +439,10 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
     )
     counts = Counter(loc for loc, _ in hits)
     scored: dict[str, float] = {}
+    alias_names = {loc for loc, _ in hits if any(
+        canonical == loc and re.search(re.escape(alias), compact_text, re.IGNORECASE)
+        for alias, canonical in LOCATION_ALIASES.items()
+    )}
 
     for loc, pos in hits:
         if loc not in scored:
@@ -360,6 +451,10 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
                 score += 4.0
             if " " in loc or len(loc) > 6:
                 score += 1.0
+            if loc in alias_names:
+                # Publisher abbreviations in a headline are much stronger
+                # evidence than accidental one-word gazetteer matches.
+                score += 20.0
             if contextual.search(lower_text[max(0, pos - 80):pos]):
                 score -= 5.0
             scored[loc] = score
@@ -378,6 +473,7 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
 
 def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict]:
     """Extract all distinct valid locations mentioned in the text with coordinates."""
+    text = repair_mojibake(text or "")
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
     hits: list[tuple[str, int]] = []
@@ -389,6 +485,13 @@ def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict
     }
     if country and not allowed_names:
         return []
+
+    for alias, canonical in LOCATION_ALIASES.items():
+        if canonical not in allowed_names:
+            continue
+        for match in re.finditer(re.escape(alias), compact_text, re.IGNORECASE):
+            hits.append((canonical, match.start()))
+
     folded_names = {
         _fold_location_text(name): name
         for name in config.LOCATION_COORDS
@@ -443,6 +546,8 @@ def is_policy_or_statistical_health_content(text: str) -> bool:
         "rencana aksi", "strategi", "kebijakan", "program", "inovasi",
         "wolbachia", "vaksinasi", "vaksin", "deteksi dini", "deteksi lebih kuat",
         "surveilans", "pencegahan", "prevention", "policy", "strategy",
+        "conference", "congress", "hội nghị", "dự phòng", "phòng ngừa",
+        "tầm soát", "cộng đồng", "mô hình", "chương trình",
         "national action plan", "asean dengue day", "zero death",
         "secara nasional", "nasional", "regional", "global", "world",
         "cumulative", "kumulatif", "as of", "per mei", "since january",
@@ -656,6 +761,14 @@ def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
 
 
 DISEASE_ALIASES = {
+    "stroke": "Stroke",
+    "cerebrovascular accident": "Stroke",
+    "cerebrovascular disease": "Stroke",
+    "penyakit stroke": "Stroke",
+    "penyakit serebrovaskular": "Stroke",
+    "đột quỵ": "Stroke",
+    "dot quy": "Stroke",
+    "đột quị": "Stroke",
     "hfmd": "HFMD",
     "hand, foot and mouth disease": "HFMD",
     "hand foot and mouth disease": "HFMD",

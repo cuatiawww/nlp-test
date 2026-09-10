@@ -171,7 +171,7 @@ export default function DiseaseDirectory() {
         <section className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 shadow-sm">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <p>
-            New disease concepts should use the canonical ICD-11 name and code. Existing database records are displayed as-is; no legacy data has been migrated or renamed.
+            Disease names use the reviewed ICD-11 master. Legacy spellings remain available as aliases for matching and audit, while new dashboard output uses the canonical display name.
           </p>
         </section>
 

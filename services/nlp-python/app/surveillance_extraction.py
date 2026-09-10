@@ -695,6 +695,7 @@ def _disease_labels(text: str, diseases: Optional[list[str]] = None) -> list[str
         (r"\b(?:malaria)\b", "Malaria"),
         (r"\b(?:measles|campak)\b", "Measles"),
         (r"\b(?:cholera|kolera)\b", "Cholera"),
+        (r"\b(?:stroke|cerebrovascular\s+(?:accident|disease))\b|\b(?:đột\s+quỵ|dot\s+quy)\b", "Stroke"),
     )
     for pattern, label in common_terms:
         if re.search(pattern, text or "", re.IGNORECASE):
@@ -702,13 +703,15 @@ def _disease_labels(text: str, diseases: Optional[list[str]] = None) -> list[str
     aliases = {
         "dbd": "Dengue", "demam berdarah": "Dengue", "coronavirus": "COVID-19",
         "covid": "COVID-19", "bird flu": "Avian influenza", "influenza": "Influenza",
+        "đột quỵ": "Stroke", "dot quy": "Stroke",
     }
     normalized = []
     for value in values:
         label = str(value).strip()
         if not label or label.upper() == "UNKNOWN":
             continue
-        normalized.append(aliases.get(label.casefold(), label))
+        normalized_label = aliases.get(label.casefold(), label)
+        normalized.append(extractors.canonical_disease_name(normalized_label))
     result = list(dict.fromkeys(normalized))
     # A named strain/subclade is more useful and more precise than a second
     # generic "Influenza" label for the same article.

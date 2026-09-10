@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 class SubmitJob(BaseModel):
     url: str
+    force_refresh: bool = False
 
 def connection():
     import psycopg
@@ -38,8 +39,8 @@ def submit(payload: SubmitJob):
         ).fetchone()
         if row is None:
             row = conn.execute(
-                "INSERT INTO analysis_jobs(url) VALUES (%s) RETURNING id, status",
-                (url,),
+                "INSERT INTO analysis_jobs(url, force_refresh) VALUES (%s, %s) RETURNING id, status",
+                (url, payload.force_refresh),
             ).fetchone()
     # The table is also an outbox: the worker dispatches queued rows to RabbitMQ.
     # DB commit before queue publication means jobs survive broker downtime.

@@ -3,11 +3,23 @@ import json
 import logging
 import os
 import time
+from decimal import Decimal
 from urllib.parse import urlparse
 
 from .entity_relations import disease_relation_rows, location_relation_rows
 
 logger = logging.getLogger(__name__)
+
+
+def _json_safe(value):
+    """Convert PostgreSQL numeric values into JSON-compatible primitives."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 QUEUE = "disease.analysis-url"
 NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "240"))
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
@@ -135,9 +147,15 @@ def analyze_article(extracted, fallback=False):
     return response.json()
 def save_completed(conn, job_id, result):
     """Add a new version without deleting any existing report or event."""
-    row = conn.execute("INSERT INTO raw_reports(source_type,source_name,published_at,original_text,url,object_path,processing_status) "
-        "VALUES ('web','URL Analyzer',%s,%s,%s,%s,'PROCESSED') RETURNING id",
-        (result.get("published_at") or None, result.get("content", ""), result["url"], result.get("object_path"))).fetchone()
+    row = conn.execute("INSERT INTO raw_reports(source_type,source_name,published_at,original_text,summary,url,object_path,processing_status) "
+        "VALUES ('web','URL Analyzer',%s,%s,%s,%s,%s,'PROCESSED') RETURNING id",
+        (
+            result.get("published_at") or None,
+            result.get("content", ""),
+            result.get("summary") or None,
+            result["url"],
+            result.get("object_path"),
+        )).fetchone()
     from psycopg.types.json import Jsonb
     event = conn.execute(
         """INSERT INTO disease_events(raw_report_id,source_type,source_name,published_at,original_text,
@@ -273,6 +291,7 @@ def process_job(job_id):
             cached_report = lock_conn.execute(
                 """SELECT rr.id AS raw_report_id,
                           rr.original_text AS raw_original_text,
+                          rr.summary AS raw_summary,
                           rr.published_at AS raw_published_at,
                           rr.processing_status AS raw_processing_status,
                           de.id AS event_id,
@@ -312,7 +331,7 @@ def process_job(job_id):
                 (row["url"],),
             ).fetchone()
 
-            if cached_report:
+            if cached_report and not row.get("force_refresh", False):
                 has_cached_event = cached_report.get("event_id") is not None
                 logger.info(
                     "URL %s found in DB cache, completing job %s immediately (event=%s)",
@@ -330,9 +349,10 @@ def process_job(job_id):
                 else:
                     cached_title, cached_content = "", original_text
 
-                res = {
+                res = _json_safe({
                     "title": cached_title,
                     "content": cached_content,
+                    "summary": cached_report.get("raw_summary") or "",
                     "url": row["url"],
                     "published_at": str(
                         cached_report.get("event_published_at")
@@ -361,7 +381,13 @@ def process_job(job_id):
                     "event_id": str(cached_report["event_id"]) if has_cached_event else None,
                     "cached": True,
                     "source": "database",
-                }
+                })
+                # psycopg JSON adaptation must receive only stdlib JSON
+                # primitives, including values nested in database JSONB.
+                res = json.loads(json.dumps(
+                    res,
+                    default=lambda value: float(value) if isinstance(value, Decimal) else str(value),
+                ))
                 lock_conn.execute(
                     """UPDATE analysis_jobs
                        SET status=%s, stage='finished', event_id=%s, result=%s,

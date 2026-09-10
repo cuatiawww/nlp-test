@@ -101,14 +101,30 @@ class FetchOutcome:
     mode: str
 
 
+def _repair_mojibake(text: str) -> str:
+    """Repair UTF-8 HTML accidentally decoded as Latin-1/Windows-1252."""
+    if not text:
+        return text
+    markers = ("Ã", "Â", "Ä", "Æ", "á»", "áº", "â", "ð")
+    before = sum(text.count(marker) for marker in markers)
+    if before == 0:
+        return text
+    try:
+        candidate = text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    after = sum(candidate.count(marker) for marker in markers)
+    return candidate if after < before else text
+
+
 def _response_html(page: Any) -> str:
     html = getattr(page, "html_content", "")
     if html:
-        return str(html)
+        return _repair_mojibake(str(html))
     body = getattr(page, "body", b"")
     if isinstance(body, bytes):
-        return body.decode("utf-8", errors="replace")
-    return str(body or "")
+        return _repair_mojibake(body.decode("utf-8", errors="replace"))
+    return _repair_mojibake(str(body or ""))
 
 
 def _normalize_url(url: str) -> str:

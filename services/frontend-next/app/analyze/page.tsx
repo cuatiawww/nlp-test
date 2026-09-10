@@ -231,14 +231,14 @@ export default function AnalyzePage() {
                   </a>
                 </div>
 
-                {result.content && (
+                {(result.summary || result.content) && (
                   <div className="mt-4 rounded-lg bg-slate-50 p-4 border border-slate-200/80">
                     <div className="flex items-center gap-1.5 mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">
                       <FileText className="h-3.5 w-3.5 text-[#0060A9]" />
                       <span>{t('pages.analyze.articleDescription')}</span>
                     </div>
                     <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line line-clamp-4 hover:line-clamp-none transition-all cursor-pointer" title="Click to view full news article excerpt">
-                      {result.content}
+                      {result.summary || result.content}
                     </p>
                   </div>
                 )}

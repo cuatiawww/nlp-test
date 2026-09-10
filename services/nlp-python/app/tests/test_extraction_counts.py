@@ -17,6 +17,7 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
             "Jakarta": (-6.2088, 106.8456),
             "Semarang": (-6.9667, 110.4167),
             "Bima": (-8.4606, 118.7272),
+            "Ho Chi Minh City": (10.8231, 106.6297),
         }
         config.LOCATION_COUNTRIES = {
             "Kuala Lumpur": "Malaysia",
@@ -27,6 +28,7 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
             "Jakarta": "Indonesia",
             "Semarang": "Indonesia",
             "Bima": "Indonesia",
+            "Ho Chi Minh City": "Vietnam",
         }
         config.build_location_patterns()
 
@@ -59,6 +61,30 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         )
         loc = extractors.extract_location(text)
         self.assertEqual(loc, "Selangor")
+
+    def test_vietnamese_city_alias_resolves_to_gazetteer_city(self):
+        text = "Hội nghị Đột quỵ TP.HCM 2026 diễn ra tại TP.HCM, Việt Nam."
+        self.assertEqual(extractors.extract_location(text, country="Vietnam"), "Ho Chi Minh City")
+
+    def test_mojibake_is_repaired_before_entity_matching(self):
+        text = "Há»i nghá» Äá»t quá»µ TP.HCM 2026"
+        repaired = extractors.repair_mojibake(text)
+        self.assertIn("Đột quỵ", repaired)
+        self.assertEqual(extractors.extract_location(text, country="Vietnam"), "Ho Chi Minh City")
+
+    def test_stroke_alias_is_detected_without_rabies_false_positive(self):
+        text = "Hội nghị Đột quỵ TP.HCM 2026 membahas pencegahan stroke."
+        self.assertIn("Stroke", extractors.extract_alias_diseases(text))
+        self.assertNotIn("rabies", [value.lower() for value in extractors.extract_alias_diseases(text)])
+
+    def test_disease_display_aliases_use_canonical_names(self):
+        self.assertEqual(
+            extractors.normalize_disease_display("coronavirus MERS"),
+            "Middle East Respiratory Syndrome (MERS)",
+        )
+        self.assertEqual(extractors.normalize_disease_display("COVID19"), "COVID-19")
+        self.assertEqual(extractors.normalize_disease_display("dengue fever DBD"), "Dengue")
+        self.assertEqual(extractors.normalize_disease_display("Viral Viral"), "UNKNOWN")
 
 
     def test_extract_decimal_case_count_with_multiplier_million(self):

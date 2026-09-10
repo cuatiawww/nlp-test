@@ -66,6 +66,7 @@ const TEMPLATE_EVENT = {
     meninggal: 0,
     luka_berat: 0,
     luka_ringan: 0,
+    luka: 0,
     hilang: 0,
     penduduk_terdampak: 0,
     lokasi: [],

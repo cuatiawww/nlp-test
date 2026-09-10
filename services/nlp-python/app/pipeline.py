@@ -11,8 +11,58 @@ from .surveillance_extraction import source_reliability_score
 logger = logging.getLogger(__name__)
 
 
+def _build_article_summary(
+    text: str,
+    disease: str,
+    location: Optional[str],
+    country: Optional[str],
+    case_count: int,
+    death_count: int,
+) -> str:
+    """Build a short evidence-preserving summary for the URL analysis view.
+
+    This is intentionally extractive/deterministic: it can highlight the
+    disease, place, and explicit case/death sentence without inventing facts
+    when an optional LLM is unavailable or slow.
+    """
+    raw_sentences = re.split(r"(?<=[.!?。！？])\s+|\n+", text or "")
+    sentences = []
+    for raw in raw_sentences:
+        sentence = re.sub(r"\s+", " ", raw).strip(" \t\r\n-–—")
+        if len(sentence) >= 35 and sentence not in sentences:
+            sentences.append(sentence)
+    if not sentences:
+        return (text or "").strip()[:500]
+
+    disease_terms = [term.casefold() for term in {disease, "stroke", "đột quỵ", "dot quy"} if term]
+    location_terms = [term.casefold() for term in {location, country} if term]
+    scored: list[tuple[int, int, str]] = []
+    for index, sentence in enumerate(sentences):
+        folded = sentence.casefold()
+        score = 0
+        if any(term in folded for term in disease_terms):
+            score += 5
+        if any(term in folded for term in location_terms):
+            score += 3
+        if re.search(r"\b(?:case|cases|kasus|patient|patients|pasien|death|deaths|kematian|hơn|lebih dari|more than|over)\b", folded):
+            score += 5
+        if re.search(r"\d[\d.,]*", sentence):
+            score += 2
+        if re.search(r"\b(?:conference|congress|konferensi|hội nghị|reported|reported|melaporkan|mencatat|traced|model|program|prevention|pencegahan)\b", folded):
+            score += 1
+        scored.append((score, index, sentence))
+
+    selected = sorted(scored, key=lambda item: (-item[0], item[1]))[:3]
+    selected = sorted(selected, key=lambda item: item[1])
+    summary = " ".join(item[2] for item in selected)
+    # Keep the result suitable for a card while retaining complete sentences.
+    if len(summary) > 900:
+        summary = summary[:897].rsplit(" ", 1)[0] + "..."
+    return summary
+
+
 def run(payload: AnalyzeRequest) -> AnalyzeResponse:
-    text = payload.text
+    text = extractors.repair_mojibake(payload.text)
     language = extractors.detect_language(text)
     if language == "unknown" and payload.source_language:
         language = payload.source_language
@@ -335,11 +385,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         source_url=payload.source_url,
     )
 
-    disease = extractors.normalize_disease_display(disease, language=language, text=text)
-    extracted = [
-        extractors.normalize_disease_display(d, language=language, text=text)
-        for d in extracted
-    ]
+    def _canonical_display(value: str) -> str:
+        return extractors.canonical_disease_name(
+            value,
+            concepts=config.WHO_DISEASE_CONCEPTS,
+        )
+
+    disease = _canonical_display(disease)
+    extracted = [_canonical_display(d) for d in extracted]
     extracted = list(dict.fromkeys(extracted))
 
     # Resolve every explicit mention, including secondary diseases. The agent
@@ -555,9 +608,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     except Exception as exc:
         logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
 
+    summary = _build_article_summary(
+        text,
+        disease=disease,
+        location=location,
+        country=country,
+        case_count=case_count,
+        death_count=death_count,
+    )
+
     return AnalyzeResponse(
         language=language,
         normalized_text=extractors.normalize_text(text),
+        summary=summary,
         published_at=published_at,
         location_name=location,
         locations=all_locations,

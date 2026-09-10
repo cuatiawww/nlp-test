@@ -47,6 +47,7 @@ class SubEvent(BaseModel):
 class AnalyzeResponse(BaseModel):
     language: str
     normalized_text: str
+    summary: str = ""
     published_at: Optional[str] = None
     location_name: Optional[str]
     latitude: Optional[float]

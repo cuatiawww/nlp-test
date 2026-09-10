@@ -407,12 +407,13 @@ export const fetchEbsSummary = (filters?: { year?: number; province?: string }) 
 
 export const analyzeUrl = async (url: string) => {
   const { waitForAnalysis } = await import("./analysis-job.mjs");
-  // Interactive analysis must re-run after an NLP rule/model deployment;
-  // otherwise the backend returns the prior URL result from its cache.
+  // Interactive URL analysis must use the dedicated async worker. The old
+  // synchronous/force-refresh flags made the browser wait for crawling and
+  // NLP in the API request, which caused 504s and defeated URL caching.
   const initial = await postTo<any>("/api/v1/analyze-url", {
     url,
-    async: false,
-    force_refresh: true,
+    async: true,
+    force_refresh: false,
   });
   return waitForAnalysis(initial, async (id: string) => {
     const res = await fetch(baseURL() + "/api/v1/analysis-jobs/" + encodeURIComponent(id),
