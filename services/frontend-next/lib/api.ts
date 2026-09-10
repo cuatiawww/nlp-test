@@ -6,6 +6,7 @@
   PublicDashboard,
   DiseaseEvent,
   IbsSummary,
+  CrawlJobStatus,
 } from "@/types";
 
 // Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
@@ -247,6 +248,25 @@ export const updateDiseaseConcept = (id: string, data: Partial<DiseaseConcept>) 
   putTo<DiseaseConcept>(`/api/v1/disease-concepts/${id}`, data);
 export const deleteDiseaseConcept = (id: string) =>
   delFrom(`/api/v1/disease-concepts/${id}`);
+
+// ── Filtered crawling matrix ─────────────────────
+
+export type CrawlJobRequest = {
+  disease_concept_ids: string[];
+  region?: string | null;
+  country?: string | null;
+  province_city?: string | null;
+  date_from?: string | null;
+  date_to?: string | null;
+  max_articles?: number;
+};
+
+export const createCrawlJob = (data: CrawlJobRequest) =>
+  postTo<{ job_id: string; status: string }>('/api/v1/crawl-jobs', data);
+export const fetchCrawlJob = (id: string) =>
+  fetchFrom<CrawlJobStatus>(`/api/v1/crawl-jobs/${encodeURIComponent(id)}`);
+export const reprocessCrawlJob = (id: string) =>
+  postTo<{ job_id: string; status: string }>(`/api/v1/crawl-jobs/${encodeURIComponent(id)}/reprocess`);
 
 // ── Source Credibility ──────────────────────────
 

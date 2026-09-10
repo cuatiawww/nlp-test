@@ -68,6 +68,10 @@ def analyze_bounded(payload: BoundedRequest):
             logger.warning("Inference stage failed: %s", exc)
             raise HTTPException(503, f"NLP stage exceeded budget or failed: {exc}")
         result["stage_warnings"] = warnings
+        # Interactive/raw consumers are factual extraction clients. Alert and
+        # severity decisions are deprecated and must not leak into this API.
+        result.pop("outbreak_alert", None)
+        result.pop("severity", None)
         return result
     finally:
         slots.release()

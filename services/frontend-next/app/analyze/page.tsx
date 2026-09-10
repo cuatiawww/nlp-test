@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { analyzeUrl } from '@/lib/api'
+import CrawlMatrixPanel from '@/components/CrawlMatrixPanel'
 import AnalyzeResultCard from '@/components/AnalyzeResultCard'
 import Modal from '@/components/Modal'
 import AseanMap from '@/components/AseanMap'
@@ -10,7 +11,7 @@ import type { AnalyzeResponse } from '@/types'
 import { toast } from 'sonner'
 import {
   Search, Globe, MapPin, Bug, Activity, Heart, MessageSquare,
-  AlertTriangle, Shield, Languages, Users, Skull, TrendingUp,
+  Shield, Languages, Users, Skull, TrendingUp,
   FileText, ExternalLink, Layers, CheckCircle, Loader2, Calendar
 } from 'lucide-react'
 
@@ -74,6 +75,7 @@ export default function AnalyzePage() {
   const [error, setError] = useState('')
   const [partial, setPartial] = useState<{content?: string; job_id?: string} | null>(null)
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
+  const [mode, setMode] = useState<'url' | 'crawl'>('crawl')
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -109,12 +111,6 @@ export default function AnalyzePage() {
     if (!s || s.toLowerCase() === 'low') return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">{t('relevance.low')}</span>
     if (s.toLowerCase() === 'high') return <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">{t('relevance.high')}</span>
     return <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-600">{t('relevance.medium')}</span>
-  }
-
-  function alertBadge(alert: boolean) {
-    return alert
-      ? <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-600">🔴 {t('common.yes')}</span>
-      : <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">{t('common.no')}</span>
   }
 
   function healthBadge(h?: boolean | null) {
@@ -159,6 +155,13 @@ export default function AnalyzePage() {
           <p className="mt-1 text-sm text-slate-500">{t('pages.analyze.subtitle')}</p>
         </div>
       </div>
+
+      <div className="mt-4 inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+        <button onClick={() => setMode('crawl')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${mode === 'crawl' ? 'bg-[#0060A9] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>Crawling Matriks</button>
+        <button onClick={() => setMode('url')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${mode === 'url' ? 'bg-[#0060A9] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>Analisis URL</button>
+      </div>
+
+      {mode === 'crawl' ? <CrawlMatrixPanel /> : <>
 
       <div className="mt-4 flex gap-3">
         <div className="relative flex-1">
@@ -371,13 +374,6 @@ export default function AnalyzePage() {
               label={t('pages.analyze.healthRelevance')}
               value={relevanceBadge(result.relevance_score)}
               source={getSource('relevance_score', result.sources?.relevance_score)}
-            />
-
-            <AnalyzeResultCard
-              icon={<AlertTriangle className="h-4 w-4" />}
-              label={t('pages.analyze.outbreakAlert')}
-              value={alertBadge(result.outbreak_alert)}
-              source={getSource('outbreak_alert', result.sources?.outbreak_alert)}
             />
 
             <AnalyzeResultCard
@@ -730,6 +726,7 @@ export default function AnalyzePage() {
           </Modal>
         </div>
       )}
+      </>}
     </div>
   )
 }

@@ -239,3 +239,44 @@ export type AnalyzeResponse = {
   }[];
   sources: Record<string, string>;
 };
+
+export type CrawlMatrixRow = {
+  id: string;
+  disease_name: string;
+  icd11_code?: string | null;
+  crawling_date?: string | null;
+  region?: string | null;
+  country: string;
+  province_city_case?: string | null;
+  article_date?: string | null;
+  date_case?: string | null;
+  number_of_cases: number;
+  number_of_deaths: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  source_type?: string | null;
+  source_name?: string | null;
+  source_url?: string | null;
+  article_title?: string | null;
+  evidence?: string | null;
+  confidence?: number | null;
+  processing_status?: string | null;
+  raw_report_id?: string | null;
+  reprocessed_at?: string | null;
+};
+
+export type CrawlJobStatus = {
+  job_id: string;
+  status: 'queued' | 'processing' | 'completed' | 'partial' | 'failed' | string;
+  disease_names: string[];
+  region?: string | null;
+  country?: string | null;
+  discovered_count: number;
+  processed_count: number;
+  row_count: number;
+  warnings?: string[];
+  error?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  rows: CrawlMatrixRow[];
+};

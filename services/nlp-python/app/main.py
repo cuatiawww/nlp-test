@@ -84,7 +84,11 @@ def analyze(payload: AnalyzeRequest):
         )
 
 
-@app.post("/nlp/analyze/raw", response_model=AnalyzeResponse)
+@app.post(
+    "/nlp/analyze/raw",
+    response_model=AnalyzeResponse,
+    response_model_exclude={"outbreak_alert"},
+)
 def analyze_raw(payload: AnalyzeRequest):
     """Dedicated endpoint for raw news/unstructured text analysis."""
     try:

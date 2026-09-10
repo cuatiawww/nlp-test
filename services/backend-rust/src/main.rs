@@ -670,6 +670,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/ingest/skdr", post(ingest_skdr))
         .route("/api/v1/analyze-url", post(analyze_url))
         .route("/api/v1/analysis-jobs/:id", get(analysis_job_status))
+        .route("/api/v1/crawl-jobs", post(create_crawl_job))
+        .route("/api/v1/crawl-jobs/:id", get(crawl_job_status))
+        .route("/api/v1/crawl-jobs/:id/reprocess", post(reprocess_crawl_job))
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/events/stats", get(dashboard_stats))
         .route(
@@ -1259,6 +1262,53 @@ async fn analysis_job_status(
     Ok(Json(body))
 }
 
+async fn create_crawl_job(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let response = state.http
+        .post(format!("{}/crawl-jobs", state.collector_url))
+        .json(&payload)
+        .timeout(Duration::from_secs(8))
+        .send().await.map_err(internal_error)?;
+    let status = response.status();
+    let body: Value = response.json().await.map_err(internal_error)?;
+    if !status.is_success() {
+        return Err((StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), Json(body)));
+    }
+    Ok(Json(body))
+}
+
+async fn crawl_job_status(
+    State(state): State<Arc<AppState>>, Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let response = state.http
+        .get(format!("{}/crawl-jobs/{}", state.collector_url, id))
+        .timeout(Duration::from_secs(8))
+        .send().await.map_err(internal_error)?;
+    let status = response.status();
+    let body: Value = response.json().await.map_err(internal_error)?;
+    if !status.is_success() {
+        return Err((StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), Json(body)));
+    }
+    Ok(Json(body))
+}
+
+async fn reprocess_crawl_job(
+    State(state): State<Arc<AppState>>, Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let response = state.http
+        .post(format!("{}/crawl-jobs/{}/reprocess", state.collector_url, id))
+        .timeout(Duration::from_secs(8))
+        .send().await.map_err(internal_error)?;
+    let status = response.status();
+    let body: Value = response.json().await.map_err(internal_error)?;
+    if !status.is_success() {
+        return Err((StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY), Json(body)));
+    }
+    Ok(Json(body))
+}
+
 async fn analyze_url(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AnalyzeUrlRequest>,
@@ -1351,7 +1401,6 @@ async fn analyze_url(
         sources.insert("case_count".to_string(), json!(cached_msg));
         sources.insert("death_count".to_string(), json!(cached_msg));
         sources.insert("confidence".to_string(), json!(cached_msg));
-        sources.insert("outbreak_alert".to_string(), json!(cached_msg));
         sources.insert("sentiment".to_string(), json!(cached_msg));
         sources.insert("event_type".to_string(), json!(cached_msg));
         sources.insert("relevance_score".to_string(), json!(cached_msg));
@@ -1401,7 +1450,6 @@ async fn analyze_url(
                 "case_count": row.get::<_, i32>("case_count"),
                 "death_count": row.get::<_, i32>("death_count"),
                 "confidence": row.get::<_, f64>("confidence"),
-                "outbreak_alert": row.get::<_, bool>("outbreak_alert"),
                 "sentiment": row.get::<_, Option<String>>("sentiment"),
                 "sentiment_score": Value::Null,
                 "event_type": row.get::<_, Option<String>>("event_type"),
@@ -1878,7 +1926,6 @@ async fn analyze_url(
     sources.insert("case_count".to_string(), json!("Extracted using regex patterns: numeric count followed by terms like 'cases', 'patients', or 'residents'"));
     sources.insert("death_count".to_string(), json!("Extracted using regex patterns: numeric count followed by terms like 'deaths' or 'fatalities'"));
     sources.insert("confidence".to_string(), json!("Confidence score from the AI classification model — higher indicates higher certainty"));
-    sources.insert("outbreak_alert".to_string(), json!("Determined by comparing case count against the minimum threshold in Outbreak Rules database for the respective disease"));
     sources.insert("sentiment".to_string(), json!("Classified by XLM-RoBERTa AI model with sentiment labels: positive, negative, or neutral"));
     sources.insert("event_type".to_string(), json!("Classified by XLM-RoBERTa AI model with event type labels from NLP Labels database ('event_type' category)"));
     sources.insert("relevance_score".to_string(), json!("Classified by XLM-RoBERTa AI model whether text is health-related or not"));
@@ -1911,7 +1958,6 @@ async fn analyze_url(
             "case_count": nlp.case_count,
             "death_count": nlp.death_count,
             "confidence": nlp.confidence,
-            "outbreak_alert": nlp.outbreak_alert,
             "sentiment": nlp.sentiment,
             "sentiment_score": nlp.sentiment_score,
             "event_type": nlp.event_type,
