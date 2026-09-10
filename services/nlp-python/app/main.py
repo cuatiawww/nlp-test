@@ -119,7 +119,9 @@ def analyze_url_endpoint(payload: AnalyzeRequest):
     """Dedicated endpoint for on-demand interactive URL analysis."""
     from .bounded_analysis import analyze_bounded, BoundedRequest
     try:
-        bounded_req = BoundedRequest(**payload.model_dump(), rules_only=False)
+        # Keep the URL endpoint isolated from the bulk pipeline while still
+        # allowing the worker's bounded rules-only fallback after an NLP error.
+        bounded_req = BoundedRequest(**payload.model_dump())
         return analyze_bounded(bounded_req)
     except HTTPException:
         raise

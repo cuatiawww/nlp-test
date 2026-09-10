@@ -296,8 +296,8 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        logger.warning("Call to %s failed (%s), attempting fallback to /nlp/analyze", url, e)
-        fallback_url = f"{NLP_SERVICE_URL}/nlp/analyze"
+        logger.warning("Call to %s failed (%s), retrying the dedicated raw endpoint", url, e)
+        fallback_url = f"{NLP_SERVICE_URL}/nlp/analyze/raw"
         resp = requests.post(fallback_url, json=payload, timeout=120)
         resp.raise_for_status()
         return resp.json()

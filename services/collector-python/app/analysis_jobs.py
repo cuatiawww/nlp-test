@@ -21,15 +21,29 @@ def connection():
 
 @router.post("/analysis-jobs")
 def submit(payload: SubmitJob):
-    parsed = urlparse(payload.url.strip())
+    url = payload.url.strip()
+    parsed = urlparse(url)
     if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username:
         raise HTTPException(400, "A valid HTTP(S) article URL is required")
     with connection() as conn:
-        row = conn.execute("INSERT INTO analysis_jobs(url) VALUES (%s) RETURNING id",
-                           (payload.url.strip(),)).fetchone()
+        # Serialize submissions for the same URL. This prevents two clicks or
+        # two clients arriving together from creating duplicate live crawls.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (url,))
+        row = conn.execute(
+            """SELECT id, status FROM analysis_jobs
+               WHERE url=%s AND status IN ('queued', 'processing')
+               ORDER BY created_at ASC
+               LIMIT 1""",
+            (url,),
+        ).fetchone()
+        if row is None:
+            row = conn.execute(
+                "INSERT INTO analysis_jobs(url) VALUES (%s) RETURNING id, status",
+                (url,),
+            ).fetchone()
     # The table is also an outbox: the worker dispatches queued rows to RabbitMQ.
     # DB commit before queue publication means jobs survive broker downtime.
-    return {"success": True, "data": {"job_id": str(row["id"]), "status": "queued"}}
+    return {"success": True, "data": {"job_id": str(row["id"]), "status": row["status"]}}
 
 @router.get("/analysis-jobs/{job_id}")
 def status(job_id: uuid.UUID):

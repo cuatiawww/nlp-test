@@ -811,7 +811,7 @@ async fn ingest(
         })),
         Err(e) => {
             tracing::warn!("RabbitMQ unavailable, processing synchronously: {:?}", e);
-            let nlp_url = format!("{}/nlp/analyze", state.nlp_service_url.trim_end_matches('/'));
+            let nlp_url = format!("{}/nlp/analyze/raw", state.nlp_service_url.trim_end_matches('/'));
             let nlp: NlpResponse = state
                 .http
                 .post(nlp_url)
@@ -1420,7 +1420,13 @@ async fn analyze_url(
         }))
     }
 
-    if payload.asynchronous && env::var("ANALYZE_URL_ASYNC_ENABLED").map(|v| v == "true").unwrap_or(false) {
+    // Async is the safe default for interactive URL analysis. Set the
+    // environment variable to false only when intentionally using the legacy
+    // synchronous path during a controlled rollback.
+    let async_enabled = env::var("ANALYZE_URL_ASYNC_ENABLED")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(true);
+    if payload.asynchronous && async_enabled {
         let response = state.http.post(format!("{}/analysis-jobs", state.collector_url))
             .json(&json!({"url": url})).timeout(std::time::Duration::from_secs(8))
             .send().await.map_err(internal_error)?;
@@ -1503,7 +1509,9 @@ async fn analyze_url(
         format!("{}.\n{}", title, content)
     };
 
-    let nlp_url = format!("{}/nlp/analyze", state.nlp_service_url.trim_end_matches('/'));
+    // Keep the synchronous fallback on the dedicated interactive URL route;
+    // bulk/raw ingestion uses /nlp/analyze/raw in the collector worker.
+    let nlp_url = format!("{}/nlp/analyze/url", state.nlp_service_url.trim_end_matches('/'));
     let nlp: NlpResponse = state
         .http
         .post(&nlp_url)

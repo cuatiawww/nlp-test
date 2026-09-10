@@ -116,7 +116,7 @@ def call_nlp(row: dict, max_recovery_attempts: int = 2) -> dict:
     for attempt in range(max_recovery_attempts + 1):
         try:
             response = NLP_SESSION.post(
-                f"{NLP_SERVICE_URL}/nlp/analyze",
+                f"{NLP_SERVICE_URL}/nlp/analyze/raw",
                 json={
                     "text": row["original_text"] or "",
                     "source_type": row["source_type"] or "web",

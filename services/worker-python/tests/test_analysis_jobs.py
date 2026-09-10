@@ -27,6 +27,11 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertTrue(nlp.call_args.kwargs["fallback"])
         self.assertTrue(result["result"]["needs_review"])
 
+    def test_nlp_failure_warning_keeps_a_safe_diagnostic(self):
+        nlp = Mock(side_effect=[RuntimeError("NLP HTTP 503: busy"), {"case_count": 0}])
+        result = analyze_stages("https://example.org", Mock(return_value={"content": "Report"}), nlp)
+        self.assertIn("NLP HTTP 503: busy", result["warnings"][0])
+
     def test_both_nlp_attempts_fail_does_not_fabricate_non_health(self):
         result = analyze_stages("https://example.org", Mock(return_value={"content": "Report"}), Mock(side_effect=TimeoutError()))
         self.assertEqual(result["status"], "partial")
