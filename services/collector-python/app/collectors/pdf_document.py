@@ -4,7 +4,15 @@ import io
 import json
 import os
 import re
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
+
+from .. import config
+from ..crawler_identity import (
+    RETRYABLE_HTTP_STATUSES,
+    retry_delay,
+    validate_public_url,
+    wait_for_domain,
+)
 
 class PDFExtractionError(ValueError):
     def __init__(self, message, object_path):
@@ -128,8 +136,6 @@ def try_pdf(url, enabled=None):
     if not enabled and not is_pdf_url:
         return None
     import requests
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     from ..minio_client import upload_file
 
     headers = {
@@ -145,11 +151,62 @@ def try_pdf(url, enabled=None):
     # This is the socket/download budget only; PDF parsing has its own outer
     # interactive extraction budget in collector/main.py.
     download_timeout = int(os.getenv("PDF_DOWNLOAD_TIMEOUT", "90"))
-    with requests.get(url, stream=True, headers=headers, timeout=(10, download_timeout), verify=False) as response:
+    session = requests.Session()
+    session.trust_env = False
+    current_url = validate_public_url(url)
+    redirects = 0
+    attempt = 0
+    while True:
+        wait_for_domain(current_url, config.CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS)
+        try:
+            response = session.get(
+                current_url,
+                stream=True,
+                headers=headers,
+                timeout=(10, download_timeout),
+                verify=config.CRAWLER_TLS_VERIFY,
+                allow_redirects=False,
+            )
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt >= config.CRAWLER_MAX_RETRIES:
+                raise
+            time_to_wait = retry_delay(
+                attempt,
+                base_seconds=config.CRAWLER_BACKOFF_BASE_SECONDS,
+                maximum_seconds=config.CRAWLER_BACKOFF_MAX_SECONDS,
+            )
+            import time
+            time.sleep(time_to_wait)
+            attempt += 1
+            continue
+
+        if response.is_redirect or response.is_permanent_redirect:
+            location = response.headers.get("Location")
+            response.close()
+            if not location or redirects >= config.CRAWLER_MAX_REDIRECTS:
+                raise RuntimeError("PDF redirect limit exceeded")
+            current_url = validate_public_url(urljoin(current_url, location))
+            redirects += 1
+            continue
+
+        if response.status_code in RETRYABLE_HTTP_STATUSES and attempt < config.CRAWLER_MAX_RETRIES:
+            retry_after = response.headers.get("Retry-After")
+            response.close()
+            import time
+            time.sleep(retry_delay(
+                attempt,
+                retry_after=retry_after,
+                base_seconds=config.CRAWLER_BACKOFF_BASE_SECONDS,
+                maximum_seconds=config.CRAWLER_BACKOFF_MAX_SECONDS,
+            ))
+            attempt += 1
+            continue
+
         response.raise_for_status()
         chunks = response.iter_content(65536)
         prefix = next(chunks, b"")
-        if not is_pdf(response.url, response.headers.get("Content-Type", ""), prefix):
+        if not is_pdf(current_url, response.headers.get("Content-Type", ""), prefix):
+            response.close()
             return None
         data = bytearray(prefix)
         max_mb = int(os.getenv("PDF_MAX_MB", "35"))
@@ -157,5 +214,7 @@ def try_pdf(url, enabled=None):
         for chunk in chunks:
             data.extend(chunk)
             if len(data) > max_bytes:
-                raise ValueError(f"Ukuran file PDF melebihi batas {max_mb} MB")
-        return extract_pdf(bytes(data), response.url, upload_file)
+                response.close()
+                raise ValueError(f"PDF file exceeds the {max_mb} MB limit")
+        response.close()
+        return extract_pdf(bytes(data), current_url, upload_file)

@@ -32,3 +32,18 @@ SKDR_MAX_REQUESTS_PER_RUN = max(1, int(os.getenv("SKDR_MAX_REQUESTS_PER_RUN", "5
 SKDR_ALERT_LOOKBACK_WEEKS = max(1, int(os.getenv("SKDR_ALERT_LOOKBACK_WEEKS", "3")))
 COLLECTOR_TIMEZONE = os.getenv("COLLECTOR_TIMEZONE", "Asia/Jakarta")
 SKDR_FETCH_TIME = os.getenv("SKDR_FETCH_TIME", "00:00")
+
+# Shared crawler safety and reliability policy. These defaults remain modest
+# so scheduled collection cannot become an uncontrolled crawler.
+CRAWLER_TLS_VERIFY = os.getenv("CRAWLER_TLS_VERIFY", "true").lower() in ("true", "1", "yes", "on")
+CRAWLER_MAX_HTML_MB = max(1, int(os.getenv("CRAWLER_MAX_HTML_MB", "10")))
+CRAWLER_MAX_REDIRECTS = max(0, int(os.getenv("CRAWLER_MAX_REDIRECTS", "5")))
+CRAWLER_MAX_RETRIES = max(0, min(5, int(os.getenv("CRAWLER_MAX_RETRIES", "2"))))
+CRAWLER_BACKOFF_BASE_SECONDS = max(0.1, float(os.getenv("CRAWLER_BACKOFF_BASE_SECONDS", "1")))
+CRAWLER_BACKOFF_MAX_SECONDS = max(
+    CRAWLER_BACKOFF_BASE_SECONDS,
+    float(os.getenv("CRAWLER_BACKOFF_MAX_SECONDS", "20")),
+)
+CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS = max(
+    0.0, float(os.getenv("CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS", "0.25"))
+)

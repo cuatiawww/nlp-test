@@ -1429,10 +1429,6 @@ async fn analyze_url(
                  JOIN raw_reports rr ON de.raw_report_id = rr.id
                  LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
                  WHERE rr.url = $1
-                   AND de.disease_classification IS NOT NULL
-                   AND de.disease_classification != 'UNKNOWN'
-                   AND de.disease_classification != 'Unknown Disease'
-                   AND de.confidence >= 0.50
                  ORDER BY de.created_at DESC
                  LIMIT 1",
                  &[&url],

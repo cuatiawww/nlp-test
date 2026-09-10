@@ -51,3 +51,16 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(fetch.call_count, 2)
         self.assertTrue(fetch.call_args.kwargs["fallback"])
         self.assertEqual(result["status"], "partial")
+
+    def test_content_cache_skips_nlp_after_fetch(self):
+        fetch = Mock(return_value={"content": "Stored outbreak report", "content_hash": "abc"})
+        nlp = Mock()
+        cached = {"disease_classification": "Dengue", "case_count": 12, "content": "Stored outbreak report"}
+        before_nlp = Mock(return_value=cached)
+        result = analyze_stages(
+            "https://example.org/report", fetch, nlp, before_nlp=before_nlp
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue(result["cached"])
+        self.assertEqual(result["result"]["case_count"], 12)
+        nlp.assert_not_called()

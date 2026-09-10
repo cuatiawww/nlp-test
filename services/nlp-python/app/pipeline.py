@@ -7,6 +7,13 @@ from .models.classifier import classify_disease, classify, classify_sentiment, c
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
 from .surveillance_extraction import source_reliability_score
+from .epidemiology import (
+    event_category as normalize_event_category,
+    evidence_sentences,
+    extract_event_date,
+    extract_labeled_counts,
+    normalize_publication_date,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -510,7 +517,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if public_projection["unresolved_indexes"]:
             needs_review = True
 
-    published_at = payload.published_at or extractors.extract_date_from_text(text)
+    # Publication metadata and event dates describe different facts. Body
+    # dates must never silently become the article publication date.
+    published_at = normalize_publication_date(payload.published_at)
+    event_date = extract_event_date(text)
+    typed_counts = extract_labeled_counts(text)
+    evidence = evidence_sentences(text)
 
     # --- Multi-event extraction ---
     try:
@@ -622,6 +634,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         normalized_text=extractors.normalize_text(text),
         summary=summary,
         published_at=published_at,
+        publication_date=published_at,
+        event_date=event_date,
         location_name=location,
         locations=all_locations,
         original_location=original_location,
@@ -634,11 +648,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         disease_classification=disease,
         case_count=case_count,
         death_count=death_count,
+        confirmed_cases=typed_counts["confirmed_cases"],
+        suspected_cases=typed_counts["suspected_cases"],
+        hospitalizations=typed_counts["hospitalizations"],
+        evidence=evidence,
         confidence=confidence,
         outbreak_alert=outbreak_alert,
         sentiment=sentiment,
         sentiment_score=sentiment_score,
         event_type=event_type,
+        event_category=normalize_event_category(event_type, outbreak_alert),
         event_confidence=event_confidence,
         relevance_score=relevance,
         relevance_confidence=relevance_confidence,

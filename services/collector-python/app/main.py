@@ -2,10 +2,11 @@ import logging
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from . import db, minio_client, scheduler
 from . import config
 from .collectors.web_scraper import WebScraperCollector
+from .crawler_identity import UnsafeUrlError, validate_public_url
 from .scheduler import run_source_async
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -20,7 +21,16 @@ class ExtractUrlRequest(BaseModel):
     url: str
     fetch_mode: str = "auto"
     timeout_ms: int = 15_000
-    max_retries: int = 0
+    max_retries: int = 2
+
+
+class DiscoverUrlsRequest(BaseModel):
+    disease_names: list[str] = Field(min_length=1, max_length=20)
+    country: str | None = None
+    region: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    max_urls: int = Field(default=20, ge=1, le=500)
 
 
 def _get_extract_semaphore():
@@ -34,6 +44,15 @@ def _get_extract_semaphore():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     minio_client.ensure_bucket()
+    import asyncio
+    try:
+        await asyncio.to_thread(db.finalize_stale_runs)
+        updated = await asyncio.to_thread(db.backfill_document_identities)
+        logger.info("Crawler identity backfill completed: updated=%d", updated)
+    except Exception:
+        # Collection must remain available if an older deployment has not yet
+        # applied migration 060. The warning identifies the exact rollout step.
+        logger.exception("Crawler identity backfill skipped; ensure migration 060 is applied")
     scheduler.register_scheduled_jobs(_scheduler)
     _scheduler.start()
     logger.info("Collector service started")
@@ -59,9 +78,16 @@ async def extract_url(payload: ExtractUrlRequest):
     url = payload.url.strip()
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise HTTPException(status_code=400, detail="URL harus menggunakan http atau https")
+        raise HTTPException(status_code=400, detail="URL must use HTTP or HTTPS")
     if payload.fetch_mode not in {"auto", "http", "stealth"}:
-        raise HTTPException(status_code=400, detail="fetch_mode tidak valid")
+        raise HTTPException(status_code=400, detail="Invalid fetch mode")
+    try:
+        url = await asyncio.to_thread(validate_public_url, url)
+    except UnsafeUrlError as exc:
+        logger.warning("Blocked unsafe interactive URL host: %s", parsed.hostname)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     is_pdf_target = urlparse(url).path.lower().endswith(".pdf")
     # Surveillance PDFs can require both download time and pdfplumber table
@@ -75,7 +101,7 @@ async def extract_url(payload: ExtractUrlRequest):
         "config": {
             "fetch_mode": payload.fetch_mode,
             "timeout_ms": timeout_ms,
-            "max_retries": 0,
+            "max_retries": max(0, min(payload.max_retries, config.CRAWLER_MAX_RETRIES)),
             "solve_cloudflare": False,
             "max_pages": 1,
         },
@@ -88,14 +114,14 @@ async def extract_url(payload: ExtractUrlRequest):
         if not data.get("content") and not data.get("title"):
             raise HTTPException(
                 status_code=404,
-                detail="Halaman tidak memiliki teks artikel atau tidak ditemukan (404 Not Found)."
+                detail="The page has no article text or was not found (404)."
             )
         return {"success": True, "data": data}
     except asyncio.TimeoutError:
         logger.warning("Interactive extraction timed out for %s", url)
         raise HTTPException(
             status_code=408,
-            detail="Waktu ekstraksi URL habis (timeout). Website sumber artikel lambat atau memblokir akses crawler."
+            detail="URL extraction timed out. The source website is slow or blocking crawler access."
         )
     except HTTPException:
         raise
@@ -105,17 +131,38 @@ async def extract_url(payload: ExtractUrlRequest):
         if "timed out" in err_msg.lower() or "timeout" in err_msg.lower():
             raise HTTPException(
                 status_code=408,
-                detail="Waktu ekstraksi URL habis (timeout). Website sumber artikel lambat atau memblokir akses crawler."
+                detail="URL extraction timed out. The source website is slow or blocking crawler access."
             )
         if "ocr" in err_msg.lower():
             raise HTTPException(
                 status_code=422,
-                detail="Dokumen PDF ini merupakan hasil scan atau gambar tanpa teks digital sehingga memerlukan OCR."
+                detail="This PDF contains no digital text and requires OCR review."
             )
         raise HTTPException(
             status_code=422,
-            detail=f"Tidak dapat mengekstrak teks artikel dari URL ({exc})"
+            detail=f"Could not extract article text from URL ({exc})"
         ) from exc
+
+
+@app.post("/discover-urls")
+async def discover_article_urls(payload: DiscoverUrlsRequest):
+    """Discover bounded candidates from Google News and configured sources."""
+    import asyncio
+    from .discovery import discover_urls
+
+    sources = db.fetch_sources(enabled_only=True)
+    results, warnings = await asyncio.to_thread(
+        discover_urls,
+        [name.strip() for name in payload.disease_names if name.strip()],
+        payload.country,
+        payload.region,
+        payload.date_from,
+        payload.date_to,
+        payload.max_urls,
+        sources,
+    )
+    logger.info("URL discovery completed: found=%d warnings=%d", len(results), len(warnings))
+    return {"success": True, "data": results, "warnings": warnings}
 
 
 @app.post("/collect/all")

@@ -31,6 +31,7 @@ import requests
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import config, extractors
+from .epidemiology import evidence_sentences, extract_event_date, extract_labeled_counts, normalize_publication_date
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,14 @@ class SurveillanceOutput(BaseModel):
 
     disease_classification: list[str] = Field(default_factory=list)
     published_date: Optional[str] = None
+    publication_date: Optional[str] = None
+    event_date: Optional[str] = None
+    confirmed_cases: Optional[int] = Field(default=None, ge=0)
+    suspected_cases: Optional[int] = Field(default=None, ge=0)
+    hospitalizations: Optional[int] = Field(default=None, ge=0)
+    evidence: list[str] = Field(default_factory=list)
     locations: list[SurveillanceLocation] = Field(default_factory=list)
-    signal_type: str = "Disease Outbreak / Wabah"
+    signal_type: str = "Disease Outbreak"
     health_relevance: str
     outbreak_alert: bool
     source_reliability_score: float = Field(ge=0.0, le=1.0)
@@ -663,16 +670,8 @@ def _llm_relations(text: str) -> list[RawLLMRelation]:
 
 
 def _published_date(value: Optional[str], text: str) -> Optional[str]:
-    if value:
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
-        except ValueError:
-            try:
-                return date.fromisoformat(value[:10]).isoformat()
-            except ValueError:
-                pass
-    iso = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text or "")
-    return iso.group(1) if iso else None
+    # Kept as a compatibility wrapper; body dates belong to event_date.
+    return normalize_publication_date(value)
 
 
 def _disease_labels(text: str, diseases: Optional[list[str]] = None) -> list[str]:
@@ -750,13 +749,13 @@ def decide_alert(
         or (explicit and (max_cases >= local_threshold or deaths > 0))
     ))
     if alert:
-        return True, "High", "Disease Outbreak / Wabah"
+        return True, "High", "Disease Outbreak"
     health_related = disease_known or bool(re.search(r"\b(?:kasus|cases?|wabah|outbreak|kesehatan|health|penyakit|disease|virus)\b", lower))
     if health_related and (relations or official_advisory):
         if len({r.location.country for r in relations}) >= 2 or deaths > 0:
-            return False, "High", "Disease Outbreak / Wabah"
-        return False, "Medium", "Disease Outbreak / Wabah" if (relations or explicit) else "Health Event / Kejadian Kesehatan"
-    return False, "Low", "Health Event / Kejadian Kesehatan" if health_related else "Other"
+            return False, "High", "Disease Outbreak"
+        return False, "Medium", "Disease Outbreak" if (relations or explicit) else "Health Event"
+    return False, "Low", "Health Event" if health_related else "Other"
 
 
 def build_surveillance_output(
@@ -774,6 +773,8 @@ def build_surveillance_output(
 
     linker = linker or GazetteerLinker()
     published_date = _published_date(published_at, text)
+    event_date = extract_event_date(text)
+    typed_counts = extract_labeled_counts(text)
     relations = extract_metric_relations(text, linker=linker, published_date=published_date)
     mentioned_locations = _mentioned_locations(text, linker)
 
@@ -823,10 +824,16 @@ def build_surveillance_output(
         r"\b(?:kasus|cases?|wabah|outbreak|kesehatan|health|penyakit|disease|virus|patient|pasien)\b", text or "", re.I
     ))
     if signal == "Other":
-        signal = "Health Event / Kejadian Kesehatan" if health_related else "Other"
+        signal = "Health Event" if health_related else "Other"
     return SurveillanceOutput(
         disease_classification=labels,
         published_date=published_date,
+        publication_date=published_date,
+        event_date=event_date,
+        confirmed_cases=typed_counts["confirmed_cases"],
+        suspected_cases=typed_counts["suspected_cases"],
+        hospitalizations=typed_counts["hospitalizations"],
+        evidence=evidence_sentences(text),
         locations=output_locations,
         signal_type=signal,
         health_relevance=relevance,

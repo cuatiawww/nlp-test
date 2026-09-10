@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from . import config
+from .crawler_identity import UnsafeUrlError, normalize_url, url_hash, validate_public_url
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -26,21 +27,28 @@ def submit(payload: SubmitJob):
     parsed = urlparse(url)
     if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username:
         raise HTTPException(400, "A valid HTTP(S) article URL is required")
+    try:
+        normalized_url = validate_public_url(url)
+    except (UnsafeUrlError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    url_digest = url_hash(normalized_url)
     with connection() as conn:
         # Serialize submissions for the same URL. This prevents two clicks or
         # two clients arriving together from creating duplicate live crawls.
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (url,))
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (normalized_url,))
         row = conn.execute(
             """SELECT id, status FROM analysis_jobs
-               WHERE url=%s AND status IN ('queued', 'processing')
+               WHERE (normalized_url=%s OR url_hash=%s OR url=%s)
+                 AND status IN ('queued', 'processing')
                ORDER BY created_at ASC
                LIMIT 1""",
-            (url,),
+            (normalized_url, url_digest, url),
         ).fetchone()
         if row is None:
             row = conn.execute(
-                "INSERT INTO analysis_jobs(url, force_refresh) VALUES (%s, %s) RETURNING id, status",
-                (url, payload.force_refresh),
+                """INSERT INTO analysis_jobs(url, normalized_url, url_hash, force_refresh)
+                   VALUES (%s, %s, %s, %s) RETURNING id, status""",
+                (url, normalized_url, url_digest, payload.force_refresh),
             ).fetchone()
     # The table is also an outbox: the worker dispatches queued rows to RabbitMQ.
     # DB commit before queue publication means jobs survive broker downtime.

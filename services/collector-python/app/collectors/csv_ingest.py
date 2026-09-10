@@ -1,9 +1,11 @@
 import csv
 import io
-import requests
+import hashlib
 from .base import BaseCollector, CollectResult
 from .. import rabbitmq
 from ..minio_client import upload_file
+from ..crawler_identity import identity_fields
+from ..discovery import _fetch_bytes
 
 
 class CSVIngestCollector(BaseCollector):
@@ -19,9 +21,8 @@ class CSVIngestCollector(BaseCollector):
             return result
 
         try:
-            resp = requests.get(url, timeout=30)
-            resp.raise_for_status()
-            content = resp.content.decode(encoding, errors="replace")
+            payload, _, _ = _fetch_bytes(url, timeout=30)
+            content = payload.decode(encoding, errors="replace")
             reader = csv.DictReader(io.StringIO(content), delimiter=delimiter)
 
             for row in reader:
@@ -36,7 +37,9 @@ class CSVIngestCollector(BaseCollector):
                 if not full_text.strip():
                     continue
 
-                obj_path = f"csv/{self.source['id']}/{hash(url)}_{hash(full_text)}.csv"
+                entry_key = url_field or f"{title}\n{date}\n{full_text}"
+                entry_hash = hashlib.sha256(entry_key.encode("utf-8")).hexdigest()[:32]
+                obj_path = f"csv/{self.source['id']}/{entry_hash}.csv"
                 upload_file(obj_path, content.encode("utf-8"), "text/csv")
 
                 rabbitmq.publish({
@@ -44,10 +47,11 @@ class CSVIngestCollector(BaseCollector):
                     "source_name": source or self.source.get("name", ""),
                     "published_at": date[:10] if date else "",
                     "text": full_text,
-                    "url": url_field or url or "",
+                    "url": url_field or "",
                     "object_path": obj_path,
                     "collector_run_id": "",
                     "collector_source_id": str(self.source["id"]),
+                    **identity_fields(url_field or "", full_text),
                 })
                 result.records_ingested += 1
 

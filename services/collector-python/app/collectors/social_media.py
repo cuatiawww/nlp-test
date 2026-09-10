@@ -7,6 +7,8 @@ from .. import db
 from .base import BaseCollector, CollectResult
 from .. import rabbitmq
 from ..minio_client import upload_file
+from ..crawler_identity import identity_fields, normalize_url
+from ..discovery import _fetch_bytes
 
 SOCIAL_RSS_MAX_ENTRIES = 100
 
@@ -55,6 +57,7 @@ class SocialMediaCollector(BaseCollector):
                             "object_path": obj_path,
                             "collector_run_id": "",
                             "collector_source_id": str(self.source["id"]),
+                            **identity_fields(tweet_url, text),
                         })
                         result.records_ingested += 1
                 else:
@@ -71,7 +74,8 @@ class SocialMediaCollector(BaseCollector):
     def _collect_rss(self, result: CollectResult, rss_url: str) -> CollectResult:
         """Collect from social media RSS feeds (Nitter, Instagram bridges, etc.)"""
         try:
-            feed = feedparser.parse(rss_url)
+            payload, _, _ = _fetch_bytes(rss_url)
+            feed = feedparser.parse(payload)
             if feed.bozo and not feed.entries:
                 result.error_message = f"RSS parse error: {feed.bozo_exception}"
                 return result
@@ -90,7 +94,8 @@ class SocialMediaCollector(BaseCollector):
                 if not text.strip():
                     continue
 
-                if link and (link in published_urls or db.is_url_already_processed(link)):
+                normalized_link = normalize_url(link) if link else ""
+                if normalized_link and (normalized_link in published_urls or db.is_url_already_processed(normalized_link)):
                     continue
 
                 from .. import config as app_config
@@ -117,9 +122,10 @@ class SocialMediaCollector(BaseCollector):
                     "object_path": obj_path,
                     "collector_run_id": "",
                     "collector_source_id": str(self.source["id"]),
+                    **identity_fields(link, text),
                 })
-                if link:
-                    published_urls.add(link)
+                if normalized_link:
+                    published_urls.add(normalized_link)
                 result.records_ingested += 1
 
         except Exception as e:

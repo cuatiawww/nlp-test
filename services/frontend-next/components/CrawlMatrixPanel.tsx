@@ -153,7 +153,7 @@ export default function CrawlMatrixPanel() {
             </div>
             <p className="mt-1 text-[11px] text-slate-400">{selectedDiseases.length} disease(s) selected</p>
             <label className="mt-3 block text-xs font-semibold text-slate-600">Article URL (optional)</label>
-            <input value={articleUrl} onChange={e => setArticleUrl(e.target.value)} placeholder="Leave empty to search Google News RSS" type="url" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+            <input value={articleUrl} onChange={e => setArticleUrl(e.target.value)} placeholder="Leave empty for multi-source discovery" type="url" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
             <p className="mt-1 text-[11px] text-slate-400">When provided, the dedicated worker analyzes this URL directly.</p>
           </div>
           <div>
@@ -167,7 +167,7 @@ export default function CrawlMatrixPanel() {
             <label className="text-xs font-semibold text-slate-600">Article date range</label>
             <div className="mt-1 grid grid-cols-2 gap-2"><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" /><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" /></div>
             <label className="mt-3 block text-xs font-semibold text-slate-600">Maximum articles</label>
-            <input type="number" min={1} max={50} value={maxArticles} onChange={e => setMaxArticles(Math.min(50, Math.max(1, Number(e.target.value) || 1)))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            <input type="number" min={1} max={500} value={maxArticles} onChange={e => setMaxArticles(Math.min(500, Math.max(1, Number(e.target.value) || 1)))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             <button onClick={startCrawl} disabled={busy || loadingMaster || ['queued', 'processing', 'waiting_for_collector'].includes(job?.status || '')} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#0060A9] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#004b85] disabled:opacity-50"><Play className="h-4 w-4" />{busy ? 'Preparing...' : 'Start manual crawl'}</button>
           </div>
         </div>
@@ -177,7 +177,7 @@ export default function CrawlMatrixPanel() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
           <div className="text-xs text-slate-500">
             <div>Job <span className="font-mono text-slate-700">{job.job_id}</span> · {job.discovered_count} discovered · {job.processed_count} processed · {job.row_count} rows</div>
-            <div className="mt-1 text-[11px] text-slate-400">{job.query?.url ? `Direct URL: ${job.query.url}` : 'Source: Google News RSS using the selected disease and location filters'}</div>
+            <div className="mt-1 text-[11px] text-slate-400">{job.query?.url ? `Direct URL: ${job.query.url}` : 'Sources: Google News, configured RSS feeds, sitemaps, and explicitly enabled website discovery'}</div>
           </div>
           <div className="flex gap-2"><button onClick={() => exportRows('csv')} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Download className="h-3.5 w-3.5" />CSV</button><button onClick={() => exportRows('json')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">JSON</button><button onClick={reprocess} disabled={busy || ['queued', 'processing'].includes(job.status)} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" />Reprocess</button></div>
         </div>

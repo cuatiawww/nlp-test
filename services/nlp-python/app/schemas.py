@@ -49,6 +49,8 @@ class AnalyzeResponse(BaseModel):
     normalized_text: str
     summary: str = ""
     published_at: Optional[str] = None
+    publication_date: Optional[str] = None
+    event_date: Optional[str] = None
     location_name: Optional[str]
     latitude: Optional[float]
     longitude: Optional[float]
@@ -63,12 +65,17 @@ class AnalyzeResponse(BaseModel):
     disease_classification: str
     case_count: int
     death_count: int
+    confirmed_cases: Optional[int] = None
+    suspected_cases: Optional[int] = None
+    hospitalizations: Optional[int] = None
+    evidence: list[str] = []
     confidence: float
     outbreak_alert: bool
     sentiment: str = "neutral"
     sentiment_score: float = 0.5
     needs_review: bool = False
     event_type: str = "unknown"
+    event_category: str = "other"
     event_confidence: float = 0.0
     relevance_score: str = "medium"
     relevance_confidence: float = 0.0

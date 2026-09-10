@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from zoneinfo import ZoneInfo
 from . import db
+from . import config as app_config
 from .collectors.rss_news import RSSNewsCollector
 from .collectors.web_scraper import WebScraperCollector
 from .collectors.csv_ingest import CSVIngestCollector
@@ -13,6 +14,7 @@ from .collectors.social_csv_ingest import SocialCSVIngestCollector
 from .collectors.skdr_api import SKDRCollector
 
 logger = logging.getLogger(__name__)
+_source_run_semaphore = None
 
 CSV_WATCHER_INTERVAL_MINUTES = 5
 CRAWLER_MAX_INTERVAL_MINUTES = 180
@@ -37,6 +39,14 @@ def run_source(source_id: str):
 
 
 async def run_source_async(source_id: str):
+    global _source_run_semaphore
+    if _source_run_semaphore is None:
+        _source_run_semaphore = asyncio.Semaphore(app_config.COLLECTOR_MAX_CONCURRENT_RUNS)
+    async with _source_run_semaphore:
+        return await _run_source_bounded(source_id)
+
+
+async def _run_source_bounded(source_id: str):
     source = db.fetch_source(source_id)
     if not source:
         logger.warning("Source %s not found", source_id)
@@ -53,10 +63,19 @@ async def run_source_async(source_id: str):
 
     run_id = db.create_run(str(source["id"]))
     collector = collector_cls(source)
-    if asyncio.iscoroutinefunction(collector.collect):
-        result = await collector.collect()
-    else:
-        result = await asyncio.to_thread(collector.collect)
+    try:
+        if asyncio.iscoroutinefunction(collector.collect):
+            result = await collector.collect()
+        else:
+            result = await asyncio.to_thread(collector.collect)
+    except Exception as exc:
+        # Always close the run when a collector raises before returning its
+        # CollectResult. Otherwise a restart leaves a permanent RUNNING row
+        # and the live dashboard falsely reports an active crawler.
+        message = str(exc).replace("\n", " ")[:1000] or type(exc).__name__
+        db.finish_run(run_id, "FAILED", error_message=message)
+        logger.exception("Collector %s failed: %s", source["name"], message)
+        return None
 
     db.finish_run(
         run_id,

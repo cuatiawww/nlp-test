@@ -37,7 +37,7 @@ class CrawlJobRequest(BaseModel):
     province_city: str | None = None
     date_from: dt.date | None = None
     date_to: dt.date | None = None
-    max_articles: int = Field(default=20, ge=1, le=50)
+    max_articles: int = Field(default=20, ge=1, le=500)
 
     @field_validator("url", "country", "region", "province_city", mode="before")
     @classmethod
@@ -54,7 +54,7 @@ class CrawlJobRequest(BaseModel):
             return None
         parsed = urlparse(value)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
-            raise ValueError("URL artikel harus menggunakan HTTP(S) yang valid")
+            raise ValueError("Article URL must use valid HTTP(S)")
         return value
 
 
@@ -81,7 +81,7 @@ def _source_name(url: str) -> str:
 def _build_news_query(disease_names: list[str], country: str | None, region: str | None) -> str:
     disease_terms = [f'"{name}"' if " " in name else name for name in disease_names if name]
     if not disease_terms:
-        raise ValueError("Pilih minimal satu penyakit dari master ICD-11")
+        raise ValueError("Select at least one disease from the ICD-11 master")
     query = f"({' OR '.join(disease_terms)})"
     geography = (country or "").strip()
     if not geography and region and region.casefold() not in {"asean", "global"}:

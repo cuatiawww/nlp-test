@@ -9,6 +9,7 @@ or compete for the same worker process.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import html
 import logging
 import os
@@ -28,6 +29,7 @@ COLLECTOR_URL = os.getenv("COLLECTOR_URL", "http://disease-collector-python:8002
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000").rstrip("/")
 POLL_SECONDS = max(1.0, float(os.getenv("CRAWL_MATRIX_POLL_SECONDS", "2")))
 STALE_MINUTES = max(5, int(os.getenv("CRAWL_MATRIX_STALE_MINUTES", "15")))
+SURVEILLANCE_PIPELINE = "surveillance-v1"
 
 ASEAN_COUNTRIES = {
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar",
@@ -61,7 +63,7 @@ def build_news_query(disease_names: list[str], country: str | None, region: str 
     """
     disease_terms = [f'"{name}"' if " " in name else name for name in disease_names if name]
     if not disease_terms:
-        raise ValueError("Pilih minimal satu penyakit dari master ICD-11")
+        raise ValueError("Select at least one disease from the ICD-11 master")
     query = f"({' OR '.join(disease_terms)})"
     geography = (country or "").strip()
     if not geography and region and region.casefold() not in {"asean", "global"}:
@@ -69,7 +71,7 @@ def build_news_query(disease_names: list[str], country: str | None, region: str 
     return f"{query} {geography}".strip()
 
 
-def discover_urls(disease_names: list[str], country: str | None, region: str | None, limit: int) -> list[dict]:
+def discover_google_news(disease_names: list[str], country: str | None, region: str | None, limit: int) -> list[dict]:
     query = build_news_query(disease_names, country, region)
     logger.info("Discovering matrix articles with Google News query=%r limit=%s", query, limit)
     response = requests.get(
@@ -108,12 +110,67 @@ def discover_urls(disease_names: list[str], country: str | None, region: str | N
     return results
 
 
+def discover_urls(disease_names: list[str], country: str | None, region: str | None, limit: int,
+                  date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict], list[str]]:
+    """Use collector-owned multi-source discovery, retaining a Google fallback."""
+    try:
+        response = requests.post(
+            COLLECTOR_URL + "/discover-urls",
+            json={
+                "disease_names": disease_names,
+                "country": country,
+                "region": region,
+                "date_from": date_from,
+                "date_to": date_to,
+                "max_urls": limit,
+            },
+            timeout=(5, 90),
+        )
+        response.raise_for_status()
+        body = response.json()
+        return list(body.get("data") or []), list(body.get("warnings") or [])
+    except Exception as exc:
+        warning = f"Multi-source discovery unavailable; Google News fallback used ({str(exc)[:120]})"
+        logger.warning(warning)
+        return discover_google_news(disease_names, country, region, limit), [warning]
+
+
 def disease_labels(analysis: dict) -> list[str]:
-    value = analysis.get("disease_classification")
-    if isinstance(value, (list, tuple, set)):
-        return [str(item).strip() for item in value if str(item).strip()]
-    label = str(value or "").strip()
-    return [label] if label else []
+    labels: list[str] = []
+
+    def add(value) -> None:
+        if isinstance(value, dict):
+            for key in ("canonical_name", "disease_name", "name", "label", "surface_form"):
+                add(value.get(key))
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                add(item)
+            return
+        text = str(value or "").strip()
+        if text and text.casefold() not in {item.casefold() for item in labels}:
+            labels.append(text)
+
+    # Surveillance NLP returns classification labels, while older or
+    # alternate NLP contracts may populate disease_extracted/mentions only.
+    # Use all resolved disease fields for filtering, not just one display field.
+    for key in ("disease_classification", "disease_extracted", "disease_mentions"):
+        add(analysis.get(key))
+    return labels
+
+
+def normalize_country(value: str | None) -> str:
+    aliases = {
+        "brunei darussalam": "brunei",
+        "viet nam": "vietnam",
+        "timor lest": "timor-leste",
+        "timor leste": "timor-leste",
+        "lao pdr": "laos",
+        "lao people's democratic republic": "laos",
+        "republic of the philippines": "philippines",
+    }
+    normalized = re.sub(r"\s+", " ", str(value or "").strip().casefold())
+    return aliases.get(normalized, normalized)
 
 
 def article_matches(analysis: dict, disease_names: list[str], country: str | None) -> bool:
@@ -124,8 +181,9 @@ def article_matches(analysis: dict, disease_names: list[str], country: str | Non
     ):
         return False
     if country:
+        expected_country = normalize_country(country)
         return any(
-            str(item.get("country") or "").casefold() == country.casefold()
+            normalize_country(item.get("country")) == expected_country
             for item in analysis.get("locations") or []
         )
     return True
@@ -139,6 +197,92 @@ def selected_concept(labels: list[str], concepts: list[dict]) -> tuple[str, dict
             if label_key == concept_key or label_key in concept_key or concept_key in label_key:
                 return label, concept
     return (labels[0] if labels else ""), None
+
+
+def article_identity_hash(article: dict) -> str:
+    """Use collector fingerprints, with a stable fallback for historical RAW."""
+    for field in ("content_hash", "url_hash"):
+        value = str(article.get(field) or "").strip()
+        if value:
+            return value
+    source = " ".join(str(article.get("content") or "").split())
+    if not source:
+        source = str(article.get("canonical_url") or article.get("normalized_url") or article.get("url") or "").strip()
+    return hashlib.sha256(source.encode("utf-8")).hexdigest() if source else ""
+
+
+def load_cached_analysis(conn, identity_hash: str):
+    if not identity_hash:
+        return None
+    return conn.execute(
+        """SELECT raw_report_id, result
+           FROM crawler_nlp_cache
+           WHERE identity_hash=%s AND pipeline=%s""",
+        (identity_hash, SURVEILLANCE_PIPELINE),
+    ).fetchone()
+
+
+def ensure_raw_report(conn, article: dict):
+    """Reuse a global RAW identity or create one source-of-truth record."""
+    explicit_id = article.get("raw_report_id")
+    if explicit_id:
+        row = conn.execute("SELECT id FROM raw_reports WHERE id=%s", (explicit_id,)).fetchone()
+        if row:
+            return row["id"]
+
+    row = conn.execute(
+        """SELECT id FROM raw_reports
+           WHERE (%s::text IS NOT NULL AND content_hash=%s)
+              OR (%s::text IS NOT NULL AND canonical_url=%s)
+              OR (%s::text IS NOT NULL AND url_hash=%s)
+              OR (%s::text IS NOT NULL AND normalized_url=%s)
+              OR (%s::text IS NOT NULL AND url=%s)
+           ORDER BY created_at DESC LIMIT 1""",
+        (
+            article.get("content_hash"), article.get("content_hash"),
+            article.get("canonical_url"), article.get("canonical_url"),
+            article.get("url_hash"), article.get("url_hash"),
+            article.get("normalized_url"), article.get("normalized_url"),
+            article.get("url"), article.get("url"),
+        ),
+    ).fetchone()
+    if row:
+        return row["id"]
+
+    published = safe_date(article.get("published_at"))
+    row = conn.execute(
+        """INSERT INTO raw_reports(
+               source_type, source_name, published_at, original_text, url, processing_status,
+               normalized_url, canonical_url, url_hash, content_hash, final_url, author, object_path)
+           VALUES ('news',%s,%s,%s,%s,'NEW',%s,%s,%s,%s,%s,%s,%s)
+           RETURNING id""",
+        (
+            article.get("source_name"), published, article.get("content", ""), article.get("url"),
+            article.get("normalized_url"), article.get("canonical_url"), article.get("url_hash"),
+            article.get("content_hash"), article.get("final_url"), article.get("author"),
+            article.get("object_path"),
+        ),
+    ).fetchone()
+    logger.info("RAW created for manual crawl: raw_id=%s url=%s", row["id"], article.get("url"))
+    return row["id"]
+
+
+def store_cached_analysis(conn, identity_hash: str, raw_report_id, analysis: dict) -> None:
+    if not identity_hash:
+        return
+    conn.execute(
+        """INSERT INTO crawler_nlp_cache(identity_hash,pipeline,raw_report_id,result)
+           VALUES (%s,%s,%s,%s)
+           ON CONFLICT (identity_hash,pipeline) DO UPDATE SET
+             raw_report_id=EXCLUDED.raw_report_id,
+             result=EXCLUDED.result,
+             updated_at=NOW()""",
+        (identity_hash, SURVEILLANCE_PIPELINE, raw_report_id, Jsonb(analysis)),
+    )
+    conn.execute(
+        "UPDATE raw_reports SET processing_status='PROCESSED' WHERE id=%s",
+        (raw_report_id,),
+    )
 
 
 def matching_concepts(conn, ids: list[str]) -> list[dict]:
@@ -165,14 +309,8 @@ def country_coordinates(conn, country: str):
     return (row["latitude"], row["longitude"]) if row else (None, None)
 
 
-def persist_article(conn, job_id: str, article: dict, analysis: dict, concepts: list[dict], request: dict) -> int:
+def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, concepts: list[dict], request: dict) -> int:
     published = safe_date(article.get("published_at") or analysis.get("published_date"))
-    raw = conn.execute(
-        """INSERT INTO raw_reports(source_type, source_name, published_at, original_text, url, processing_status)
-           VALUES (%s,%s,%s,%s,%s,'PROCESSED') RETURNING id""",
-        ("news", article.get("source_name"), published, article.get("content", ""), article.get("url")),
-    ).fetchone()
-    raw_id = raw["id"]
     disease, concept = selected_concept(disease_labels(analysis), concepts)
     rows = 0
     for item in analysis.get("locations") or []:
@@ -276,6 +414,7 @@ def claim_job() -> tuple[str, dict] | None:
 
 def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
     warnings: list[str] = []
+    direct_url_mode = bool(str(payload.get("url") or "").strip())
     try:
         with connect() as conn:
             concepts = matching_concepts(conn, payload.get("disease_concept_ids") or [])
@@ -284,8 +423,10 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
         if reprocess:
             with connect() as conn:
                 articles = conn.execute(
-                    """SELECT r.id, r.original_text AS content, r.url, r.source_name,
-                              r.published_at::text AS published_at, '' AS title
+                    """SELECT r.id AS raw_report_id, r.original_text AS content, r.url, r.source_name,
+                              r.published_at::text AS published_at, '' AS title,
+                              r.normalized_url, r.canonical_url, r.url_hash, r.content_hash,
+                              r.final_url, r.author, r.object_path
                        FROM raw_reports r JOIN crawl_matrix_rows m ON m.raw_report_id=r.id
                        WHERE m.crawl_job_id=%s GROUP BY r.id""",
                     (job_id,),
@@ -298,12 +439,20 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
                 if direct_url:
                     discovered = [{"url": direct_url, "title": "", "published_at": None, "source_name": source_name(direct_url)}]
                 else:
-                    discovered = discover_urls(disease_names, payload.get("country"), payload.get("region"), payload.get("max_articles", 20))
+                    discovered, discovery_warnings = discover_urls(
+                        disease_names, payload.get("country"), payload.get("region"),
+                        payload.get("max_articles", 20), payload.get("date_from"), payload.get("date_to"),
+                    )
+                    warnings.extend(discovery_warnings)
         elif str(payload.get("url") or "").strip():
             direct_url = str(payload["url"]).strip()
             discovered = [{"url": direct_url, "title": "", "published_at": None, "source_name": source_name(direct_url)}]
         else:
-            discovered = discover_urls(disease_names, payload.get("country"), payload.get("region"), payload.get("max_articles", 20))
+            discovered, discovery_warnings = discover_urls(
+                disease_names, payload.get("country"), payload.get("region"),
+                payload.get("max_articles", 20), payload.get("date_from"), payload.get("date_to"),
+            )
+            warnings.extend(discovery_warnings)
 
         with connect() as conn:
             conn.execute("UPDATE crawl_matrix_jobs SET discovered_count=%s, updated_at=NOW() WHERE id=%s", (len(discovered), job_id))
@@ -315,19 +464,59 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
             try:
                 article = item if reprocess else extract_article(item)
                 if not (article.get("content") or "").strip():
-                    raise ValueError("Artikel tidak memiliki isi")
-                analysis = analyze_article(article)
+                    raise ValueError("Article has no extractable content")
+                identity_hash = article_identity_hash(article)
+                identity_lock = connect()
+                identity_lock.autocommit = True
+                identity_lock.execute(
+                    "SELECT pg_advisory_lock(hashtext(%s))",
+                    (f"manual-crawl:{identity_hash}",),
+                )
+                try:
+                    cached = None if reprocess else load_cached_analysis(identity_lock, identity_hash)
+                    if cached:
+                        analysis = dict(cached["result"] or {})
+                        raw_id = cached.get("raw_report_id")
+                        logger.info("NLP cache hit: pipeline=%s identity=%s", SURVEILLANCE_PIPELINE, identity_hash)
+                    else:
+                        # RAW is persisted before NLP so an NLP outage never
+                        # forces the source article to be crawled again.
+                        with connect() as conn:
+                            raw_id = ensure_raw_report(conn, article)
+                            conn.commit()
+                        logger.info("NLP started: pipeline=%s url=%s", SURVEILLANCE_PIPELINE, article.get("url"))
+                        analysis = analyze_article(article)
+                        with connect() as conn:
+                            store_cached_analysis(conn, identity_hash, raw_id, analysis)
+                            conn.commit()
+                        logger.info("NLP success: pipeline=%s url=%s", SURVEILLANCE_PIPELINE, article.get("url"))
+                    if not raw_id:
+                        with connect() as conn:
+                            raw_id = ensure_raw_report(conn, article)
+                            conn.commit()
+                finally:
+                    identity_lock.execute(
+                        "SELECT pg_advisory_unlock(hashtext(%s))",
+                        (f"manual-crawl:{identity_hash}",),
+                    )
+                    identity_lock.close()
                 if not article_matches(analysis, disease_names, payload.get("country")):
-                    warnings.append(f"{item.get('url', 'article')}: penyakit/wilayah tidak cocok dengan filter")
+                    if direct_url_mode:
+                        warnings.append(
+                            f"{item.get('url', 'article')}: direct URL was fetched, but it did not contain "
+                            "the selected disease and country. Use a specific news article URL, not a homepage."
+                        )
+                    else:
+                        warnings.append(f"{item.get('url', 'article')}: disease or location did not match the filter")
                 else:
                     with connect() as conn:
-                        inserted = persist_article(conn, job_id, article, analysis, concepts, payload)
+                        inserted = persist_article(conn, job_id, raw_id, article, analysis, concepts, payload)
                         row_count += inserted
                         conn.commit()
                     if inserted:
                         processed += 1
                     else:
-                        warnings.append(f"{item.get('url', 'article')}: tidak ada relasi negara/provinsi dan metrik kasus yang tervalidasi")
+                        warnings.append(f"{item.get('url', 'article')}: no validated country/province relation and case metric")
             except Exception as exc:
                 warnings.append(f"{item.get('url', 'article')}: {str(exc)[:180]}")
                 logger.warning("Matrix article failed: %s", exc)

@@ -5,6 +5,7 @@ import logging
 import threading
 from psycopg.rows import dict_row
 from . import config
+from .crawler_identity import content_fingerprint, normalize_url, url_hash
 
 _connection_state = threading.local()
 logger = logging.getLogger(__name__)
@@ -19,16 +20,21 @@ def is_url_already_processed(url: str) -> bool:
     candidate = (url or "").strip()
     if not candidate:
         return False
+    try:
+        normalized = normalize_url(candidate)
+        candidate_hash = url_hash(normalized)
+    except ValueError:
+        return False
 
     conn = None
     try:
         conn = get_conn()
         row = conn.execute(
             """SELECT 1 FROM raw_reports
-               WHERE url = %s
+               WHERE (url = %s OR normalized_url = %s OR canonical_url = %s OR url_hash = %s)
                  AND processing_status IN ('PROCESSED', 'NON_HEALTH')
                LIMIT 1""",
-            (candidate,),
+            (candidate, normalized, normalized, candidate_hash),
         ).fetchone()
         conn.commit()
         return row is not None
@@ -55,6 +61,53 @@ def get_conn():
         conn = psycopg.connect(conninfo, row_factory=dict_row)
         _connection_state.conn = conn
     return conn
+
+
+def backfill_document_identities(batch_size: int = 500, max_batches: int = 100) -> int:
+    """Safely backfill identity columns without deleting or merging old RAW."""
+    total = 0
+    for _ in range(max_batches):
+        conn = get_conn()
+        rows = conn.execute(
+            """SELECT id, url, original_text
+               FROM raw_reports
+               WHERE content_hash IS NULL
+               ORDER BY created_at, id
+               LIMIT %s""",
+            (batch_size,),
+        ).fetchall()
+        # Release the read transaction before computing hashes and issuing the
+        # next schema operation. Keeping this SELECT open can hold an
+        # ACCESS SHARE lock on raw_reports long enough to block migrations.
+        conn.commit()
+        if not rows:
+            break
+        updates = []
+        for row in rows:
+            normalized = None
+            digest = None
+            if row.get("url"):
+                try:
+                    normalized = normalize_url(row["url"])
+                    digest = url_hash(normalized)
+                except ValueError:
+                    logger.warning("Historical RAW has an invalid URL: raw_id=%s", row["id"])
+            updates.append((normalized, digest, content_fingerprint(row.get("original_text") or ""), row["id"]))
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """UPDATE raw_reports
+                   SET normalized_url=COALESCE(normalized_url,%s),
+                       url_hash=COALESCE(url_hash,%s),
+                       content_hash=COALESCE(content_hash,%s)
+                   WHERE id=%s""",
+                updates,
+            )
+        conn.commit()
+        total += len(rows)
+        logger.info("Crawler identity backfill progress: updated=%d", total)
+        if len(rows) < batch_size:
+            break
+    return total
 
 
 def fetch_sources(source_type=None, enabled_only=True):
@@ -96,6 +149,31 @@ def finish_run(run_id: str, status: str, records_found=0, records_ingested=0, er
         (status, records_found, records_ingested, error_message, run_id),
     )
     conn.commit()
+
+
+def finalize_stale_runs(max_age_minutes: int = 30) -> int:
+    """Close collector runs left open by a process/container restart.
+
+    A collector run is expected to finish well before the next scheduled
+    interval. Keeping an old RUNNING row forever makes the live dashboard
+    report a false active crawler and inflates active-run statistics.
+    """
+    conn = get_conn()
+    cursor = conn.execute(
+        """UPDATE collector_runs
+           SET status='FAILED',
+               error_message=COALESCE(error_message, 'Collector run closed after stale lease or restart'),
+               finished_at=COALESCE(finished_at, NOW())
+         WHERE status='RUNNING'
+           AND started_at < NOW() - (%s * INTERVAL '1 minute')
+         RETURNING id""",
+        (max(1, int(max_age_minutes)),),
+    )
+    closed = len(cursor.fetchall())
+    conn.commit()
+    if closed:
+        logger.warning("Closed %d stale collector runs", closed)
+    return closed
 
 
 def upsert_skdr_report(record: dict) -> dict:

@@ -6,8 +6,10 @@ import logging
 import os
 import re
 import threading
-import urllib.request
 from typing import Dict, List, Optional, Tuple
+
+from ..crawler_identity import identity_fields
+from ..discovery import _fetch_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ GENERIC_SHORT_NOISE = {
 }
 
 _COLLECTION_LOCK = threading.Lock()
-DEFAULT_SOCIAL_CSV_BATCH_SIZE: Optional[int] = int(os.getenv("SOCIAL_CSV_BATCH_SIZE", "20"))
+DEFAULT_SOCIAL_CSV_BATCH_SIZE: Optional[int] = None
 SOCIAL_CSV_LOOP_MODE = os.getenv("SOCIAL_CSV_LOOP_MODE", "false").lower() in {"1", "true", "yes", "on"}
 
 
@@ -59,32 +61,27 @@ def fetch_opengraph_caption(url: str, timeout_seconds: float = 2.5) -> Tuple[Opt
     if not url or not url.startswith("http"):
         return None, None
 
-    headers = {
-        "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-        "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
-    }
     try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-            title_m = re.search(
-                r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']*)["\']',
-                html,
-                re.IGNORECASE,
-            )
-            desc_m = re.search(
-                r'<meta[^>]+(?:property|name)=["\'](?:og:description|description)["\'][^>]+content=["\']([^"\']*)["\']',
-                html,
-                re.IGNORECASE,
-            )
-            raw_title = title_m.group(1).strip() if title_m else None
-            raw_desc = desc_m.group(1).strip() if desc_m else None
+        payload, _, _ = _fetch_bytes(url, timeout=max(1, int(timeout_seconds)))
+        html = payload.decode("utf-8", errors="ignore")
+        title_m = re.search(
+            r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']*)["\']',
+            html,
+            re.IGNORECASE,
+        )
+        desc_m = re.search(
+            r'<meta[^>]+(?:property|name)=["\'](?:og:description|description)["\'][^>]+content=["\']([^"\']*)["\']',
+            html,
+            re.IGNORECASE,
+        )
+        raw_title = title_m.group(1).strip() if title_m else None
+        raw_desc = desc_m.group(1).strip() if desc_m else None
 
-            if raw_title:
-                raw_title = re.sub(r"&quot;|&#x2026;|&#x1f92f;|&amp;", " ", raw_title).strip()
-            if raw_desc:
-                raw_desc = re.sub(r"&quot;|&#x2026;|&#x1f92f;|&amp;", " ", raw_desc).strip()
-            return raw_title, raw_desc
+        if raw_title:
+            raw_title = re.sub(r"&quot;|&#x2026;|&#x1f92f;|&amp;", " ", raw_title).strip()
+        if raw_desc:
+            raw_desc = re.sub(r"&quot;|&#x2026;|&#x1f92f;|&amp;", " ", raw_desc).strip()
+        return raw_title, raw_desc
     except Exception as exc:
         logger.debug("Failed OpenGraph fetch for %s: %s", url, exc)
         return None, None
@@ -271,6 +268,7 @@ class SocialCSVIngestCollector:
                     "object_path": obj_path,
                     "collector_run_id": "",
                     "collector_source_id": f"social_csv_{platform.lower()}",
+                    **identity_fields(post["url"], full_text),
                 })
                 total_ingested += 1
                 checkpoints.add(checkpoint_key)

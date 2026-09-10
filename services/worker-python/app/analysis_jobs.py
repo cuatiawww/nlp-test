@@ -35,7 +35,7 @@ def validate_url(url):
         raise ValueError("A valid HTTP(S) article URL is required")
     return url
 
-def analyze_stages(url, fetch, nlp, progress=lambda stage: None):
+def analyze_stages(url, fetch, nlp, progress=lambda stage: None, before_nlp=None):
     validate_url(url)
     warnings = []
     progress("fetch")
@@ -49,6 +49,11 @@ def analyze_stages(url, fetch, nlp, progress=lambda stage: None):
             return {"status": "failed", "error": "Fetch failed. Check the source URL or retry later.", "warnings": warnings}
     if not extracted.get("content", "").strip():
         return {"status": "failed", "error": "No extractable article content", "warnings": warnings}
+    if before_nlp is not None:
+        cached_result = before_nlp(extracted)
+        if cached_result is not None:
+            warnings.append("Equivalent content retrieved from database cache")
+            return {"status": "completed", "result": cached_result, "warnings": warnings, "cached": True}
     progress("nlp")
     # Carry the actual article URL into NLP so domain-level source reliability
     # can identify DW/BBC/Detik/Antara instead of falling back to web=0.65.
@@ -145,31 +150,50 @@ def analyze_article(extracted, fallback=False):
         detail = response.text.replace("\n", " ").strip()[:240]
         raise RuntimeError(f"NLP HTTP {response.status_code}: {detail or response.reason}")
     return response.json()
-def save_completed(conn, job_id, result):
+def save_completed(conn, job_id, result, raw_report_id=None):
     """Add a new version without deleting any existing report or event."""
-    row = conn.execute("INSERT INTO raw_reports(source_type,source_name,published_at,original_text,summary,url,object_path,processing_status) "
-        "VALUES ('web','URL Analyzer',%s,%s,%s,%s,%s,'PROCESSED') RETURNING id",
-        (
-            result.get("published_at") or None,
-            result.get("content", ""),
-            result.get("summary") or None,
-            result["url"],
-            result.get("object_path"),
-        )).fetchone()
+    values = (
+        result.get("published_at") or None,
+        result.get("content", ""),
+        result.get("summary") or None,
+        result["url"],
+        result.get("object_path"),
+        result.get("normalized_url"), result.get("canonical_url"), result.get("url_hash"),
+        result.get("content_hash"), result.get("final_url"), result.get("author"),
+    )
+    if raw_report_id:
+        row = conn.execute(
+            """UPDATE raw_reports SET
+                 source_type='web', source_name='URL Analyzer', published_at=%s,
+                 original_text=%s, summary=%s, url=%s, object_path=%s,
+                 processing_status='PROCESSED', normalized_url=%s, canonical_url=%s,
+                 url_hash=%s, content_hash=%s, final_url=%s, author=%s
+               WHERE id=%s RETURNING id""",
+            (*values, raw_report_id),
+        ).fetchone()
+    else:
+        row = conn.execute("""INSERT INTO raw_reports(
+                source_type,source_name,published_at,original_text,summary,url,object_path,processing_status,
+                normalized_url,canonical_url,url_hash,content_hash,final_url,author)
+            VALUES ('web','URL Analyzer',%s,%s,%s,%s,%s,'PROCESSED',%s,%s,%s,%s,%s,%s)
+            RETURNING id""", values).fetchone()
     from psycopg.types.json import Jsonb
     event = conn.execute(
         """INSERT INTO disease_events(raw_report_id,source_type,source_name,published_at,original_text,
         language,location_name,geom,symptoms,disease_extracted,disease_mentions,disease_classification,
-        case_count,death_count,confidence,is_health_related,outbreak_alert,sentiment,event_type,relevance_score,
+        case_count,death_count,event_date,confirmed_cases,suspected_cases,hospitalizations,
+        epidemiological_evidence,confidence,is_health_related,outbreak_alert,sentiment,event_type,relevance_score,
         source_credibility,source_credibility_label,needs_review)
         VALUES (%s,'web','URL Analyzer',%s,%s,%s,%s,
         CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL ELSE ST_SetSRID(ST_MakePoint(%s,%s),4326) END,
-        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (row["id"],result.get("published_at") or None,result.get("content",""),result.get("language"),
          result.get("location_name"),result.get("longitude"),result.get("latitude"),
          result.get("longitude"),result.get("latitude"),Jsonb(result.get("symptoms",[])),
          Jsonb(result.get("disease_extracted",[])),Jsonb(result.get("disease_mentions",[])),
          result.get("disease_classification"),result.get("case_count",0),result.get("death_count",0),
+         result.get("event_date"),result.get("confirmed_cases"),result.get("suspected_cases"),
+         result.get("hospitalizations"),Jsonb(result.get("evidence",[])),
          result.get("confidence",0),result.get("is_health_related",False),result.get("outbreak_alert",False),
          result.get("sentiment"),result.get("event_type"),result.get("relevance_score"),
          result.get("source_credibility"),result.get("source_credibility_label"),result.get("needs_review",False))).fetchone()
@@ -272,6 +296,108 @@ def save_completed(conn, job_id, result):
         logger.info("Multi-event analysis: inserted %d child events", len(sub_events))
     conn.execute("UPDATE analysis_jobs SET event_id=%s WHERE id=%s", (event["id"],job_id))
 
+
+def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_cached: bool = True):
+    """Deduplicate canonical/content identity after fetch and retain RAW before NLP."""
+    row = conn.execute(
+        """SELECT rr.id AS raw_report_id, rr.summary AS raw_summary,
+                  rr.published_at AS raw_published_at, de.id AS event_id,
+                  de.language, de.location_name, ST_X(de.geom) AS longitude,
+                  ST_Y(de.geom) AS latitude, de.symptoms, de.disease_extracted,
+                  de.disease_mentions, de.disease_classification, de.case_count,
+                  de.death_count, de.event_date, de.confirmed_cases, de.suspected_cases,
+                  de.hospitalizations, de.epidemiological_evidence,
+                  de.confidence, de.outbreak_alert, de.sentiment,
+                  de.needs_review, de.event_type, de.relevance_score,
+                  de.source_credibility, de.source_credibility_label, de.is_health_related
+           FROM raw_reports rr
+           LEFT JOIN LATERAL (
+               SELECT event.* FROM disease_events event
+               WHERE event.raw_report_id=rr.id
+               ORDER BY event.created_at DESC LIMIT 1
+           ) de ON TRUE
+           WHERE (%s::text IS NOT NULL AND rr.content_hash=%s)
+              OR (%s::text IS NOT NULL AND rr.canonical_url=%s)
+              OR (%s::text IS NOT NULL AND rr.url_hash=%s)
+              OR (%s::text IS NOT NULL AND rr.normalized_url=%s)
+           ORDER BY CASE WHEN de.id IS NOT NULL THEN 0 ELSE 1 END, rr.created_at DESC
+           LIMIT 1""",
+        (
+            extracted.get("content_hash"), extracted.get("content_hash"),
+            extracted.get("canonical_url"), extracted.get("canonical_url"),
+            extracted.get("url_hash"), extracted.get("url_hash"),
+            extracted.get("normalized_url"), extracted.get("normalized_url"),
+        ),
+    ).fetchone()
+    if row and row.get("event_id") and not allow_cached:
+        row = None
+    if row and row.get("event_id"):
+        result = {
+            **extracted,
+            "url": requested_url,
+            "summary": row.get("raw_summary") or "",
+            "published_at": str(row.get("raw_published_at")) if row.get("raw_published_at") else extracted.get("published_at"),
+            "language": row.get("language") or "unknown",
+            "location_name": row.get("location_name"),
+            "latitude": row.get("latitude"),
+            "longitude": row.get("longitude"),
+            "symptoms": row.get("symptoms") or [],
+            "disease_extracted": row.get("disease_extracted") or [],
+            "disease_mentions": row.get("disease_mentions") or [],
+            "disease_classification": row.get("disease_classification") or "UNKNOWN",
+            "case_count": row.get("case_count") or 0,
+            "death_count": row.get("death_count") or 0,
+            "event_date": str(row.get("event_date")) if row.get("event_date") else None,
+            "confirmed_cases": row.get("confirmed_cases"),
+            "suspected_cases": row.get("suspected_cases"),
+            "hospitalizations": row.get("hospitalizations"),
+            "evidence": row.get("epidemiological_evidence") or [],
+            "confidence": row.get("confidence") or 0.0,
+            "outbreak_alert": row.get("outbreak_alert") or False,
+            "sentiment": row.get("sentiment"),
+            "needs_review": row.get("needs_review") or False,
+            "event_type": row.get("event_type"),
+            "relevance_score": row.get("relevance_score"),
+            "source_credibility": row.get("source_credibility"),
+            "source_credibility_label": row.get("source_credibility_label"),
+            "is_health_related": row.get("is_health_related"),
+            "raw_report_id": str(row["raw_report_id"]),
+            "event_id": str(row["event_id"]),
+            "cached": True,
+            "source": "database-content-identity",
+        }
+        return row["raw_report_id"], _json_safe(result)
+    if row:
+        raw_id = row["raw_report_id"]
+        conn.execute(
+            """UPDATE raw_reports SET processing_status='PROCESSING', original_text=%s,
+                 normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
+                 url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
+                 final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
+               WHERE id=%s""",
+            (
+                extracted.get("content", ""), extracted.get("normalized_url"), extracted.get("canonical_url"),
+                extracted.get("url_hash"), extracted.get("content_hash"), extracted.get("final_url"),
+                extracted.get("author"), raw_id,
+            ),
+        )
+        return raw_id, None
+    raw = conn.execute(
+        """INSERT INTO raw_reports(
+             source_type,source_name,published_at,original_text,url,object_path,processing_status,
+             normalized_url,canonical_url,url_hash,content_hash,final_url,author)
+           VALUES ('web','URL Analyzer',%s,%s,%s,%s,'PROCESSING',%s,%s,%s,%s,%s,%s)
+           RETURNING id""",
+        (
+            extracted.get("published_at"), extracted.get("content", ""), requested_url,
+            extracted.get("object_path"), extracted.get("normalized_url"), extracted.get("canonical_url"),
+            extracted.get("url_hash"), extracted.get("content_hash"), extracted.get("final_url"),
+            extracted.get("author"),
+        ),
+    ).fetchone()
+    logger.info("RAW retained before URL NLP: raw_id=%s url=%s", raw["id"], requested_url)
+    return raw["id"], None
+
 def process_job(job_id):
     from psycopg.types.json import Jsonb
     with connect() as lock_conn:
@@ -294,6 +420,13 @@ def process_job(job_id):
                           rr.summary AS raw_summary,
                           rr.published_at AS raw_published_at,
                           rr.processing_status AS raw_processing_status,
+                          rr.object_path AS raw_object_path,
+                          rr.normalized_url AS raw_normalized_url,
+                          rr.canonical_url AS raw_canonical_url,
+                          rr.url_hash AS raw_url_hash,
+                          rr.content_hash AS raw_content_hash,
+                          rr.final_url AS raw_final_url,
+                          rr.author AS raw_author,
                           de.id AS event_id,
                           de.original_text AS event_original_text,
                           de.language,
@@ -306,6 +439,11 @@ def process_job(job_id):
                           de.disease_classification,
                           de.case_count,
                           de.death_count,
+                          de.event_date,
+                          de.confirmed_cases,
+                          de.suspected_cases,
+                          de.hospitalizations,
+                          de.epidemiological_evidence,
                           de.confidence,
                           de.outbreak_alert,
                           de.sentiment,
@@ -324,15 +462,21 @@ def process_job(job_id):
                        ORDER BY event.created_at DESC
                        LIMIT 1
                    ) de ON TRUE
-                   WHERE rr.url = %s
+                   WHERE (rr.url = %s
+                          OR (%s::text IS NOT NULL AND rr.normalized_url = %s)
+                          OR (%s::text IS NOT NULL AND rr.url_hash = %s))
                    ORDER BY CASE WHEN de.id IS NOT NULL THEN 0 ELSE 1 END,
                             rr.created_at DESC
                    LIMIT 1""",
-                (row["url"],),
+                (
+                    row["url"],
+                    row.get("normalized_url"), row.get("normalized_url"),
+                    row.get("url_hash"), row.get("url_hash"),
+                ),
             ).fetchone()
 
-            if cached_report and not row.get("force_refresh", False):
-                has_cached_event = cached_report.get("event_id") is not None
+            if cached_report and cached_report.get("event_id") and not row.get("force_refresh", False):
+                has_cached_event = True
                 logger.info(
                     "URL %s found in DB cache, completing job %s immediately (event=%s)",
                     row["url"],
@@ -368,6 +512,11 @@ def process_job(job_id):
                     "disease_classification": cached_report.get("disease_classification") or "UNKNOWN",
                     "case_count": cached_report.get("case_count") or 0,
                     "death_count": cached_report.get("death_count") or 0,
+                    "event_date": str(cached_report.get("event_date")) if cached_report.get("event_date") else None,
+                    "confirmed_cases": cached_report.get("confirmed_cases"),
+                    "suspected_cases": cached_report.get("suspected_cases"),
+                    "hospitalizations": cached_report.get("hospitalizations"),
+                    "evidence": cached_report.get("epidemiological_evidence") or [],
                     "confidence": cached_report.get("confidence") or 0.0,
                     "outbreak_alert": cached_report.get("outbreak_alert") or False,
                     "sentiment": cached_report.get("sentiment"),
@@ -394,14 +543,10 @@ def process_job(job_id):
                            warnings=%s, updated_at=NOW()
                        WHERE id=%s""",
                     (
-                        "completed" if has_cached_event else "partial",
+                        "completed",
                         cached_report.get("event_id"),
                         Jsonb(res),
-                        Jsonb([
-                            "Data retrieved from database cache"
-                            if has_cached_event
-                            else "URL found in database; returned stored source without re-crawling; no disease event was available"
-                        ]),
+                        Jsonb(["Data retrieved from database cache"]),
                         job_id,
                     ),
                 )
@@ -410,17 +555,75 @@ def process_job(job_id):
             def progress(stage):
                 lock_conn.execute("UPDATE analysis_jobs SET status='processing',stage=%s,updated_at=NOW() WHERE id=%s",
                                   (stage, job_id))
-            outcome = analyze_stages(row["url"], fetch_article, analyze_article, progress)
-            with connect() as conn:
-                result = outcome.get("result")
-                # Persist partial results too. In particular, an article whose
-                # full NLP timed out but whose source was fetched must become
-                # a cache hit on the next URL request instead of being crawled
-                # again indefinitely.
-                if outcome["status"] in {"completed", "partial"} and result:
-                    save_completed(conn, job_id, result)
-                conn.execute("UPDATE analysis_jobs SET status=%s,stage='finished',result=%s,warnings=%s,error=%s,updated_at=NOW() WHERE id=%s",
-                    (outcome["status"],Jsonb(result),Jsonb(outcome["warnings"]),outcome.get("error"),job_id))
+            retained = {"raw_id": None, "lock_conn": None, "lock_key": ""}
+
+            fetch_for_job = fetch_article
+            if cached_report and not cached_report.get("event_id") and not row.get("force_refresh", False):
+                # RAW already exists but NLP did not finish. Reuse the stored
+                # source instead of crawling the external website again.
+                def fetch_for_job(_url, fallback=False):
+                    return {
+                        "url": row["url"],
+                        "content": cached_report.get("raw_original_text") or "",
+                        "title": "",
+                        "published_at": str(cached_report.get("raw_published_at")) if cached_report.get("raw_published_at") else None,
+                        "object_path": cached_report.get("raw_object_path"),
+                        "normalized_url": cached_report.get("raw_normalized_url") or row.get("normalized_url"),
+                        "canonical_url": cached_report.get("raw_canonical_url"),
+                        "url_hash": cached_report.get("raw_url_hash") or row.get("url_hash"),
+                        "content_hash": cached_report.get("raw_content_hash"),
+                        "final_url": cached_report.get("raw_final_url"),
+                        "author": cached_report.get("raw_author"),
+                        "fetch_mode": "database_raw",
+                    }
+                logger.info("Reusing stored RAW for unfinished NLP: raw_id=%s", cached_report["raw_report_id"])
+
+            def before_nlp(extracted):
+                identity_field = next(
+                    (field for field in ("content_hash", "canonical_url", "url_hash", "normalized_url") if extracted.get(field)),
+                    "",
+                )
+                identity = extracted.get(identity_field) if identity_field else None
+                if identity:
+                    retained["lock_key"] = f"crawler-document:{identity_field}:{identity}"
+                    retained["lock_conn"] = connect()
+                    retained["lock_conn"].autocommit = True
+                    retained["lock_conn"].execute(
+                        "SELECT pg_advisory_lock(hashtext(%s))", (retained["lock_key"],)
+                    )
+                with connect() as raw_conn:
+                    raw_id, cached_result = retain_raw_or_get_cached(
+                        raw_conn,
+                        row["url"],
+                        extracted,
+                        allow_cached=not row.get("force_refresh", False),
+                    )
+                    raw_conn.commit()
+                retained["raw_id"] = raw_id
+                return cached_result
+
+            try:
+                outcome = analyze_stages(
+                    row["url"], fetch_for_job, analyze_article, progress, before_nlp=before_nlp
+                )
+                with connect() as conn:
+                    result = outcome.get("result")
+                    # Persist partial results too. In particular, an article whose
+                    # full NLP timed out but whose source was fetched must become
+                    # a cache hit on the next URL request instead of being crawled
+                    # again indefinitely.
+                    if outcome["status"] in {"completed", "partial"} and result and not outcome.get("cached"):
+                        save_completed(conn, job_id, result, raw_report_id=retained["raw_id"])
+                    elif outcome.get("cached") and result.get("event_id"):
+                        conn.execute("UPDATE analysis_jobs SET event_id=%s WHERE id=%s", (result["event_id"], job_id))
+                    conn.execute("UPDATE analysis_jobs SET status=%s,stage='finished',result=%s,warnings=%s,error=%s,updated_at=NOW() WHERE id=%s",
+                        (outcome["status"],Jsonb(result),Jsonb(outcome["warnings"]),outcome.get("error"),job_id))
+            finally:
+                if retained["lock_conn"] is not None:
+                    retained["lock_conn"].execute(
+                        "SELECT pg_advisory_unlock(hashtext(%s))", (retained["lock_key"],)
+                    )
+                    retained["lock_conn"].close()
         except Exception:
             logger.exception("Analysis job failed: %s", job_id)
             lock_conn.execute("UPDATE analysis_jobs SET status='failed',error='Analysis storage failed; please retry',updated_at=NOW() WHERE id=%s",(job_id,))

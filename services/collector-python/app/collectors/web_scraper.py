@@ -1,12 +1,24 @@
 import asyncio
-import hashlib
 import json
 import logging
 import re
+import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
+
+from .. import config as app_config
+from ..crawler_identity import (
+    RETRYABLE_HTTP_STATUSES,
+    content_fingerprint,
+    extract_document_metadata,
+    normalize_url,
+    retry_delay,
+    url_hash,
+    validate_public_url,
+    wait_for_domain,
+)
 
 from .base import BaseCollector, CollectResult
 
@@ -99,6 +111,7 @@ class FetchOutcome:
     html: str
     status: int
     mode: str
+    final_url: str = ""
 
 
 def _repair_mojibake(text: str) -> str:
@@ -128,15 +141,23 @@ def _response_html(page: Any) -> str:
 
 
 def _normalize_url(url: str) -> str:
-    """Normalize trailing slashes before query parameters e.g. /event/?eventid -> /event?eventid"""
-    if not url:
-        return ""
-    from urllib.parse import urlparse, urlunparse
-    p = urlparse(url.strip())
-    path = p.path
-    if path.endswith('/') and len(path) > 1 and p.query:
-        path = path.rstrip('/')
-    return urlunparse((p.scheme, p.netloc, path, p.params, p.query, p.fragment))
+    """Backward-compatible alias for the shared crawler URL normalizer."""
+    return normalize_url(url)
+
+
+def _identity_payload(requested_url: str, outcome: FetchOutcome, content: str) -> dict[str, str]:
+    final_url = outcome.final_url or requested_url
+    metadata = extract_document_metadata(outcome.html, final_url)
+    normalized = normalize_url(requested_url)
+    canonical = metadata.get("canonical_url") or normalize_url(final_url)
+    return {
+        "normalized_url": normalized,
+        "canonical_url": canonical,
+        "url_hash": url_hash(canonical or normalized),
+        "content_hash": content_fingerprint(content),
+        "final_url": normalize_url(final_url),
+        "author": metadata.get("author", ""),
+    }
 
 
 def _is_spa_shell(html: str) -> bool:
@@ -415,7 +436,7 @@ def _extract_published_at(html: str, url: str = "", text: str = "") -> str:
 
 class WebScraperCollector(BaseCollector):
     async def _fetch_direct_http(self, url: str, timeout_seconds: int = 12) -> FetchOutcome:
-        """Fast direct HTTP fetch with standard browser headers and TLS/SSL fallback."""
+        """Fast bounded HTTP fetch with redirect SSRF checks and finite retries."""
         import requests
         from scrapling.parser import Adaptor
 
@@ -433,19 +454,88 @@ class WebScraperCollector(BaseCollector):
         def _get():
             session = requests.Session()
             session.trust_env = False
-            resp = session.get(url, headers=headers, timeout=timeout_seconds, allow_redirects=True, verify=False)
-            return resp.text, int(resp.status_code)
+            current_url = validate_public_url(url)
+            max_retries = max(0, min(5, int(self.config.get("max_retries", app_config.CRAWLER_MAX_RETRIES))))
+            max_bytes = app_config.CRAWLER_MAX_HTML_MB * 1024 * 1024
+            redirects = 0
+            attempt = 0
+            while True:
+                wait_for_domain(current_url, app_config.CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS)
+                try:
+                    response = session.get(
+                        current_url,
+                        headers=headers,
+                        timeout=(min(10, timeout_seconds), timeout_seconds),
+                        allow_redirects=False,
+                        verify=app_config.CRAWLER_TLS_VERIFY,
+                        stream=True,
+                    )
+                except (requests.Timeout, requests.ConnectionError):
+                    if attempt >= max_retries:
+                        raise
+                    time.sleep(retry_delay(
+                        attempt,
+                        base_seconds=app_config.CRAWLER_BACKOFF_BASE_SECONDS,
+                        maximum_seconds=app_config.CRAWLER_BACKOFF_MAX_SECONDS,
+                    ))
+                    attempt += 1
+                    continue
 
-        html, status = await asyncio.to_thread(_get)
+                if response.is_redirect or response.is_permanent_redirect:
+                    location = response.headers.get("Location")
+                    response.close()
+                    if not location or redirects >= app_config.CRAWLER_MAX_REDIRECTS:
+                        raise RuntimeError("HTTP redirect limit exceeded")
+                    current_url = validate_public_url(urljoin(current_url, location))
+                    redirects += 1
+                    continue
+
+                data = bytearray()
+                for chunk in response.iter_content(65536):
+                    if not chunk:
+                        continue
+                    data.extend(chunk)
+                    if len(data) > max_bytes:
+                        response.close()
+                        raise ValueError(f"HTML response exceeds {app_config.CRAWLER_MAX_HTML_MB} MB limit")
+                encoding = response.encoding or "utf-8"
+                html = bytes(data).decode(encoding, errors="replace")
+                status = int(response.status_code)
+                retry_after = response.headers.get("Retry-After")
+                response.close()
+                if status in RETRYABLE_HTTP_STATUSES and attempt < max_retries:
+                    time.sleep(retry_delay(
+                        attempt,
+                        retry_after=retry_after,
+                        base_seconds=app_config.CRAWLER_BACKOFF_BASE_SECONDS,
+                        maximum_seconds=app_config.CRAWLER_BACKOFF_MAX_SECONDS,
+                    ))
+                    attempt += 1
+                    continue
+                return html, status, current_url
+
+        html, status, final_url = await asyncio.to_thread(_get)
         page = Adaptor(html)
-        return FetchOutcome(page, html, status, "direct_http")
+        return FetchOutcome(page, html, status, "direct_http", final_url)
 
     async def extract_url(self, url: str) -> dict:
         """Fetch one URL for interactive analysis without publishing it."""
+        url = await asyncio.to_thread(validate_public_url, url)
         from .pdf_document import try_pdf
-        pdf = await asyncio.to_thread(try_pdf, url)
+        # Do not download every HTML article once as a PDF probe and then a
+        # second time as HTML. Explicit PDF URLs retain the full PDF pipeline.
+        pdf = await asyncio.to_thread(try_pdf, url) if urlparse(url).path.lower().endswith(".pdf") else None
         if pdf is not None:
             pdf["source_country"] = _country_hint_from_url(url)
+            canonical = normalize_url(pdf.get("url") or url)
+            pdf.update({
+                "normalized_url": normalize_url(url),
+                "canonical_url": canonical,
+                "url_hash": url_hash(canonical),
+                "content_hash": content_fingerprint(pdf.get("content", "")),
+                "final_url": canonical,
+                "author": "",
+            })
             return pdf
         fetch_mode = str(self.config.get("fetch_mode", "auto")).lower()
         if fetch_mode not in {"auto", "http", "stealth"}:
@@ -525,6 +615,7 @@ class WebScraperCollector(BaseCollector):
             "http_status": outcome.status,
             "source_country": _country_hint_from_url(url),
             "published_at": _extract_published_at(outcome.html, url=url, text=content),
+            **_identity_payload(url, outcome, content),
         }
 
     async def collect(self) -> CollectResult:
@@ -553,8 +644,9 @@ class WebScraperCollector(BaseCollector):
                     logger.info("Skipping already processed web URL: %s", url)
                     continue
                 try:
+                    url = await asyncio.to_thread(validate_public_url, url)
                     from .pdf_document import try_pdf
-                    pdf = await asyncio.to_thread(try_pdf, url)
+                    pdf = await asyncio.to_thread(try_pdf, url) if urlparse(url).path.lower().endswith(".pdf") else None
                     if pdf is not None:
                         from .. import rabbitmq
                         if not pdf["content"].strip():
@@ -564,6 +656,12 @@ class WebScraperCollector(BaseCollector):
                             "source_name": self.source.get("name", ""),
                             "collector_source_id": str(self.source["id"]),
                             "source_country": self.config.get("country") or _country_hint_from_url(url),
+                            "normalized_url": normalize_url(url),
+                            "canonical_url": normalize_url(pdf.get("url") or url),
+                            "url_hash": url_hash(pdf.get("url") or url),
+                            "content_hash": content_fingerprint(pdf.get("content", "")),
+                            "final_url": normalize_url(pdf.get("url") or url),
+                            "author": "",
                         })
                         published_urls.add(url)
                         result.records_ingested += 1
@@ -576,8 +674,8 @@ class WebScraperCollector(BaseCollector):
                     )
                     published_at = _extract_published_at(outcome.html, url=url, text=body_text)
                     text = f"{title}\n\n{body_text}" if title else body_text
-                    url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
-                    obj_path = f"web/{self.source['id']}/{url_hash}.html"
+                    identity = _identity_payload(url, outcome, body_text)
+                    obj_path = f"web/{self.source['id']}/{identity['url_hash']}.html"
                     from .. import rabbitmq
                     from ..minio_client import upload_file
 
@@ -597,6 +695,7 @@ class WebScraperCollector(BaseCollector):
                         "fetch_mode": outcome.mode,
                         "http_status": outcome.status,
                         "source_country": self.config.get("country") or _country_hint_from_url(url),
+                        **identity,
                     })
                     published_urls.add(url)
                     result.records_ingested += 1
@@ -633,6 +732,8 @@ class WebScraperCollector(BaseCollector):
 
     async def _fetch_http(self, url: str) -> FetchOutcome:
         from scrapling.fetchers import AsyncFetcher
+        url = await asyncio.to_thread(validate_public_url, url)
+        await asyncio.to_thread(wait_for_domain, url, app_config.CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS)
         timeout_seconds = max(1, min(int(self.config.get("timeout_ms", 15_000)) // 1000, 15))
         kwargs = {
             "timeout": timeout_seconds,
@@ -643,7 +744,12 @@ class WebScraperCollector(BaseCollector):
         if self.config.get("proxy"):
             kwargs["proxy"] = self.config["proxy"]
         page = await AsyncFetcher.get(url, **kwargs)
-        return FetchOutcome(page, _response_html(page), int(getattr(page, "status", 0) or 0), "http")
+        final_url = str(getattr(page, "url", "") or url)
+        final_url = await asyncio.to_thread(validate_public_url, final_url)
+        html = _response_html(page)
+        if len(html.encode("utf-8", errors="ignore")) > app_config.CRAWLER_MAX_HTML_MB * 1024 * 1024:
+            raise ValueError(f"HTML response exceeds {app_config.CRAWLER_MAX_HTML_MB} MB limit")
+        return FetchOutcome(page, html, int(getattr(page, "status", 0) or 0), "http", final_url)
 
     def _new_stealth_session(self):
         from scrapling.fetchers import AsyncStealthySession
@@ -660,6 +766,8 @@ class WebScraperCollector(BaseCollector):
         return AsyncStealthySession(**kwargs)
 
     async def _fetch_stealth(self, url: str, session: Any) -> FetchOutcome:
+        url = await asyncio.to_thread(validate_public_url, url)
+        await asyncio.to_thread(wait_for_domain, url, app_config.CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS)
         kwargs = {
             "retries": int(self.config.get("max_retries", 2)),
             "wait": int(self.config.get("wait_ms", 5000)),
@@ -673,4 +781,8 @@ class WebScraperCollector(BaseCollector):
         status = int(getattr(page, "status", 0) or 0)
         if _is_challenge(status, html):
             raise RuntimeError(f"challenge still present after stealth fetch status={status}")
-        return FetchOutcome(page, html, status, "stealth")
+        final_url = str(getattr(page, "url", "") or url)
+        final_url = await asyncio.to_thread(validate_public_url, final_url)
+        if len(html.encode("utf-8", errors="ignore")) > app_config.CRAWLER_MAX_HTML_MB * 1024 * 1024:
+            raise ValueError(f"HTML response exceeds {app_config.CRAWLER_MAX_HTML_MB} MB limit")
+        return FetchOutcome(page, html, status, "stealth", final_url)

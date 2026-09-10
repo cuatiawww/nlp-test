@@ -42,7 +42,9 @@ def env_year(name: str = "CURRENT_YEAR") -> int:
 
 
 CURRENT_YEAR = env_year()
-_DELIVERY_ATTEMPTS: dict[str, int] = {}
+MAX_DELIVERY_RETRIES = max(1, int(os.getenv("RABBITMQ_MAX_DELIVERY_RETRIES", "4")))
+RETRY_BASE_MILLISECONDS = max(1000, int(os.getenv("RABBITMQ_RETRY_BASE_MILLISECONDS", "5000")))
+RETRY_MAX_MILLISECONDS = max(RETRY_BASE_MILLISECONDS, int(os.getenv("RABBITMQ_RETRY_MAX_MILLISECONDS", "60000")))
 HISTORICAL_FAST_NON_HEALTH = os.getenv("HISTORICAL_FAST_NON_HEALTH", "false").lower() in {"1", "true", "yes", "on"}
 HEALTH_HINTS = (
     "health", "disease", "illness", "hospital", "patient", "virus", "fever", "dengue",
@@ -54,6 +56,90 @@ HEALTH_HINTS = (
 
 def get_db():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def document_identity_key(msg: dict) -> str:
+    """Return the strongest identity available before NLP starts."""
+    for field in ("content_hash", "canonical_url", "url_hash", "normalized_url", "url"):
+        value = str(msg.get(field) or "").strip()
+        if value:
+            return f"crawler-document:{field}:{value}"
+    raw_id = str(msg.get("raw_report_id") or "").strip()
+    return f"crawler-raw:{raw_id}" if raw_id else ""
+
+
+def find_completed_duplicate(conn, msg: dict):
+    """Find an already analyzed report using layered, database-backed identity."""
+    content_hash = str(msg.get("content_hash") or "").strip() or None
+    canonical_url = str(msg.get("canonical_url") or "").strip() or None
+    url_digest = str(msg.get("url_hash") or "").strip() or None
+    normalized_url = str(msg.get("normalized_url") or "").strip() or None
+    url = str(msg.get("url") or "").strip() or None
+    raw_id = msg.get("raw_report_id")
+    if not any((content_hash, canonical_url, url_digest, normalized_url, url, raw_id)):
+        return None
+    return conn.execute(
+        """SELECT rr.id, de.id AS event_id
+           FROM raw_reports rr
+           JOIN LATERAL (
+               SELECT event.id
+               FROM disease_events event
+               WHERE event.raw_report_id=rr.id
+               ORDER BY event.created_at DESC
+               LIMIT 1
+           ) de ON TRUE
+           WHERE rr.processing_status IN ('PROCESSED', 'NON_HEALTH')
+             AND (
+                 (%s::uuid IS NOT NULL AND rr.id=%s::uuid)
+                 OR (%s::text IS NOT NULL AND rr.content_hash=%s)
+                 OR (%s::text IS NOT NULL AND rr.canonical_url=%s)
+                 OR (%s::text IS NOT NULL AND rr.url_hash=%s)
+                 OR (%s::text IS NOT NULL AND rr.normalized_url=%s)
+                 OR (%s::text IS NOT NULL AND rr.url=%s)
+             )
+           ORDER BY
+             CASE WHEN %s::text IS NOT NULL AND rr.content_hash=%s THEN 0
+                  WHEN %s::text IS NOT NULL AND rr.canonical_url=%s THEN 1
+                  ELSE 2 END,
+             rr.created_at DESC
+           LIMIT 1""",
+        (
+            raw_id, raw_id,
+            content_hash, content_hash,
+            canonical_url, canonical_url,
+            url_digest, url_digest,
+            normalized_url, normalized_url,
+            url, url,
+            content_hash, content_hash,
+            canonical_url, canonical_url,
+        ),
+    ).fetchone()
+
+
+def mark_duplicate_input(msg: dict, duplicate_raw_id) -> None:
+    """Close an already-created RAW row while retaining its duplicate lineage."""
+    raw_id = msg.get("raw_report_id")
+    if not raw_id or str(raw_id) == str(duplicate_raw_id):
+        return
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE raw_reports
+               SET processing_status='DUPLICATE', duplicate_of_raw_report_id=%s,
+                   normalized_url=COALESCE(normalized_url, %s),
+                   canonical_url=COALESCE(canonical_url, %s),
+                   url_hash=COALESCE(url_hash, %s),
+                   content_hash=COALESCE(content_hash, %s),
+                   final_url=COALESCE(final_url, %s),
+                   author=COALESCE(author, %s)
+               WHERE id=%s""",
+            (
+                duplicate_raw_id,
+                msg.get("normalized_url"), msg.get("canonical_url"),
+                msg.get("url_hash"), msg.get("content_hash"),
+                msg.get("final_url"), msg.get("author"), raw_id,
+            ),
+        )
+        conn.commit()
 
 
 def persist_location_relations(conn, event_id, nlp: dict) -> None:
@@ -136,29 +222,53 @@ def mark_message_processing(msg: dict) -> None:
     with get_db() as conn:
         if raw_id:
             conn.execute(
-                "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
-                (raw_id,),
+                """UPDATE raw_reports SET processing_status='PROCESSING',
+                     normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
+                     url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
+                     final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
+                   WHERE id=%s""",
+                (
+                    msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
+                    msg.get("content_hash"), msg.get("final_url"), msg.get("author"), raw_id,
+                ),
             )
         elif url:
-            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (url,))
             existing = conn.execute(
                 """SELECT id FROM raw_reports
-                   WHERE url=%s
+                   WHERE (url=%s
+                          OR (%s::text IS NOT NULL AND normalized_url=%s)
+                          OR (%s::text IS NOT NULL AND canonical_url=%s)
+                          OR (%s::text IS NOT NULL AND url_hash=%s)
+                          OR (%s::text IS NOT NULL AND content_hash=%s))
                    ORDER BY created_at DESC
                    LIMIT 1
                    FOR UPDATE""",
-                (url,),
+                (
+                    url,
+                    msg.get("normalized_url"), msg.get("normalized_url"),
+                    msg.get("canonical_url"), msg.get("canonical_url"),
+                    msg.get("url_hash"), msg.get("url_hash"),
+                    msg.get("content_hash"), msg.get("content_hash"),
+                ),
             ).fetchone()
             if existing:
                 conn.execute(
-                    "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
-                    (existing["id"],),
+                    """UPDATE raw_reports SET processing_status='PROCESSING',
+                         normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
+                         url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
+                         final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
+                       WHERE id=%s""",
+                    (
+                        msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
+                        msg.get("content_hash"), msg.get("final_url"), msg.get("author"), existing["id"],
+                    ),
                 )
             else:
                 conn.execute(
                     """INSERT INTO raw_reports
-                       (source_type, source_name, published_at, original_text, url, object_path, processing_status)
-                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSING')""",
+                       (source_type, source_name, published_at, original_text, url, object_path, processing_status,
+                        normalized_url, canonical_url, url_hash, content_hash, final_url, author)
+                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSING', %s, %s, %s, %s, %s, %s)""",
                     (
                         msg.get("source_type"),
                         msg.get("source_name"),
@@ -166,6 +276,8 @@ def mark_message_processing(msg: dict) -> None:
                         msg.get("text", ""),
                         url,
                         msg.get("object_path"),
+                        msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
+                        msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
                     ),
                 )
         else:
@@ -291,19 +403,53 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
         "source_country": source_country,
         "historical_fast": HISTORICAL_FAST_NON_HEALTH,
     }
-    try:
-        resp = requests.post(url, json=payload, timeout=120)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        logger.warning("Call to %s failed (%s), retrying the dedicated raw endpoint", url, e)
-        fallback_url = f"{NLP_SERVICE_URL}/nlp/analyze/raw"
-        resp = requests.post(fallback_url, json=payload, timeout=120)
-        resp.raise_for_status()
-        return resp.json()
+    resp = requests.post(url, json=payload, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def retry_delay_milliseconds(retry_count: int) -> int:
+    return min(RETRY_MAX_MILLISECONDS, RETRY_BASE_MILLISECONDS * (2 ** max(0, retry_count - 1)))
+
+
+def schedule_rabbit_retry(ch, method, properties, body, reason: str) -> bool:
+    """Ack the delivery only after a durable delayed retry has been published."""
+    headers = dict(getattr(properties, "headers", None) or {})
+    retry_count = int(headers.get("x-retry-count", 0)) + 1
+    if retry_count > MAX_DELIVERY_RETRIES:
+        return False
+    queue = str(getattr(method, "routing_key", "") or RABBITMQ_QUEUE)
+    retry_queue = f"{queue}.retry"
+    delay_ms = retry_delay_milliseconds(retry_count)
+    headers.update({
+        "x-retry-count": retry_count,
+        "x-last-error": reason.replace("\n", " ")[:180],
+    })
+    published = ch.basic_publish(
+        exchange="",
+        routing_key=retry_queue,
+        body=body,
+        properties=pika.BasicProperties(
+            delivery_mode=2,
+            content_type="application/json",
+            headers=headers,
+            expiration=str(delay_ms),
+        ),
+        mandatory=True,
+    )
+    if published is False:
+        return False
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+    logger.warning(
+        "Scheduled durable RabbitMQ retry: queue=%s attempt=%d delay_ms=%d error=%s",
+        queue, retry_count, delay_ms, reason[:180],
+    )
+    return True
 
 
 def callback(ch, method, properties, body):
+    identity_lock_conn = None
+    identity_lock_key = ""
     try:
         msg = json.loads(body)
         published_at = msg.get("published_at", "")
@@ -325,6 +471,23 @@ def callback(ch, method, properties, body):
             msg.get("source_type", ""),
             len(msg.get("text", "")),
         )
+
+        identity_lock_key = document_identity_key(msg)
+        if identity_lock_key:
+            identity_lock_conn = get_db()
+            identity_lock_conn.autocommit = True
+            identity_lock_conn.execute(
+                "SELECT pg_advisory_lock(hashtext(%s))", (identity_lock_key,)
+            )
+            duplicate = find_completed_duplicate(identity_lock_conn, msg)
+            if duplicate:
+                logger.info(
+                    "Skipping duplicate before NLP: identity=%s duplicate_raw_id=%s",
+                    identity_lock_key, duplicate["id"],
+                )
+                mark_duplicate_input(msg, duplicate["id"])
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+                return
 
         mark_message_processing(msg)
 
@@ -386,8 +549,15 @@ def callback(ch, method, properties, body):
             elif raw_id:
                 # Rust backend already inserted raw_reports — update status
                 conn.execute(
-                    "UPDATE raw_reports SET processing_status='PROCESSED' WHERE id=%s",
-                    (raw_id,),
+                    """UPDATE raw_reports SET processing_status='PROCESSED',
+                         normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
+                         url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
+                         final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
+                       WHERE id=%s""",
+                    (
+                        msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
+                        msg.get("content_hash"), msg.get("final_url"), msg.get("author"), raw_id,
+                    ),
                 )
             elif msg.get("url"):
                 # RSS and social feeds are replayed on every scheduled run.
@@ -402,11 +572,21 @@ def callback(ch, method, properties, body):
                 )
                 existing = conn.execute(
                     """SELECT id FROM raw_reports
-                       WHERE url=%s
+                       WHERE (url=%s
+                              OR (%s::text IS NOT NULL AND normalized_url=%s)
+                              OR (%s::text IS NOT NULL AND canonical_url=%s)
+                              OR (%s::text IS NOT NULL AND url_hash=%s)
+                              OR (%s::text IS NOT NULL AND content_hash=%s))
                        ORDER BY created_at DESC
                        LIMIT 1
                        FOR UPDATE""",
-                    (msg.get("url"),),
+                    (
+                        msg.get("url"),
+                        msg.get("normalized_url"), msg.get("normalized_url"),
+                        msg.get("canonical_url"), msg.get("canonical_url"),
+                        msg.get("url_hash"), msg.get("url_hash"),
+                        msg.get("content_hash"), msg.get("content_hash"),
+                    ),
                 ).fetchone()
                 if existing:
                     raw_id = existing["id"]
@@ -419,7 +599,13 @@ def callback(ch, method, properties, body):
                            SET source_type=%s, source_name=%s,
                                published_at=COALESCE(%s, published_at),
                                original_text=%s, object_path=%s,
-                               processing_status='PROCESSED'
+                               processing_status='PROCESSED',
+                               normalized_url=COALESCE(normalized_url,%s),
+                               canonical_url=COALESCE(canonical_url,%s),
+                               url_hash=COALESCE(url_hash,%s),
+                               content_hash=COALESCE(content_hash,%s),
+                               final_url=COALESCE(final_url,%s),
+                               author=COALESCE(author,%s)
                            WHERE id=%s""",
                         (
                             msg.get("source_type"),
@@ -427,14 +613,17 @@ def callback(ch, method, properties, body):
                             parse_date(msg.get("published_at")),
                             msg.get("text"),
                             msg.get("object_path"),
+                            msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
+                            msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
                             raw_id,
                         ),
                     )
                 else:
                     cur = conn.execute(
                         """INSERT INTO raw_reports
-                           (source_type, source_name, published_at, original_text, url, object_path, processing_status)
-                           VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSED')
+                           (source_type, source_name, published_at, original_text, url, object_path, processing_status,
+                            normalized_url, canonical_url, url_hash, content_hash, final_url, author)
+                           VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSED', %s, %s, %s, %s, %s, %s)
                            RETURNING id""",
                         (
                             msg.get("source_type"),
@@ -443,6 +632,8 @@ def callback(ch, method, properties, body):
                             msg.get("text"),
                             msg.get("url"),
                             msg.get("object_path"),
+                            msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
+                            msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
                         ),
                     )
                     raw_id = cur.fetchone()["id"]
@@ -450,8 +641,9 @@ def callback(ch, method, properties, body):
                 # Collector message — insert raw_reports now
                 cur = conn.execute(
                     """INSERT INTO raw_reports
-                       (source_type, source_name, published_at, original_text, url, object_path, processing_status)
-                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSED')
+                       (source_type, source_name, published_at, original_text, url, object_path, processing_status,
+                        normalized_url, canonical_url, url_hash, content_hash, final_url, author)
+                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSED', %s, %s, %s, %s, %s, %s)
                        RETURNING id""",
                     (
                         msg.get("source_type"),
@@ -460,6 +652,8 @@ def callback(ch, method, properties, body):
                         msg.get("text"),
                         msg.get("url"),
                         msg.get("object_path"),
+                        msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
+                        msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
                     ),
                 )
                 raw_id = cur.fetchone()["id"]
@@ -474,13 +668,16 @@ def callback(ch, method, properties, body):
                     """INSERT INTO disease_events
                        (raw_report_id, source_type, source_name, published_at, original_text, language,
                         location_name, geom, disease_extracted, disease_mentions, disease_classification,
-                        case_count, death_count, confidence, outbreak_alert, sentiment, event_type, relevance_score,
+                        case_count, death_count, event_date, confirmed_cases, suspected_cases,
+                        hospitalizations, epidemiological_evidence,
+                        confidence, outbreak_alert, sentiment, event_type, relevance_score,
                          source_credibility, source_credibility_label, is_health_related)
                        VALUES (%s, %s, %s, %s, %s, %s, %s,
                                CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                     ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                                END,
-                                 %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)""",
+                                 %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
+                                 %s, %s, %s, %s, %s, %s, %s, FALSE)""",
                     (
                         raw_id,
                         msg.get("source_type"),
@@ -498,6 +695,11 @@ def callback(ch, method, properties, body):
                         nlp.get("disease_classification"),
                         nlp.get("case_count", 0),
                         nlp.get("death_count", 0),
+                        parse_date(nlp.get("event_date")),
+                        nlp.get("confirmed_cases"),
+                        nlp.get("suspected_cases"),
+                        nlp.get("hospitalizations"),
+                        json.dumps(nlp.get("evidence", [])),
                         nlp.get("confidence", 0.0),
                         nlp.get("outbreak_alert", False),
                         nlp.get("sentiment"),
@@ -516,14 +718,16 @@ def callback(ch, method, properties, body):
                 """INSERT INTO disease_events
                    (raw_report_id, source_type, source_name, published_at, original_text, language,
                          location_name, geom, symptoms, disease_extracted, disease_mentions, disease_classification,
-                    case_count, death_count, confidence, outbreak_alert,
+                    case_count, death_count, event_date, confirmed_cases, suspected_cases,
+                    hospitalizations, epidemiological_evidence, confidence, outbreak_alert,
                     sentiment, event_type, relevance_score,
                     source_credibility, source_credibility_label, is_health_related)
                    VALUES (%s, %s, %s, %s, %s, %s, %s,
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
-                            %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                            %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s::jsonb,
+                            %s, %s, %s, %s, %s, %s, %s, TRUE)
                    RETURNING id""",
                 (
                     raw_id,
@@ -543,6 +747,11 @@ def callback(ch, method, properties, body):
                     nlp.get("disease_classification"),
                     nlp.get("case_count", 1),
                     nlp.get("death_count", 0),
+                    parse_date(nlp.get("event_date")),
+                    nlp.get("confirmed_cases"),
+                    nlp.get("suspected_cases"),
+                    nlp.get("hospitalizations"),
+                    json.dumps(nlp.get("evidence", [])),
                     nlp.get("confidence", 0.0),
                     nlp.get("outbreak_alert", False),
                     nlp.get("sentiment"),
@@ -644,8 +853,6 @@ def callback(ch, method, properties, body):
             conn.commit()
 
         logger.info("Processed successfully: raw_id=%s", raw_id)
-        msg_key = str(msg.get("raw_report_id") or msg.get("url") or hash(msg.get("text", "")[:120]))
-        _DELIVERY_ATTEMPTS.pop(msg_key, None)
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except json.JSONDecodeError as e:
@@ -653,39 +860,41 @@ def callback(ch, method, properties, body):
         ch.basic_ack(delivery_tag=method.delivery_tag)
     except requests.RequestException as e:
         logger.error("NLP service error: %s", e)
-        msg_key = str(msg.get("raw_report_id") or msg.get("url") or hash(msg.get("text", "")[:120])) if 'msg' in locals() else str(method.delivery_tag)
-        attempts = _DELIVERY_ATTEMPTS.get(msg_key, 0) + 1
-        _DELIVERY_ATTEMPTS[msg_key] = attempts
-        if attempts >= 3:
-            logger.error("Message %s failed %d times with NLP error, dropping poison pill: %s", msg_key, attempts, e)
-            mark_message_failed(msg)
-            _DELIVERY_ATTEMPTS.pop(msg_key, None)
+        if not schedule_rabbit_retry(ch, method, properties, body, str(e)):
+            logger.error("NLP retry budget exhausted; marking message failed")
+            if "msg" in locals():
+                mark_message_failed(msg)
             ch.basic_ack(delivery_tag=method.delivery_tag)
-        else:
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
     except psycopg.Error as e:
         diagnostic = getattr(e, "diag", None)
         table_name = getattr(diagnostic, "table_name", None) if diagnostic else None
         column_name = getattr(diagnostic, "column_name", None) if diagnostic else None
         data_type = getattr(diagnostic, "datatype_name", None) if diagnostic else None
-        msg_key = str(msg.get("raw_report_id") or msg.get("skdr_report_id") or msg.get("url") or hash(msg.get("text", "")[:120])) if "msg" in locals() else str(method.delivery_tag)
-        attempts = _DELIVERY_ATTEMPTS.get(msg_key, 0) + 1
-        _DELIVERY_ATTEMPTS[msg_key] = attempts
         logger.error(
-            "Database error attempt=%d key=%s table=%s column=%s datatype=%s: %s",
-            attempts, msg_key, table_name or "?", column_name or "?", data_type or "?", e,
+            "Database error table=%s column=%s datatype=%s: %s",
+            table_name or "?", column_name or "?", data_type or "?", e,
         )
-        if attempts >= 3:
-            logger.error("Database poison pill failed %d times; marking failed and acknowledging key=%s", attempts, msg_key)
+        if not schedule_rabbit_retry(ch, method, properties, body, str(e)):
+            logger.error("Database retry budget exhausted; marking message failed")
             if "msg" in locals():
                 mark_message_failed(msg)
-            _DELIVERY_ATTEMPTS.pop(msg_key, None)
             ch.basic_ack(delivery_tag=method.delivery_tag)
-        else:
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
     except Exception as e:
-        logger.exception("Unexpected error: %s — discarding", e)
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+        logger.exception("Unexpected worker error: %s", e)
+        if not schedule_rabbit_retry(ch, method, properties, body, str(e)):
+            if "msg" in locals():
+                mark_message_failed(msg)
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+    finally:
+        if identity_lock_conn is not None:
+            try:
+                identity_lock_conn.execute(
+                    "SELECT pg_advisory_unlock(hashtext(%s))", (identity_lock_key,)
+                )
+            except Exception:
+                logger.exception("Could not release crawler identity lock")
+            finally:
+                identity_lock_conn.close()
 
 
 def main():
@@ -697,6 +906,16 @@ def main():
             channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
             if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
                 channel.queue_declare(queue=RABBITMQ_SOCIAL_QUEUE, durable=True)
+            queues = list(dict.fromkeys((RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE)))
+            for queue in queues:
+                channel.queue_declare(
+                    queue=f"{queue}.retry",
+                    durable=True,
+                    arguments={
+                        "x-dead-letter-exchange": "",
+                        "x-dead-letter-routing-key": queue,
+                    },
+                )
             # SKDR queue disabled
             # if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
             #     channel.queue_declare(queue=RABBITMQ_SKDR_QUEUE, durable=True)
@@ -706,10 +925,6 @@ def main():
                 channel.basic_consume(queue=RABBITMQ_SOCIAL_QUEUE, on_message_callback=callback)
             # if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
             #     channel.basic_consume(queue=RABBITMQ_SKDR_QUEUE, on_message_callback=callback)
-            queues = [RABBITMQ_QUEUE]
-            for queue in (RABBITMQ_SOCIAL_QUEUE,):
-                if queue not in queues:
-                    queues.append(queue)
             if len(queues) > 1:
                 logger.info("Worker listening on %s", ", ".join(queues))
             else:
