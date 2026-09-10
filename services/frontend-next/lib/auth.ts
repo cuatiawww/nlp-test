@@ -19,34 +19,35 @@ export interface SystemModule {
 
 export const SYSTEM_MODULES: SystemModule[] = [
   // Surveillance & Monitoring
-  { id: 'dashboard', label: 'Dashboard & Peta', description: 'Surveillance Dashboard, peta sebaran & kejadian', category: 'Surveillance & Monitoring', path: '/' },
-  { id: 'events', label: 'Kejadian Penyakit', description: 'Log kejadian penyakit, kasus, dan verifikasi data', category: 'Surveillance & Monitoring', path: '/events' },
-  { id: 'sources', label: 'Data Sources', description: 'Manajemen sumber feed crawler berita dan API', category: 'Surveillance & Monitoring', path: '/sources' },
-  { id: 'analyze', label: 'URL Analysis', description: 'Analisis interaktif artikel web dan dokumen PDF', category: 'Surveillance & Monitoring', path: '/analyze' },
-  { id: 'processing', label: 'Processing & Queue', description: 'Monitoring antrian worker dan status crawling', category: 'Surveillance & Monitoring', path: '/processing' },
-  { id: 'reports', label: 'Reports & Matrix', description: 'Laporan epidemiologi dan matriks rekapitulasi', category: 'Surveillance & Monitoring', path: '/reports' },
-  { id: 'tv', label: 'TV Command Center', description: 'Tampilan layar lebar TV dashboard command center', category: 'Surveillance & Monitoring', path: '/tv' },
+  { id: 'dashboard', label: 'Dashboard & Map', description: 'Surveillance dashboard, distribution map, and events', category: 'Surveillance & Monitoring', path: '/' },
+  { id: 'events', label: 'Disease Events', description: 'Disease event logs, cases, and data verification', category: 'Surveillance & Monitoring', path: '/events' },
+  { id: 'sources', label: 'Data Sources', description: 'Manage news feeds and API collection sources', category: 'Surveillance & Monitoring', path: '/sources' },
+  { id: 'analyze', label: 'URL Analysis', description: 'Analyze a single web article or PDF independently', category: 'Surveillance & Monitoring', path: '/analyze' },
+  { id: 'manual_crawler', label: 'Manual Crawler', description: 'Run an on-demand disease and location surveillance crawl', category: 'Surveillance & Monitoring', path: '/manual-crawler' },
+  { id: 'processing', label: 'Processing & Queue', description: 'Monitor worker queues and collection status', category: 'Surveillance & Monitoring', path: '/processing' },
+  { id: 'reports', label: 'Reports & Matrix', description: 'Epidemiological reports and summary matrices', category: 'Surveillance & Monitoring', path: '/reports' },
+  { id: 'tv', label: 'TV Command Center', description: 'Wide-screen command center dashboard view', category: 'Surveillance & Monitoring', path: '/tv' },
 
   // Master Data & Configuration
-  { id: 'locations', label: 'Wilayah / Locations', description: 'Master data wilayah administratif dan koordinat', category: 'Master Data & Configuration', path: '/locations' },
+  { id: 'locations', label: 'Locations', description: 'Administrative location master data and coordinates', category: 'Master Data & Configuration', path: '/locations' },
   { id: 'disease_master', label: 'Disease Master', description: 'WHO ICD-11 disease concepts used by the NLP pipeline', category: 'Master Data & Configuration', path: '/disease-master' },
-  { id: 'credibility', label: 'Source Credibility', description: 'Skor kredibilitas dan reputasi media sumber', category: 'Master Data & Configuration', path: '/source-credibility' },
-  { id: 'outbreak_rules', label: 'Outbreak Rules', description: 'Konfigurasi ambang batas dan aturan sinyal KLB', category: 'Master Data & Configuration', path: '/outbreak-rules' },
-  { id: 'nlp_config', label: 'NLP Labels & Keywords', description: 'Label NER, kamus kata kunci, dan model bahasa', category: 'Master Data & Configuration', path: '/nlp-labels' },
+  { id: 'credibility', label: 'Source Credibility', description: 'Source media credibility scores and reputation', category: 'Master Data & Configuration', path: '/source-credibility' },
+  { id: 'outbreak_rules', label: 'Outbreak Rules', description: 'Outbreak thresholds and alert rule configuration', category: 'Master Data & Configuration', path: '/outbreak-rules' },
+  { id: 'nlp_config', label: 'NLP Labels & Keywords', description: 'NER labels, keyword dictionaries, and language models', category: 'Master Data & Configuration', path: '/nlp-labels' },
 
   // System Management
-  { id: 'console_users', label: 'Manajemen Pengguna', description: 'Pembuatan akun dan hak akses modul pengguna', category: 'System Management', path: '/console/users' },
-  { id: 'console_settings', label: 'Pengaturan & Audit', description: 'Branding aplikasi dan riwayat audit aktivitas', category: 'System Management', path: '/console/settings' },
+  { id: 'console_users', label: 'User Management', description: 'Create accounts and manage module permissions', category: 'System Management', path: '/console/users' },
+  { id: 'console_settings', label: 'Settings & Audit', description: 'Application branding and activity audit history', category: 'System Management', path: '/console/settings' },
 ];
 
 export const ROLE_PRESET_MODULES: Record<string, string[]> = {
   admin: ['*'],
-  data_analyst: ['dashboard', 'events', 'sources', 'analyze', 'processing', 'reports', 'locations', 'disease_master'],
-  epidemiologi: ['dashboard', 'events', 'analyze', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
+  data_analyst: ['dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'processing', 'reports', 'locations', 'disease_master'],
+  epidemiologi: ['dashboard', 'events', 'analyze', 'manual_crawler', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
   executive: ['dashboard', 'events', 'reports', 'tv'],
-  skk: ['dashboard', 'sources', 'reports', 'processing'],
+  skk: ['dashboard', 'sources', 'manual_crawler', 'reports', 'processing'],
   // legacy fallbacks
-  operator: ['dashboard', 'events', 'sources', 'analyze', 'reports'],
+  operator: ['dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'reports'],
   viewer: ['dashboard', 'reports'],
 };
 
@@ -66,6 +67,7 @@ export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string):
   if (moduleKeyOrPath.startsWith('/events') && user.permissions?.includes('events')) return true;
   if (moduleKeyOrPath.startsWith('/sources') && user.permissions?.includes('sources')) return true;
   if (moduleKeyOrPath.startsWith('/analyze') && user.permissions?.includes('analyze')) return true;
+  if (moduleKeyOrPath.startsWith('/manual-crawler') && user.permissions?.includes('manual_crawler')) return true;
   if (moduleKeyOrPath.startsWith('/processing') && user.permissions?.includes('processing')) return true;
   if ((moduleKeyOrPath.startsWith('/reports') || moduleKeyOrPath.startsWith('/laporan')) && user.permissions?.includes('reports')) return true;
   if (moduleKeyOrPath.startsWith('/tv') && user.permissions?.includes('tv')) return true;

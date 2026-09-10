@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { analyzeUrl } from '@/lib/api'
-import CrawlMatrixPanel from '@/components/CrawlMatrixPanel'
 import AnalyzeResultCard from '@/components/AnalyzeResultCard'
 import Modal from '@/components/Modal'
 import AseanMap from '@/components/AseanMap'
@@ -75,7 +74,6 @@ export default function AnalyzePage() {
   const [error, setError] = useState('')
   const [partial, setPartial] = useState<{content?: string; job_id?: string} | null>(null)
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
-  const [mode, setMode] = useState<'url' | 'crawl'>('crawl')
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -155,13 +153,6 @@ export default function AnalyzePage() {
           <p className="mt-1 text-sm text-slate-500">{t('pages.analyze.subtitle')}</p>
         </div>
       </div>
-
-      <div className="mt-4 inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-        <button onClick={() => setMode('crawl')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${mode === 'crawl' ? 'bg-[#0060A9] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>Crawling Matriks</button>
-        <button onClick={() => setMode('url')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${mode === 'url' ? 'bg-[#0060A9] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>Analisis URL</button>
-      </div>
-
-      {mode === 'crawl' ? <CrawlMatrixPanel /> : <>
 
       <div className="mt-4 flex gap-3">
         <div className="relative flex-1">
@@ -271,7 +262,7 @@ export default function AnalyzePage() {
                         <div className="flex flex-wrap gap-1 pt-0.5">
                           <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#0060A9] ring-1 ring-inset ring-[#0060A9]/20">
                             <Layers className="h-2.5 w-2.5 text-[#0060A9]" />
-                            +{indicatedCount - 1} Penyakit Lain Terindikasi
+                            +{indicatedCount - 1} Other Diseases Detected
                           </span>
                         </div>
                       )}
@@ -283,11 +274,11 @@ export default function AnalyzePage() {
                     hasMultiDisease ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-[#0060A9] ring-1 ring-blue-200">
                         <Layers className="h-2.5 w-2.5" />
-                        Matriks
+                        Classification Matrix
                       </span>
                     ) : undefined
                   }
-                  actionHint={hasMultiDisease ? "Klik untuk melihat matriks klasifikasi" : undefined}
+                      actionHint={hasMultiDisease ? "Click to view the classification matrix" : undefined}
                 />
               )
             })()}
@@ -475,11 +466,11 @@ export default function AnalyzePage() {
             </div>
           </div>
 
-          {/* Modal Matriks Klasifikasi Penyakit & Multi-Event */}
+          {/* Disease classification and multi-event modal */}
           <Modal
             open={diseaseMatrixOpen}
             onClose={() => setDiseaseMatrixOpen(false)}
-            title="Matriks Klasifikasi Penyakit & Dekomposisi Multi-Event"
+            title="Disease Classification & Multi-Event Decomposition"
             maxWidth="max-w-4xl"
           >
             {(() => {
@@ -495,32 +486,32 @@ export default function AnalyzePage() {
                 <div className="space-y-6">
                   <div>
                     <p className="text-sm text-slate-600 leading-relaxed">
-                      Daftar seluruh penyakit, wilayah persebaran, dan rincian data kasus yang terdeteksi dari dokumen ini melalui analisis NLP & Dekomposisi Multi-Event.
+                      All diseases, affected locations, and case details detected from this source through NLP analysis and multi-event decomposition.
                     </p>
                   </div>
 
                   {/* Summary Cards */}
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#0060A9]">Penyakit Utama</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#0060A9]">Primary Disease</span>
                       <p className="mt-1 text-sm font-black text-slate-900 truncate" title={result.disease_classification}>
                         {translateDisease(result.disease_classification)}
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Terindikasi</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Detected</span>
                       <p className="mt-1 text-lg font-black text-slate-900">
-                        {indicatedCount} <span className="text-xs font-normal text-slate-500">Penyakit / Event</span>
+                        {indicatedCount} <span className="text-xs font-normal text-slate-500">Disease / Event</span>
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Kasus Primer</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Primary Cases</span>
                       <p className="mt-1 text-lg font-black text-slate-900">
                         {result.case_count.toLocaleString()}
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Kematian Tercatat</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Recorded Deaths</span>
                       <p className={`mt-1 text-lg font-black ${result.death_count > 0 ? 'text-red-600' : 'text-slate-900'}`}>
                         {result.death_count.toLocaleString()}
                       </p>
@@ -533,11 +524,11 @@ export default function AnalyzePage() {
                       <div className="flex items-center gap-2">
                         <Bug className="h-4 w-4 text-[#0060A9]" />
                         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                          Matriks Pasangan Penyakit, Wilayah & Kasus
+                          Disease, Location & Case Matrix
                         </h3>
                       </div>
                       <span className="text-[11px] font-medium text-slate-500">
-                        {subEvents.length > 0 ? `${subEvents.length} kejadian didekomposisi` : `${diseaseTopics.length} topik teridentifikasi`}
+                        {subEvents.length > 0 ? `${subEvents.length} decomposed event(s)` : `${diseaseTopics.length} detected topic(s)`}
                       </span>
                     </div>
 
@@ -545,12 +536,12 @@ export default function AnalyzePage() {
                       <table className="w-full text-left text-xs">
                         <thead>
                           <tr className="border-b border-slate-200/80 bg-slate-50/40 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                            <th className="py-2.5 px-3.5">Penyakit</th>
-                            <th className="py-2.5 px-3.5">Wilayah / Lokasi</th>
-                            <th className="py-2.5 px-3.5 text-right">Kasus</th>
-                            <th className="py-2.5 px-3.5 text-right">Kematian</th>
-                            <th className="py-2.5 px-3.5">Peran</th>
-                            <th className="py-2.5 px-3.5">Konteks / Bukti Kalimat</th>
+                            <th className="py-2.5 px-3.5">Disease</th>
+                            <th className="py-2.5 px-3.5">Region / Location</th>
+                            <th className="py-2.5 px-3.5 text-right">Cases</th>
+                            <th className="py-2.5 px-3.5 text-right">Deaths</th>
+                            <th className="py-2.5 px-3.5">Role</th>
+                            <th className="py-2.5 px-3.5">Context / Evidence</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -600,7 +591,7 @@ export default function AnalyzePage() {
                                   <td className="py-3 px-3.5">
                                     {isPrimary ? (
                                       <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-200">
-                                        Utama (Primary)
+                                        Primary
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-[#0060A9] ring-1 ring-blue-200">
@@ -614,7 +605,7 @@ export default function AnalyzePage() {
                                         &ldquo;{eventEvidence}&rdquo;
                                       </div>
                                     ) : (
-                                      <span className="text-slate-400">Bukti kalimat tidak tersedia</span>
+                                      <span className="text-slate-400">Sentence evidence is unavailable</span>
                                     )}
                                   </td>
                                 </tr>
@@ -650,11 +641,11 @@ export default function AnalyzePage() {
                                   <td className="py-3 px-3.5">
                                     {isPrimary ? (
                                       <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-200">
-                                        Utama (Primary)
+                                        Primary
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                                        Terindikasi
+                                        Detected
                                       </span>
                                     )}
                                   </td>
@@ -664,7 +655,7 @@ export default function AnalyzePage() {
                                         &ldquo;{mentionEvidence}&rdquo;
                                       </div>
                                     ) : (
-                                      <span className="text-slate-400">Bukti kalimat tidak tersedia</span>
+                                      <span className="text-slate-400">Sentence evidence is unavailable</span>
                                     )}
                                   </td>
                                 </tr>
@@ -682,7 +673,7 @@ export default function AnalyzePage() {
                       <div className="flex items-center gap-2 mb-2.5">
                         <Activity className="h-4 w-4 text-[#0060A9]" />
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                          Daftar Penyakit Kanonik Terdeteksi ({diseaseTopics.length})
+                          Canonical Diseases Detected ({diseaseTopics.length})
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -699,7 +690,7 @@ export default function AnalyzePage() {
                             >
                               <Bug className="h-3 w-3" />
                               {d}
-                              {isPrimary && <span className="ml-1 text-[10px] opacity-80">(Utama)</span>}
+                              {isPrimary && <span className="ml-1 text-[10px] opacity-80">(Primary)</span>}
                             </span>
                           );
                         })}
@@ -711,13 +702,13 @@ export default function AnalyzePage() {
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                     <div className="flex items-center gap-1.5 text-xs text-slate-400">
                       <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
-                      <span>Data otomatis didekomposisi dan disimpan ke tabel disease_events</span>
+                      <span>Data was decomposed and saved to the disease_events table</span>
                     </div>
                     <button
                       onClick={() => setDiseaseMatrixOpen(false)}
                       className="rounded-xl bg-slate-100 px-5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 transition cursor-pointer"
                     >
-                      Tutup
+                      Close
                     </button>
                   </div>
                 </div>
@@ -726,7 +717,6 @@ export default function AnalyzePage() {
           </Modal>
         </div>
       )}
-      </>}
     </div>
   )
 }

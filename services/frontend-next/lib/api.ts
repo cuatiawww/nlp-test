@@ -249,10 +249,11 @@ export const updateDiseaseConcept = (id: string, data: Partial<DiseaseConcept>) 
 export const deleteDiseaseConcept = (id: string) =>
   delFrom(`/api/v1/disease-concepts/${id}`);
 
-// ── Filtered crawling matrix ─────────────────────
+// ── Manual Crawler ───────────────────────────────
 
 export type CrawlJobRequest = {
   disease_concept_ids: string[];
+  url?: string | null;
   region?: string | null;
   country?: string | null;
   province_city?: string | null;
@@ -262,11 +263,11 @@ export type CrawlJobRequest = {
 };
 
 export const createCrawlJob = (data: CrawlJobRequest) =>
-  postTo<{ job_id: string; status: string }>('/api/v1/crawl-jobs', data);
+  postTo<{ job_id: string; status: string }>('/api/v1/manual-crawler/jobs', data);
 export const fetchCrawlJob = (id: string) =>
-  fetchFrom<CrawlJobStatus>(`/api/v1/crawl-jobs/${encodeURIComponent(id)}`);
+  fetchFrom<CrawlJobStatus>(`/api/v1/manual-crawler/jobs/${encodeURIComponent(id)}`);
 export const reprocessCrawlJob = (id: string) =>
-  postTo<{ job_id: string; status: string }>(`/api/v1/crawl-jobs/${encodeURIComponent(id)}/reprocess`);
+  postTo<{ job_id: string; status: string }>(`/api/v1/manual-crawler/jobs/${encodeURIComponent(id)}/reprocess`);
 
 // ── Source Credibility ──────────────────────────
 

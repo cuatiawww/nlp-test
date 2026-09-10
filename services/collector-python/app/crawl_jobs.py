@@ -31,6 +31,7 @@ ASEAN_COUNTRIES = {
 
 class CrawlJobRequest(BaseModel):
     disease_concept_ids: list[str] = Field(default_factory=list, max_length=20)
+    url: str | None = None
     country: str | None = None
     region: str | None = None
     province_city: str | None = None
@@ -38,13 +39,23 @@ class CrawlJobRequest(BaseModel):
     date_to: dt.date | None = None
     max_articles: int = Field(default=20, ge=1, le=50)
 
-    @field_validator("country", "region", "province_city", mode="before")
+    @field_validator("url", "country", "region", "province_city", mode="before")
     @classmethod
     def clean_text(cls, value):
         if value is None:
             return None
         value = str(value).strip()
         return value or None
+
+    @field_validator("url")
+    @classmethod
+    def validate_article_url(cls, value):
+        if value is None:
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+            raise ValueError("URL artikel harus menggunakan HTTP(S) yang valid")
+        return value
 
 
 def _connection():
@@ -67,16 +78,19 @@ def _source_name(url: str) -> str:
     return (urlparse(url).hostname or "Google News").removeprefix("www.")
 
 
-def _discover_urls(disease_names: list[str], country: str | None, region: str | None, limit: int) -> list[dict]:
-    terms = [*disease_names]
-    if country:
-        terms.append(country)
-    elif region:
-        terms.append(region)
-    if not terms:
-        raise ValueError("Pilih minimal satu penyakit dari master ICD-11 atau negara/wilayah")
+def _build_news_query(disease_names: list[str], country: str | None, region: str | None) -> str:
+    disease_terms = [f'"{name}"' if " " in name else name for name in disease_names if name]
+    if not disease_terms:
+        raise ValueError("Pilih minimal satu penyakit dari master ICD-11")
+    query = f"({' OR '.join(disease_terms)})"
+    geography = (country or "").strip()
+    if not geography and region and region.casefold() not in {"asean", "global"}:
+        geography = region.strip()
+    return f"{query} {geography}".strip()
 
-    query = " ".join(f'"{term}"' if " " in term else term for term in terms)
+
+def _discover_urls(disease_names: list[str], country: str | None, region: str | None, limit: int) -> list[dict]:
+    query = _build_news_query(disease_names, country, region)
     feed_url = (
         "https://news.google.com/rss/search?q=" + quote_plus(query) +
         "&hl=en&gl=US&ceid=US:en"
@@ -119,7 +133,7 @@ def _matching_concepts(conn, ids: list[str]) -> list[dict]:
         (ids,),
     ).fetchall()
     if len(rows) != len(set(ids)):
-        raise ValueError("Salah satu penyakit tidak ditemukan atau tidak aktif di master ICD-11")
+        raise ValueError("One or more selected diseases are missing or inactive in the ICD-11 master")
     return [dict(row) for row in rows]
 
 
@@ -134,8 +148,30 @@ def _country_coordinates(conn, country: str):
     return (row["latitude"], row["longitude"]) if row else (None, None)
 
 
+def _disease_labels(analysis: dict) -> list[str]:
+    """Return surveillance disease labels without treating a string as chars."""
+    value = analysis.get("disease_classification")
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if value is None:
+        return []
+    label = str(value).strip()
+    return [label] if label else []
+
+
+def _selected_concept(labels: list[str], concepts: list[dict]) -> tuple[str, dict | None]:
+    """Resolve one NLP label to the selected ICD-11 concept."""
+    for label in labels:
+        label_key = label.casefold()
+        for concept in concepts:
+            concept_key = str(concept["canonical_name"]).casefold()
+            if label_key == concept_key or label_key in concept_key or concept_key in label_key:
+                return label, concept
+    return (labels[0] if labels else ""), None
+
+
 def _article_matches(analysis: dict, disease_names: list[str], country: str | None) -> bool:
-    found = [str(x).casefold() for x in analysis.get("disease_classification") or []]
+    found = [value.casefold() for value in _disease_labels(analysis)]
     if disease_names and not any(
         name.casefold() in value or value in name.casefold()
         for name in disease_names for value in found
@@ -157,7 +193,9 @@ def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts:
     ).fetchone()
     raw_id = raw["id"]
     rows = 0
-    selected = {str(item["canonical_name"]).casefold(): item for item in concepts}
+    selected = concepts
+    disease_labels = _disease_labels(analysis)
+    disease, concept = _selected_concept(disease_labels, selected)
     for item in analysis.get("locations") or []:
         country = str(item.get("country") or "").strip()
         if not country:
@@ -170,10 +208,6 @@ def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts:
             continue
         if request.get("date_to") and published and published > request["date_to"]:
             continue
-        disease = (analysis.get("disease_classification") or [""])[0]
-        concept = selected.get(str(disease).casefold())
-        if concept is None and selected:
-            concept = next((v for k, v in selected.items() if k in str(disease).casefold() or str(disease).casefold() in k), None)
         latitude, longitude = _country_coordinates(conn, country)
         provinces = item.get("provinces") or []
         if request.get("province_city") and not any(
@@ -230,7 +264,16 @@ async def _run_job(job_id: str, payload: dict, reprocess: bool = False):
                 conn.commit()
             discovered = [dict(row) for row in articles]
         else:
-            discovered = await asyncio.to_thread(_discover_urls, disease_names, payload.get("country"), payload.get("region"), payload.get("max_articles", 20))
+            direct_url = str(payload.get("url") or "").strip()
+            if direct_url:
+                discovered = [{
+                    "url": direct_url,
+                    "title": "",
+                    "published_at": None,
+                    "source_name": _source_name(direct_url),
+                }]
+            else:
+                discovered = await asyncio.to_thread(_discover_urls, disease_names, payload.get("country"), payload.get("region"), payload.get("max_articles", 20))
             with _connection() as conn:
                 conn.execute("UPDATE crawl_matrix_jobs SET discovered_count=%s, updated_at=NOW() WHERE id=%s", (len(discovered), job_id))
                 conn.commit()
@@ -285,7 +328,7 @@ async def create(payload: CrawlJobRequest):
     with _connection() as conn:
         concepts = _matching_concepts(conn, payload.disease_concept_ids)
         if not concepts:
-            raise HTTPException(400, "Pilih minimal satu penyakit aktif dari master ICD-11")
+            raise HTTPException(400, "Select at least one active disease from the ICD-11 master")
         row = conn.execute(
             """INSERT INTO crawl_matrix_jobs(disease_concept_ids,disease_names,region,country,province_city,date_from,date_to,max_articles,query)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,status,created_at""",
@@ -293,7 +336,10 @@ async def create(payload: CrawlJobRequest):
              payload.province_city, payload.date_from, payload.date_to, payload.max_articles, Jsonb(payload_dict)),
         ).fetchone()
         job_id = str(row["id"])
-    asyncio.create_task(_run_job(job_id, payload_dict))
+    # Processing is handled by the dedicated crawl-matrix worker. Keeping the
+    # API request limited to enqueueing makes jobs durable across collector
+    # restarts and prevents matrix crawling from blocking /extract-url or the
+    # normal collector scheduler.
     return {"success": True, "data": {"job_id": job_id, "status": row["status"], "created_at": row["created_at"]}}
 
 
@@ -302,7 +348,7 @@ def status(job_id: str):
     with _connection() as conn:
         job = conn.execute("SELECT * FROM crawl_matrix_jobs WHERE id=%s", (job_id,)).fetchone()
         if not job:
-            raise HTTPException(404, "Crawl job tidak ditemukan")
+            raise HTTPException(404, "Manual crawler job was not found")
         rows = conn.execute("""SELECT id, disease_name, icd11_code, crawling_date::text, region, country,
                     province_city_case, article_date::text, date_case, number_of_cases, number_of_deaths,
                     latitude, longitude, source_type, source_name, source_url, article_title, evidence,
@@ -311,7 +357,7 @@ def status(job_id: str):
     return {"success": True, "data": {"job_id": job_id, "status": job["status"], "disease_names": job["disease_names"],
         "region": job["region"], "country": job["country"], "discovered_count": job["discovered_count"],
         "processed_count": job["processed_count"], "row_count": job["row_count"], "warnings": job["warnings"],
-        "error": job["error"], "created_at": job["created_at"], "updated_at": job["updated_at"],
+        "error": job["error"], "query": job["query"], "created_at": job["created_at"], "updated_at": job["updated_at"],
         "rows": [dict(row) for row in rows]}}
 
 
@@ -320,8 +366,11 @@ async def reprocess(job_id: str):
     with _connection() as conn:
         row = conn.execute("SELECT query FROM crawl_matrix_jobs WHERE id=%s", (job_id,)).fetchone()
         if not row:
-            raise HTTPException(404, "Crawl job tidak ditemukan")
-        conn.execute("UPDATE crawl_matrix_jobs SET status='queued', error=NULL, warnings='[]', updated_at=NOW() WHERE id=%s", (job_id,))
+            raise HTTPException(404, "Manual crawler job was not found")
+        conn.execute("""UPDATE crawl_matrix_jobs
+                       SET status='queued', error=NULL, warnings='[]',
+                           query = query || '{"_reprocess": true}'::jsonb,
+                           updated_at=NOW()
+                       WHERE id=%s""", (job_id,))
         conn.commit()
-    asyncio.create_task(_run_job(job_id, row["query"], reprocess=True))
     return {"success": True, "data": {"job_id": job_id, "status": "queued"}}

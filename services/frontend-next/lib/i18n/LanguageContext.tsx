@@ -52,30 +52,28 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      const initialLocale: Locale = stored === "id" || stored === "en" ? stored : "en";
-      setLocaleState(initialLocale);
-      localStorage.setItem(STORAGE_KEY, initialLocale);
-      document.documentElement.lang = initialLocale;
+      // The product UI is English-only. Clear legacy Indonesian preferences
+      // so old browser sessions cannot reintroduce mixed-language labels.
+      setLocaleState("en");
+      localStorage.setItem(STORAGE_KEY, "en");
+      document.documentElement.lang = "en";
     } catch {
       // ignore localStorage errors in private modes
     }
     setMounted(true);
   }, []);
 
-  const setLocale = useCallback((newLocale: Locale) => {
-    setLocaleState(newLocale);
+  const setLocale = useCallback((_newLocale: Locale) => {
+    setLocaleState("en");
     try {
-      localStorage.setItem(STORAGE_KEY, newLocale);
-      document.documentElement.lang = newLocale;
+      localStorage.setItem(STORAGE_KEY, "en");
+      document.documentElement.lang = "en";
     } catch {
       // ignore
     }
   }, []);
 
-  const toggleLocale = useCallback(() => {
-    setLocale(locale === "id" ? "en" : "id");
-  }, [locale, setLocale]);
+  const toggleLocale = useCallback(() => setLocale("en"), [setLocale]);
 
   const t = useCallback(
     (path: string, params?: Record<string, string | number>): string => {
@@ -85,11 +83,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       // Fallback to English if missing in current dictionary
       if (val === undefined || val === null) {
         val = getNestedValue(enDict, path);
-      }
-
-      // Fallback to Indonesian if still missing
-      if (val === undefined || val === null) {
-        val = getNestedValue(idDict, path);
       }
 
       // If still missing, return the path itself as fallback
@@ -121,8 +114,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       if (translated && typeof translated === "string") return translated;
       const fallbackEn = getNestedValue(enDict, `diseases.${trimmed}`);
       if (fallbackEn && typeof fallbackEn === "string") return fallbackEn;
-      const fallbackId = getNestedValue(idDict, `diseases.${trimmed}`);
-      if (fallbackId && typeof fallbackId === "string") return fallbackId;
       return trimmed;
     },
     [locale],

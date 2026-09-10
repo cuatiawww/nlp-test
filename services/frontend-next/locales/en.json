@@ -76,6 +76,7 @@
       "sources": "Data Sources",
       "events": "Events",
       "analyze": "URL Analysis",
+      "manualCrawler": "Manual Crawler",
       "processing": "Processing",
       "reports": "Reports & Matrix",
       "locations": "Locations",

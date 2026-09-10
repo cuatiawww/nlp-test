@@ -63,18 +63,18 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
             <ShieldAlert className="h-8 w-8" />
           </div>
           <h2 className="mt-5 text-lg font-bold text-slate-900">
-            Akses Modul Dibatasi (403)
+            Module Access Restricted (403)
           </h2>
           <p className="mt-2 text-xs text-slate-600 leading-relaxed">
-            Akun Anda dengan peran{' '}
+            Your account with the{' '}
             <span className="font-bold text-slate-900 uppercase">
               {user?.role || 'PENGGUNA'}
             </span>{' '}
-            tidak memiliki hak akses ke halaman/modul ini ({pathname}).
+            role does not have access to this page or module ({pathname}).
           </p>
           <div className="mt-4 rounded-xl bg-slate-50 p-3 text-left border border-slate-100">
             <p className="text-[11px] text-slate-500">
-              💡 <strong>Petunjuk:</strong> Jika Anda memerlukan akses ke modul ini, silakan hubungi Administrator sistem untuk memperbarui izin akun Anda di menu <em>User Management</em>.
+              💡 <strong>Next step:</strong> Contact a system administrator to update your permissions in <em>User Management</em>.
             </p>
           </div>
           <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-2">
@@ -82,13 +82,13 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
               onClick={() => router.back()}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
             >
-              <ArrowLeft className="h-3.5 w-3.5" /> Kembali
+              <ArrowLeft className="h-3.5 w-3.5" /> Back
             </button>
             <Link
               href="/"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-semibold text-white hover:bg-[#004b85] shadow-xs transition"
             >
-              <Home className="h-3.5 w-3.5" /> Ke Dashboard
+              <Home className="h-3.5 w-3.5" /> Dashboard
             </Link>
           </div>
         </div>

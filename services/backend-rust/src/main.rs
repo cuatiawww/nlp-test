@@ -667,12 +667,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health))
         .route("/api/v1/ingest", post(ingest))
         .route("/api/v1/ingest/raw", post(ingest))
+        .route("/api/v1/collect/raw", post(ingest))
         .route("/api/v1/ingest/skdr", post(ingest_skdr))
         .route("/api/v1/analyze-url", post(analyze_url))
         .route("/api/v1/analysis-jobs/:id", get(analysis_job_status))
         .route("/api/v1/crawl-jobs", post(create_crawl_job))
         .route("/api/v1/crawl-jobs/:id", get(crawl_job_status))
         .route("/api/v1/crawl-jobs/:id/reprocess", post(reprocess_crawl_job))
+        .route("/api/v1/manual-crawler/jobs", post(create_crawl_job))
+        .route("/api/v1/manual-crawler/jobs/:id", get(crawl_job_status))
+        .route("/api/v1/manual-crawler/jobs/:id/reprocess", post(reprocess_crawl_job))
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/events/stats", get(dashboard_stats))
         .route(
@@ -6186,8 +6190,8 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
         INSERT INTO user_roles (id, name, description, permissions, is_system)
         VALUES
         ('admin', 'ADMIN', 'Akses Penuh Seluruh Modul & Konfigurasi Sistem', '["*"]'::jsonb, TRUE),
-        ('data_analyst', 'DATA ANALYST', 'Akses Analisis Data, Kejadian & Laporan Matriks', '["dashboard", "events", "sources", "analyze", "processing", "reports", "locations", "disease_master"]'::jsonb, TRUE),
-        ('epidemiologi', 'EPIDEMIOLOGI', 'Surveilans Penyakit, Aturan KLB & Geospasial', '["dashboard", "events", "analyze", "reports", "locations", "disease_master", "outbreak_rules", "nlp_config"]'::jsonb, TRUE),
+        ('data_analyst', 'DATA ANALYST', 'Access to data analysis, events, reports, and manual crawling', '["dashboard", "events", "sources", "analyze", "manual_crawler", "processing", "reports", "locations", "disease_master"]'::jsonb, TRUE),
+        ('epidemiologi', 'EPIDEMIOLOGI', 'Disease surveillance, outbreak rules, and geospatial monitoring', '["dashboard", "events", "analyze", "manual_crawler", "reports", "locations", "disease_master", "outbreak_rules", "nlp_config"]'::jsonb, TRUE),
         ('executive', 'EXECUTIVE', 'Ringkasan Eksekutif, TV Center & Matriks Laporan', '["dashboard", "events", "reports", "tv"]'::jsonb, TRUE),
         ('skk', 'SKK', 'Monitoring Feed Sumber Data & Pemrosesan Queue', '["dashboard", "sources", "reports", "processing"]'::jsonb, TRUE)
         ON CONFLICT (id) DO NOTHING;
@@ -6196,6 +6200,12 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
             updated_at = NOW()
         WHERE id IN ('data_analyst', 'epidemiologi')
           AND NOT (permissions ? 'disease_master')
+          AND NOT (permissions ? '*');
+        UPDATE user_roles
+        SET permissions = permissions || '["manual_crawler"]'::jsonb,
+            updated_at = NOW()
+        WHERE id IN ('data_analyst', 'epidemiologi', 'skk')
+          AND NOT (permissions ? 'manual_crawler')
           AND NOT (permissions ? '*');
         CREATE TABLE IF NOT EXISTS schema_migrations (
             filename TEXT PRIMARY KEY,

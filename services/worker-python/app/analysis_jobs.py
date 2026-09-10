@@ -440,9 +440,24 @@ def dispatch(channel):
                 properties=pika.BasicProperties(delivery_mode=2),mandatory=True)
             conn.execute("UPDATE analysis_jobs SET dispatched_at=NOW() WHERE id=%s",(row["id"],))
 
+
+def _run_matrix_worker_process():
+    """Run manual crawler jobs without consuming the URL-analysis queue."""
+    from .crawl_matrix_jobs import main as matrix_main
+    matrix_main()
+
+
 def main():
     import pika
+    from multiprocessing import Process
+
     logging.basicConfig(level=logging.INFO)
+    matrix_process = Process(
+        target=_run_matrix_worker_process,
+        name="manual-crawler-worker",
+        daemon=True,
+    )
+    matrix_process.start()
     while True:
         try:
             params = pika.URLParameters(os.environ["RABBITMQ_URL"])
@@ -453,6 +468,14 @@ def main():
                 channel.queue_declare(queue=QUEUE,durable=True)
                 channel.confirm_delivery()
                 while broker.is_open:
+                    if not matrix_process.is_alive():
+                        logger.warning("Manual crawler worker stopped; restarting child process")
+                        matrix_process = Process(
+                            target=_run_matrix_worker_process,
+                            name="manual-crawler-worker",
+                            daemon=True,
+                        )
+                        matrix_process.start()
                     dispatch(channel)
                     method, properties, body = channel.basic_get(QUEUE,auto_ack=False)
                     if method:

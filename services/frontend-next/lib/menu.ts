@@ -30,6 +30,7 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'Data Sources', labelKey: 'sidebar.items.sources', icon: Radio, href: '/sources' },
       { label: 'Events', labelKey: 'sidebar.items.events', icon: Database, href: '/events' },
       { label: 'URL Analysis', labelKey: 'sidebar.items.analyze', icon: Search, href: '/analyze' },
+      { label: 'Manual Crawler', labelKey: 'sidebar.items.manualCrawler', icon: FileText, href: '/manual-crawler' },
       { label: 'Processing', labelKey: 'sidebar.items.processing', icon: Activity, href: '/processing' },
       { label: 'Reports & Matrix', labelKey: 'sidebar.items.reports', icon: FileText, href: '/reports' },
     ],

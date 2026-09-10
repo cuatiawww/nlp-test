@@ -276,6 +276,7 @@ export type CrawlJobStatus = {
   row_count: number;
   warnings?: string[];
   error?: string | null;
+  query?: { url?: string | null; [key: string]: unknown };
   created_at?: string;
   updated_at?: string;
   rows: CrawlMatrixRow[];

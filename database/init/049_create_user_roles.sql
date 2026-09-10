@@ -22,15 +22,15 @@ VALUES
 (
     'data_analyst',
     'DATA ANALYST',
-    'Akses Analisis Data, Kejadian & Laporan Matriks',
-    '["dashboard", "events", "sources", "analyze", "processing", "reports", "locations"]'::jsonb,
+    'Access to data analysis, events, reports, and manual crawling',
+    '["dashboard", "events", "sources", "analyze", "manual_crawler", "processing", "reports", "locations"]'::jsonb,
     TRUE
 ),
 (
     'epidemiologi',
     'EPIDEMIOLOGI',
-    'Surveilans Penyakit, Aturan KLB & Geospasial',
-    '["dashboard", "events", "analyze", "reports", "locations", "outbreak_rules", "nlp_config"]'::jsonb,
+    'Disease surveillance, outbreak rules, and geospatial monitoring',
+    '["dashboard", "events", "analyze", "manual_crawler", "reports", "locations", "outbreak_rules", "nlp_config"]'::jsonb,
     TRUE
 ),
 (

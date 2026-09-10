@@ -1,0 +1,15 @@
+'use client'
+
+import ManualCrawlerPanel from '@/components/ManualCrawlerPanel'
+
+export default function ManualCrawlerPage() {
+  return (
+    <div className="px-4 md:px-6">
+      <div>
+        <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">Manual Crawler</h1>
+        <p className="mt-1 text-sm text-slate-500">Run an on-demand disease surveillance crawl without waiting for the continuous collection pipeline.</p>
+      </div>
+      <ManualCrawlerPanel />
+    </div>
+  )
+}
