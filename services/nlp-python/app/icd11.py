@@ -46,6 +46,7 @@ def project_icd11_public_output(
     caller keeps the original surface form separately for review evidence.
     """
     resolved = []
+    seen_identity: set[str] = set()
     unresolved_indexes = []
     primary_resolved = None
 
@@ -56,7 +57,13 @@ def project_icd11_public_output(
             unresolved_indexes.append(index)
             continue
 
-        if name not in resolved:
+        # Several surface forms can resolve to the same WHO concept (for
+        # example a local alias and its English canonical name). Aggregate by
+        # ICD-11 code first so the public matrix never counts one disease
+        # twice merely because it was mentioned through two aliases.
+        identity = f"icd11:{code.casefold()}" if code else f"name:{_normalize(name)}"
+        if identity not in seen_identity:
+            seen_identity.add(identity)
             resolved.append(name)
         role = str(_mention_value(mention, "role", "") or "").lower()
         if role == "primary" and primary_resolved is None:
@@ -161,7 +168,27 @@ def _parse_who_search_response(term: str, data: dict[str, Any]) -> dict[str, Any
         api_score = float(entity.get("score") or 0.0)
         return (exact, starts, contains, api_score)
 
-    best = max(candidates, key=score)
+    # A one-word broad query such as "hepatitis", "polio", or "flu" can
+    # match an unrelated WHO post-coordination entity. Only accept a
+    # non-exact result when every query token is explicitly present in a
+    # multi-word title. Otherwise leave it for manual review.
+    exact_candidates = [
+        entity for entity in candidates
+        if _normalize(str(entity.get("title") or "")) == q_norm
+    ]
+    if exact_candidates:
+        best = max(exact_candidates, key=score)
+    else:
+        query_tokens = set(q_norm.split())
+        strong_candidates = [
+            entity for entity in candidates
+            if len(query_tokens) >= 2
+            and query_tokens.issubset(set(_normalize(str(entity.get("title") or "")).split()))
+        ]
+        if not strong_candidates:
+            logger.info("WHO ICD-11 search rejected ambiguous term: term=%s", term)
+            return None
+        best = max(strong_candidates, key=score)
     title = str(best.get("title") or term).strip()
     raw_uri = str(best.get("id") or "").replace("http://", "https://", 1)
     return {

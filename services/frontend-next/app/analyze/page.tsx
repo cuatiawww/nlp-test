@@ -14,6 +14,58 @@ import {
   FileText, ExternalLink, Layers, CheckCircle, Loader2, Calendar
 } from 'lucide-react'
 
+// Disease labels can arrive from old records, keyword aliases, and WHO
+// canonical names. They must share one UI identity before the matrix counts
+// them as different diseases.
+function diseaseIdentity(raw?: string | null): string {
+  const value = (raw || '').trim().toLowerCase()
+  if (!value) return ''
+  if (value.includes('covid') || value.includes('coronavirus') || value.includes('sars-cov')) return 'covid-19'
+  if (value.includes('dengue') || value === 'dbd' || value.includes('demam berdarah')) return 'dengue'
+  if (value.includes('hand foot') || value.includes('hfmd') || value.includes('tangan kaki') || value.includes('flu singapura')) return 'hfmd'
+  if (value.includes('influenza') || value === 'flu' || value.includes('flu burung') || value.includes('avian influenza')) return 'influenza'
+  if (value.includes('mpox') || value.includes('monkeypox') || value.includes('cacar monyet')) return 'mpox'
+  if (value.includes('malaria')) return 'malaria'
+  if (value.includes('leptospiro')) return 'leptospirosis'
+  if (value.includes('chikungunya')) return 'chikungunya'
+  if (value.includes('cholera') || value.includes('kolera')) return 'cholera'
+  if (value.includes('typhoid') || value.includes('tifoid')) return 'typhoid'
+  if (value.includes('measles') || value.includes('campak')) return 'measles'
+  return value.replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function uniqueDiseaseLabels(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  values.forEach((value) => {
+    const label = (value || '').trim()
+    const key = diseaseIdentity(label)
+    if (!label || !key || seen.has(key)) return
+    seen.add(key)
+    result.push(label)
+  })
+  return result
+}
+
+function findEvidence(result: AnalyzeResponse, disease?: string | null, location?: string | null, direct?: string | null): string {
+  if (direct?.trim()) return direct.trim()
+
+  const diseaseKey = diseaseIdentity(disease)
+  const mentionEvidence = result.disease_mentions?.find((mention) =>
+    diseaseIdentity(mention.canonical_name || mention.surface_form) === diseaseKey
+  )?.evidence?.trim()
+  if (mentionEvidence) return mentionEvidence
+
+  const source = (result.content || '').trim()
+  if (!source) return ''
+  const sentences = source.split(/(?<=[.!?])\s+|\n+/).map((item) => item.trim()).filter(Boolean)
+  const locationKey = (location || '').trim().toLowerCase()
+  return sentences.find((sentence) =>
+    (!locationKey || sentence.toLowerCase().includes(locationKey)) &&
+    (!diseaseKey || diseaseIdentity(sentence).includes(diseaseKey) || /kasus|cases?|infeksi|kematian|deaths?/i.test(sentence))
+  ) || ''
+}
+
 export default function AnalyzePage() {
   const { t, translateDisease } = useTranslation()
   const [url, setUrl] = useState('')
@@ -198,8 +250,12 @@ export default function AnalyzePage() {
             {(() => {
               const subEvents = (result as any)?.sub_events || []
               const diseaseExtracted = result?.disease_extracted || []
-              const hasMultiDisease = subEvents.length > 1 || diseaseExtracted.length > 1
-              const indicatedCount = Math.max(subEvents.length, diseaseExtracted.length)
+              const diseaseTopics = uniqueDiseaseLabels([
+                result?.disease_classification,
+                ...diseaseExtracted,
+              ])
+              const hasMultiDisease = diseaseTopics.length > 1
+              const indicatedCount = diseaseTopics.length
 
               return (
                 <AnalyzeResultCard
@@ -433,7 +489,11 @@ export default function AnalyzePage() {
             {(() => {
               const subEvents = (result as any)?.sub_events || []
               const diseaseExtracted = result?.disease_extracted || []
-              const indicatedCount = Math.max(subEvents.length, diseaseExtracted.length)
+              const diseaseTopics = uniqueDiseaseLabels([
+                result?.disease_classification,
+                ...diseaseExtracted,
+              ])
+              const indicatedCount = subEvents.length > 0 ? subEvents.length : diseaseTopics.length
 
               return (
                 <div className="space-y-6">
@@ -481,7 +541,7 @@ export default function AnalyzePage() {
                         </h3>
                       </div>
                       <span className="text-[11px] font-medium text-slate-500">
-                        {subEvents.length > 0 ? `${subEvents.length} kejadian didekomposisi` : `${diseaseExtracted.length} topik teridentifikasi`}
+                        {subEvents.length > 0 ? `${subEvents.length} kejadian didekomposisi` : `${diseaseTopics.length} topik teridentifikasi`}
                       </span>
                     </div>
 
@@ -500,7 +560,17 @@ export default function AnalyzePage() {
                         <tbody className="divide-y divide-slate-100">
                           {subEvents.length > 0 ? (
                             subEvents.map((evt: any, idx: number) => {
-                              const isPrimary = idx === 0 || evt.disease?.toLowerCase() === result.disease_classification?.toLowerCase();
+                              // All rows may share the same disease but still
+                              // represent different location events. The
+                              // disease label is not a reason to mark every
+                              // location as the primary event.
+                              const isPrimary = idx === 0;
+                              const eventEvidence = findEvidence(
+                                result,
+                                evt.disease || result.disease_classification,
+                                evt.location_name,
+                                evt.evidence,
+                              );
                               return (
                                 <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
                                   <td className="py-3 px-3.5 font-bold text-slate-900">
@@ -543,20 +613,24 @@ export default function AnalyzePage() {
                                     )}
                                   </td>
                                   <td className="py-3 px-3.5 text-slate-600 max-w-xs">
-                                    {evt.evidence ? (
+                                    {eventEvidence ? (
                                       <div className="rounded bg-slate-50 p-2 text-[11px] italic text-slate-700 border border-slate-100 line-clamp-3 hover:line-clamp-none transition-all">
-                                        &ldquo;{evt.evidence}&rdquo;
+                                        &ldquo;{eventEvidence}&rdquo;
                                       </div>
                                     ) : (
-                                      <span className="text-slate-400">-</span>
+                                      <span className="text-slate-400">Bukti kalimat tidak tersedia</span>
                                     )}
                                   </td>
                                 </tr>
                               );
                             })
                           ) : (
-                            diseaseExtracted.map((dis: string, idx: number) => {
-                              const isPrimary = dis.toLowerCase() === result.disease_classification.toLowerCase();
+                            diseaseTopics.map((dis: string, idx: number) => {
+                              // diseaseTopics is ordered with the classified
+                              // disease first, so role is positional here;
+                              // aliases have already been deduplicated.
+                              const isPrimary = idx === 0;
+                              const mentionEvidence = findEvidence(result, dis, result.location_name);
                               return (
                                 <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
                                   <td className="py-3 px-3.5 font-bold text-slate-900">
@@ -589,7 +663,13 @@ export default function AnalyzePage() {
                                     )}
                                   </td>
                                   <td className="py-3 px-3.5 text-slate-500 text-[11px]">
-                                    {isPrimary ? 'Penyakit utama dalam fokus laporan' : 'Terdeteksi sebagai topik kesehatan dalam teks dokumen'}
+                                    {mentionEvidence ? (
+                                      <div className="rounded bg-slate-50 p-2 text-[11px] italic text-slate-700 border border-slate-100 line-clamp-3 hover:line-clamp-none transition-all">
+                                        &ldquo;{mentionEvidence}&rdquo;
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-400">Bukti kalimat tidak tersedia</span>
+                                    )}
                                   </td>
                                 </tr>
                               );
@@ -601,17 +681,17 @@ export default function AnalyzePage() {
                   </div>
 
                   {/* All Extracted Health Keywords */}
-                  {diseaseExtracted.length > 0 && (
+                  {diseaseTopics.length > 0 && (
                     <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
                       <div className="flex items-center gap-2 mb-2.5">
                         <Activity className="h-4 w-4 text-[#0060A9]" />
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                          Daftar Kata Kunci Penyakit Terdeteksi ({diseaseExtracted.length})
+                          Daftar Penyakit Kanonik Terdeteksi ({diseaseTopics.length})
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {diseaseExtracted.map((d: string, i: number) => {
-                          const isPrimary = d.toLowerCase() === result.disease_classification.toLowerCase();
+                        {diseaseTopics.map((d: string, i: number) => {
+                          const isPrimary = diseaseIdentity(d) === diseaseIdentity(result.disease_classification);
                           return (
                             <span
                               key={i}

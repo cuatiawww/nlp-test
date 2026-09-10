@@ -9,7 +9,7 @@ from .entity_relations import disease_relation_rows, location_relation_rows
 
 logger = logging.getLogger(__name__)
 QUEUE = "disease.analysis-url"
-NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "180"))
+NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "240"))
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
 ).lower() in {"1", "true", "yes", "on"}
@@ -38,8 +38,11 @@ def analyze_stages(url, fetch, nlp, progress=lambda stage: None):
     if not extracted.get("content", "").strip():
         return {"status": "failed", "error": "No extractable article content", "warnings": warnings}
     progress("nlp")
+    # Carry the actual article URL into NLP so domain-level source reliability
+    # can identify DW/BBC/Detik/Antara instead of falling back to web=0.65.
+    extracted_for_analysis = {**extracted, "source_url": url}
     try:
-        analysis = nlp(extracted, fallback=False)
+        analysis = nlp(extracted_for_analysis, fallback=False)
     except Exception as exc:
         # Preserve a short, non-secret diagnostic in the job result. The old
         # generic warning made HTTP 503, timeout, and malformed NLP responses
@@ -51,7 +54,7 @@ def analyze_stages(url, fetch, nlp, progress=lambda stage: None):
         warnings.append(warning + "; attempted bounded rules-only analysis")
         logger.warning("Full NLP failed for %s: %s", url, reason or type(exc).__name__)
         try:
-            analysis = nlp(extracted, fallback=True)
+            analysis = nlp(extracted_for_analysis, fallback=True)
         except Exception:
             analysis = {}
             warnings.append("NLP unavailable; source content retained for review")
@@ -70,9 +73,12 @@ def fetch_article(url, fallback=False):
     import requests
     endpoint = os.getenv("COLLECTOR_URL", "http://disease-collector-python:8002")
     is_pdf = urlparse(url).path.lower().endswith(".pdf")
-    timeout_ms = 45000 if is_pdf else (15000 if fallback else 12000)
+    timeout_ms = 120000 if is_pdf else (15000 if fallback else 12000)
     connect_timeout = 5
-    read_timeout = 55 if is_pdf else 20
+    # The collector allows a PDF extraction window of up to 60 seconds plus
+    # its response buffer. Keep the client-side read timeout above that limit
+    # so a slow but valid surveillance report is not cancelled prematurely.
+    read_timeout = 140 if is_pdf else 20
     response = requests.post(
         endpoint + "/extract-url",
         json={"url": url, "fetch_mode": "http" if fallback else "auto", "timeout_ms": timeout_ms},

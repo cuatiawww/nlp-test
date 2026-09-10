@@ -6,6 +6,7 @@ from . import config, extractors
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
+from .surveillance_extraction import source_reliability_score
 
 logger = logging.getLogger(__name__)
 
@@ -328,11 +329,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     needs_review = confidence < config.LOW_CONFIDENCE_THRESHOLD
 
     source_type = payload.source_type or "web"
-    cred_score = config.SOURCE_CREDIBILITY_MAP.get(source_type.lower(), 0.50)
-    for key, val in config.SOURCE_CREDIBILITY_MAP.items():
-        if key in source_type.lower():
-            cred_score = val
-            break
+    cred_score = source_reliability_score(
+        source_name=payload.source_name,
+        source_type=source_type,
+        source_url=payload.source_url,
+    )
 
     disease = extractors.normalize_disease_display(disease, language=language, text=text)
     extracted = [
@@ -486,6 +487,73 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     except Exception as exc:
         logger.warning("Multi-event extraction failed: %s", exc)
         sub_events = []
+
+    # Project the same high-precision relational decision into the legacy
+    # response. LLM supplementation is skipped here because the main worker
+    # already has its own bounded agent stages; the dedicated structured
+    # endpoint may opt into it.
+    try:
+        from .surveillance_extraction import (
+            GazetteerLinker, aggregate_relation_totals, build_surveillance_output,
+            extract_metric_relations,
+        )
+        strict_output = build_surveillance_output(
+            text,
+            published_at=published_at,
+            diseases=extracted,
+            source_name=payload.source_name,
+            source_type=source_type,
+            source_url=payload.source_url,
+            include_llm=False,
+        )
+        relational_events = extract_metric_relations(
+            text, linker=GazetteerLinker(), published_date=published_at,
+        )
+        if strict_output.locations:
+            outbreak_alert = strict_output.outbreak_alert
+            relevance = strict_output.health_relevance.lower()
+            relevance_confidence = max(relevance_confidence, 0.90)
+            is_health_related = is_health_related or strict_output.health_related
+            cred_score = strict_output.source_reliability_score
+            if relational_events:
+                # The legacy response has one summary count. Use the sum of
+                # explicit country/province relations, never the first number
+                # found (which can be a strain number such as H3N2).
+                case_count, death_count = aggregate_relation_totals(relational_events)
+                explicit_case_count = case_count > 0
+                first_relation = relational_events[0]
+                location = first_relation.location.name
+                country = first_relation.location.country
+                lat = first_relation.location.latitude
+                lon = first_relation.location.longitude
+                all_locations = [
+                    {
+                        "name": item.location.name,
+                        "latitude": item.location.latitude,
+                        "longitude": item.location.longitude,
+                        "country": item.location.country,
+                    }
+                    for item in relational_events
+                ]
+            if len(relational_events) >= 2:
+                event_disease = strict_output.disease_classification[0] if strict_output.disease_classification else disease
+                disease = event_disease
+                extracted = [event_disease]
+                sub_events = [
+                    SubEvent(
+                        disease=event_disease,
+                        location_name=item.location.name,
+                        country=item.location.country,
+                        latitude=item.location.latitude,
+                        longitude=item.location.longitude,
+                        case_count=item.cases,
+                        death_count=item.deaths or 0,
+                        evidence=item.evidence,
+                    )
+                    for item in relational_events
+                ]
+    except Exception as exc:
+        logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
 
     return AnalyzeResponse(
         language=language,

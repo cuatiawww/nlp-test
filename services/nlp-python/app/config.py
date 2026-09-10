@@ -1,5 +1,6 @@
 ﻿import os
 import re
+import logging
 import unicodedata
 from typing import Any
 
@@ -65,14 +66,34 @@ RELEVANCE_LABELS = [
 SOURCE_CREDIBILITY_MAP = {
     "government": 0.95,
     "who": 0.95,
+    "cdc": 0.97,
     "hospital": 0.90,
-    "research": 0.85,
-    "news": 0.70,
-    "rss": 0.65,
-    "web": 0.50,
+    "research": 0.88,
+    "news": 0.84,
+    "rss": 0.78,
+    "web": 0.65,
     "social_media": 0.35,
     "csv": 0.60,
-    "api": 0.55,
+    "api": 0.70,
+}
+
+# Domain-level values are applied before the generic source_type score. This
+# keeps DW/BBC/Detik/Antara articles from inheriting a low generic web score.
+SOURCE_DOMAIN_RELIABILITY = {
+    "who.int": 0.98,
+    "cdc.gov": 0.97,
+    "kemenkes.go.id": 0.98,
+    "kemkes.go.id": 0.98,
+    "antaranews.com": 0.90,
+    "detik.com": 0.90,
+    "dw.com": 0.92,
+    "bbc.com": 0.94,
+    "bbc.co.uk": 0.94,
+    "reuters.com": 0.94,
+    "apnews.com": 0.92,
+    "kompas.com": 0.88,
+    "cnnindonesia.com": 0.88,
+    "channelnewsasia.com": 0.88,
 }
 
 LOW_CONFIDENCE_THRESHOLD = float(os.getenv("LOW_CONFIDENCE_THRESHOLD", "0.5"))
@@ -98,6 +119,10 @@ LOCATION_STOPWORDS = {
     "pusat", "daerah", "wilayah", "provinsi", "kabupaten", "kota",
     "kecamatan", "kelurahan", "desa", "dusun", "kampung", "rt", "rw",
     "jalan", "gang", "blok", "nomor", "no", "lantai", "gedung",
+    # Common statistical/prose tokens that may also appear as gazetteer rows.
+    # They are never accepted as article locations without an explicit curated
+    # disambiguation rule.
+    "puncak", "sudah", "rekor", "tertinggi", "terendah", "rata-rata",
 }
 LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}
@@ -384,30 +409,79 @@ def upsert_discovered_disease_concept(
 
         with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
             with conn.transaction():
-                # 1. Upsert into disease_concepts
+                # 1. Resolve by active ICD-11 code first. A code is the
+                # stable identity; a WHO search title must never create a
+                # second active concept for the same code.
                 row = conn.execute(
                     """
-                    INSERT INTO disease_concepts
-                      (canonical_name, english_name, ontology_system, ontology_code,
-                       ontology_uri, ontology_release, source, confidence, is_active, updated_at)
-                    VALUES (%s, %s, 'WHO ICD-11 MMS', %s, %s, %s, 'who_icd11_discovery', 1.0, TRUE, NOW())
-                    ON CONFLICT (canonical_name) DO UPDATE SET
-                      english_name = EXCLUDED.english_name,
-                      ontology_system = 'WHO ICD-11 MMS',
-                      ontology_code = EXCLUDED.ontology_code,
-                      ontology_uri = EXCLUDED.ontology_uri,
-                      ontology_release = EXCLUDED.ontology_release,
-                      is_active = TRUE,
-                      updated_at = NOW()
-                    RETURNING id
+                    SELECT id, canonical_name
+                    FROM disease_concepts
+                    WHERE ontology_code = %s AND is_active = TRUE
+                    ORDER BY created_at ASC
+                    LIMIT 1
                     """,
-                    (canonical_name, english_name or canonical_name, ontology_code, ontology_uri, ontology_release),
+                    (ontology_code,),
                 ).fetchone()
-                concept_id = row["id"]
+
+                if row:
+                    concept_id = row["id"]
+                    concept_name = row["canonical_name"]
+                    conn.execute(
+                        """
+                        UPDATE disease_concepts
+                        SET english_name = COALESCE(NULLIF(%s, ''), english_name),
+                            ontology_system = 'WHO ICD-11 MMS',
+                            ontology_uri = COALESCE(NULLIF(%s, ''), ontology_uri),
+                            ontology_release = COALESCE(NULLIF(%s, ''), ontology_release),
+                            canonicalization_status = 'validated',
+                            is_active = TRUE,
+                            updated_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (english_name or concept_name, ontology_uri, ontology_release, concept_id),
+                    )
+                else:
+                    name_conflict = conn.execute(
+                        """
+                        SELECT id, ontology_code, is_active
+                        FROM disease_concepts
+                        WHERE canonical_name = %s
+                        LIMIT 1
+                        """,
+                        (canonical_name,),
+                    ).fetchone()
+                    if name_conflict and name_conflict["ontology_code"] not in (None, ontology_code):
+                        logging.getLogger(__name__).warning(
+                            "ICD-11 canonical name conflict requires review: name=%s existing_code=%s new_code=%s",
+                            canonical_name, name_conflict["ontology_code"], ontology_code,
+                        )
+                        return False
+
+                    row = conn.execute(
+                        """
+                        INSERT INTO disease_concepts
+                          (canonical_name, english_name, ontology_system, ontology_code,
+                           ontology_uri, ontology_release, source, confidence, is_active,
+                           canonicalization_status, updated_at)
+                        VALUES (%s, %s, 'WHO ICD-11 MMS', %s, %s, %s, 'who_icd11_discovery', 1.0, TRUE, 'validated', NOW())
+                        ON CONFLICT (canonical_name) DO UPDATE SET
+                          english_name = EXCLUDED.english_name,
+                          ontology_system = 'WHO ICD-11 MMS',
+                          ontology_code = COALESCE(disease_concepts.ontology_code, EXCLUDED.ontology_code),
+                          ontology_uri = COALESCE(disease_concepts.ontology_uri, EXCLUDED.ontology_uri),
+                          ontology_release = COALESCE(disease_concepts.ontology_release, EXCLUDED.ontology_release),
+                          is_active = TRUE,
+                          updated_at = NOW()
+                        RETURNING id, canonical_name
+                        """,
+                        (canonical_name, english_name or canonical_name, ontology_code, ontology_uri, ontology_release),
+                    ).fetchone()
+                    concept_id = row["id"]
+                    concept_name = row["canonical_name"]
 
                 # 2. Add aliases
                 all_aliases = list(aliases or [])
-                all_aliases.append({"surface_form": canonical_name, "language": "en", "confidence": 1.0})
+                all_aliases.append({"surface_form": concept_name, "language": "en", "confidence": 1.0})
                 if english_name and english_name != canonical_name:
                     all_aliases.append({"surface_form": english_name, "language": "en", "confidence": 1.0})
 
@@ -441,7 +515,7 @@ def upsert_discovered_disease_concept(
                           priority = LEAST(nlp_keywords.priority, EXCLUDED.priority),
                           updated_at = NOW()
                         """,
-                        (norm_alias, canonical_name),
+                        (norm_alias, concept_name),
                     )
 
                 # 4. Add to nlp_labels
@@ -451,7 +525,7 @@ def upsert_discovered_disease_concept(
                     VALUES ('disease', %s, 50, TRUE, NOW())
                     ON CONFLICT (category, label) DO UPDATE SET is_active = TRUE, updated_at = NOW()
                     """,
-                    (canonical_name,),
+                    (concept_name,),
                 )
 
                 # 5. Add default outbreak rule if missing
@@ -461,7 +535,7 @@ def upsert_discovered_disease_concept(
                     VALUES (%s, %s, %s, 50, TRUE, NOW())
                     ON CONFLICT (disease_name) DO NOTHING
                     """,
-                    (canonical_name.upper(), canonical_name, EXPLICIT_KNOWN_DISEASE_MIN_CASES),
+                    (concept_name.upper(), concept_name, EXPLICIT_KNOWN_DISEASE_MIN_CASES),
                 )
 
         # 6. Hot reload in-memory cache
@@ -475,7 +549,6 @@ def upsert_discovered_disease_concept(
             pass
         return True
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning("Failed to upsert discovered WHO disease concept '%s': %s", canonical_name, e)
         return False
 

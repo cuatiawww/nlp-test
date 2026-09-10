@@ -1,6 +1,6 @@
 ﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, Settings } from 'lucide-react'
 
-import { Stethoscope } from 'lucide-react'
+import { Stethoscope, Globe2 } from 'lucide-react'
 
 export type SidebarItem = {
   // Disease master uses the same icon family as the rest of the configuration menu.
@@ -25,6 +25,8 @@ export const sidebarMenu: SidebarGroup[] = [
     titleKey: 'sidebar.sections.monitoring',
     items: [
       { label: 'Home', labelKey: 'sidebar.items.home', icon: Home, href: '/' },
+      { label: 'Regions/Country', labelKey: 'sidebar.items.regionsCountry', icon: Globe2, href: '/countries' },
+      { label: 'Diseases', labelKey: 'sidebar.items.diseases', icon: Stethoscope, href: '/diseases' },
       { label: 'Data Sources', labelKey: 'sidebar.items.sources', icon: Radio, href: '/sources' },
       { label: 'Events', labelKey: 'sidebar.items.events', icon: Database, href: '/events' },
       { label: 'URL Analysis', labelKey: 'sidebar.items.analyze', icon: Search, href: '/analyze' },

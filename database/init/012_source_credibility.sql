@@ -22,7 +22,7 @@ FROM (VALUES
     ('web', 0.50::DOUBLE PRECISION),
     ('social_media', 0.35::DOUBLE PRECISION),
     ('csv', 0.60::DOUBLE PRECISION),
-    ('api', 0.55::DOUBLE PRECISION)
+    ('api', 0.70::DOUBLE PRECISION)
 ) AS seed(source_type, score)
 WHERE NOT EXISTS (
     SELECT 1 FROM source_credibility existing

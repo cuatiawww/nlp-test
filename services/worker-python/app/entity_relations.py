@@ -98,9 +98,27 @@ def disease_relation_rows(nlp: dict[str, Any]) -> list[dict[str, Any]]:
             })
             known.add(name.casefold())
 
+    # Collapse aliases that point to the same WHO concept before persistence.
+    # The legacy JSON can contain both the surface form and canonical form;
+    # those are one disease relation, not two matrix topics.
+    compact_candidates: list[dict[str, Any]] = []
+    candidate_index: dict[str, int] = {}
+    for item in candidates:
+        canonical = str(item.get("canonical_name") or item.get("surface_form") or "").strip()
+        code = str(item.get("icd11_code") or "").strip().casefold()
+        identity = f"icd11:{code}" if code else f"name:{canonical.casefold()}"
+        existing_index = candidate_index.get(identity)
+        if existing_index is None:
+            candidate_index[identity] = len(compact_candidates)
+            compact_candidates.append(item)
+            continue
+        existing = compact_candidates[existing_index]
+        if str(item.get("role") or "").lower() == "primary":
+            compact_candidates[existing_index] = {**existing, **item, "role": "primary"}
+
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    for item in candidates:
+    for item in compact_candidates:
         canonical = str(item.get("canonical_name") or item.get("surface_form") or "").strip()
         if not canonical or canonical.upper() in {"UNKNOWN", "NEGATIVE - NOT HEALTH RELATED"}:
             continue

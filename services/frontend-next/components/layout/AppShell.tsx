@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from "react";
+import { usePathname } from "next/navigation";
 import { sidebarMenu, consoleMenu, SidebarGroup } from "@/lib/menu";
 import DashboardSidebar from "./DashboardSidebar";
 import DashboardHeader from "./DashboardHeader";
@@ -32,9 +33,11 @@ export default function AppShell({
   consoleMode?: boolean;
 }) {
   const { t } = useTranslation();
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authenticated, setAuthenticated] = useState(!publicMode);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const isDirectoryPage = pathname === '/countries' || pathname === '/diseases';
 
   useEffect(() => {
     const logged = isLoggedIn();
@@ -110,7 +113,7 @@ export default function AppShell({
         consoleMode={consoleMode}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
       />
-      <div className="w-full flex-1 py-3 md:py-5">{children}</div>
+      <div className={`w-full flex-1 ${isDirectoryPage ? 'py-0' : 'py-3 md:py-5'}`}>{children}</div>
       <Footer />
     </main>
   );

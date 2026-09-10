@@ -142,7 +142,9 @@ def try_pdf(url, enabled=None):
         "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive",
     }
-    download_timeout = int(os.getenv("PDF_DOWNLOAD_TIMEOUT", "45"))
+    # This is the socket/download budget only; PDF parsing has its own outer
+    # interactive extraction budget in collector/main.py.
+    download_timeout = int(os.getenv("PDF_DOWNLOAD_TIMEOUT", "90"))
     with requests.get(url, stream=True, headers=headers, timeout=(10, download_timeout), verify=False) as response:
         response.raise_for_status()
         chunks = response.iter_content(65536)

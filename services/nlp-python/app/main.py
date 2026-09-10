@@ -5,6 +5,7 @@ from fastapi import FastAPI, Body, HTTPException, status
 from pydantic import BaseModel
 
 from .schemas import AnalyzeRequest, AnalyzeResponse
+from .surveillance_extraction import SurveillanceOutput, build_surveillance_output
 from . import pipeline
 
 logging.basicConfig(level=logging.INFO)
@@ -95,6 +96,34 @@ def analyze_raw(payload: AnalyzeRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Raw NLP analysis failed: {type(exc).__name__}: {str(exc)}",
+        )
+
+
+@app.post(
+    "/nlp/analyze/surveillance",
+    response_model=SurveillanceOutput,
+    response_model_exclude_none=True,
+)
+def analyze_surveillance(payload: AnalyzeRequest):
+    """Return the strict country/metric surveillance contract.
+
+    The legacy endpoint remains available for existing workers. This endpoint
+    is intended for outbreak-news consumers that need one JSON shape for all
+    multi-country articles.
+    """
+    try:
+        return build_surveillance_output(
+            payload.text,
+            published_at=payload.published_at,
+            source_name=payload.source_name,
+            source_type=payload.source_type,
+            source_url=payload.source_url,
+        )
+    except Exception as exc:
+        logger.exception("Failed to build structured surveillance output: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Structured surveillance extraction failed: {type(exc).__name__}: {str(exc)}",
         )
 
 

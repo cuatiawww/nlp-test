@@ -407,10 +407,18 @@ export const fetchEbsSummary = (filters?: { year?: number; province?: string }) 
 
 export const analyzeUrl = async (url: string) => {
   const { waitForAnalysis } = await import("./analysis-job.mjs");
-  const initial = await postTo<any>("/api/v1/analyze-url", { url, async: true });
+  // Interactive analysis must re-run after an NLP rule/model deployment;
+  // otherwise the backend returns the prior URL result from its cache.
+  const initial = await postTo<any>("/api/v1/analyze-url", {
+    url,
+    async: false,
+    force_refresh: true,
+  });
   return waitForAnalysis(initial, async (id: string) => {
     const res = await fetch(baseURL() + "/api/v1/analysis-jobs/" + encodeURIComponent(id),
-      { cache: "no-store", signal: AbortSignal.timeout(10000) });
+      // Status reads must not fail just because a large PDF is still being
+      // processed or the backend is briefly waiting on the collector DB.
+      { cache: "no-store", signal: AbortSignal.timeout(30000) });
     const json = await res.json().catch(() => null);
     if (!res.ok) throw new Error(formatApiError(res, json));
     return json.data;

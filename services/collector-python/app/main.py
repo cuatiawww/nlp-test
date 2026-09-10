@@ -62,7 +62,10 @@ async def extract_url(payload: ExtractUrlRequest):
         raise HTTPException(status_code=400, detail="fetch_mode tidak valid")
 
     is_pdf_target = urlparse(url).path.lower().endswith(".pdf")
-    max_bound = 60_000 if is_pdf_target else 30_000
+    # Surveillance PDFs can require both download time and pdfplumber table
+    # extraction time. Keep HTML requests bounded separately, but allow a
+    # larger explicit budget for a valid PDF document.
+    max_bound = 150_000 if is_pdf_target else 30_000
     timeout_ms = min(max(payload.timeout_ms, 1_000), max_bound)
     collector = WebScraperCollector({
         "id": "interactive-analyzer",
@@ -78,7 +81,7 @@ async def extract_url(payload: ExtractUrlRequest):
     try:
         async with _get_extract_semaphore():
             # Generous timeout buffer for large documents and multi-page surveillance PDFs
-            wait_buffer = 15.0 if is_pdf_target else 5.0
+            wait_buffer = 20.0 if is_pdf_target else 5.0
             data = await asyncio.wait_for(collector.extract_url(url), timeout=(timeout_ms / 1000.0) + wait_buffer)
         if not data.get("content") and not data.get("title"):
             raise HTTPException(

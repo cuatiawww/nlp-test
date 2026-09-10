@@ -140,7 +140,23 @@ def who_search(term: str, token: str) -> dict[str, str] | None:
     candidates = [entity for entity in entities if isinstance(entity, dict) and entity.get("theCode")]
     if not candidates:
         return None
-    best = max(candidates, key=score)
+    exact_candidates = [
+        entity for entity in candidates
+        if normalize(str(entity.get("title") or "")) == query
+    ]
+    if exact_candidates:
+        best = max(exact_candidates, key=score)
+    else:
+        query_tokens = set(query.split())
+        strong_candidates = [
+            entity for entity in candidates
+            if len(query_tokens) >= 2
+            and query_tokens.issubset(set(normalize(str(entity.get("title") or "")).split()))
+        ]
+        if not strong_candidates:
+            logger.info("WHO ICD-11 search rejected ambiguous term: %s", term)
+            return None
+        best = max(strong_candidates, key=score)
     title = str(best.get("title") or term).strip()
     uri = str(best.get("id") or "").replace("http://", "https://", 1)
     return {
@@ -176,10 +192,37 @@ def discover_terms(text: str) -> list[dict[str, Any]]:
 def upsert_concept(conn: psycopg.Connection, concept: dict[str, str], aliases: list[dict[str, Any]]) -> None:
     row = conn.execute(
         """
+        SELECT id, canonical_name
+        FROM disease_concepts
+        WHERE ontology_code = %s AND is_active = TRUE
+        ORDER BY created_at ASC
+        LIMIT 1
+        """,
+        (concept["ontology_code"],),
+    ).fetchone()
+    if row:
+        concept_id = row["id"]
+        concept_name = row["canonical_name"]
+        conn.execute(
+            """
+            UPDATE disease_concepts
+            SET english_name = COALESCE(NULLIF(%s, ''), english_name),
+                ontology_system = %s,
+                ontology_uri = COALESCE(NULLIF(%s, ''), ontology_uri),
+                ontology_release = COALESCE(NULLIF(%s, ''), ontology_release),
+                canonicalization_status = 'validated',
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (concept["english_name"], concept["ontology_system"], concept["ontology_uri"], concept["ontology_release"], concept_id),
+        )
+    else:
+        row = conn.execute(
+        """
         INSERT INTO disease_concepts
           (canonical_name, english_name, ontology_system, ontology_code,
-           ontology_uri, ontology_release, source, confidence)
-        VALUES (%s, %s, %s, %s, %s, %s, 'who_icd11', 1.0)
+           ontology_uri, ontology_release, source, confidence, canonicalization_status)
+        VALUES (%s, %s, %s, %s, %s, %s, 'who_icd11', 1.0, 'validated')
         ON CONFLICT (canonical_name) DO UPDATE SET
           english_name = EXCLUDED.english_name,
           ontology_system = EXCLUDED.ontology_system,
@@ -189,15 +232,16 @@ def upsert_concept(conn: psycopg.Connection, concept: dict[str, str], aliases: l
           source = 'who_icd11',
           confidence = GREATEST(disease_concepts.confidence, EXCLUDED.confidence),
           updated_at = NOW()
-        RETURNING id
+        RETURNING id, canonical_name
         """,
         (
             concept["canonical_name"], concept["english_name"], concept["ontology_system"],
             concept["ontology_code"], concept["ontology_uri"], concept["ontology_release"],
         ),
-    ).fetchone()
-    concept_id = row["id"]
-    all_aliases = aliases + [{"surface_form": concept["english_name"], "language": "en", "confidence": 1.0}]
+        ).fetchone()
+        concept_id = row["id"]
+        concept_name = row["canonical_name"]
+    all_aliases = aliases + [{"surface_form": concept_name, "language": "en", "confidence": 1.0}]
     for alias in all_aliases:
         surface = alias["surface_form"].strip()
         if not surface:
@@ -223,7 +267,7 @@ def upsert_concept(conn: psycopg.Connection, concept: dict[str, str], aliases: l
               target_label = EXCLUDED.target_label, is_active = TRUE, priority = LEAST(nlp_keywords.priority, EXCLUDED.priority),
               updated_at = NOW()
             """,
-            (normalize(surface), concept["canonical_name"]),
+            (normalize(surface), concept_name),
         )
 
 

@@ -1519,6 +1519,7 @@ async fn analyze_url(
             "text": text,
             "source_type": "web",
             "source_name": "URL Analyzer",
+            "source_url": url,
             "source_country": source_country,
             "published_at": published_at,
         }))

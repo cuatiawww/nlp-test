@@ -9,6 +9,7 @@ class AnalyzeRequest(BaseModel):
     published_at: Optional[str] = None
     source_language: Optional[str] = None
     source_country: Optional[str] = None
+    source_url: Optional[str] = None
     historical_fast: bool = False
 
 
