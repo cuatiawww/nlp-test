@@ -95,10 +95,6 @@ const SpatialOutbreakMap = dynamic(() => import('../SpatialOutbreakMap'), {
   ssr: false,
 })
 
-const IndonesiaDetailMap = dynamic(() => import('../IndonesiaDetailMap'), {
-  ssr: false,
-})
-
 interface IncidentDetailPageProps {
   selectedEvent: any
   onBack: () => void
@@ -722,19 +718,37 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
   const seasonalWeeks = useMemo(() => {
     return (regionalSkdrData?.weekly_trend || [])
-      .map((item: any, index: number) => ({
-        id: `${item?.week || index}-${index}`,
-        label: `W-${String(item?.week || index + 1).padStart(2, '0')}`,
-        total: Math.max(0, safeParseInt(item?.cases) + safeParseInt(item?.events)),
-      }))
+      .map((item: any, index: number) => {
+        const period = String(item?.period || '').slice(0, 7)
+        const parsedPeriod = /^\d{4}-\d{2}$/.test(period) ? new Date(`${period}-01T00:00:00Z`) : null
+        const fallbackYear = safeParseInt(regionalSkdrData?.current_epi_year) || new Date().getUTCFullYear()
+        const fallbackWeek = safeParseInt(item?.week)
+        const fallbackDate = fallbackWeek > 0
+          ? new Date(Date.UTC(fallbackYear, 0, 1 + ((fallbackWeek - 1) * 7)))
+          : null
+        const date = parsedPeriod && !Number.isNaN(parsedPeriod.getTime()) ? parsedPeriod : fallbackDate
+        const label = date && !Number.isNaN(date.getTime())
+          ? date.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+          : `Period ${index + 1}`
+        return {
+          id: period || `${fallbackYear}-${String(index + 1).padStart(2, '0')}`,
+          label,
+          total: Math.max(0, safeParseInt(item?.cases) + safeParseInt(item?.events)),
+        }
+      })
       .slice(-176)
   }, [regionalSkdrData])
 
   useEffect(() => {
-    if (surveillanceSelectionInitialized || seasonalDiseaseTotals.length === 0) return
-    setSurveillanceSelectedDiseases(seasonalDiseaseTotals.slice(0, 3).map((item) => item.name))
+    if (seasonalDiseaseTotals.length === 0) return
+    setSurveillanceSelectedDiseases((current) => {
+      const validCurrent = current.filter((name) => seasonalDiseaseTotals.some((item) => item.name === name))
+      return validCurrent.length > 0
+        ? validCurrent
+        : seasonalDiseaseTotals.slice(0, 3).map((item) => item.name)
+    })
     setSurveillanceSelectionInitialized(true)
-  }, [seasonalDiseaseTotals, surveillanceSelectionInitialized])
+  }, [seasonalDiseaseTotals])
 
   // Polling data collector otomatis setiap 30 menit & saat tab aktif kembali
   useEffect(() => {
@@ -4421,15 +4435,30 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   }, [eventData.jenis_bencana, eventData.provinsi, eventData.tgl_kejadian, mapMarkers, regionalSkdrData, isRegionalTemplate])
 
   const regionalMapCountries = useMemo(() => {
-    const indonesia = regionalSkdrData?.by_country?.find(
-      (country) => country.name.toLowerCase() === 'indonesia'
-    )
+    const selectedCountry = String(eventData.provinsi || selectedEvent?.provinsi || 'Indonesia').trim() || 'Indonesia'
+    const normalizeCountry = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim()
+    const aliases: Record<string, string[]> = {
+      'brunei darussalam': ['brunei'],
+      'laos': ['lao pdr', 'lao people\'s democratic republic'],
+      'myanmar': ['burma'],
+      'timor-leste': ['timor leste', 'east timor'],
+      'vietnam': ['viet nam'],
+    }
+    const selectedKey = normalizeCountry(selectedCountry)
+    const countryMatches = (value: string) => {
+      const key = normalizeCountry(value)
+      return key === selectedKey || (aliases[selectedKey] || []).includes(key) || (aliases[key] || []).includes(selectedKey)
+    }
+    const dashboardCountry = regionalSkdrData?.by_country?.find((country) => countryMatches(country.name))
+    const locationCases = regionalMapLocations
+      .filter((location) => countryMatches(String(location.country || '')))
+      .reduce((total, location) => total + safeParseInt(location.cases), 0)
 
     return [{
-      name: 'Indonesia',
-      cases: indonesia?.cases ?? regionalMapLocations.reduce((total, location) => total + location.cases, 0),
+      name: selectedCountry,
+      cases: dashboardCountry?.cases ?? locationCases,
     }]
-  }, [regionalMapLocations, regionalSkdrData])
+  }, [eventData.provinsi, regionalMapLocations, regionalSkdrData, selectedEvent?.provinsi])
 
   const regionalSkdrMatrix = useMemo(() => {
     const severityRank: Record<OutbreakLocation['severity'], number> = {
@@ -5904,7 +5933,9 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-2 mb-1">
             <h4 className="text-xl sm:text-2xl font-black text-slate-900">
-              {isRegionalTemplate ? `SKDR Surveillance Map - ${displayRegion}` : `Disaster Event Map - ${displayRegion}`}
+              {isRegionalTemplate
+                ? `Regional Surveillance Map - ${eventData.provinsi || 'Indonesia'}`
+                : `Disaster Event Map - ${displayRegion}`}
             </h4>
             {/* SPASIAL MODE button - Hidden as requested */}
             {/* 
@@ -5925,20 +5956,17 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           </div>
           <p className="text-sm sm:text-base text-slate-600 font-normal mb-3">
             {isRegionalTemplate
-              ? 'Geospatial view of surveillance reporting areas, case signals, and alert priority. This map does not infer weather or facility readiness.'
+              ? `Country-level polygon and surveillance reporting areas for ${eventData.provinsi || 'Indonesia'}. The selected country boundary is refreshed from the current regional boundary dataset.`
               : 'Geospatial view of the incident location, affected radius, standby health facilities, and emergency navigation routes.'}
           </p>
 
           <div className="h-[540px] sm:h-[580px] lg:h-[620px] rounded-xl overflow-hidden border border-slate-200 shadow-inner mt-2">
-            {isRegionalTemplate ? (
-              <IndonesiaDetailMap countries={regionalMapCountries} locations={regionalMapLocations} />
-            ) : (
-              <SpatialOutbreakMap
-                countries={regionalMapCountries}
-                locations={regionalMapLocations}
-                highlightCountry="Indonesia"
-              />
-            )}
+            <SpatialOutbreakMap
+              countries={regionalMapCountries}
+              locations={regionalMapLocations}
+              highlightCountry={String(eventData.provinsi || 'Indonesia')}
+              regionalMode={isRegionalTemplate}
+            />
           </div>
         </div>
       </article>
@@ -5956,13 +5984,11 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           const topDiseaseCases = topDiseaseObj ? topDiseaseObj.cases : 0;
           const cfrRate = ((totalKematian / (totalKasus || 1)) * 100).toFixed(2);
 
-          const weekNumbers = Array.from(new Set(
-            (regionalSkdrData?.weekly_trend || []).map((item) => item.week),
-          )).filter((week) => week > 0).sort((a, b) => a - b);
-          const weeksData = weekNumbers.map((week) => {
-            const point = regionalSkdrData?.weekly_trend?.find((item) => item.week === week);
+          const trendRows = (regionalSkdrData?.weekly_trend || []).slice(-176);
+          const weeksData = seasonalWeeks.map((period, index) => {
+            const point = trendRows[index];
             return {
-              week: `W-${String(week).padStart(2, '0')}`,
+              week: period.label,
               cases: point?.cases ?? 0,
               terkonfirmasi: point?.events ?? 0,
               deaths: point?.deaths ?? 0,
@@ -6138,13 +6164,16 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           ));
           const rateMetricAvailable = surveillancePopulation > 0;
           const rangePointCount: Record<'6M' | '12M' | '3Y' | 'ALL', number> = {
-            '6M': 26,
-            '12M': 52,
-            '3Y': 156,
+            '6M': 6,
+            '12M': 12,
+            '3Y': 36,
             'ALL': 176,
           };
           const surveillanceWindow = seasonalWeeks.slice(-rangePointCount[surveillanceRange]);
-          const selectedSeasonalRows = seasonalMatrix.filter((row) => surveillanceSelectedDiseases.includes(row.name));
+          const effectiveSelectedDiseases = surveillanceSelectionInitialized || surveillanceSelectedDiseases.length > 0
+            ? surveillanceSelectedDiseases
+            : seasonalDiseaseTotals.slice(0, 3).map((item) => item.name);
+          const selectedSeasonalRows = seasonalMatrix.filter((row) => effectiveSelectedDiseases.includes(row.name));
           const visibleSeasonalRows = surveillanceComparisonMode ? selectedSeasonalRows : selectedSeasonalRows.slice(0, 1);
           const surveillanceSeries = visibleSeasonalRows.map((row, index) => {
             const key = `diseaseSeries${index}`;
@@ -6188,6 +6217,9 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           const provisionalStartLabel = surveillanceChartData[Math.max(0, surveillanceChartData.length - 3)]?.label;
           const provisionalEndLabel = surveillanceChartData[surveillanceChartData.length - 1]?.label;
           const primarySurveillanceSeries = surveillanceSeries[0];
+          // The current API aggregates this view by month. Outbreak detection
+          // stays disabled until a daily or weekly cadence is available.
+          const outbreakDetectionAvailable = false;
           const detectedOutbreaks = surveillanceChartData.filter((point) => (
             primarySurveillanceSeries
               && typeof point[primarySurveillanceSeries.key] === 'number'
@@ -6417,7 +6449,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                             Case Trends &amp; Epidemiological Surveillance
                           </h4>
                           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0 leading-relaxed">
-                            Weekly case dynamics, case fatality ratio (CFR), and disease distribution in {displayRegion}.
+                            Monthly case dynamics, case fatality ratio (CFR), and disease distribution in {displayRegion}.
                           </p>
                         </div>
                         <button
@@ -6443,7 +6475,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                           </span>
                         </div>
                         <div className="p-3.5 rounded-xl bg-orange-50/70 border border-orange-200/80">
-                          <span className="text-xs font-bold uppercase tracking-wider text-orange-800 block">Weekly Cases ({currentWeekLabel})</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-orange-800 block">Monthly Cases ({currentWeekLabel})</span>
                           <span className="text-xl sm:text-2xl font-black text-orange-950">
                             {currentWeekCases.toLocaleString('en-US')} <span className="text-xs sm:text-sm font-bold text-orange-700">New Cases</span>
                           </span>
@@ -6642,7 +6674,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div>
                     <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0">Seasonal Patterns</h4>
                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0 leading-relaxed">
-                      Weekly disease intensity across the available epidemiological surveillance period.
+                      Monthly disease intensity across the available publication period.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 self-start">
@@ -6771,7 +6803,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div>
                     <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0">Surveillance Trends by Disease</h4>
                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0 leading-relaxed">
-                      Compare weekly disease trajectories, provisional reporting, and observed-period reference levels.
+                      Compare monthly disease trajectories, provisional reporting, and observed-period reference levels.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -6877,15 +6909,15 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                   <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                       <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Weekly cadence</span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Monthly cadence</span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">{surveillanceChartData.length} points</span>
                         {surveillanceComparisonMode && <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-blue-700">Common observed window</span>}
                       </div>
-                      <label className={`inline-flex items-center gap-2 text-xs font-bold ${seasonalWeeks.length === 0 ? 'text-slate-400' : 'text-rose-700'}`} title={seasonalWeeks.length === 0 ? 'Outbreak detection requires weekly or daily data' : 'Highlight points above the upper limit'}>
+                      <label className={`inline-flex items-center gap-2 text-xs font-bold ${!outbreakDetectionAvailable ? 'text-slate-400' : 'text-rose-700'}`} title={!outbreakDetectionAvailable ? 'Outbreak detection requires daily or weekly data' : 'Highlight points above the upper limit'}>
                         <input
                           type="checkbox"
-                          checked={surveillanceOutbreakMode}
-                          disabled={seasonalWeeks.length === 0}
+                          checked={surveillanceOutbreakMode && outbreakDetectionAvailable}
+                          disabled={!outbreakDetectionAvailable}
                           onChange={(event) => setSurveillanceOutbreakMode(event.target.checked)}
                           className="h-3.5 w-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
                         />
@@ -6935,7 +6967,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                                 <Line type="monotone" dataKey={series.baselineKey} name={`${formatDisasterName(series.name)} baseline`} stroke={series.color} strokeOpacity={0.45} strokeWidth={1.5} strokeDasharray="5 5" dot={false} legendType="none" />
                               </React.Fragment>
                             ))}
-                            {surveillanceOutbreakMode && primarySurveillanceSeries && primarySurveillanceSeries.threshold > 0 && (
+                            {surveillanceOutbreakMode && outbreakDetectionAvailable && primarySurveillanceSeries && primarySurveillanceSeries.threshold > 0 && (
                               <ReferenceLine y={primarySurveillanceSeries.threshold} stroke="#e11d48" strokeDasharray="4 4" label={{ value: 'Upper limit', position: 'insideTopRight', fill: '#be123c', fontSize: 10, fontWeight: 700 }} />
                             )}
                             <Brush dataKey="label" height={24} stroke="#047d78" fill="#e6f4f3" startIndex={0} endIndex={surveillanceChartData.length - 1} />
@@ -6950,7 +6982,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
 
                     <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 text-[10px] font-medium leading-relaxed text-slate-400 sm:flex-row sm:items-start sm:justify-between">
                       <span>Dashed lines show the observed-period baseline. A historical same-week baseline will replace this fallback when year-level disease observations are available.</span>
-                      {surveillanceOutbreakMode && <span className="font-bold text-rose-700">{detectedOutbreaks} points above the upper limit</span>}
+                      {surveillanceOutbreakMode && outbreakDetectionAvailable && <span className="font-bold text-rose-700">{detectedOutbreaks} points above the upper limit</span>}
                     </div>
                     {surveillanceMetric === 'rate' && !rateMetricAvailable && (
                       <p className="mt-2 mb-0 text-[10px] font-bold text-amber-700">Cases per 100k is unavailable because the current surveillance payload has no population denominator.</p>

@@ -30,11 +30,13 @@ export default function SpatialOutbreakMap({
   countries,
   locations,
   highlightCountry,
+  regionalMode = false,
 }: {
   countries: { name: string; cases: number; deaths?: number }[];
   locations: OutbreakLocation[];
   embedded?: boolean;
   highlightCountry?: string;
+  regionalMode?: boolean;
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState(false),
@@ -44,7 +46,7 @@ export default function SpatialOutbreakMap({
     [markerLookbackDays, setMarkerLookbackDays] = useState<MarkerLookbackDays>(30),
     [admin, setAdmin] = useState(true),
     [choropleth, setChoropleth] = useState(true),
-    [wind, setWind] = useState(true),
+    [wind, setWind] = useState(!regionalMode),
     [bnpb, setBnpb] = useState({
       flood: false,
       earthquake: false,
@@ -60,7 +62,7 @@ export default function SpatialOutbreakMap({
     setMarkerLookbackDays(30);
     setAdmin(true);
     setChoropleth(true);
-    setWind(true);
+    setWind(!regionalMode);
     setWindLegend(true);
     setBnpb({
       flood: false,

@@ -3924,7 +3924,8 @@ async fn public_dashboard(
     });
 
     let weekly_trend = client.query(
-        "SELECT COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int) AS epidemiological_week,
+        "SELECT TO_CHAR(DATE_TRUNC('month', e.published_at), 'YYYY-MM') AS period,
+                MIN(COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int)) AS epidemiological_week,
                 COALESCE(SUM(GREATEST(COALESCE(e.case_count, 0), 0)), 0)::bigint AS cases,
                 COALESCE(SUM(GREATEST(COALESCE(e.death_count, 0), 0)), 0)::bigint AS deaths,
                 COUNT(*)::bigint AS events,
@@ -3955,17 +3956,18 @@ async fn public_dashboard(
            AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%')
            AND ($5::text IS NULL OR ($5::text = 'skdr' AND (sr.id IS NOT NULL OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api')))
                 OR ($5::text IN ('ibs', 'ebs') AND LOWER(COALESCE(sr.endpoint_name, '')) = $5::text))
-         GROUP BY COALESCE(sr.epidemiological_week, EXTRACT(WEEK FROM e.published_at)::int)
-         ORDER BY epidemiological_week",
+         GROUP BY DATE_TRUNC('month', e.published_at)
+         ORDER BY DATE_TRUNC('month', e.published_at)",
         &[&start_date, &end_date, &selected_country, &selected_disease, &selected_source],
     ).await.map_err(internal_error)?
     .into_iter()
     .map(|row| json!({
-        "week": row.get::<_, i32>(0),
-        "cases": row.get::<_, i64>(1),
-        "deaths": row.get::<_, i64>(2),
-        "events": row.get::<_, i64>(3),
-        "alerts": row.get::<_, i64>(4),
+        "period": row.get::<_, String>(0),
+        "week": row.get::<_, i32>(1),
+        "cases": row.get::<_, i64>(2),
+        "deaths": row.get::<_, i64>(3),
+        "events": row.get::<_, i64>(4),
+        "alerts": row.get::<_, i64>(5),
     }))
     .collect::<Vec<_>>();
 

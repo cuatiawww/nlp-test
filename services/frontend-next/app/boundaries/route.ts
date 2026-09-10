@@ -20,16 +20,16 @@ export async function GET(request: NextRequest) {
   const country = (request.nextUrl.searchParams.get('country') || '').trim().toUpperCase()
   const level = (request.nextUrl.searchParams.get('level') || 'ADM1').trim().toUpperCase()
 
-  if (!ASEAN_ISO3.has(country) || country === 'IDN') {
+  if (!ASEAN_ISO3.has(country)) {
     return NextResponse.json(
-      { success: false, message: 'Use the internal Indonesia boundary route for IDN.' },
+      { success: false, message: 'Unsupported ASEAN country code.' },
       { status: 400 },
     )
   }
 
-  if (!/^ADM[1-2]$/.test(level)) {
+  if (!/^ADM[0-2]$/.test(level)) {
     return NextResponse.json(
-      { success: false, message: 'Only ADM1 and ADM2 boundaries are supported.' },
+      { success: false, message: 'Only ADM0, ADM1, and ADM2 boundaries are supported.' },
       { status: 400 },
     )
   }

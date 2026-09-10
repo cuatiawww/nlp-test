@@ -140,6 +140,7 @@ export default function AseanMap({
   const vectorRef = useRef<VectorLayer<VectorSource> | null>(null);
   const markerRef = useRef<VectorLayer<VectorSource> | null>(null);
   const regionRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const currentCountryBoundaryRef = useRef<VectorLayer<VectorSource> | null>(null);
   const tileRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const bnpbRef = useRef<Record<string, TileLayer<TileArcGISRest>>>({});
   const radiusRef = useRef<VectorLayer<VectorSource> | null>(null);
@@ -191,6 +192,16 @@ export default function AseanMap({
       },
     });
     vectorRef.current = vectorLayer;
+
+    const currentCountryBoundaryLayer = new VectorLayer({
+      source: new VectorSource(),
+      zIndex: 12,
+      style: new Style({
+        fill: new Fill({ color: 'rgba(0, 96, 169, 0.06)' }),
+        stroke: new Stroke({ color: '#0060A9', width: 2.8 }),
+      }),
+    });
+    currentCountryBoundaryRef.current = currentCountryBoundaryLayer;
 
     const regionSource = new VectorSource();
     const regionLayer = new VectorLayer({
@@ -354,6 +365,7 @@ export default function AseanMap({
         tileLayer,
         ...externalLayers,
         vectorLayer,
+        currentCountryBoundaryLayer,
         regionLayer,
         radiusLayer,
         markerLayer,
@@ -770,6 +782,51 @@ export default function AseanMap({
         .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 500 });
     }
   }, [countryData, result, outbreakLocations, highlightCountry, markerLookbackDays]);
+
+  // Refresh the selected country's outer polygon from the current
+  // geoBoundaries gbOpen dataset. The bundled ASEAN geometry remains as a
+  // resilient fallback, while this overlay prevents a country selection from
+  // reusing Indonesia's old administrative geometry.
+  useEffect(() => {
+    const layer = currentCountryBoundaryRef.current;
+    const source = layer?.getSource();
+    const countryName = normalizedCountry(highlightCountry);
+    const iso3 = COUNTRY_ISO3[countryName];
+    if (!source) return;
+
+    source.clear();
+    if (!iso3) return;
+
+    let cancelled = false;
+    fetch(`${PUBLIC_BASE_PATH}/boundaries?country=${iso3}&level=ADM0`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Country boundary HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((payload) => {
+        if (cancelled || !payload?.geojson) return;
+        const features = new GeoJSON().readFeatures(payload.geojson, {
+          featureProjection: 'EPSG:3857',
+        });
+        source.addFeatures(features);
+        const extent = source.getExtent();
+        if (features.length > 0 && extent.every(Number.isFinite)) {
+          mapRef.current?.getView().fit(extent, {
+            padding: [60, 60, 60, 60],
+            duration: 650,
+            maxZoom: 7,
+          });
+        }
+      })
+      .catch(() => {
+        // The bundled ASEAN polygon remains visible when the boundary proxy
+        // or the upstream dataset is temporarily unavailable.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [highlightCountry]);
 
   // Load regional boundaries only after a country is selected. Indonesia uses
   // the project's own wilayah-data route; other ASEAN countries use the free
