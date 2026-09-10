@@ -80,21 +80,25 @@ def extract_pdf(data, url, upload):
     try:
         texts, tables = [], []
         with pdfplumber.open(io.BytesIO(data)) as document:
-            if len(document.pages) > 50:
-                raise ValueError("PDF melebihi batas interaktif 50 halaman")
+            max_pages = int(os.getenv("PDF_MAX_PAGES", "200"))
+            pages_to_process = document.pages[:max_pages]
             title = _clean_title((document.metadata or {}).get("Title"), url)
-            for number, page in enumerate(document.pages, 1):
-                found = page.find_tables()
-                if found:
-                    boxes = [table.bbox for table in found]
-                    def outside(obj):
-                        return not any(
-                            obj.get("x0", -1) >= box[0] and obj.get("x1", -1) <= box[2]
-                            and obj.get("top", -1) >= box[1] and obj.get("bottom", -1) <= box[3]
-                            for box in boxes)
-                    narrative = page.filter(outside).extract_text() or ""
-                    for table in found:
-                        tables.append({"page": number, "bbox": list(table.bbox), "rows": table.extract()})
+            max_table_pages = int(os.getenv("PDF_MAX_TABLE_PAGES", "30"))
+            for number, page in enumerate(pages_to_process, 1):
+                if number <= max_table_pages and len(tables) < 50:
+                    found = page.find_tables()
+                    if found:
+                        boxes = [table.bbox for table in found]
+                        def outside(obj):
+                            return not any(
+                                obj.get("x0", -1) >= box[0] and obj.get("x1", -1) <= box[2]
+                                and obj.get("top", -1) >= box[1] and obj.get("bottom", -1) <= box[3]
+                                for box in boxes)
+                        narrative = page.filter(outside).extract_text() or ""
+                        for table in found:
+                            tables.append({"page": number, "bbox": list(table.bbox), "rows": table.extract()})
+                    else:
+                        narrative = page.extract_text() or ""
                 else:
                     narrative = page.extract_text() or ""
                 texts.append(narrative)
@@ -135,16 +139,21 @@ def try_pdf(url, enabled=None):
             "Chrome/125.0.0.0 Safari/537.36"
         ),
         "Accept": "application/pdf,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
     }
-    with requests.get(url, stream=True, headers=headers, timeout=(5, 20), verify=False) as response:
+    download_timeout = int(os.getenv("PDF_DOWNLOAD_TIMEOUT", "45"))
+    with requests.get(url, stream=True, headers=headers, timeout=(10, download_timeout), verify=False) as response:
         response.raise_for_status()
-        chunks = response.iter_content(8192)
+        chunks = response.iter_content(65536)
         prefix = next(chunks, b"")
         if not is_pdf(response.url, response.headers.get("Content-Type", ""), prefix):
             return None
         data = bytearray(prefix)
+        max_mb = int(os.getenv("PDF_MAX_MB", "35"))
+        max_bytes = max_mb * 1024 * 1024
         for chunk in chunks:
             data.extend(chunk)
-            if len(data) > 15 * 1024 * 1024:
-                raise ValueError("Ukuran file PDF melebihi batas 15 MB")
+            if len(data) > max_bytes:
+                raise ValueError(f"Ukuran file PDF melebihi batas {max_mb} MB")
         return extract_pdf(bytes(data), response.url, upload_file)

@@ -61,24 +61,60 @@ def connect():
 def fetch_article(url, fallback=False):
     import requests
     endpoint = os.getenv("COLLECTOR_URL", "http://disease-collector-python:8002")
-    response = requests.post(endpoint + "/extract-url",
-        json={"url": url, "fetch_mode": "http" if fallback else "auto", "timeout_ms": 12000},
-        timeout=(3, 18))
+    is_pdf = urlparse(url).path.lower().endswith(".pdf")
+    timeout_ms = 45000 if is_pdf else (15000 if fallback else 12000)
+    connect_timeout = 5
+    read_timeout = 55 if is_pdf else 20
+    response = requests.post(
+        endpoint + "/extract-url",
+        json={"url": url, "fetch_mode": "http" if fallback else "auto", "timeout_ms": timeout_ms},
+        timeout=(connect_timeout, read_timeout),
+    )
     response.raise_for_status()
     return response.json()["data"]
+
+def _prepare_text_for_nlp(extracted, max_chars=35000):
+    title = (extracted.get("title") or "").strip()
+    content = (extracted.get("content") or "").strip()
+    if len(content) <= max_chars:
+        return (title + "\n\n" + content).strip()
+
+    sections = extracted.get("sections") or []
+    if sections:
+        header = f"{title}\n\n" + content[:4000]
+        parts = [header]
+        cur_len = len(header)
+        for sec in sections:
+            sec_text = f"\n\n--- {sec.get('title', '')} ---\n{sec.get('content', '')}"
+            if cur_len + len(sec_text) <= max_chars:
+                parts.append(sec_text)
+                cur_len += len(sec_text)
+            else:
+                rem = max_chars - cur_len
+                if rem > 400:
+                    parts.append(sec_text[:rem])
+                break
+        return "".join(parts).strip()
+    return (title + "\n\n" + content[:max_chars]).strip()
 
 def analyze_article(extracted, fallback=False):
     import requests
     endpoint = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000")
-    response = requests.post(endpoint + "/nlp/analyze-bounded",
-        json={"text": (extracted.get("title", "") + "\n" + extracted["content"])[:10000],
-              "source_type": "web", "source_name": "URL Analyzer",
-              "source_country": extracted.get("source_country"),
-              "published_at": extracted.get("published_at"), "rules_only": fallback},
-        timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS))
+    text_payload = _prepare_text_for_nlp(extracted)
+    response = requests.post(
+        endpoint + "/nlp/analyze-bounded",
+        json={
+            "text": text_payload,
+            "source_type": "web",
+            "source_name": "URL Analyzer",
+            "source_country": extracted.get("source_country"),
+            "published_at": extracted.get("published_at"),
+            "rules_only": fallback,
+        },
+        timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
+    )
     response.raise_for_status()
     return response.json()
-
 def save_completed(conn, job_id, result):
     """Add a new version without deleting any existing report or event."""
     row = conn.execute("INSERT INTO raw_reports(source_type,source_name,published_at,original_text,url,object_path,processing_status) "
