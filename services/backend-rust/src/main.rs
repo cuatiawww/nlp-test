@@ -1262,15 +1262,61 @@ async fn analysis_job_status(
     Ok(Json(body))
 }
 
+async fn collector_post_retry(
+    client: &Client,
+    url: String,
+    body: Option<&Value>,
+    attempts: u32,
+) -> Result<reqwest::Response, String> {
+    let mut last_error = String::from("collector is unavailable");
+    for attempt in 0..attempts.max(1) {
+        let mut request = client.post(&url).timeout(Duration::from_secs(8));
+        if let Some(value) = body {
+            request = request.json(value);
+        }
+        match request.send().await {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                last_error = error.to_string();
+                if attempt + 1 < attempts.max(1) {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            }
+        }
+    }
+    Err(last_error)
+}
+
+async fn collector_get_retry(
+    client: &Client,
+    url: String,
+    attempts: u32,
+) -> Result<reqwest::Response, String> {
+    let mut last_error = String::from("collector is unavailable");
+    for attempt in 0..attempts.max(1) {
+        match client.get(&url).timeout(Duration::from_secs(8)).send().await {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                last_error = error.to_string();
+                if attempt + 1 < attempts.max(1) {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        }
+    }
+    Err(last_error)
+}
+
 async fn create_crawl_job(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let response = state.http
-        .post(format!("{}/crawl-jobs", state.collector_url))
-        .json(&payload)
-        .timeout(Duration::from_secs(8))
-        .send().await.map_err(internal_error)?;
+    let response = collector_post_retry(
+        &state.http,
+        format!("{}/crawl-jobs", state.collector_url),
+        Some(&payload),
+        5,
+    ).await.map_err(internal_error)?;
     let status = response.status();
     let body: Value = response.json().await.map_err(internal_error)?;
     if !status.is_success() {
@@ -1282,10 +1328,29 @@ async fn create_crawl_job(
 async fn crawl_job_status(
     State(state): State<Arc<AppState>>, Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let response = state.http
-        .get(format!("{}/crawl-jobs/{}", state.collector_url, id))
-        .timeout(Duration::from_secs(8))
-        .send().await.map_err(internal_error)?;
+    let response = match collector_get_retry(
+        &state.http,
+        format!("{}/crawl-jobs/{}", state.collector_url, id),
+        3,
+    ).await {
+        Ok(response) => response,
+        Err(error) => {
+            // The frontend keeps polling this transient state. This avoids a
+            // toast storm while the collector container is still starting.
+            return Ok(Json(json!({
+                "success": true,
+                "data": {
+                    "job_id": id,
+                    "status": "waiting_for_collector",
+                    "discovered_count": 0,
+                    "processed_count": 0,
+                    "row_count": 0,
+                    "warnings": [error],
+                    "rows": []
+                }
+            })));
+        }
+    };
     let status = response.status();
     let body: Value = response.json().await.map_err(internal_error)?;
     if !status.is_success() {
@@ -1297,10 +1362,12 @@ async fn crawl_job_status(
 async fn reprocess_crawl_job(
     State(state): State<Arc<AppState>>, Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let response = state.http
-        .post(format!("{}/crawl-jobs/{}/reprocess", state.collector_url, id))
-        .timeout(Duration::from_secs(8))
-        .send().await.map_err(internal_error)?;
+    let response = collector_post_retry(
+        &state.http,
+        format!("{}/crawl-jobs/{}/reprocess", state.collector_url, id),
+        None,
+        5,
+    ).await.map_err(internal_error)?;
     let status = response.status();
     let body: Value = response.json().await.map_err(internal_error)?;
     if !status.is_success() {

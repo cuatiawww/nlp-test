@@ -64,9 +64,31 @@ jobs:
         run: docker compose -f docker-compose.yml -f docker-compose-prod.override.yml build
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
 
-      - name: Deploy backend terlebih dahulu
+      - name: Start dependency services
         run: |
           docker compose -f docker-compose.yml -f docker-compose-prod.override.yml stop disease-frontend-next || true
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d disease-nlp-python disease-rabbitmq disease-collector-python
+        working-directory: /home/nlpdev/docker/nlp-penyakit-git
+
+      - name: Healthcheck collector sebelum backend
+        run: |
+          echo "Menunggu collector sehat (timeout: 120 detik)..."
+          for i in $(seq 1 60); do
+            if docker compose -f docker-compose.yml -f docker-compose-prod.override.yml exec -T disease-collector-python \
+              python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=5)" >/dev/null 2>&1; then
+              echo "✅ Collector sehat (percobaan ke-$i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Collector tidak sehat. Menampilkan status dan log:"
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml ps
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml logs --tail 100 disease-collector-python
+          exit 1
+        working-directory: /home/nlpdev/docker/nlp-penyakit-git
+
+      - name: Deploy backend setelah collector sehat
+        run: |
           docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d disease-backend-rust
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
 

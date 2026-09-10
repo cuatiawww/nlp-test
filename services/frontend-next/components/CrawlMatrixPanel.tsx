@@ -55,7 +55,7 @@ export default function CrawlMatrixPanel() {
   }, [])
 
   useEffect(() => {
-    if (!job?.job_id || !['queued', 'processing'].includes(job.status)) return
+    if (!job?.job_id || !['queued', 'processing', 'waiting_for_collector'].includes(job.status)) return
     let active = true
     const poll = async () => {
       try {
@@ -124,7 +124,7 @@ export default function CrawlMatrixPanel() {
     download(`crawl-matrix-${job?.job_id}.csv`, '\ufeff' + [headers, ...values].map(row => row.map(csvCell).join(',')).join('\n'), 'text/csv;charset=utf-8')
   }
 
-  const statusLabel = job?.status === 'processing' ? 'Sedang crawling & menganalisis' : job?.status || 'Belum dijalankan'
+  const statusLabel = job?.status === 'processing' ? 'Sedang crawling & menganalisis' : job?.status === 'waiting_for_collector' ? 'Menunggu collector siap' : job?.status || 'Belum dijalankan'
 
   return (
     <section className="mt-5 space-y-4">
@@ -163,7 +163,7 @@ export default function CrawlMatrixPanel() {
             <div className="mt-1 grid grid-cols-2 gap-2"><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" /><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" /></div>
             <label className="mt-3 block text-xs font-semibold text-slate-600">Maksimal artikel</label>
             <input type="number" min={1} max={50} value={maxArticles} onChange={e => setMaxArticles(Math.min(50, Math.max(1, Number(e.target.value) || 1)))} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-            <button onClick={startCrawl} disabled={busy || loadingMaster || ['queued', 'processing'].includes(job?.status || '')} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#0060A9] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#004b85] disabled:opacity-50"><Play className="h-4 w-4" />{busy ? 'Menyiapkan...' : 'Mulai crawling'}</button>
+            <button onClick={startCrawl} disabled={busy || loadingMaster || ['queued', 'processing', 'waiting_for_collector'].includes(job?.status || '')} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#0060A9] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#004b85] disabled:opacity-50"><Play className="h-4 w-4" />{busy ? 'Menyiapkan...' : 'Mulai crawling'}</button>
           </div>
         </div>
       </div>
@@ -173,11 +173,11 @@ export default function CrawlMatrixPanel() {
           <div className="text-xs text-slate-500">Job <span className="font-mono text-slate-700">{job.job_id}</span> · {job.discovered_count} ditemukan · {job.processed_count} diproses · {job.row_count} baris</div>
           <div className="flex gap-2"><button onClick={() => exportRows('csv')} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Download className="h-3.5 w-3.5" />CSV</button><button onClick={() => exportRows('json')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">JSON</button><button onClick={reprocess} disabled={busy || ['queued', 'processing'].includes(job.status) || !job.rows.length} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" />Reprocess</button></div>
         </div>
-        {['queued', 'processing'].includes(job.status) && <div className="flex items-center gap-2 p-4 text-xs text-[#0060A9]"><Loader2 className="h-4 w-4 animate-spin" />Worker sedang mengambil artikel dan mengikat kasus ke negara/waktu.</div>}
+        {['queued', 'processing', 'waiting_for_collector'].includes(job.status) && <div className="flex items-center gap-2 p-4 text-xs text-[#0060A9]"><Loader2 className="h-4 w-4 animate-spin" />{job.status === 'waiting_for_collector' ? 'Collector belum siap; sistem akan mencoba kembali.' : 'Worker sedang mengambil artikel dan mengikat kasus ke negara/waktu.'}</div>}
         {job.error && <div className="p-4 text-xs text-red-600">{job.error}</div>}
         {!!job.warnings?.length && <details className="mx-4 mb-3 text-xs text-amber-700"><summary className="cursor-pointer">{job.warnings.length} peringatan proses</summary><ul className="mt-2 list-disc pl-5">{job.warnings.slice(0, 10).map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
         <div className="overflow-x-auto"><table className="min-w-[1250px] w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{['No.', 'Crawling Date', 'Diseases', 'Region', 'Country', 'Province / City Case', 'Article Date', 'Date Case', 'Number of Cases', 'Number of Deaths', 'Latitude', 'Longitude', 'Source Type'].map(header => <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{job.rows.map((row: CrawlMatrixRow, index) => <tr key={row.id} className="align-top hover:bg-slate-50"><td className="px-3 py-3">{index + 1}</td><td className="px-3 py-3">{row.crawling_date || '-'}</td><td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}<div className="text-[10px] font-normal text-slate-400">{row.icd11_code || 'ICD-11'}</div></td><td className="px-3 py-3">{row.region || '-'}</td><td className="px-3 py-3 font-semibold">{row.country}</td><td className="max-w-[180px] px-3 py-3">{row.province_city_case || '-'}</td><td className="px-3 py-3">{row.article_date || '-'}</td><td className="max-w-[190px] px-3 py-3">{row.date_case || '-'}</td><td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('id-ID')}</td><td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('id-ID')}</td><td className="px-3 py-3">{row.latitude ?? '-'}</td><td className="px-3 py-3">{row.longitude ?? '-'}</td><td className="px-3 py-3">{row.source_type || '-'}<div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div><details className="mt-1"><summary className="cursor-pointer text-[#0060A9]">Bukti</summary><p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Perlu review'}</p>{row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Artikel <ExternalLink className="h-3 w-3" /></a>}</details></td></tr>)}</tbody></table></div>
-        {!job.rows.length && !['queued', 'processing'].includes(job.status) && <div className="p-8 text-center text-sm text-slate-400">Tidak ada baris faktual yang lolos filter. Coba perluas negara atau rentang tanggal.</div>}
+        {!job.rows.length && !['queued', 'processing', 'waiting_for_collector'].includes(job.status) && <div className="p-8 text-center text-sm text-slate-400">Tidak ada baris faktual yang lolos filter. Coba perluas negara atau rentang tanggal.</div>}
       </div>}
     </section>
   )
