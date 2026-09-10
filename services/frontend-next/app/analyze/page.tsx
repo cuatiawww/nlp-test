@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { analyzeUrl } from '@/lib/api'
 import AnalyzeResultCard from '@/components/AnalyzeResultCard'
+import Modal from '@/components/Modal'
 import AseanMap from '@/components/AseanMap'
 import type { AnalyzeResponse } from '@/types'
 import { toast } from 'sonner'
 import {
   Search, Globe, MapPin, Bug, Activity, Heart, MessageSquare,
   AlertTriangle, Shield, Languages, Users, Skull, TrendingUp,
-  FileText, ExternalLink, CheckCircle, Loader2, Calendar
+  FileText, ExternalLink, Layers, CheckCircle, Loader2, Calendar
 } from 'lucide-react'
 
 export default function AnalyzePage() {
@@ -20,6 +21,7 @@ export default function AnalyzePage() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
   const [error, setError] = useState('')
   const [partial, setPartial] = useState<{content?: string; job_id?: string} | null>(null)
+  const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -193,12 +195,43 @@ export default function AnalyzePage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <AnalyzeResultCard
-              icon={<Bug className="h-4 w-4" />}
-              label={t('pages.analyze.diseaseClassification')}
-              value={translateDisease(result.disease_classification) || '-'}
-              source={getSource('disease_classification', result.sources?.disease_classification || result.sources?.disease)}
-            />
+            {(() => {
+              const subEvents = (result as any)?.sub_events || []
+              const diseaseExtracted = result?.disease_extracted || []
+              const hasMultiDisease = subEvents.length > 1 || diseaseExtracted.length > 1
+              const indicatedCount = Math.max(subEvents.length, diseaseExtracted.length)
+
+              return (
+                <AnalyzeResultCard
+                  icon={<Bug className="h-4 w-4" />}
+                  label={t('pages.analyze.diseaseClassification')}
+                  value={
+                    <div className="space-y-1">
+                      <span className="font-bold text-slate-900">{translateDisease(result.disease_classification) || '-'}</span>
+                      {hasMultiDisease && (
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#0060A9] ring-1 ring-inset ring-[#0060A9]/20">
+                            <Layers className="h-2.5 w-2.5 text-[#0060A9]" />
+                            +{indicatedCount - 1} Penyakit Lain Terindikasi
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  }
+                  source={getSource('disease_classification', result.sources?.disease_classification || result.sources?.disease)}
+                  onClick={hasMultiDisease ? () => setDiseaseMatrixOpen(true) : undefined}
+                  actionBadge={
+                    hasMultiDisease ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-[#0060A9] ring-1 ring-blue-200">
+                        <Layers className="h-2.5 w-2.5" />
+                        Matriks
+                      </span>
+                    ) : undefined
+                  }
+                  actionHint={hasMultiDisease ? "Klik untuk melihat matriks klasifikasi" : undefined}
+                />
+              )
+            })()}
 
             <AnalyzeResultCard
               icon={<Calendar className="h-4 w-4" />}
@@ -389,6 +422,232 @@ export default function AnalyzePage() {
               <span>Raw Report ID: <code className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono">{result.raw_report_id}</code></span>
             </div>
           </div>
+
+          {/* Modal Matriks Klasifikasi Penyakit & Multi-Event */}
+          <Modal
+            open={diseaseMatrixOpen}
+            onClose={() => setDiseaseMatrixOpen(false)}
+            title="Matriks Klasifikasi Penyakit & Dekomposisi Multi-Event"
+            maxWidth="max-w-4xl"
+          >
+            {(() => {
+              const subEvents = (result as any)?.sub_events || []
+              const diseaseExtracted = result?.disease_extracted || []
+              const indicatedCount = Math.max(subEvents.length, diseaseExtracted.length)
+
+              return (
+                <div className="space-y-6">
+                  <div>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      Daftar seluruh penyakit, wilayah persebaran, dan rincian data kasus yang terdeteksi dari dokumen ini melalui analisis NLP & Dekomposisi Multi-Event.
+                    </p>
+                  </div>
+
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#0060A9]">Penyakit Utama</span>
+                      <p className="mt-1 text-sm font-black text-slate-900 truncate" title={result.disease_classification}>
+                        {translateDisease(result.disease_classification)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Terindikasi</span>
+                      <p className="mt-1 text-lg font-black text-slate-900">
+                        {indicatedCount} <span className="text-xs font-normal text-slate-500">Penyakit / Event</span>
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Kasus Primer</span>
+                      <p className="mt-1 text-lg font-black text-slate-900">
+                        {result.case_count.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Kematian Tercatat</span>
+                      <p className={`mt-1 text-lg font-black ${result.death_count > 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                        {result.death_count.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Matrix Table */}
+                  <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+                    <div className="border-b border-slate-100 bg-slate-50/75 px-4 py-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Bug className="h-4 w-4 text-[#0060A9]" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                          Matriks Pasangan Penyakit, Wilayah & Kasus
+                        </h3>
+                      </div>
+                      <span className="text-[11px] font-medium text-slate-500">
+                        {subEvents.length > 0 ? `${subEvents.length} kejadian didekomposisi` : `${diseaseExtracted.length} topik teridentifikasi`}
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-200/80 bg-slate-50/40 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            <th className="py-2.5 px-3.5">Penyakit</th>
+                            <th className="py-2.5 px-3.5">Wilayah / Lokasi</th>
+                            <th className="py-2.5 px-3.5 text-right">Kasus</th>
+                            <th className="py-2.5 px-3.5 text-right">Kematian</th>
+                            <th className="py-2.5 px-3.5">Peran</th>
+                            <th className="py-2.5 px-3.5">Konteks / Bukti Kalimat</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {subEvents.length > 0 ? (
+                            subEvents.map((evt: any, idx: number) => {
+                              const isPrimary = idx === 0 || evt.disease?.toLowerCase() === result.disease_classification?.toLowerCase();
+                              return (
+                                <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                                  <td className="py-3 px-3.5 font-bold text-slate-900">
+                                    <div className="flex items-center gap-1.5">
+                                      <Bug className="h-3.5 w-3.5 text-[#0060A9] shrink-0" />
+                                      <span>{evt.disease || result.disease_classification}</span>
+                                    </div>
+                                    {evt.disease_icd11_code && (
+                                      <span className="mt-0.5 inline-block text-[10px] text-slate-400 font-mono">
+                                        ICD-11: {evt.disease_icd11_code}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-3.5 text-slate-700">
+                                    <div className="flex items-center gap-1">
+                                      <MapPin className="h-3 w-3 text-red-500 shrink-0" />
+                                      <span className="font-semibold">{evt.location_name || result.location_name}</span>
+                                      {evt.country && <span className="text-slate-400 font-normal">({evt.country})</span>}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3.5 text-right">
+                                    <span className="inline-flex items-center font-extrabold text-slate-900">
+                                      {evt.case_count != null ? evt.case_count.toLocaleString() : '-'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3.5 text-right">
+                                    <span className={`inline-flex items-center font-semibold ${evt.death_count > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                                      {evt.death_count || 0}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3.5">
+                                    {isPrimary ? (
+                                      <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-200">
+                                        Utama (Primary)
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-[#0060A9] ring-1 ring-blue-200">
+                                        Sub-Event
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-3.5 text-slate-600 max-w-xs">
+                                    {evt.evidence ? (
+                                      <div className="rounded bg-slate-50 p-2 text-[11px] italic text-slate-700 border border-slate-100 line-clamp-3 hover:line-clamp-none transition-all">
+                                        &ldquo;{evt.evidence}&rdquo;
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-400">-</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            diseaseExtracted.map((dis: string, idx: number) => {
+                              const isPrimary = dis.toLowerCase() === result.disease_classification.toLowerCase();
+                              return (
+                                <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                                  <td className="py-3 px-3.5 font-bold text-slate-900">
+                                    <div className="flex items-center gap-1.5">
+                                      <Bug className="h-3.5 w-3.5 text-[#0060A9] shrink-0" />
+                                      <span>{dis}</span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3.5 text-slate-700">
+                                    <div className="flex items-center gap-1">
+                                      <MapPin className="h-3 w-3 text-red-500 shrink-0" />
+                                      <span>{result.location_name || '-'}</span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3.5 text-right font-bold text-slate-900">
+                                    {isPrimary ? result.case_count.toLocaleString() : '-'}
+                                  </td>
+                                  <td className="py-3 px-3.5 text-right font-semibold text-slate-700">
+                                    {isPrimary ? result.death_count.toLocaleString() : '-'}
+                                  </td>
+                                  <td className="py-3 px-3.5">
+                                    {isPrimary ? (
+                                      <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-200">
+                                        Utama (Primary)
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                        Terindikasi
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-3.5 text-slate-500 text-[11px]">
+                                    {isPrimary ? 'Penyakit utama dalam fokus laporan' : 'Terdeteksi sebagai topik kesehatan dalam teks dokumen'}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* All Extracted Health Keywords */}
+                  {diseaseExtracted.length > 0 && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                      <div className="flex items-center gap-2 mb-2.5">
+                        <Activity className="h-4 w-4 text-[#0060A9]" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                          Daftar Kata Kunci Penyakit Terdeteksi ({diseaseExtracted.length})
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {diseaseExtracted.map((d: string, i: number) => {
+                          const isPrimary = d.toLowerCase() === result.disease_classification.toLowerCase();
+                          return (
+                            <span
+                              key={i}
+                              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                                isPrimary
+                                  ? 'bg-[#0060A9] text-white shadow-xs'
+                                  : 'bg-white text-slate-700 border border-slate-200'
+                              }`}
+                            >
+                              <Bug className="h-3 w-3" />
+                              {d}
+                              {isPrimary && <span className="ml-1 text-[10px] opacity-80">(Utama)</span>}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Modal Footer */}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+                      <span>Data otomatis didekomposisi dan disimpan ke tabel disease_events</span>
+                    </div>
+                    <button
+                      onClick={() => setDiseaseMatrixOpen(false)}
+                      className="rounded-xl bg-slate-100 px-5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 transition cursor-pointer"
+                    >
+                      Tutup
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </Modal>
         </div>
       )}
     </div>

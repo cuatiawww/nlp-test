@@ -157,6 +157,47 @@ def save_completed(conn, job_id, result):
                 ),
             )
     result.update(raw_report_id=str(row["id"]), event_id=str(event["id"]))
+
+    # --- Multi-event decomposition for interactive analysis ---
+    sub_events = result.get("sub_events", [])
+    if len(sub_events) >= 2:
+        parent_event_id = event["id"]
+        for sub_evt in sub_events:
+            sub_location = sub_evt.get("location_name")
+            sub_disease = sub_evt.get("disease")
+            sub_cases = sub_evt.get("case_count", 0)
+            sub_deaths = sub_evt.get("death_count", 0)
+            sub_lat = sub_evt.get("latitude")
+            sub_lon = sub_evt.get("longitude")
+            child = conn.execute(
+                """INSERT INTO disease_events
+                   (raw_report_id, source_type, source_name, published_at,
+                    original_text, language, location_name, geom,
+                    disease_classification, case_count, death_count,
+                    confidence, outbreak_alert, sentiment, event_type,
+                    relevance_score, source_credibility,
+                    source_credibility_label, is_health_related,
+                    parent_event_id, source_url)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s,
+                            CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
+                                 ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                            END,
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s)
+                   ON CONFLICT DO NOTHING""",
+                (
+                    row["id"], result.get("source_type"), result.get("source_name"),
+                    result.get("published_at"), sub_evt.get("evidence", ""),
+                    result.get("language", "id"), sub_location,
+                    sub_lat, sub_lon, sub_lat, sub_lon,
+                    sub_disease, sub_cases, sub_deaths,
+                    result.get("confidence", 0.0), result.get("outbreak_alert", False),
+                    result.get("sentiment"), result.get("event_type"),
+                    result.get("relevance_score"), result.get("source_credibility", 0.50),
+                    result.get("source_credibility_label", ""),
+                    parent_event_id, result.get("url"),
+                ),
+            )
+        logger.info("Multi-event analysis: inserted %d child events", len(sub_events))
     conn.execute("UPDATE analysis_jobs SET event_id=%s WHERE id=%s", (event["id"],job_id))
 
 def process_job(job_id):

@@ -29,6 +29,20 @@ class DiseaseMention(BaseModel):
     resolution_source: str = "local"
 
 
+
+class SubEvent(BaseModel):
+    """A single decomposed event from a multi-event document."""
+    disease: str
+    disease_icd11_code: Optional[str] = None
+    location_name: str
+    country: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    case_count: int = 0
+    death_count: int = 0
+    evidence: str = ""
+
+
 class AnalyzeResponse(BaseModel):
     language: str
     normalized_text: str
@@ -60,3 +74,4 @@ class AnalyzeResponse(BaseModel):
     source_credibility_label: str = "unknown"
     is_health_related: bool = True
     locations: list[LocationItem] = []
+    sub_events: list[SubEvent] = []

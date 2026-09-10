@@ -555,6 +555,92 @@ def callback(ch, method, properties, body):
             event_id = event_cursor.fetchone()["id"]
             persist_location_relations(conn, event_id, nlp)
             persist_disease_relations(conn, event_id, nlp)
+
+            # --- Multi-event decomposition: insert child events ---
+            sub_events = nlp.get("sub_events", [])
+            if len(sub_events) >= 2:
+                parent_event_id = event_id
+                for sub_evt in sub_events:
+                    sub_location = sub_evt.get("location_name") or nlp.get("location_name")
+                    sub_disease = sub_evt.get("disease") or nlp.get("disease_classification")
+                    sub_cases = sub_evt.get("case_count", 0)
+                    sub_deaths = sub_evt.get("death_count", 0)
+                    sub_lat = sub_evt.get("latitude")
+                    sub_lon = sub_evt.get("longitude")
+                    sub_country = sub_evt.get("country") or nlp.get("country")
+                    sub_evidence = sub_evt.get("evidence", "")
+
+                    child_cursor = conn.execute(
+                        """INSERT INTO disease_events
+                           (raw_report_id, source_type, source_name, published_at,
+                            original_text, language, location_name, geom,
+                            symptoms, disease_extracted, disease_mentions,
+                            disease_classification, case_count, death_count,
+                            confidence, outbreak_alert, sentiment, event_type,
+                            relevance_score, source_credibility,
+                            source_credibility_label, is_health_related,
+                            parent_event_id, source_url)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s,
+                                    CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
+                                         ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                                    END,
+                                    %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE,
+                                    %s, %s)
+                           RETURNING id""",
+                        (
+                            raw_id,
+                            msg.get("source_type"),
+                            msg.get("source_name"),
+                            parse_date(msg.get("published_at")),
+                            sub_evidence or msg.get("text", ""),
+                            nlp["language"],
+                            sub_location,
+                            sub_lat, sub_lon, sub_lat, sub_lon,
+                            json.dumps(nlp.get("symptoms", [])),
+                            json.dumps([sub_disease] if sub_disease else []),
+                            json.dumps(nlp.get("disease_mentions", [])),
+                            sub_disease,
+                            sub_cases,
+                            sub_deaths,
+                            nlp.get("confidence", 0.0),
+                            nlp.get("outbreak_alert", False),
+                            nlp.get("sentiment"),
+                            nlp.get("event_type"),
+                            nlp.get("relevance_score"),
+                            nlp.get("source_credibility", 0.50),
+                            nlp.get("source_credibility_label", ""),
+                            parent_event_id,
+                            msg.get("url"),
+                        ),
+                    )
+                    child_event_id = child_cursor.fetchone()["id"]
+                    # Create location relation for the child event
+                    child_loc_nlp = {
+                        "location_name": sub_location,
+                        "latitude": sub_lat,
+                        "longitude": sub_lon,
+                        "country": sub_country,
+                        "case_count": sub_cases,
+                        "death_count": sub_deaths,
+                        "locations": [{
+                            "name": sub_location,
+                            "latitude": sub_lat,
+                            "longitude": sub_lon,
+                            "country": sub_country,
+                            "role": "event",
+                        }] if sub_location else [],
+                        "disease_classification": sub_disease,
+                        "confidence": nlp.get("confidence", 0.0),
+                        "disease_extracted": [sub_disease] if sub_disease else [],
+                        "disease_mentions": [],
+                    }
+                    persist_location_relations(conn, child_event_id, child_loc_nlp)
+                    persist_disease_relations(conn, child_event_id, child_loc_nlp)
+                logger.info(
+                    "Multi-event: inserted %d child events for raw_id=%s",
+                    len(sub_events), raw_id,
+                )
+
             conn.commit()
 
         logger.info("Processed successfully: raw_id=%s", raw_id)

@@ -24,6 +24,55 @@ def _clean_title(raw_title, url):
     cleaned = re.sub(r"[-_]+", " ", name_no_ext).strip()
     return cleaned.title() if cleaned else "Dokumen PDF"
 
+
+_SECTION_HEADING_PATTERN = re.compile(
+    r'^(?:'
+    r'[0-9]+[.)]\s+[A-Z][\w\s/()\-]{2,80}'
+    r'|[A-Z][.)]\s+[A-Z][\w\s/()\-]{2,80}'
+    r'|Bab\s+[IVXLCDM]+[\s:.\-]+[^\r\n]{2,80}'
+    r'|(?:Situasi|Laporan|Perkembangan|Distribusi|Surveilans|Ringkasan)\s+(?:Global|Regional|Nasional|Provinsi|Kabupaten|Kota|Wabah|KLB|Kasus|Penyakit|Terkini|Mingguan)[\w\s/()\-]{0,50}'
+    r')(?:[:])?$',
+    re.IGNORECASE
+)
+
+def _detect_sections(page_texts: list[str]) -> list[dict]:
+    """Detect logical sections across extracted pages."""
+    sections = []
+    current_title = "Overview"
+    current_page = 1
+    current_lines = []
+
+    for page_num, text in enumerate(page_texts, 1):
+        if not text:
+            continue
+        lines = text.split("\n")
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            match = _SECTION_HEADING_PATTERN.match(stripped)
+            if match and len(stripped) <= 100:
+                if current_lines:
+                    sections.append({
+                        "title": current_title,
+                        "page": current_page,
+                        "content": "\n".join(current_lines).strip()
+                    })
+                    current_lines = []
+                current_title = stripped
+                current_page = page_num
+            else:
+                current_lines.append(stripped)
+
+    if current_lines:
+        sections.append({
+            "title": current_title,
+            "page": current_page,
+            "content": "\n".join(current_lines).strip()
+        })
+
+    return sections
+
 def extract_pdf(data, url, upload):
     import pdfplumber
     key = "pdf/" + hashlib.sha256(data).hexdigest() + ".pdf"
@@ -52,10 +101,12 @@ def extract_pdf(data, url, upload):
         if not any(text.strip() for text in texts) and not tables:
             raise ValueError("Tidak ditemukan teks digital pada PDF; kemungkinan dokumen hasil scan (memerlukan OCR review)")
         upload(key + ".tables.json", json.dumps(tables, ensure_ascii=False).encode(), "application/json")
+        sections = _detect_sections(texts)
         return {
             "url": url,
             "title": title,
             "content": "\n\n".join(texts),
+            "sections": sections,
             "document_type": "pdf",
             "object_path": key,
             "pdf_tables": tables,

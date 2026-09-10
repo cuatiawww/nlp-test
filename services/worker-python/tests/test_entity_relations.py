@@ -58,5 +58,39 @@ class EntityRelationTests(unittest.TestCase):
         self.assertEqual(disease_relation_rows({"disease_classification": "UNKNOWN"}), [])
 
 
+    def test_sub_event_child_relation_rows(self):
+        """Test child event relation generation for multi-event decomposition."""
+        child_loc_nlp = {
+            "location_name": "Singapura",
+            "latitude": 1.3521,
+            "longitude": 103.8198,
+            "country": "Singapore",
+            "case_count": 445,
+            "death_count": 0,
+            "locations": [{
+                "name": "Singapura",
+                "latitude": 1.3521,
+                "longitude": 103.8198,
+                "country": "Singapore",
+                "role": "event",
+            }],
+            "disease_classification": "Influenza A(H3N2)",
+            "confidence": 0.95,
+            "disease_extracted": ["Influenza A(H3N2)"],
+            "disease_mentions": [],
+        }
+        loc_rows = location_relation_rows(child_loc_nlp)
+        self.assertEqual(len(loc_rows), 1)
+        self.assertEqual(loc_rows[0]["location_name"], "Singapura")
+        self.assertEqual(loc_rows[0]["case_count"], 445)
+        self.assertEqual(loc_rows[0]["role"], "event")
+
+        dis_rows = disease_relation_rows(child_loc_nlp)
+        self.assertEqual(len(dis_rows), 1)
+        self.assertEqual(dis_rows[0]["disease_name"], "Influenza A(H3N2)")
+        self.assertEqual(dis_rows[0]["case_count"], 445)
+        self.assertEqual(dis_rows[0]["role"], "primary")
+
+
 if __name__ == "__main__":
     unittest.main()

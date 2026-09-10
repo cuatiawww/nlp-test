@@ -4,7 +4,7 @@ from typing import Optional
 
 from . import config, extractors
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
-from .schemas import AnalyzeRequest, AnalyzeResponse, DiseaseMention
+from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
 
 logger = logging.getLogger(__name__)
@@ -458,6 +458,35 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     published_at = payload.published_at or extractors.extract_date_from_text(text)
 
+    # --- Multi-event extraction ---
+    try:
+        from .multi_event_extractor import extract_multi_events
+        multi_events = extract_multi_events(
+            text=text,
+            primary_disease=disease,
+            primary_location=location,
+            diseases_extracted=extracted,
+            locations=[loc.model_dump() if hasattr(loc, 'model_dump') else loc for loc in all_locations],
+            case_count=case_count,
+            death_count=death_count,
+        )
+        sub_events = [
+            SubEvent(
+                disease=evt.get("disease", disease),
+                location_name=evt.get("location_name", ""),
+                country=evt.get("country"),
+                latitude=evt.get("latitude"),
+                longitude=evt.get("longitude"),
+                case_count=evt.get("case_count", 0),
+                death_count=evt.get("death_count", 0),
+                evidence=evt.get("evidence", ""),
+            )
+            for evt in multi_events
+        ]
+    except Exception as exc:
+        logger.warning("Multi-event extraction failed: %s", exc)
+        sub_events = []
+
     return AnalyzeResponse(
         language=language,
         normalized_text=extractors.normalize_text(text),
@@ -486,4 +515,5 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         source_credibility_label=source_type,
         is_health_related=is_health_related,
         needs_review=needs_review,
+        sub_events=sub_events,
     )

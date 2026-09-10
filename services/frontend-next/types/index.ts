@@ -218,5 +218,23 @@ export type AnalyzeResponse = {
   is_health_related: boolean | null;
   raw_report_id: string;
   event_id: string;
+  sub_events?: {
+    disease: string;
+    disease_icd11_code?: string | null;
+    location_name: string;
+    country?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    case_count: number;
+    death_count: number;
+    evidence?: string;
+  }[];
+  disease_mentions?: {
+    surface_form?: string;
+    canonical_name?: string;
+    role?: string;
+    icd11_code?: string | null;
+    evidence?: string;
+  }[];
   sources: Record<string, string>;
 };

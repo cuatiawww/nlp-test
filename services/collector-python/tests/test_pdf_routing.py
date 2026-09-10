@@ -49,3 +49,24 @@ class PdfRoutingTests(unittest.TestCase):
         with patch("pdfplumber.open", return_value=context):
             with self.assertRaisesRegex(PDFExtractionError, "OCR"):
                 extract_pdf(b"%PDF", "https://example.org/scan.pdf", Mock())
+
+    def test_section_detection(self):
+        page1 = Mock()
+        page1.find_tables.return_value = []
+        page1.extract_text.return_value = (
+            "1. Situasi Penyakit Influenza\n"
+            "Kasus terdeteksi di berbagai wilayah.\n\n"
+            "2. Situasi Penyakit Mpox\n"
+            "Sebanyak 12 kasus dilaporkan di Jakarta."
+        )
+        document = Mock(pages=[page1], metadata={"Title": "Laporan Surveilans"})
+        context = Mock()
+        context.__enter__ = Mock(return_value=document)
+        context.__exit__ = Mock(return_value=False)
+        with patch("pdfplumber.open", return_value=context):
+            result = extract_pdf(b"%PDF", "https://example.org/surveilans.pdf", Mock())
+        self.assertIn("sections", result)
+        self.assertGreaterEqual(len(result["sections"]), 2)
+        titles = [s["title"] for s in result["sections"]]
+        self.assertTrue(any("Influenza" in t for t in titles))
+        self.assertTrue(any("Mpox" in t for t in titles))
