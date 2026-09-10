@@ -181,7 +181,13 @@ BEGIN
         LIMIT 1;
 
         IF target_id IS NULL THEN
-            RAISE EXCEPTION 'ICD-11 redirect target not found: %', plan.target_code;
+            -- WHO code lists can change between releases and a target may not
+            -- exist in an older/local seed.  A reviewed redirect must never
+            -- prevent the API from starting: preserve the source data and
+            -- skip only this redirect until its target is seeded/reviewed.
+            RAISE NOTICE 'Skipping ICD-11 redirect; target not found: code=%, name=%',
+                plan.target_code, plan.target_name;
+            CONTINUE;
         END IF;
 
         FOR legacy IN
