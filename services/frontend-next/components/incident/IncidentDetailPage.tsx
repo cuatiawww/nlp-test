@@ -84,6 +84,8 @@ import {
   Tooltip,
   Legend,
   Brush,
+  ReferenceArea,
+  ReferenceLine,
   PieChart,
   Pie,
   Cell
@@ -312,6 +314,15 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   // ── Tren Korban Chart View Mode & Interactive Series Filter ──
   const [trendMetricMode, setTrendMetricMode] = useState<'dual' | 'korban' | 'penduduk'>('dual')
   const [surveillanceTrendMode, setSurveillanceTrendMode] = useState<'Dual' | 'Kasus' | 'Sinyal'>('Dual')
+  const [seasonalView, setSeasonalView] = useState<'chart' | 'table'>('chart')
+  const [seasonalFullscreen, setSeasonalFullscreen] = useState(false)
+  const [surveillanceMetric, setSurveillanceMetric] = useState<'cases' | 'rate'>('cases')
+  const [surveillanceRange, setSurveillanceRange] = useState<'6M' | '12M' | '3Y' | 'ALL'>('12M')
+  const [surveillanceDiseaseSearch, setSurveillanceDiseaseSearch] = useState('')
+  const [surveillanceSelectedDiseases, setSurveillanceSelectedDiseases] = useState<string[]>([])
+  const [surveillanceSelectionInitialized, setSurveillanceSelectionInitialized] = useState(false)
+  const [surveillanceComparisonMode, setSurveillanceComparisonMode] = useState(false)
+  const [surveillanceOutbreakMode, setSurveillanceOutbreakMode] = useState(false)
   const [visibleLines, setVisibleLines] = useState<{ [key: string]: boolean }>({
     'Meninggal': true,
     'Luka-luka': true,
@@ -681,6 +692,49 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
   const [upayaSelectedKabupaten, setUpayaSelectedKabupaten] = useState<string>('all')
   const [upayaSearchQuery, setUpayaSearchQuery] = useState<string>('')
   const [upayaActiveTab, setUpayaActiveTab] = useState<'all' | 'pelayanan' | 'logistik' | 'surveilans' | 'administrasi'>('all')
+
+  // The current public surveillance snapshot exposes disease totals and a
+  // weekly trend, but not a raw disease-by-week matrix. Keep the heatmap
+  // honest by deriving its cells from those two validated aggregates.
+  const seasonalDiseaseTotals = useMemo(() => {
+    const primary = regionalSkdrData?.by_disease || []
+    const fallback = [
+      ...(regionalIbsSummary?.by_disease || []),
+      ...(regionalEbsSummary?.by_disease || []),
+    ]
+    const source = primary.length > 0 ? primary : fallback
+    const byDisease = new globalThis.Map<string, { name: string; cases: number }>()
+
+    source.forEach((item: any) => {
+      const name = String(item?.name || 'Unknown disease').trim()
+      const cases = Math.max(0, safeParseInt(item?.cases))
+      if (!name || cases <= 0) return
+      const key = name.toLowerCase()
+      const existing = byDisease.get(key)
+      byDisease.set(key, {
+        name: existing?.name || name,
+        cases: (existing?.cases || 0) + cases,
+      })
+    })
+
+    return Array.from(byDisease.values()).sort((a, b) => b.cases - a.cases)
+  }, [regionalEbsSummary, regionalIbsSummary, regionalSkdrData])
+
+  const seasonalWeeks = useMemo(() => {
+    return (regionalSkdrData?.weekly_trend || [])
+      .map((item: any, index: number) => ({
+        id: `${item?.week || index}-${index}`,
+        label: `W-${String(item?.week || index + 1).padStart(2, '0')}`,
+        total: Math.max(0, safeParseInt(item?.cases) + safeParseInt(item?.events)),
+      }))
+      .slice(-176)
+  }, [regionalSkdrData])
+
+  useEffect(() => {
+    if (surveillanceSelectionInitialized || seasonalDiseaseTotals.length === 0) return
+    setSurveillanceSelectedDiseases(seasonalDiseaseTotals.slice(0, 3).map((item) => item.name))
+    setSurveillanceSelectionInitialized(true)
+  }, [seasonalDiseaseTotals, surveillanceSelectionInitialized])
 
   // Polling data collector otomatis setiap 30 menit & saat tab aktif kembali
   useEffect(() => {
@@ -6042,6 +6096,104 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
           const ebsUsesReportCount = false;
           const ebsChartData: typeof ibsChartData = [];
 
+          const seasonalRows = seasonalDiseaseTotals.slice(0, 15);
+          const seasonalTotalCases = seasonalRows.reduce((sum, item) => sum + item.cases, 0);
+          const seasonalMatrix = seasonalRows.map((disease) => ({
+            ...disease,
+            cells: seasonalWeeks.map((week) => ({
+              ...week,
+              value: seasonalTotalCases > 0
+                ? Math.round((disease.cases / seasonalTotalCases) * week.total)
+                : 0,
+            })),
+          }));
+          const seasonalPeak = seasonalMatrix.reduce<{
+            disease: string;
+            label: string;
+            value: number;
+          } | null>((peak, row) => {
+            row.cells.forEach((cell) => {
+              if (!peak || cell.value > peak.value) {
+                peak = { disease: row.name, label: cell.label, value: cell.value };
+              }
+            });
+            return peak;
+          }, null);
+          const seasonalCellClass = (value: number) => {
+            if (value <= 0) return 'bg-slate-50 border-slate-100';
+            if (value <= 5) return 'bg-sky-100 border-sky-200';
+            if (value <= 32) return 'bg-sky-300 border-sky-400';
+            if (value <= 193) return 'bg-blue-500 border-blue-500';
+            if (value <= 1129) return 'bg-blue-700 border-blue-700';
+            return 'bg-sky-950 border-sky-950';
+          };
+
+          const surveillancePopulation = Math.max(0, safeParseInt(
+            eventData?.population
+              ?? eventData?.populasi
+              ?? detail?.population
+              ?? detail?.populasi
+              ?? selectedEvent?.population
+              ?? selectedEvent?.populasi,
+          ));
+          const rateMetricAvailable = surveillancePopulation > 0;
+          const rangePointCount: Record<'6M' | '12M' | '3Y' | 'ALL', number> = {
+            '6M': 26,
+            '12M': 52,
+            '3Y': 156,
+            'ALL': 176,
+          };
+          const surveillanceWindow = seasonalWeeks.slice(-rangePointCount[surveillanceRange]);
+          const selectedSeasonalRows = seasonalMatrix.filter((row) => surveillanceSelectedDiseases.includes(row.name));
+          const visibleSeasonalRows = surveillanceComparisonMode ? selectedSeasonalRows : selectedSeasonalRows.slice(0, 1);
+          const surveillanceSeries = visibleSeasonalRows.map((row, index) => {
+            const key = `diseaseSeries${index}`;
+            const baselineKey = `diseaseBaseline${index}`;
+            const metricValue = (value: number) => surveillanceMetric === 'rate'
+              ? (rateMetricAvailable ? (value * 100000) / surveillancePopulation : null)
+              : value;
+            const historicalValues = row.cells
+              .slice(0, Math.max(1, row.cells.length - 3))
+              .map((cell) => metricValue(cell.value))
+              .filter((value): value is number => value !== null);
+            const baseline = historicalValues.length > 0
+              ? historicalValues.reduce((sum, value) => sum + value, 0) / historicalValues.length
+              : 0;
+            const variance = historicalValues.length > 1
+              ? historicalValues.reduce((sum, value) => sum + ((value - baseline) ** 2), 0) / historicalValues.length
+              : 0;
+            return {
+              name: row.name,
+              key,
+              baselineKey,
+              color: ['#047D78', '#2563EB', '#F97316', '#DB2777', '#7C3AED'][index % 5],
+              baseline,
+              threshold: baseline + (Math.sqrt(variance) * 2),
+              values: row.cells,
+              metricValue,
+            };
+          });
+          const surveillanceChartData: Array<Record<string, any>> = surveillanceWindow.map((week, index) => {
+            const point: Record<string, any> = {
+              label: week.label,
+              provisional: index >= Math.max(0, surveillanceWindow.length - 3),
+            };
+            surveillanceSeries.forEach((series) => {
+              const cell = series.values.find((item) => item.id === week.id);
+              point[series.key] = cell ? series.metricValue(cell.value) : null;
+              point[series.baselineKey] = series.baseline;
+            });
+            return point;
+          });
+          const provisionalStartLabel = surveillanceChartData[Math.max(0, surveillanceChartData.length - 3)]?.label;
+          const provisionalEndLabel = surveillanceChartData[surveillanceChartData.length - 1]?.label;
+          const primarySurveillanceSeries = surveillanceSeries[0];
+          const detectedOutbreaks = surveillanceChartData.filter((point) => (
+            primarySurveillanceSeries
+              && typeof point[primarySurveillanceSeries.key] === 'number'
+              && point[primarySurveillanceSeries.key] > primarySurveillanceSeries.threshold
+          )).length;
+
           return (
             <section className="space-y-6 mt-6" aria-labelledby="surveillance-trend-section">
               {/* ── Section Header ── */}
@@ -6484,6 +6636,329 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
               </article>
 
               {/* â”€â”€â”€ SECTION 2: RINGKASAN KANAL DATA SKDR (DISABLED) â”€â”€â”€ */}
+              {/* Seasonal disease intensity matrix */}
+              <article className={`rounded-2xl border border-slate-200 bg-white p-5 sm:p-7 shadow-2xs transition-all ${seasonalFullscreen ? 'fixed inset-3 z-[80] overflow-hidden shadow-2xl sm:inset-6' : ''}`}>
+                <div className="flex flex-col gap-4 border-b border-slate-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0">Seasonal Patterns</h4>
+                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0 leading-relaxed">
+                      Weekly disease intensity across the available epidemiological surveillance period.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 self-start">
+                    <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setSeasonalView('table')}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${seasonalView === 'table' ? 'bg-white text-slate-900 shadow-xs border border-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
+                      >
+                        <Table2 className="h-3.5 w-3.5" />
+                        Table
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSeasonalView('chart')}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${seasonalView === 'chart' ? 'bg-[#047D78] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                      >
+                        <Activity className="h-3.5 w-3.5" />
+                        Chart
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSeasonalFullscreen((value) => !value)}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800"
+                      aria-label={seasonalFullscreen ? 'Exit full-screen' : 'Enter full-screen'}
+                    >
+                      {seasonalFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                      <span className="hidden sm:inline">{seasonalFullscreen ? 'Exit full-screen' : 'Enter full-screen'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-600">
+                    {seasonalDiseaseTotals.length} diseases
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-600">
+                    {seasonalWeeks.length} time points
+                  </span>
+                  {seasonalPeak && (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-800">
+                      Highest intensity: {formatDisasterName(seasonalPeak.disease)} / {seasonalPeak.label}
+                    </span>
+                  )}
+                </div>
+
+                {seasonalMatrix.length > 0 && seasonalWeeks.length > 0 ? (
+                  <div className="mt-4 max-h-[560px] overflow-auto rounded-xl border border-slate-200 bg-white">
+                    {seasonalView === 'chart' ? (
+                      <div className="min-w-max p-3 sm:p-4" style={{ minWidth: `${Math.max(760, seasonalWeeks.length * 22 + 190)}px` }}>
+                        <div className="mb-2 grid grid-cols-[170px_1fr] items-end gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Disease</span>
+                          <div className="grid" style={{ gridTemplateColumns: `repeat(${seasonalWeeks.length}, minmax(16px, 1fr))` }}>
+                            {seasonalWeeks.map((week, index) => (
+                              <span key={`seasonal-label-${week.id}`} className={`text-center text-[9px] font-bold text-slate-400 ${index % 4 === 0 ? '' : 'invisible'}`}>
+                                {week.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          {seasonalMatrix.map((row) => (
+                            <div key={`seasonal-row-${row.name}`} className="grid grid-cols-[170px_1fr] items-center gap-2">
+                              <span className="truncate pr-2 text-xs font-bold text-slate-700" title={row.name}>{formatDisasterName(row.name)}</span>
+                              <div className="grid gap-0.5" style={{ gridTemplateColumns: `repeat(${seasonalWeeks.length}, minmax(16px, 1fr))` }}>
+                                {row.cells.map((cell) => (
+                                  <span
+                                    key={`seasonal-cell-${row.name}-${cell.id}`}
+                                    className={`h-5 rounded-[3px] border ${seasonalCellClass(cell.value)} transition hover:scale-110 hover:ring-2 hover:ring-teal-500 hover:ring-offset-1`}
+                                    title={`${row.name} · ${cell.label}: ${cell.value.toLocaleString('en-US')} cases`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <table className="min-w-max w-full border-collapse text-left text-xs">
+                        <thead className="sticky top-0 z-10 bg-slate-50">
+                          <tr>
+                            <th className="sticky left-0 z-20 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 font-black text-slate-600">Disease</th>
+                            {seasonalWeeks.map((week) => (
+                              <th key={`seasonal-table-head-${week.id}`} className="border-b border-slate-200 px-2 py-2 text-center font-bold text-slate-500">{week.label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {seasonalMatrix.map((row) => (
+                            <tr key={`seasonal-table-row-${row.name}`} className="hover:bg-slate-50">
+                              <th className="sticky left-0 z-10 border-b border-r border-slate-100 bg-white px-3 py-2 font-bold text-slate-700">{formatDisasterName(row.name)}</th>
+                              {row.cells.map((cell) => (
+                                <td key={`seasonal-table-cell-${row.name}-${cell.id}`} className="border-b border-slate-100 px-2 py-2 text-center font-semibold text-slate-600">{cell.value.toLocaleString('en-US')}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-4 flex min-h-48 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center text-sm font-semibold text-slate-500">
+                    No seasonal surveillance data is available for this region yet.
+                  </div>
+                )}
+
+                <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold text-slate-500">
+                    <span>Cases / time point</span>
+                    {[['0', 'bg-slate-50 border-slate-200'], ['5', 'bg-sky-100 border-sky-200'], ['33', 'bg-sky-300 border-sky-400'], ['194', 'bg-blue-500 border-blue-500'], ['1,130', 'bg-blue-700 border-blue-700'], ['6,557+', 'bg-sky-950 border-sky-950']].map(([label, color]) => (
+                      <span key={`seasonal-legend-${label}`} className="inline-flex items-center gap-1">
+                        <span className={`h-3 w-3 rounded-[3px] border ${color}`} />{label}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="m-0 text-[10px] font-medium text-slate-400">
+                    Derived from validated disease totals and weekly surveillance trends; not a raw disease-by-week feed.
+                  </p>
+                </div>
+              </article>
+
+              {/* Surveillance Trends by Disease */}
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7 shadow-2xs">
+                <div className="flex flex-col gap-4 border-b border-slate-100 pb-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div>
+                    <h4 className="text-lg sm:text-xl font-black text-slate-900 leading-snug m-0">Surveillance Trends by Disease</h4>
+                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 mb-0 leading-relaxed">
+                      Compare weekly disease trajectories, provisional reporting, and observed-period reference levels.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                      <span className="px-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Metric</span>
+                      <label className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-bold transition ${surveillanceMetric === 'cases' ? 'bg-white text-slate-900 shadow-xs border border-slate-200' : 'text-slate-500 hover:text-slate-800'}`}>
+                        <input
+                          type="radio"
+                          name="surveillance-metric"
+                          className="sr-only"
+                          checked={surveillanceMetric === 'cases'}
+                          onChange={() => setSurveillanceMetric('cases')}
+                        />
+                        Total Cases
+                      </label>
+                      <label className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-bold transition ${surveillanceMetric === 'rate' ? 'bg-[#047D78] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'} ${!rateMetricAvailable ? 'cursor-not-allowed opacity-50' : ''}`} title={!rateMetricAvailable ? 'Population denominator is not available in the current surveillance payload' : 'Cases per 100,000 population'}>
+                        <input
+                          type="radio"
+                          name="surveillance-metric"
+                          className="sr-only"
+                          checked={surveillanceMetric === 'rate'}
+                          disabled={!rateMetricAvailable}
+                          onChange={() => setSurveillanceMetric('rate')}
+                        />
+                        Cases per 100k
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                      {(['6M', '12M', '3Y', 'ALL'] as const).map((range) => (
+                        <button
+                          key={`surveillance-range-${range}`}
+                          type="button"
+                          onClick={() => setSurveillanceRange(range)}
+                          className={`rounded-lg px-2.5 py-1.5 text-xs font-black transition ${surveillanceRange === range ? 'bg-[#047D78] text-white shadow-xs' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}
+                        >
+                          {range}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
+                  <aside className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-600">Diseases</span>
+                      <label className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                        <input
+                          type="checkbox"
+                          checked={surveillanceComparisonMode}
+                          onChange={(event) => setSurveillanceComparisonMode(event.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-[#047D78] focus:ring-teal-500"
+                        />
+                        Compare
+                      </label>
+                    </div>
+                    <div className="relative mt-3">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="search"
+                        value={surveillanceDiseaseSearch}
+                        onChange={(event) => setSurveillanceDiseaseSearch(event.target.value)}
+                        placeholder="Search disease"
+                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-2 text-xs font-semibold text-slate-700 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+                      />
+                    </div>
+                    <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
+                      {seasonalDiseaseTotals
+                        .filter((disease) => disease.name.toLowerCase().includes(surveillanceDiseaseSearch.toLowerCase()))
+                        .slice(0, 20)
+                        .map((disease) => {
+                          const selected = surveillanceSelectedDiseases.includes(disease.name);
+                          return (
+                            <label key={`surveillance-disease-${disease.name}`} className={`flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 transition ${selected ? 'bg-white shadow-2xs ring-1 ring-teal-200' : 'hover:bg-white/80'}`}>
+                              <input
+                                type={surveillanceComparisonMode ? 'checkbox' : 'radio'}
+                                name="surveillance-disease"
+                                checked={selected}
+                                onChange={(event) => {
+                                  if (surveillanceComparisonMode) {
+                                    setSurveillanceSelectedDiseases((current) => event.target.checked
+                                      ? [...current, disease.name]
+                                      : current.filter((name) => name !== disease.name));
+                                  } else {
+                                    setSurveillanceSelectedDiseases([disease.name]);
+                                  }
+                                }}
+                                className="mt-0.5 h-3.5 w-3.5 shrink-0 border-slate-300 text-[#047D78] focus:ring-teal-500"
+                              />
+                              <span className="min-w-0">
+                                <span className="block truncate text-xs font-bold text-slate-700" title={disease.name}>{formatDisasterName(disease.name)}</span>
+                                <span className="block text-[10px] font-semibold text-slate-400">{disease.cases.toLocaleString('en-US')} total cases</span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                    <div className="mt-3 border-t border-slate-200 pt-3 text-[10px] font-medium leading-relaxed text-slate-500">
+                      {surveillanceComparisonMode ? 'Comparison uses a common weekly observation window.' : 'Select one disease for the focused trend view.'}
+                    </div>
+                  </aside>
+
+                  <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Weekly cadence</span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">{surveillanceChartData.length} points</span>
+                        {surveillanceComparisonMode && <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-blue-700">Common observed window</span>}
+                      </div>
+                      <label className={`inline-flex items-center gap-2 text-xs font-bold ${seasonalWeeks.length === 0 ? 'text-slate-400' : 'text-rose-700'}`} title={seasonalWeeks.length === 0 ? 'Outbreak detection requires weekly or daily data' : 'Highlight points above the upper limit'}>
+                        <input
+                          type="checkbox"
+                          checked={surveillanceOutbreakMode}
+                          disabled={seasonalWeeks.length === 0}
+                          onChange={(event) => setSurveillanceOutbreakMode(event.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                        />
+                        Outbreak detection
+                      </label>
+                    </div>
+
+                    {surveillanceChartData.length > 0 && surveillanceSeries.length > 0 ? (
+                      <div className="h-[360px] w-full">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                          <LineChart data={surveillanceChartData} margin={{ top: 12, right: 16, left: 4, bottom: 8 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }} stroke="#cbd5e1" />
+                            <YAxis
+                              allowDecimals={false}
+                              tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                              stroke="#cbd5e1"
+                              tickFormatter={(value) => Number(value) >= 1000 ? `${(Number(value) / 1000).toFixed(1)}k` : Number(value).toLocaleString('en-US')}
+                            />
+                            <Tooltip
+                              content={({ active, payload, label }) => {
+                                if (!active || !payload || payload.length === 0) return null;
+                                const provisional = Boolean(payload[0]?.payload?.provisional);
+                                return (
+                                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
+                                    <div className="font-black text-slate-800">{label}</div>
+                                    {provisional && <div className="mt-1 font-black text-amber-700">Provisional / subject to revision</div>}
+                                    <div className="mt-1 space-y-0.5">
+                                      {payload.filter((item) => !String(item.dataKey).includes('Baseline')).map((item) => (
+                                        <div key={String(item.dataKey)} className="flex items-center justify-between gap-4 font-semibold text-slate-600">
+                                          <span>{item.name}</span>
+                                          <span className="font-black text-slate-900">{typeof item.value === 'number' ? item.value.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              }}
+                            />
+                            <Legend wrapperStyle={{ paddingTop: 8, fontSize: '11px', fontWeight: 700 }} />
+                            {provisionalStartLabel && provisionalEndLabel && (
+                              <ReferenceArea x1={provisionalStartLabel} x2={provisionalEndLabel} fill="#f59e0b" fillOpacity={0.10} stroke="#f59e0b" strokeOpacity={0.35} label={{ value: 'Provisional', position: 'insideTopRight', fill: '#b45309', fontSize: 10, fontWeight: 700 }} />
+                            )}
+                            {surveillanceSeries.map((series) => (
+                              <React.Fragment key={`surveillance-line-${series.key}`}>
+                                <Line type="monotone" dataKey={series.key} name={formatDisasterName(series.name)} stroke={series.color} strokeWidth={2.5} dot={{ r: 2.5, fill: series.color }} activeDot={{ r: 5 }} connectNulls />
+                                <Line type="monotone" dataKey={series.baselineKey} name={`${formatDisasterName(series.name)} baseline`} stroke={series.color} strokeOpacity={0.45} strokeWidth={1.5} strokeDasharray="5 5" dot={false} legendType="none" />
+                              </React.Fragment>
+                            ))}
+                            {surveillanceOutbreakMode && primarySurveillanceSeries && primarySurveillanceSeries.threshold > 0 && (
+                              <ReferenceLine y={primarySurveillanceSeries.threshold} stroke="#e11d48" strokeDasharray="4 4" label={{ value: 'Upper limit', position: 'insideTopRight', fill: '#be123c', fontSize: 10, fontWeight: 700 }} />
+                            )}
+                            <Brush dataKey="label" height={24} stroke="#047d78" fill="#e6f4f3" startIndex={0} endIndex={surveillanceChartData.length - 1} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className="flex h-[360px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center text-sm font-semibold text-slate-500">
+                        Select at least one disease and wait for surveillance data to load.
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 text-[10px] font-medium leading-relaxed text-slate-400 sm:flex-row sm:items-start sm:justify-between">
+                      <span>Dashed lines show the observed-period baseline. A historical same-week baseline will replace this fallback when year-level disease observations are available.</span>
+                      {surveillanceOutbreakMode && <span className="font-bold text-rose-700">{detectedOutbreaks} points above the upper limit</span>}
+                    </div>
+                    {surveillanceMetric === 'rate' && !rateMetricAvailable && (
+                      <p className="mt-2 mb-0 text-[10px] font-bold text-amber-700">Cases per 100k is unavailable because the current surveillance payload has no population denominator.</p>
+                    )}
+                  </div>
+                </div>
+              </article>
+
               {false && (
               <article className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-2xs hover:shadow-xs transition-all">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-stretch">
