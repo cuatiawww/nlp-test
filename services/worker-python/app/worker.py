@@ -726,7 +726,7 @@ def callback(ch, method, properties, body):
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
-                            %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s::jsonb,
+                            %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
                             %s, %s, %s, %s, %s, %s, %s, TRUE)
                    RETURNING id""",
                 (

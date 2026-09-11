@@ -11,6 +11,7 @@ class AnalyzeRequest(BaseModel):
     source_country: Optional[str] = None
     source_url: Optional[str] = None
     historical_fast: bool = False
+    rules_only: bool = False
 
 
 class LocationItem(BaseModel):

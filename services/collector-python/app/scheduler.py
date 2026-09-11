@@ -205,6 +205,8 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
             id=f"source_{source_id}",
             args=[source_id],
             replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=3600,
         )
         logger.info("Scheduled %s: every %d min (first run in %ds)", source["name"], interval_minutes, idx * 2)
 
