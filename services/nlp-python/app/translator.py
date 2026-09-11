@@ -2,6 +2,8 @@ import hashlib
 import json
 import logging
 import os
+import threading
+import time
 from functools import lru_cache
 from threading import Lock
 from typing import Any
@@ -11,6 +13,24 @@ from . import config
 logger = logging.getLogger(__name__)
 LATIN_LANGS = {"id", "ms", "en", "vi", "tl", "fr", "es", "de", "pt"}
 _translation_lock = Lock()
+_remote_translation_gate = threading.BoundedSemaphore(1)
+_remote_translation_state_lock = Lock()
+_remote_translation_cooldown_until = 0.0
+
+
+def _remote_post(url: str, headers: dict[str, str], body: dict[str, Any]):
+    """Bound remote translation traffic and pause after provider throttling."""
+    global _remote_translation_cooldown_until
+    with _remote_translation_gate:
+        with _remote_translation_state_lock:
+            if time.time() < _remote_translation_cooldown_until:
+                return None
+        import requests
+        response = requests.post(url, headers=headers, json=body, timeout=30)
+        if response.status_code == 429:
+            with _remote_translation_state_lock:
+                _remote_translation_cooldown_until = time.time() + 120
+        return response
 
 
 def _hash(text: str, lang: str) -> str:
@@ -71,12 +91,10 @@ def _deepseek(text: str, lang: str):
     if not is_openai:
         body["temperature"] = 0
 
-    response = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-        json=body,
-        timeout=30,
-    )
+    headers = {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+    response = _remote_post(url, headers, body)
+    if response is None:
+        return None
     if not response.ok and response.status_code == 400 and ("max_tokens" in response.text or "max_completion_tokens" in response.text or "temperature" in response.text):
         if "temperature" in response.text:
             body.pop("temperature", None)
@@ -84,12 +102,9 @@ def _deepseek(text: str, lang: str):
             alt_key = "max_completion_tokens" if tok_key == "max_tokens" else "max_tokens"
             body.pop(tok_key, None)
             body[alt_key] = max_tok
-        response = requests.post(
-            url,
-            headers={"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-            json=body,
-            timeout=30,
-        )
+        response = _remote_post(url, headers, body)
+        if response is None:
+            return None
     response.raise_for_status()
     return json.loads(response.json()["choices"][0]["message"]["content"])
 

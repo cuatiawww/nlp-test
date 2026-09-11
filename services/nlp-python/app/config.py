@@ -20,6 +20,12 @@ DEEPSEEK_LOCATION_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_LOCATION_MIN_CONFID
 AGENT_ENABLED = os.getenv("AGENT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 AGENT_PROVIDER_ORDER = os.getenv("AGENT_PROVIDER_ORDER", "deepseek,openai")
 AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", str(DEEPSEEK_TIMEOUT_SECONDS)))
+# Keep optional LLM fallbacks bounded.  These defaults reduce burst traffic
+# without disabling the deterministic NLP pipeline or the explicit URL flow.
+AGENT_MAX_CONCURRENT_REQUESTS = max(1, int(os.getenv("AGENT_MAX_CONCURRENT_REQUESTS", "1")))
+AGENT_MIN_INTERVAL_SECONDS = max(0.0, float(os.getenv("AGENT_MIN_INTERVAL_SECONDS", "0.20")))
+AGENT_RESPONSE_CACHE_TTL_SECONDS = max(0, int(os.getenv("AGENT_RESPONSE_CACHE_TTL_SECONDS", "600")))
+AGENT_RESPONSE_CACHE_SIZE = max(16, int(os.getenv("AGENT_RESPONSE_CACHE_SIZE", "256")))
 
 # WHO ICD-11 MMS Configuration
 WHO_ICD_CLIENT_ID = os.getenv("WHO_ICD_CLIENT_ID", "").strip()

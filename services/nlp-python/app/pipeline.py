@@ -104,7 +104,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if not all_locations:
             all_locations = extractors.extract_all_locations(translated_text, country=location_country)
     is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text)))
-    if not location and not is_noisy_early:
+    if not location and not is_noisy_early and not payload.historical_fast:
         try:
             from .deepseek import detect_location
             resolved_location = detect_location(
@@ -232,13 +232,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Ask the constrained agent to arbitrate the primary disease instead of
     # allowing alphabetical/global-frequency ordering to decide it.
     should_use_deepseek = (
-        not is_noisy
+        not payload.historical_fast
+        and not is_noisy
         and (
             disease == "UNKNOWN"
             or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
             or (language not in {"en", "id"} and not extracted)
             or len(extracted) > 1
-            or bool(extracted and not who_mentions)
         )
     )
     if should_use_deepseek:
@@ -257,7 +257,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             elif (
                 disease == "UNKNOWN"
                 or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
-                or (extracted and not who_mentions)
             ):
                 # Dynamic WHO ICD-11 Discovery & Self-Learning
                 from .icd11 import resolve_and_learn_disease

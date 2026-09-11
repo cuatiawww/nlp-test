@@ -669,6 +669,30 @@ def _llm_relations(text: str) -> list[RawLLMRelation]:
         return []
 
 
+def _should_use_llm_relations(text: str, relations: list[MetricRelation], mentioned_locations: list[LinkedLocation]) -> bool:
+    """Call the relation agent only when deterministic extraction is incomplete."""
+    if len(relations) >= 2:
+        return False
+    metric_mentions = re.findall(
+        r"\b\d[\d.,]*\s+(?:cases?|kasus|deaths?|kematian|patients?|pasien)\b",
+        text or "",
+        flags=re.IGNORECASE,
+    )
+    if not metric_mentions:
+        return False
+    names = {item.name.casefold() for item in mentioned_locations if item.name}
+    names.update(item.location.name.casefold() for item in relations if item.location.name)
+    folded = (text or "").casefold()
+    for hint in (
+        "indonesia", "singapore", "singapura", "malaysia", "thailand",
+        "vietnam", "viet nam", "cambodia", "kamboja", "philippines",
+        "filipina", "myanmar", "laos", "brunei", "timor-leste",
+    ):
+        if hint in folded:
+            names.add(hint)
+    return len(names) >= 2 or (not relations and len(metric_mentions) >= 2)
+
+
 def _published_date(value: Optional[str], text: str) -> Optional[str]:
     # Kept as a compatibility wrapper; body dates belong to event_date.
     return normalize_publication_date(value)
@@ -780,7 +804,8 @@ def build_surveillance_output(
 
     # LLM relations are supplements only. They must resolve to the same local
     # gazetteer, and they can never overwrite a stronger deterministic count.
-    for candidate in (_llm_relations(text) if include_llm else []):
+    use_llm_relations = include_llm and _should_use_llm_relations(text, relations, mentioned_locations)
+    for candidate in (_llm_relations(text) if use_llm_relations else []):
         linked = linker.link(candidate.location, context=candidate.evidence or text, evidence=candidate.evidence)
         if not linked:
             continue

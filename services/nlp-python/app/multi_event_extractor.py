@@ -241,6 +241,42 @@ def _regex_extract_location_cases(text: str) -> list[dict[str, Any]]:
     return list(pairs.values())
 
 
+def _has_multi_event_signal(text: str, locations: list[dict]) -> bool:
+    """Avoid an LLM call for ordinary one-location articles.
+
+    The regex layer remains authoritative.  The LLM fallback is only useful
+    when the text contains at least two metric mentions and at least two
+    location hints that the regex could not pair safely.
+    """
+    metric_mentions = re.findall(
+        r"\b\d[\d.,]*\s+(?:cases?|kasus|deaths?|kematian|patients?|pasien)\b",
+        text or "",
+        flags=re.IGNORECASE,
+    )
+    if len(metric_mentions) < 2:
+        return False
+
+    location_names = {
+        str(item.get("name") or item.get("location_name") or "").casefold()
+        for item in (locations or [])
+        if isinstance(item, dict)
+    }
+    folded = (text or "").casefold()
+    for name in list(location_names):
+        if not name or name not in folded:
+            location_names.discard(name)
+
+    # Include common country forms because location extraction may not have
+    # resolved them yet.  Province/city candidates are covered by `locations`.
+    country_hints = (
+        "indonesia", "singapore", "singapura", "malaysia", "thailand",
+        "vietnam", "viet nam", "cambodia", "kamboja", "philippines",
+        "filipina", "myanmar", "laos", "brunei", "timor-leste",
+    )
+    location_names.update(name for name in country_hints if name in folded)
+    return len(location_names) >= 2
+
+
 # ---------------------------------------------------------------------------
 # Layer 2: LLM Structured Extraction
 # ---------------------------------------------------------------------------
@@ -430,7 +466,11 @@ def extract_multi_events(
                 return _deduplicate_events(all_events)
 
     # Layer 3: LLM fallback
-    if MULTI_EVENT_LLM_FALLBACK and len(all_events) < MULTI_EVENT_MIN_PAIRS:
+    if (
+        MULTI_EVENT_LLM_FALLBACK
+        and len(all_events) < MULTI_EVENT_MIN_PAIRS
+        and _has_multi_event_signal(text, locations)
+    ):
         try:
             llm_events = _llm_extract_events(text, diseases_extracted)
             if len(llm_events) >= MULTI_EVENT_MIN_PAIRS:

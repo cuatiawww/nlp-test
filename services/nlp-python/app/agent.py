@@ -12,6 +12,8 @@ import logging
 import re
 import urllib.request
 import urllib.error
+import hashlib
+import threading
 from typing import Any
 
 from . import config
@@ -20,6 +22,11 @@ import time
 
 logger = logging.getLogger(__name__)
 _PROVIDER_FAILURES: dict[str, float] = {}
+_REQUEST_GATE = threading.BoundedSemaphore(config.AGENT_MAX_CONCURRENT_REQUESTS)
+_REQUEST_RATE_LOCK = threading.Lock()
+_LAST_REQUEST_AT = 0.0
+_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_RESPONSE_CACHE_LOCK = threading.Lock()
 
 
 def _json_response(value: str) -> dict[str, Any]:
@@ -58,10 +65,56 @@ def _is_openai_model(provider: str, base_url: str, model: str) -> bool:
     return False
 
 
+def _cache_key(system_prompt: str, user_prompt: str, max_tokens: int) -> str:
+    value = f"{max_tokens}\0{system_prompt}\0{user_prompt}".encode("utf-8")
+    return hashlib.sha256(value).hexdigest()
+
+
+def _cached_response(key: str) -> dict[str, Any] | None:
+    if config.AGENT_RESPONSE_CACHE_TTL_SECONDS <= 0:
+        return None
+    now = time.time()
+    with _RESPONSE_CACHE_LOCK:
+        item = _RESPONSE_CACHE.get(key)
+        if not item:
+            return None
+        expires_at, value = item
+        if expires_at <= now:
+            _RESPONSE_CACHE.pop(key, None)
+            return None
+        return dict(value)
+
+
+def _store_response(key: str, value: dict[str, Any]) -> None:
+    if config.AGENT_RESPONSE_CACHE_TTL_SECONDS <= 0:
+        return
+    with _RESPONSE_CACHE_LOCK:
+        if len(_RESPONSE_CACHE) >= config.AGENT_RESPONSE_CACHE_SIZE:
+            oldest = min(_RESPONSE_CACHE, key=lambda item: _RESPONSE_CACHE[item][0])
+            _RESPONSE_CACHE.pop(oldest, None)
+        _RESPONSE_CACHE[key] = (time.time() + config.AGENT_RESPONSE_CACHE_TTL_SECONDS, dict(value))
+
+
+def _send_bounded(send):
+    """Serialize optional LLM calls and enforce a small inter-request gap."""
+    global _LAST_REQUEST_AT
+    with _REQUEST_GATE:
+        with _REQUEST_RATE_LOCK:
+            delay = config.AGENT_MIN_INTERVAL_SECONDS - (time.monotonic() - _LAST_REQUEST_AT)
+            if delay > 0:
+                time.sleep(delay)
+            _LAST_REQUEST_AT = time.monotonic()
+        return send()
+
+
 def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> dict[str, Any]:
     """Ask configured agents in order and return the first valid JSON object."""
     if not config.AGENT_ENABLED:
         return {}
+    cache_key = _cache_key(system_prompt, user_prompt, max_tokens)
+    cached = _cached_response(cache_key)
+    if cached is not None:
+        return cached
     now = time.time()
     for provider, api_key, base_url, model in _providers():
         if provider in _PROVIDER_FAILURES and now < _PROVIDER_FAILURES[provider]:
@@ -99,7 +152,7 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> di
 
         try:
             try:
-                payload = _send(body)
+                payload = _send_bounded(lambda: _send(body))
             except urllib.error.HTTPError as http_err:
                 err_body = ""
                 try:
@@ -118,7 +171,7 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> di
                         body[alt_key] = max_tokens
                         retried = True
                     if retried:
-                        payload = _send(body)
+                        payload = _send_bounded(lambda: _send(body))
                     else:
                         raise
                 else:
@@ -128,6 +181,7 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> di
             result = _json_response(content)
             if result:
                 result["_provider"] = provider
+                _store_response(cache_key, result)
                 return result
             logger.warning("Agent %s returned invalid/empty JSON", provider)
         except Exception as exc:

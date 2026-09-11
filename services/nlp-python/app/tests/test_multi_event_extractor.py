@@ -200,6 +200,43 @@ class TestExtractMultiEvents(unittest.TestCase):
         )
         self.assertEqual(len(events), 0)
 
+    @patch("app.multi_event_extractor.MULTI_EVENT_LLM_FALLBACK", True)
+    @patch("app.multi_event_extractor.config.AGENT_ENABLED", True)
+    @patch("app.agent.chat_json")
+    def test_single_event_does_not_call_llm_fallback(self, chat_json):
+        from app.multi_event_extractor import extract_multi_events
+
+        events = extract_multi_events(
+            text="Ditemukan 10 kasus DBD di Surabaya, Jawa Timur.",
+            primary_disease="DBD",
+            primary_location="Surabaya",
+            diseases_extracted=["DBD"],
+            locations=[{"name": "Jawa Timur"}],
+            case_count=10,
+            death_count=0,
+        )
+
+        self.assertEqual(events, [])
+        chat_json.assert_not_called()
+
+    @patch("app.multi_event_extractor.MULTI_EVENT_LLM_FALLBACK", True)
+    @patch("app.multi_event_extractor.config.AGENT_ENABLED", True)
+    @patch("app.multi_event_extractor._llm_extract_events", return_value=[])
+    def test_multi_event_signal_keeps_llm_fallback_available(self, llm_extract):
+        from app.multi_event_extractor import extract_multi_events
+
+        extract_multi_events(
+            text="Indonesia reported 10 cases and Thailand reported 20 cases.",
+            primary_disease="Dengue",
+            primary_location=None,
+            diseases_extracted=["Dengue"],
+            locations=[],
+            case_count=10,
+            death_count=0,
+        )
+
+        llm_extract.assert_called_once()
+
     @patch("app.multi_event_extractor.MULTI_EVENT_ENABLED", False)
     def test_disabled_returns_empty(self):
         from app.multi_event_extractor import extract_multi_events
