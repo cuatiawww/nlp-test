@@ -294,20 +294,28 @@ def discover_urls(diseases: list[str], country: str | None, region: str | None,
                   date_from: str | None, date_to: str | None, max_urls: int,
                   sources: list[dict]) -> tuple[list[dict], list[str]]:
     engine = DiscoveryEngine(diseases, country, region, date_from, date_to, min(500, max(1, max_urls)))
-    query_terms = [f'"{name}"' if " " in name else name for name in diseases]
-    query = f"({' OR '.join(query_terms)})"
-    if country:
-        query += f" {country}"
+    query_terms = [f'"{name}"' if " " in name else name for name in diseases if name]
+    query = f"({' OR '.join(query_terms[:5])})"
+    geography = (country or "").strip()
+    if geography:
+        query += f" {geography}"
+    elif region and region.casefold() == "asean":
+        query += " (Indonesia OR Malaysia OR Vietnam OR Thailand OR Philippines OR Singapore OR Cambodia OR Myanmar OR Laos OR Brunei)"
+    elif region and region.casefold() not in {"asean", "global"}:
+        query += f" {region.strip()}"
     google_url = "https://news.google.com/rss/search?q=" + quote_plus(query) + "&hl=en&gl=US&ceid=US:en"
-    # Reserve room for configured first-party/RSS sources. Google News remains
-    # a discovery source, not the exclusive manual-crawl backend.
-    google_budget = max(1, engine.max_urls // 2) if sources else engine.max_urls
+    # Prioritize Google News results for targeted disease queries
+    google_budget = engine.max_urls
     engine.feed(google_url, "Google News", trusted_query=True, entry_limit=google_budget)
 
+    target_country = (country or "").strip().lower()
     for source_row in sources:
         if len(engine.results) >= engine.max_urls:
             break
         source = dict(source_row)
+        source_country = str(source.get("country") or "").strip().lower()
+        if target_country and source_country and target_country not in source_country and source_country not in target_country:
+            continue
         raw_config = source.get("config") or {}
         if isinstance(raw_config, str):
             try:

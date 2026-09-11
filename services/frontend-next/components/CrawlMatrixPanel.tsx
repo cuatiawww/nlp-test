@@ -128,6 +128,15 @@ export default function CrawlMatrixPanel() {
 
   const statusLabel = job?.status === 'processing' ? 'Fetching and analyzing' : job?.status === 'waiting_for_collector' ? 'Waiting for service' : job?.status || 'Not started'
 
+  const displayedCountries = region === 'ASEAN' ? ASEAN_COUNTRIES : countries
+
+  const handleRegionChange = (newRegion: string) => {
+    setRegion(newRegion)
+    if (newRegion === 'ASEAN' && country && !ASEAN_COUNTRIES.includes(country)) {
+      setCountry('')
+    }
+  }
+
   return (
     <section className="mt-5 space-y-4">
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -158,9 +167,15 @@ export default function CrawlMatrixPanel() {
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-600">Region</label>
-            <select value={region} onChange={e => setRegion(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="ASEAN">ASEAN</option><option value="Global">Global</option></select>
-            <label className="mt-3 block text-xs font-semibold text-slate-600">Country (optional)</label>
-            <select value={country} onChange={e => setCountry(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">All countries</option>{countries.map(item => <option key={item} value={item}>{item}</option>)}</select>
+            <select value={region} onChange={e => handleRegionChange(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+              <option value="ASEAN">ASEAN (All Member Countries)</option>
+              <option value="Global">Global</option>
+            </select>
+            <label className="mt-3 block text-xs font-semibold text-slate-600">Country (optional {region === 'ASEAN' ? '- defaults to all ASEAN' : ''})</label>
+            <select value={country} onChange={e => setCountry(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+              <option value="">{region === 'ASEAN' ? 'All ASEAN countries (auto)' : 'All countries'}</option>
+              {displayedCountries.map(item => <option key={item} value={item}>{item}</option>)}
+            </select>
             <input value={provinceCity} onChange={e => setProvinceCity(e.target.value)} placeholder="Province or city (optional)" className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </div>
           <div>
@@ -183,7 +198,29 @@ export default function CrawlMatrixPanel() {
         </div>
         {['queued', 'processing', 'waiting_for_collector'].includes(job.status) && <div className="flex items-center gap-2 p-4 text-xs text-[#0060A9]"><Loader2 className="h-4 w-4 animate-spin" />{job.status === 'waiting_for_collector' ? 'The service is starting; the system will retry automatically.' : 'The dedicated worker is fetching articles and mapping cases to countries and dates.'}</div>}
         {job.error && <div className="p-4 text-xs text-red-600">{job.error}</div>}
-        {!!job.warnings?.length && <details className="mx-4 mb-3 text-xs text-amber-700"><summary className="cursor-pointer">{job.warnings.length} processing warning(s)</summary><ul className="mt-2 list-disc pl-5">{job.warnings.slice(0, 10).map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
+        {!!job.warnings?.length && (
+          <details className="mx-4 mb-3 rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800">
+            <summary className="cursor-pointer font-medium hover:text-amber-900">{job.warnings.length} processing warning(s)</summary>
+            <ul className="mt-2 space-y-1.5 list-disc pl-5 max-h-48 overflow-y-auto break-all">
+              {job.warnings.slice(0, 30).map((warning, index) => {
+                const separatorIndex = warning.indexOf(': ')
+                if (separatorIndex !== -1 && (warning.startsWith('http://') || warning.startsWith('https://'))) {
+                  const urlPart = warning.substring(0, separatorIndex)
+                  const reasonPart = warning.substring(separatorIndex + 2)
+                  return (
+                    <li key={index} className="break-all">
+                      <a href={urlPart} target="_blank" rel="noreferrer" className="font-mono text-[11px] text-blue-600 hover:underline inline-block max-w-[280px] sm:max-w-md truncate align-bottom">
+                        {urlPart}
+                      </a>
+                      <span className="text-amber-800 font-medium">: {reasonPart}</span>
+                    </li>
+                  )
+                }
+                return <li key={index} className="break-all font-medium text-amber-800">{warning}</li>
+              })}
+            </ul>
+          </details>
+        )}
         <div className="overflow-x-auto"><table className="min-w-[1250px] w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{['No.', 'Crawl Date', 'Diseases', 'Region', 'Country', 'Province / City Case', 'Article Date', 'Case Date', 'Cases', 'Deaths', 'Latitude', 'Longitude', 'Source Type'].map(header => <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{job.rows.map((row: CrawlMatrixRow, index) => <tr key={row.id} className="align-top hover:bg-slate-50"><td className="px-3 py-3">{index + 1}</td><td className="px-3 py-3">{row.crawling_date || '-'}</td><td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}<div className="text-[10px] font-normal text-slate-400">{row.icd11_code || 'ICD-11'}</div></td><td className="px-3 py-3">{row.region || '-'}</td><td className="px-3 py-3 font-semibold">{row.country}</td><td className="max-w-[180px] px-3 py-3">{row.province_city_case || '-'}</td><td className="px-3 py-3">{row.article_date || '-'}</td><td className="max-w-[190px] px-3 py-3">{row.date_case || '-'}</td><td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('en-US')}</td><td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('en-US')}</td><td className="px-3 py-3">{row.latitude ?? '-'}</td><td className="px-3 py-3">{row.longitude ?? '-'}</td><td className="px-3 py-3">{row.source_type || '-'}<div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div><details className="mt-1"><summary className="cursor-pointer text-[#0060A9]">Evidence</summary><p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Needs review'}</p>{row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Article <ExternalLink className="h-3 w-3" /></a>}</details></td></tr>)}</tbody></table></div>
         {!job.rows.length && !['queued', 'processing', 'waiting_for_collector'].includes(job.status) && <div className="p-8 text-center text-sm text-slate-400">No validated rows matched the filters. Try a broader country or date range.</div>}
       </div>}

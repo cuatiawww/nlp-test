@@ -521,6 +521,15 @@ class WebScraperCollector(BaseCollector):
     async def extract_url(self, url: str) -> dict:
         """Fetch one URL for interactive analysis without publishing it."""
         url = await asyncio.to_thread(validate_public_url, url)
+        if "news.google.com" in url.lower():
+            try:
+                from googlenewsdecoder import gnewsdecoder
+                decoded = await asyncio.to_thread(gnewsdecoder, url, 0.1)
+                if decoded.get("status") and decoded.get("decoded_url"):
+                    logger.info("Decoded Google News URL %s -> %s", url, decoded["decoded_url"])
+                    url = decoded["decoded_url"]
+            except Exception as exc:
+                logger.warning("Failed to decode Google News URL %s: %s", url, exc)
         from .pdf_document import try_pdf
         # Do not download every HTML article once as a PDF probe and then a
         # second time as HTML. Explicit PDF URLs retain the full PDF pipeline.

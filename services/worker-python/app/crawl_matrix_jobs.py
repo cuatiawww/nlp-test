@@ -65,7 +65,7 @@ def build_news_query(disease_names: list[str], country: str | None, region: str 
     geography = (country or "").strip()
     if not geography:
         if region and region.casefold() == "asean":
-            geography = "(Indonesia OR Malaysia OR Vietnam OR Thailand OR Philippines OR Singapore OR Cambodia OR Myanmar)"
+            geography = "(Indonesia OR Malaysia OR Vietnam OR Thailand OR Philippines OR Singapore OR Cambodia OR Myanmar OR Laos OR Brunei)"
         elif region and region.casefold() not in {"asean", "global"}:
             geography = region.strip()
     return f"{query} {geography}".strip()
@@ -173,13 +173,19 @@ def normalize_country(value: str | None) -> str:
     return aliases.get(normalized, normalized)
 
 
-def article_matches(analysis: dict, disease_names: list[str], country: str | None) -> bool:
+def article_matches(article: dict, analysis: dict, disease_names: list[str], country: str | None) -> bool:
     found = [value.casefold() for value in disease_labels(analysis)]
-    if disease_names and not any(
+    matched_disease = any(
         name.casefold() in value or value in name.casefold()
         for name in disease_names for value in found
-    ):
+    )
+    if not matched_disease and disease_names:
+        full_text = f"{article.get('title', '')} {article.get('content', '')[:3000]}".casefold()
+        matched_disease = any(name.casefold() in full_text for name in disease_names)
+
+    if not matched_disease:
         return False
+
     if country:
         expected_country = normalize_country(country)
         loc_countries = [
@@ -187,8 +193,9 @@ def article_matches(analysis: dict, disease_names: list[str], country: str | Non
             for item in analysis.get("locations") or []
         ]
         if loc_countries:
-            return expected_country in loc_countries
-        return True
+            return expected_country in loc_countries or any(expected_country in lc for lc in loc_countries)
+        full_text = f"{article.get('title', '')} {article.get('content', '')[:3000]}".casefold()
+        return expected_country in full_text
     return True
 
 
@@ -349,7 +356,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 crawling_date, region, country, province_city_case, article_date, date_case,
                 number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name,
                 source_url, article_title, evidence, confidence, processing_status)
-               VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+               VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 job_id, raw_id, concept["id"] if concept else None, disease,
                 concept.get("ontology_code") if concept else None,
@@ -393,7 +400,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                     crawling_date, region, country, province_city_case, article_date, date_case,
                     number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name,
                     source_url, article_title, evidence, confidence, processing_status)
-                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     job_id, raw_id, concept["id"] if concept else None, disease,
                     concept.get("ontology_code") if concept else None,
@@ -411,14 +418,42 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
 
 
 def extract_article(item: dict) -> dict:
+    url = item.get("url", "")
+    if "news.google.com" in url.lower():
+        try:
+            from googlenewsdecoder import gnewsdecoder
+            decoded = gnewsdecoder(url, interval=0.1)
+            if decoded.get("status") and decoded.get("decoded_url"):
+                url = decoded["decoded_url"]
+                item["url"] = url
+                item["source_name"] = source_name(url)
+        except Exception as exc:
+            logger.warning("Could not decode Google News URL %s: %s", url, exc)
+
     response = requests.post(
         COLLECTOR_URL + "/extract-url",
-        json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 12000},
+        json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 15000},
         timeout=(5, 25),
     )
     response.raise_for_status()
     extracted = response.json().get("data") or {}
-    return {**item, **extracted, "url": item["url"], "source_name": item.get("source_name")}
+
+    # If HTTP returned sparse content (e.g. JavaScript SPA like BRIN), retry with auto
+    if len(str(extracted.get("content") or "").strip()) < 150:
+        try:
+            retry_resp = requests.post(
+                COLLECTOR_URL + "/extract-url",
+                json={"url": item["url"], "fetch_mode": "auto", "timeout_ms": 25000},
+                timeout=(5, 35),
+            )
+            if retry_resp.status_code == 200:
+                retry_extracted = retry_resp.json().get("data") or {}
+                if len(str(retry_extracted.get("content") or "").strip()) > len(str(extracted.get("content") or "").strip()):
+                    extracted = retry_extracted
+        except Exception as retry_exc:
+            logger.debug("Auto fetch fallback failed for %s: %s", item["url"], retry_exc)
+
+    return {**item, **extracted, "url": item["url"], "source_name": item.get("source_name") or extracted.get("source_name")}
 
 
 def analyze_article(article: dict) -> dict:
@@ -548,7 +583,7 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
                         (f"manual-crawl:{identity_hash}",),
                     )
                     identity_lock.close()
-                if not article_matches(analysis, disease_names, payload.get("country")):
+                if not article_matches(article, analysis, disease_names, payload.get("country")):
                     if direct_url_mode:
                         warnings.append(
                             f"{item.get('url', 'article')}: direct URL was fetched, but it did not contain "
