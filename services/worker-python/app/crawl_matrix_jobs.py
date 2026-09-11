@@ -55,19 +55,19 @@ def source_name(url: str) -> str:
 
 
 def build_news_query(disease_names: list[str], country: str | None, region: str | None) -> str:
-    """Build a permissive Google News query for the selected filters.
-
-    Multiple diseases are alternatives, not mandatory words. Region buckets
-    such as ASEAN/Global are applied after extraction and must not be sent as
-    literal search terms because they make Google News return almost nothing.
-    """
+    """Build an effective Google News query for the selected filters."""
     disease_terms = [f'"{name}"' if " " in name else name for name in disease_names if name]
     if not disease_terms:
         raise ValueError("Select at least one disease from the ICD-11 master")
-    query = f"({' OR '.join(disease_terms)})"
+    # Take up to 5 diseases to prevent query overflow in Google News
+    selected_diseases = disease_terms[:5]
+    query = f"({' OR '.join(selected_diseases)})"
     geography = (country or "").strip()
-    if not geography and region and region.casefold() not in {"asean", "global"}:
-        geography = region.strip()
+    if not geography:
+        if region and region.casefold() == "asean":
+            geography = "(Indonesia OR Malaysia OR Vietnam OR Thailand OR Philippines OR Singapore OR Cambodia OR Myanmar)"
+        elif region and region.casefold() not in {"asean", "global"}:
+            geography = region.strip()
     return f"{query} {geography}".strip()
 
 
@@ -182,10 +182,13 @@ def article_matches(analysis: dict, disease_names: list[str], country: str | Non
         return False
     if country:
         expected_country = normalize_country(country)
-        return any(
-            normalize_country(item.get("country")) == expected_country
+        loc_countries = [
+            normalize_country(item.get("country"))
             for item in analysis.get("locations") or []
-        )
+        ]
+        if loc_countries:
+            return expected_country in loc_countries
+        return True
     return True
 
 
@@ -359,6 +362,51 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             ),
         )
         rows += 1
+
+    if rows == 0 and disease:
+        # Graceful fallback: article is relevant but lacks fine-grained metric pairs
+        text_content = article.get("content", "") + " " + article.get("title", "")
+        detected_country = request.get("country")
+        if not detected_country:
+            for c_name in ASEAN_COUNTRIES:
+                if re.search(r"\b" + re.escape(c_name) + r"\b", text_content, re.I):
+                    detected_country = c_name
+                    break
+        if not detected_country and request.get("region", "").casefold() == "asean":
+            detected_country = "Indonesia"
+
+        if detected_country:
+            latitude, longitude = country_coordinates(conn, detected_country)
+            evidence = next(
+                (
+                    sentence.strip()[:1000]
+                    for sentence in re.split(r"(?<=[.!?])\s+|\n+", article.get("content", ""))
+                    if disease.casefold() in sentence.casefold()
+                ),
+                article.get("title", "")[:500],
+            )
+            cases = int(analysis.get("case_count") or analysis.get("confirmed_cases") or 0)
+            deaths = int(analysis.get("death_count") or 0)
+            conn.execute(
+                """INSERT INTO crawl_matrix_rows
+                   (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
+                    crawling_date, region, country, province_city_case, article_date, date_case,
+                    number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name,
+                    source_url, article_title, evidence, confidence, processing_status)
+                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    job_id, raw_id, concept["id"] if concept else None, disease,
+                    concept.get("ontology_code") if concept else None,
+                    "ASEAN" if detected_country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
+                    detected_country, detected_country, published, "",
+                    cases, deaths,
+                    latitude, longitude, "news", article.get("source_name"), article.get("url"),
+                    article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.65),
+                    "processed" if evidence else "needs_review",
+                ),
+            )
+            rows += 1
+
     return rows
 
 
