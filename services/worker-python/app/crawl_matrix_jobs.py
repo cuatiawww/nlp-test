@@ -308,7 +308,21 @@ def matching_concepts(conn, ids: list[str]) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def country_coordinates(conn, country: str):
+def country_coordinates(conn, country: str, areas: list[str] | None = None):
+    """Resolve the first cited city/province, then fall back to country center."""
+    for area in areas or []:
+        area_name = str(area or "").strip()
+        if not area_name:
+            continue
+        row = conn.execute(
+            """SELECT latitude, longitude FROM locations
+               WHERE is_active=TRUE AND LOWER(name)=LOWER(%s)
+                 AND LOWER(COALESCE(country, ''))=LOWER(%s)
+               LIMIT 1""",
+            (area_name, country),
+        ).fetchone()
+        if row:
+            return row["latitude"], row["longitude"]
     row = conn.execute(
         """SELECT latitude, longitude FROM locations
            WHERE is_active=TRUE AND (LOWER(name)=LOWER(%s) OR LOWER(country)=LOWER(%s))
@@ -341,6 +355,23 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             for province in provinces
         ):
             continue
+        areas = item.get("areas") or []
+        if areas:
+            # The surveillance API keeps a country aggregate for backwards
+            # compatibility, while ``areas`` contains the precise city/
+            # province metrics. Persist each area as its own map row so its
+            # coordinate and count cannot be collapsed into one country point.
+            for area in areas:
+                area_item = dict(item)
+                area_item["areas"] = []
+                area_item["provinces"] = [area.get("name")]
+                area_item["reported_cases"] = area.get("reported_cases") or 0
+                area_item["deaths"] = area.get("deaths")
+                area_item["time_frame"] = area.get("time_frame") or item.get("time_frame") or ""
+                scoped_analysis = dict(analysis)
+                scoped_analysis["locations"] = [area_item]
+                rows += persist_article(conn, job_id, raw_id, article, scoped_analysis, concepts, request)
+            continue
         evidence = next(
             (
                 sentence.strip()[:1000]
@@ -349,7 +380,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             ),
             "",
         )
-        latitude, longitude = country_coordinates(conn, country)
+        latitude, longitude = country_coordinates(conn, country, provinces)
         conn.execute(
             """INSERT INTO crawl_matrix_rows
                (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
@@ -405,7 +436,8 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                     job_id, raw_id, concept["id"] if concept else None, disease,
                     concept.get("ontology_code") if concept else None,
                     "ASEAN" if detected_country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
-                    detected_country, detected_country, published, "",
+                    detected_country, detected_country, published,
+                    analysis.get("time_frame") or analysis.get("event_date") or "",
                     cases, deaths,
                     latitude, longitude, "news", article.get("source_name"), article.get("url"),
                     article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.65),
