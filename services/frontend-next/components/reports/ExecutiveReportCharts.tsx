@@ -1,7 +1,8 @@
 "use client"
 
 import React, { useRef } from "react"
-import { Download, MapPin, TrendingUp, PieChart, BarChart3 } from "lucide-react"
+import { Download } from "lucide-react"
+import { PUBLIC_BASE_PATH } from "@/lib/public-path"
 
 export function exportSvgToPng(svgElement: SVGSVGElement | null, filename: string, scale = 2) {
   if (!svgElement) return
@@ -69,7 +70,8 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
   const handleDownload = async () => {
     try {
       setDownloading(true)
-      const res = await fetch("/generated_charts/spatial_geomap_indonesia.svg")
+      const svgUrl = `${PUBLIC_BASE_PATH}/generated_charts/spatial_geomap_asean.svg`
+      const res = await fetch(svgUrl).catch(() => fetch("/generated_charts/spatial_geomap_asean.svg"))
       if (!res.ok) throw new Error("Gagal memuat SVG peta")
       const svgText = await res.text()
       const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" })
@@ -87,7 +89,7 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
         canvas.toBlob((blob) => {
           if (!blob) return
           const a = document.createElement("a")
-          a.download = "peta_spasial_hotspot_gis_indonesia.png"
+          a.download = "peta_spasial_hotspot_gis_asean.png"
           a.href = URL.createObjectURL(blob)
           document.body.appendChild(a)
           a.click()
@@ -106,24 +108,21 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
   return (
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <MapPin className="h-5 w-5 text-[#0060A9]" />
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-sm font-black text-slate-900">{title}</h4>
-              <span className="hidden sm:inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700 border border-emerald-200">
-                Python GIS Geomap Engine (38 Provinsi)
-              </span>
-            </div>
-            <p className="text-[11px] font-medium text-slate-500">
-              Koordinat kartografis spasial klaster kejadian terkonfirmasi NLP (Sabang ? Merauke & Koridor ASEAN)
-            </p>
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
+            <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700 border border-emerald-200">
+              Python GIS Geomap Engine (Kawasan ASEAN &amp; Indonesia)
+            </span>
           </div>
+          <p className="text-[11px] font-medium text-slate-500 mt-0.5">
+            Koordinat kartografis spasial klaster kejadian terkonfirmasi NLP (Sabang – Merauke &amp; Koridor Regional ASEAN)
+          </p>
         </div>
         <div className="no-print flex items-center gap-2">
           <a
-            href="/generated_charts/spatial_geomap_indonesia.svg"
-            download="peta_spasial_geomap_indonesia.svg"
+            href={`${PUBLIC_BASE_PATH}/generated_charts/spatial_geomap_asean.svg`}
+            download="peta_spasial_geomap_asean.svg"
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
             title="Unduh Format Vektor SVG Asli"
           >
@@ -145,19 +144,26 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-[#f8fafc] shadow-2xs">
         <img
-          src="/generated_charts/spatial_geomap_indonesia.svg"
-          alt="Peta Spasial Hotspot GIS Python (38 Provinsi)"
+          src={`${PUBLIC_BASE_PATH}/generated_charts/spatial_geomap_asean.svg`}
+          alt="Peta Spasial Hotspot GIS Python (Kawasan ASEAN &amp; Indonesia)"
           className="w-full h-auto block select-none"
+          onError={(e) => {
+            const target = e.currentTarget
+            if (!target.dataset.fallback) {
+              target.dataset.fallback = "1"
+              target.src = "/generated_charts/spatial_geomap_asean.svg"
+            }
+          }}
         />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[11px] font-semibold text-slate-500">
         <div className="flex items-center gap-2">
           <span className="font-bold text-slate-700">Proyeksi:</span> Equirectangular GIS Kartografis
-          <span className="text-slate-300">?</span>
+          <span className="text-slate-300">•</span>
           <span className="font-bold text-slate-700">Datum:</span> WGS84
-          <span className="text-slate-300">?</span>
-          <span className="font-bold text-slate-700">Cakupan:</span> 94?BT ? 142?BT | -12?LS ? 8.5?LU
+          <span className="text-slate-300">•</span>
+          <span className="font-bold text-slate-700">Cakupan:</span> 91.5°BT – 142.5°BT | 11.5°LS – 28.5°LU (Kawasan ASEAN)
         </div>
         <div className="font-black text-[#0060A9]">
           Terverifikasi Otomatis Pipeline Python GIS
@@ -237,12 +243,9 @@ export const TrendEpiCurveChart: React.FC<TrendEpiCurveChartProps> = ({
   return (
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-[#0060A9]" />
-          <div>
-            <h4 className="text-sm font-black text-slate-900">{title}</h4>
-            <p className="text-[11px] font-medium text-slate-500">{subtitle}</p>
-          </div>
+        <div>
+          <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
+          <p className="text-[11px] font-medium text-slate-500 mt-0.5">{subtitle}</p>
         </div>
         <button
           type="button"
@@ -438,14 +441,11 @@ export const DiseaseDistributionDonut: React.FC<DiseaseDistributionDonutProps> =
   return (
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <PieChart className="h-5 w-5 text-[#0060A9]" />
-          <div>
-            <h4 className="text-sm font-black text-slate-900">{title}</h4>
-            <p className="text-[11px] font-medium text-slate-500">
-              Proporsi beban kasus per kategori diagnosa ICD-11
-            </p>
-          </div>
+        <div>
+          <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
+          <p className="text-[11px] font-medium text-slate-500 mt-0.5">
+            Proporsi beban kasus per kategori diagnosa ICD-11
+          </p>
         </div>
         <button
           type="button"
@@ -566,14 +566,11 @@ export const CountryCfrBarChart: React.FC<CountryCfrBarChartProps> = ({
   return (
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-[#0060A9]" />
-          <div>
-            <h4 className="text-sm font-black text-slate-900">{title}</h4>
-            <p className="text-[11px] font-medium text-slate-500">
-              Perbandingan mortalitas dan keparahan wabah per negara
-            </p>
-          </div>
+        <div>
+          <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
+          <p className="text-[11px] font-medium text-slate-500 mt-0.5">
+            Perbandingan mortalitas dan keparahan wabah per negara
+          </p>
         </div>
         <button
           type="button"

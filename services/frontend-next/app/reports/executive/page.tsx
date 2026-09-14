@@ -106,7 +106,7 @@ function ExecutiveReportContent() {
     "Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI"
   )
   const [reportSubtitle, setReportSubtitle] = useState(
-    "Pusat Intelijen Epidemiologi & SPGDT — Kementerian Kesehatan Republik Indonesia"
+    "Pusat Intelijen Surveilans Epidemiologi — Kementerian Kesehatan Republik Indonesia"
   )
   const [filterWilayahText, setFilterWilayahText] = useState("Seluruh Wilayah (Nasional & ASEAN)")
   const [filterLayananText, setFilterLayananText] = useState("Semua Kategori Penyakit Infeksi Emerging")
@@ -218,7 +218,7 @@ function ExecutiveReportContent() {
         setReportAuthor("yusuf")
       } else {
         setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI")
-        setReportSubtitle("Pusat Intelijen Epidemiologi & SPGDT — Kementerian Kesehatan Republik Indonesia")
+        setReportSubtitle("Pusat Intelijen Surveilans Epidemiologi — Kementerian Kesehatan Republik Indonesia")
         setReportAuthor("PHEOC Kemenkes RI")
       }
     }
@@ -412,7 +412,7 @@ function ExecutiveReportContent() {
 
   const handleResetToBaseline = () => {
     setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI")
-    setReportSubtitle("Pusat Intelijen Epidemiologi & SPGDT — Kementerian Kesehatan Republik Indonesia")
+    setReportSubtitle("Pusat Intelijen Surveilans Epidemiologi — Kementerian Kesehatan Republik Indonesia")
     setEpiPeriodText("14 Sep 2026 (Minggu ke-38)")
     setFilterWilayahText("Seluruh Wilayah (Nasional & ASEAN)")
     setFilterLayananText("Semua Kategori Penyakit Infeksi Emerging")
@@ -619,47 +619,7 @@ function ExecutiveReportContent() {
             DOCUMENT CANVAS (PRINT AREA)
         ========================================== */}
         <main className={`print-area relative flex-1 rounded-2xl border p-6 sm:p-10 z-10 transition duration-200 ${getThemeClass()}`}>
-          {/* ==================== WORKFLOW DRAFT BANNER ==================== */}
-          <div className="no-print mb-6 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 via-indigo-50/50 to-blue-50 p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#0060A9] text-white shadow-xs">
-                <Sparkles className="h-5 w-5 text-amber-300 animate-pulse" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="rounded-md bg-[#0060A9] px-2 py-0.5 text-[10px] font-black text-white uppercase tracking-wider">
-                    Draft Otomatis Sistem (AI Surveillance)
-                  </span>
-                  <span className="text-xs font-bold text-slate-500">
-                    • Siap untuk Analisis &amp; Kustomisasi
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  Sistem telah menghasilkan draf awal dari intelijen surveilans real-time. Anda dapat mengedit narasi dokumen, memilih latar belakang/template, lalu mempublikasikan ke arsip.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsEditDrawerOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-white px-3 py-1.5 text-xs font-bold text-[#0060A9] hover:bg-blue-50 shadow-2xs transition"
-              >
-                <Edit3 className="h-3.5 w-3.5" />
-                <span>Kustomisasi Dokumen</span>
-              </button>
-              <button
-                type="button"
-                onClick={handlePublishReport}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-3.5 py-1.5 text-xs font-black text-white shadow-xs transition cursor-pointer active:scale-95"
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Publikasikan</span>
-              </button>
-            </div>
-          </div>
-          {/* -------------------------------------------
+                    {/* -------------------------------------------
               TEMPLATE 1: KEMENKES EXECUTIVE SITREP (IMAGE 1)
           -------------------------------------------- */}
           {template === "kemenkes_sitrep" && (
@@ -670,7 +630,7 @@ function ExecutiveReportContent() {
                   <span className="rounded-md bg-teal-50 px-2 py-0.5 text-teal-800 font-extrabold border border-teal-200">
                     KEMENKES RI
                   </span>
-                  <span>Pusat Komando Nasional EOC — SPGDT 24 Jam</span>
+                  <span>Pusat Operasi Kedaruratan Kesehatan Masyarakat (PHEOC) — 24 Jam</span>
                 </div>
                 <h1 className="mt-2 text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-snug">
                   {reportTitle} : {epiPeriodText}
@@ -747,7 +707,7 @@ function ExecutiveReportContent() {
               {visibility.summary && (
                 <section id="ringkasan" className="space-y-2 break-inside-avoid">
                   <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                    Ringkasan Eksekutif Dispatch & Respon Kedaruratan Medis
+                    Ringkasan Eksekutif Situasi Penyakit Infeksi & Sinyal Outbreak
                   </h3>
                   <div className="rounded-xl bg-slate-50/80 p-4 border border-slate-200 text-sm leading-relaxed text-slate-700">
                     <p>{executiveSummary}</p>
