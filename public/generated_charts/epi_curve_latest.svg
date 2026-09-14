@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 280" width="800" height="280" style="background:#ffffff; font-family:sans-serif;">
+  <defs>
+    <linearGradient id="gCases" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0060A9" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#0060A9" stop-opacity="0.0"/>
+    </linearGradient>
+  </defs>
+  <!-- Grid -->
+  <line x1="60" y1="240" x2="740" y2="240" stroke="#cbd5e1" stroke-width="1"/>
+  <!-- Area & Lines -->
+  <path d="M 60.0,240 L 60.0,157.0 L 196.0,135.0 L 332.0,113.8 L 468.0,85.9 L 604.0,61.3 L 740.0,30.0 L 740.0,240 Z" fill="url(#gCases)" />
+  <path d="M 60.0,157.0 L 196.0,135.0 L 332.0,113.8 L 468.0,85.9 L 604.0,61.3 L 740.0,30.0" fill="none" stroke="#0060A9" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 60.0,161.2 L 196.0,135.0 L 332.0,108.8 L 468.0,82.5 L 604.0,82.5 L 740.0,30.0" fill="none" stroke="#e11d48" stroke-width="2" stroke-dasharray="4,3"/>
+  <!-- Dots -->
+  <circle cx="60.0" cy="157.0" r="4" fill="#0060A9" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="60.0" y="258" font-size="9" font-weight="bold" fill="#64748b" text-anchor="middle">W33</text>
+  <circle cx="196.0" cy="135.0" r="4" fill="#0060A9" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="196.0" y="258" font-size="9" font-weight="bold" fill="#64748b" text-anchor="middle">W34</text>
+  <circle cx="332.0" cy="113.8" r="4" fill="#0060A9" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="332.0" y="258" font-size="9" font-weight="bold" fill="#64748b" text-anchor="middle">W35</text>
+  <circle cx="468.0" cy="85.9" r="4" fill="#0060A9" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="468.0" y="258" font-size="9" font-weight="bold" fill="#64748b" text-anchor="middle">W36</text>
+  <circle cx="604.0" cy="61.3" r="4" fill="#0060A9" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="604.0" y="258" font-size="9" font-weight="bold" fill="#64748b" text-anchor="middle">W37</text>
+  <circle cx="740.0" cy="30.0" r="4" fill="#0060A9" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="740.0" y="258" font-size="9" font-weight="bold" fill="#64748b" text-anchor="middle">W38</text>
+  <circle cx="60.0" cy="161.2" r="3" fill="#e11d48" stroke="#ffffff" stroke-width="1"/>
+  <circle cx="196.0" cy="135.0" r="3" fill="#e11d48" stroke="#ffffff" stroke-width="1"/>
+  <circle cx="332.0" cy="108.8" r="3" fill="#e11d48" stroke="#ffffff" stroke-width="1"/>
+  <circle cx="468.0" cy="82.5" r="3" fill="#e11d48" stroke="#ffffff" stroke-width="1"/>
+  <circle cx="604.0" cy="82.5" r="3" fill="#e11d48" stroke="#ffffff" stroke-width="1"/>
+  <circle cx="740.0" cy="30.0" r="3" fill="#e11d48" stroke="#ffffff" stroke-width="1"/>
+</svg>
