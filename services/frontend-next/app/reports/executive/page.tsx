@@ -78,9 +78,9 @@ export default function ExecutiveReportPage() {
   const [cadence, setCadence] = useState<CadenceType>("weekly")
   const [epiPeriodText, setEpiPeriodText] = useState("14 Sep 2026 (Minggu ke-38)")
 
-  // 2. Watermark
-  const [watermarkEnabled, setWatermarkEnabled] = useState(true)
-  const [watermarkText, setWatermarkText] = useState("RESMI KEMENKES RI")
+  // 2. Watermark (Disabled by default - No Watermark)
+  const [watermarkEnabled, setWatermarkEnabled] = useState(false)
+  const [watermarkText, setWatermarkText] = useState("")
   const [watermarkOpacity, setWatermarkOpacity] = useState(0.08)
 
   // 3. Document Meta
@@ -318,7 +318,8 @@ export default function ExecutiveReportPage() {
     setMetricKorbanMeninggal(24)
     setMetricCfr(0.31)
     setMetricKlasterAktif(18)
-    setWatermarkText("RESMI KEMENKES RI")
+    setWatermarkEnabled(false)
+    setWatermarkText("")
     setExecutiveSummary(
       "Analisis intelijen operasional surveilans epidemiologi terpadu mencatat eskalasi sebanyak 7.640 kasus terkonfirmasi di wilayah Seluruh Wilayah (Nasional & ASEAN). Integrasi sistem deteksi dini NLP Kemenkes RI telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time."
     )
@@ -369,7 +370,7 @@ export default function ExecutiveReportPage() {
       {/* ==========================================
           WATERMARK OVERLAY (VISIBLE IN PRINT & PREVIEW)
       ========================================== */}
-      {watermarkEnabled && (
+      {watermarkEnabled && watermarkText && (
         <div
           className="pointer-events-none fixed inset-0 z-0 flex items-center justify-center overflow-hidden select-none"
           style={{ opacity: watermarkOpacity }}
@@ -926,7 +927,7 @@ export default function ExecutiveReportPage() {
                     />
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {["DRAFT", "RESMI KEMENKES RI", "RAHASIA / TERBATAS", "SITREP MINGGUAN", "ASEAN BIO-THREATS"].map(
+                    {["DRAFT", "RAHASIA / TERBATAS", "SITREP MINGGUAN", "ASEAN BIO-THREATS"].map(
                       (preset) => (
                         <button
                           key={preset}
