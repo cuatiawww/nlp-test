@@ -5,106 +5,48 @@ import Link from "next/link"
 import {
   FileText,
   Download,
-  Plus,
   Search,
-  Calendar,
   User,
-  Globe,
-  Upload,
-  CheckCircle2,
   Clock,
-  Sparkles,
   ExternalLink,
-  Edit3,
-  Trash2,
-  Filter,
-  Play,
-  Share2,
-  X,
   Eye,
+  Play,
+  Globe,
+  Shield,
+  Video,
 } from "lucide-react"
 import { PublishedReportItem } from "@/types/reports"
-import { getStoredReports, saveReportToStore, deleteReportFromStore } from "@/lib/reports-store"
+import { getStoredReports } from "@/lib/reports-store"
 import { ReportCoverThumbnail } from "./ReportCoverThumbnail"
 
 interface MediaMonitoringArchiveProps {
   onToast?: (msg: string) => void
 }
 
-export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ onToast }) => {
-  const [reports, setReports] = useState<PublishedReportItem[]>(() => {
-    return getStoredReports().filter((r) => r.type === "asean_bulletin")
+export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () => {
+  const [reports] = useState<PublishedReportItem[]>(() => {
+    // Only verified published reports belong in the public catalog
+    return getStoredReports().filter(
+      (r) => r.type === "asean_bulletin" && r.status === "published"
+    )
   })
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedStatus, setSelectedStatus] = useState<"all" | "published" | "draft">("all")
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
-
-  // Upload Form State
-  const [newTitle, setNewTitle] = useState("")
-  const [newPeriod, setNewPeriod] = useState("15 September 2026")
-  const [newAuthor, setNewAuthor] = useState("yusuf")
-  const [newDescription, setNewDescription] = useState("")
-  const [uploadedFileName, setUploadedFileName] = useState("")
 
   const filteredReports = useMemo(() => {
     return reports.filter((item) => {
-      const matchSearch =
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase())
-
-      const matchStatus = selectedStatus === "all" || item.status === selectedStatus
-      return matchSearch && matchStatus
+      const q = searchQuery.toLowerCase()
+      return (
+        item.title.toLowerCase().includes(q) ||
+        item.author.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q)
+      )
     })
-  }, [reports, searchQuery, selectedStatus])
-
-  const handleUploadSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newTitle.trim()) {
-      alert("Mohon masukkan judul buletin laporan.")
-      return
-    }
-
-    const newItem: PublishedReportItem = {
-      id: `mm-${Date.now()}`,
-      category: "Data & Publications Media Monitoring Report",
-      title: newTitle.trim(),
-      period: newPeriod.trim(),
-      author: newAuthor.trim() || "Analis Kemenkes/ASEAN",
-      publishedAt: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
-      type: "asean_bulletin",
-      status: "published",
-      description: newDescription.trim() || "Publikasi laporan media monitoring surveilans penyakit infeksi berkala kawasan ASEAN.",
-      pdfUrl: uploadedFileName ? `/sample_template/${uploadedFileName}` : undefined,
-      summaryStats: {
-        cases: 7640,
-        deaths: 24,
-        countriesCount: 11,
-        topDisease: "Dengue & Emerging Threats",
-      },
-    }
-
-    saveReportToStore(newItem)
-    setReports((prev) => [newItem, ...prev])
-    setIsUploadModalOpen(false)
-    setNewTitle("")
-    setNewDescription("")
-    setUploadedFileName("")
-    if (onToast) onToast("Dokumen publikasi baru berhasil ditambahkan!")
-  }
-
-  const handleDelete = (id: string, title: string) => {
-    if (confirm(`Hapus publikasi "${title}" dari arsip?`)) {
-      deleteReportFromStore(id)
-      setReports((prev) => prev.filter((r) => r.id !== id))
-      if (onToast) onToast("Publikasi berhasil dihapus.")
-    }
-  }
+  }, [reports, searchQuery])
 
   return (
     <div className="space-y-6">
       {/* ==========================================
-          TOP BREADCRUMB & HEADER CALLOUT
+          TOP BREADCRUMB & HEADER (PUBLIC USER VIEW)
       ========================================== */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -123,28 +65,15 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
               Publikasi berkala intelijen penyakit infeksi emerging dan deteksi dini wabah kawasan ASEAN
             </p>
           </div>
-
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setIsUploadModalOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer"
-            >
-              <Upload className="h-4 w-4 text-slate-500" />
-              <span>Upload Dokumen Publikasi</span>
-            </button>
-
-            <Link
-              href="/reports/executive?template=asean_bulletin&mode=create"
-              className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] hover:bg-blue-700 px-4 py-2 text-xs font-black text-white shadow-xs transition cursor-pointer active:scale-95"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span>+ Buat Buletin Baru (AI Draft)</span>
-            </Link>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 border border-blue-200 px-3.5 py-1.5 text-xs font-black text-[#0060A9]">
+              <Globe className="h-3.5 w-3.5" />
+              <span>Portal Publik Resmi ABVC</span>
+            </span>
           </div>
         </div>
 
-        {/* Filter & Search Bar */}
+        {/* Search Bar */}
         <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100 pt-4">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -157,50 +86,31 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500">Status:</span>
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setSelectedStatus("all")}
-                className={`rounded px-2.5 py-1 ${selectedStatus === "all" ? "bg-white text-[#0060A9] shadow-2xs font-black" : "text-slate-600"}`}
-              >
-                Semua ({reports.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedStatus("published")}
-                className={`rounded px-2.5 py-1 ${selectedStatus === "published" ? "bg-white text-emerald-700 shadow-2xs font-black" : "text-slate-600"}`}
-              >
-                Published
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedStatus("draft")}
-                className={`rounded px-2.5 py-1 ${selectedStatus === "draft" ? "bg-white text-amber-700 shadow-2xs font-black" : "text-slate-600"}`}
-              >
-                Draft Sistem
-              </button>
-            </div>
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+            <span>Menampilkan</span>
+            <span className="rounded-lg bg-blue-50 px-2.5 py-1 font-mono font-black text-[#0060A9] border border-blue-100">
+              {filteredReports.length} Edisi Terbit
+            </span>
           </div>
         </div>
       </div>
 
       {/* ==========================================
-          MAIN TWO-COLUMN LAYOUT (SESUAI GAMBAR SCREENSHOT)
+          MAIN TWO-COLUMN LAYOUT
       ========================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-6 items-start">
         {/* ==========================================
-            LEFT SIDEBAR (ABVC / ASEAN EOC / WATCH JOURNEY)
+            LEFT SIDEBAR (ABVC / ASEAN EOC / YOUTUBE)
         ========================================== */}
         <aside className="space-y-4">
+          {/* Navigasi Publikasi */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
             <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-400">
               Navigasi Publikasi
             </h4>
             <ul className="space-y-1 text-xs font-bold">
               <li>
-                <div className="flex items-center justify-between rounded-lg bg-blue-50/70 px-3 py-2 text-[#0060A9]">
+                <div className="flex items-center justify-between rounded-lg bg-blue-50/80 px-3 py-2 text-[#0060A9]">
                   <span className="font-black">ABVC Centre</span>
                   <span className="h-2 w-2 rounded-full bg-[#0060A9]" />
                 </div>
@@ -218,43 +128,48 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
             </ul>
           </div>
 
-          {/* Watch ASEAN Journey Box (Persis Gambar Screenshot) */}
+          {/* Watch ASEAN Journey Box with Real YouTube Video Embed */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
-            <h4 className="text-xs font-black uppercase tracking-wider text-red-600 flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
-              Watch ASEAN Journey
-            </h4>
-
-            <div className="relative overflow-hidden rounded-xl bg-slate-900 aspect-video group cursor-pointer shadow-inner">
-              <div
-                className="absolute inset-0 bg-cover bg-center opacity-70 group-hover:scale-105 transition duration-300"
-                style={{
-                  backgroundImage: "url('/cover-login.webp')",
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-between p-2.5">
-                <div className="flex items-center gap-1.5">
-                  <div className="h-5 w-5 rounded-full bg-red-600 flex items-center justify-center text-white text-[8px] font-black">
-                    ?
-                  </div>
-                  <span className="text-[10px] font-extrabold text-white">ASEAN Journey - 196</span>
-                </div>
-                <div className="text-center my-auto">
-                  <div className="inline-flex h-9 w-9 rounded-full bg-red-600/90 items-center justify-center text-white shadow-lg group-hover:scale-110 transition">
-                    <Play className="h-4 w-4 ml-0.5" />
-                  </div>
-                </div>
-                <p className="text-[9px] text-slate-300 font-medium truncate">asean secretariat briefing</p>
-              </div>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-black uppercase tracking-wider text-rose-600 flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-rose-600 animate-pulse" />
+                Watch ASEAN Briefing
+              </h4>
+              <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[9px] font-black text-rose-700 border border-rose-200">
+                YOUTUBE
+              </span>
             </div>
 
-            <button
-              type="button"
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-100 hover:bg-slate-200 py-2 text-xs font-black text-slate-700 transition"
+            {/* Embedded Responsive YouTube Player */}
+            <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-black aspect-video shadow-xs">
+              <iframe
+                className="absolute inset-0 w-full h-full"
+                src="https://www.youtube-nocookie.com/embed/jfKfPfyJRdk?rel=0&modestbranding=1"
+                title="ASEAN Health & Surveillance Briefing"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-black text-slate-900 leading-snug">
+                ASEAN Health &amp; Surveillance Briefing
+              </p>
+              <p className="text-[10px] font-semibold text-slate-500">
+                Official Stream ASEAN Secretariat Online
+              </p>
+            </div>
+
+            <a
+              href="https://www.youtube.com/@ASEANSecretariatOnline"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-700 py-2 text-xs font-black text-white shadow-xs transition cursor-pointer"
             >
-              <span className="text-red-600">?</span>
-              <span>Subscribe ASEAN Portal</span>
-            </button>
+              <Play className="h-3.5 w-3.5 fill-white" />
+              <span>Buka di YouTube Resmi</span>
+              <ExternalLink className="h-3 w-3 opacity-80" />
+            </a>
           </div>
 
           {/* Stats Summary Widget */}
@@ -267,20 +182,20 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
               <span className="text-[11px] font-bold text-slate-500">Edisi Siap Akses</span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed pt-1 border-t border-slate-200/60">
-              Seluruh edisi telah diverifikasi oleh tim analis epidemiologi Kemenkes RI &amp; ABVC.
+              Seluruh edisi telah diverifikasi oleh tim analis epidemiologi ABVC Regional &amp; ASEAN EOC Network.
             </p>
           </div>
         </aside>
 
         {/* ==========================================
-            RIGHT MAIN LIST (PERSIS GAMBAR SCREENSHOT)
+            RIGHT MAIN LIST (AUTHENTIC BOOK CARDS)
         ========================================== */}
         <main className="space-y-4">
           {filteredReports.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-500 space-y-3">
               <FileText className="mx-auto h-12 w-12 text-slate-300" />
               <p className="text-base font-black text-slate-700">Tidak ada dokumen buletin yang sesuai</p>
-              <p className="text-xs">Coba ubah kata kunci pencarian atau buat draft laporan baru.</p>
+              <p className="text-xs">Coba sesuaikan kata kunci pencarian.</p>
             </div>
           ) : (
             filteredReports.map((item) => (
@@ -291,7 +206,7 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
                 {/* Authentic Book Cover Thumbnail */}
                 <Link
                   href={`/reports/executive?template=asean_bulletin&reportId=${item.id}`}
-                  className="shrink-0 transition transform group-hover:scale-102"
+                  className="shrink-0 transition transform group-hover:scale-102 cursor-pointer"
                 >
                   <ReportCoverThumbnail
                     type="asean_bulletin"
@@ -306,15 +221,9 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
                     <span className="text-[11px] font-black text-[#0060A9] uppercase tracking-wider">
                       {item.category}
                     </span>
-                    <span className="text-slate-300">?</span>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${
-                        item.status === "published"
-                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                          : "bg-amber-50 text-amber-800 border border-amber-200"
-                      }`}
-                    >
-                      {item.status === "published" ? "Published" : "Draft Review"}
+                    <span className="text-slate-400 text-xs">•</span>
+                    <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-black uppercase">
+                      PUBLISHED
                     </span>
                   </div>
 
@@ -325,7 +234,7 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
                     </Link>
                   </h3>
 
-                  {/* Author & Published Date (Persis Gaya Gambar: yusuf - September 14, 2026) */}
+                  {/* Author & Published Date */}
                   <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                     <span className="flex items-center gap-1 text-slate-700 font-bold">
                       <User className="h-3.5 w-3.5 text-slate-400" />
@@ -343,42 +252,29 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
                     {item.description}
                   </p>
 
-                  {/* Action Buttons */}
-                  <div className="pt-2 flex flex-wrap items-center gap-2">
+                  {/* Action Buttons (Strictly Read & Download only for users) */}
+                  <div className="pt-2 flex flex-wrap items-center gap-2.5">
                     <Link
                       href={`/reports/executive?template=asean_bulletin&reportId=${item.id}`}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3 py-1.5 text-xs font-black text-[#0060A9] hover:bg-blue-100 transition"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3.5 py-2 text-xs font-black text-[#0060A9] hover:bg-blue-100 transition"
                     >
                       <Eye className="h-3.5 w-3.5" />
                       <span>Buka Buletin Lengkap</span>
                     </Link>
 
-                    <Link
-                      href={`/reports/executive?template=asean_bulletin&reportId=${item.id}&edit=true`}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700 transition"
-                      title="Edit Narasi dan Data Laporan"
-                    >
-                      <Edit3 className="h-3.5 w-3.5 text-slate-500" />
-                      <span>Edit / Analisis Draft</span>
-                    </Link>
-
                     <button
                       type="button"
-                      onClick={() => window.open(`/reports/executive?template=asean_bulletin&reportId=${item.id}&print=true`, "_blank")}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700 transition"
+                      onClick={() =>
+                        window.open(
+                          `/reports/executive?template=asean_bulletin&reportId=${item.id}&print=true`,
+                          "_blank"
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 transition shadow-2xs cursor-pointer"
                       title="Cetak atau Unduh PDF"
                     >
                       <Download className="h-3.5 w-3.5 text-slate-500" />
                       <span>Download PDF</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item.id, item.title)}
-                      className="ml-auto p-1.5 text-slate-400 hover:text-rose-600 transition"
-                      title="Hapus publikasi ini"
-                    >
-                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -387,129 +283,6 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = ({ 
           )}
         </main>
       </div>
-
-      {/* ==========================================
-          UPLOAD MODAL DIALOG
-      ========================================== */}
-      {isUploadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2 font-black text-slate-900 text-base">
-                <Upload className="h-5 w-5 text-[#0060A9]" />
-                <span>Upload Dokumen Publikasi Buletin</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsUploadModalOpen(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUploadSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Judul Dokumen Buletin
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Contoh: Media Monitoring for Infectious and Emerging Diseases in ASEAN Region 15 September 2026"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Nama Analis / Author
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: yusuf / Rijal / vira"
-                    value={newAuthor}
-                    onChange={(e) => setNewAuthor(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Periode / Tanggal Laporan
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: 15 September 2026"
-                    value={newPeriod}
-                    onChange={(e) => setNewPeriod(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Ringkasan / Sinopsis Singkat
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Keterangan singkat mengenai topik penyakit dan wilayah yang dipantau..."
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Pilih File Dokumen (PDF / DOCX)
-                </label>
-                <input
-                  type="file"
-                  accept=".pdf,.docx,.doc"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) {
-                      setUploadedFileName(file.name)
-                      if (!newTitle) {
-                        setNewTitle(file.name.replace(/\.[^/.]+$/, ""))
-                      }
-                    }
-                  }}
-                  className="w-full rounded-xl border border-slate-200 p-2 text-xs font-semibold"
-                />
-                {uploadedFileName && (
-                  <p className="mt-1 text-[11px] font-bold text-emerald-700">
-                    ? File terpilih: {uploadedFileName}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setIsUploadModalOpen(false)}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-black text-white hover:bg-blue-700 transition shadow-xs"
-                >
-                  Simpan &amp; Publikasikan
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

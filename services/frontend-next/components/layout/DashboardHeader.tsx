@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   Settings as SettingsIcon,
   Users as UsersIcon,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -120,6 +121,17 @@ export default function DashboardHeader({
                 >
                   <UsersIcon className="h-4 w-4" />
                   Users
+                </Link>
+                <Link
+                  href="/console/reports-cms"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname?.startsWith("/console/reports-cms")
+                      ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
+                      : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
+                  }`}
+                >
+                  <FileText className="h-4 w-4" />
+                  Reports CMS
                 </Link>
                 <Link
                   href="/"

@@ -66,6 +66,7 @@ export const consoleMenu: SidebarGroup[] = [
     title: 'SYSTEM MANAGEMENT',
     items: [
       { label: 'Configuration & Branding', icon: Settings, href: '/console/settings' },
+      { label: 'Publication CMS & Reports', icon: FileText, href: '/console/reports-cms' },
       { label: 'User Management', icon: Users, href: '/console/users' },
       { label: 'Activity Audit Logs', icon: FileText, href: '/console/settings?tab=audit' },
     ],

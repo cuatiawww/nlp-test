@@ -194,14 +194,14 @@ export default function ReportsPage() {
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
 
   // State: Active View Tab (Default to Media Monitoring Archive)
-  const [activeTab, setActiveTab] = useState<'media_monitoring' | 'sitrep_kemenkes' | 'cross_matrix' | 'event_log'>('media_monitoring')
+  const [activeTab, setActiveTab] = useState<'media_monitoring' | 'sitrep_abvc' | 'cross_matrix' | 'event_log'>('media_monitoring')
 
   // Check URL tab parameter on initial load
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
       const tab = params.get('tab')
-      if (tab === 'media_monitoring' || tab === 'sitrep_kemenkes' || tab === 'cross_matrix' || tab === 'event_log') {
+      if (tab === 'media_monitoring' || tab === 'sitrep_abvc' || tab === 'cross_matrix' || tab === 'event_log') {
         setActiveTab(tab)
       }
     }
@@ -936,9 +936,9 @@ export default function ReportsPage() {
 
             <button
               type="button"
-              onClick={() => setActiveTab('sitrep_kemenkes')}
+              onClick={() => setActiveTab('sitrep_abvc')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
-                activeTab === 'sitrep_kemenkes'
+                activeTab === 'sitrep_abvc'
                   ? 'bg-teal-700 text-white shadow-xs font-black'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
@@ -974,15 +974,7 @@ export default function ReportsPage() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 pr-1">
-            <Link
-              href="/reports/executive?mode=create"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[#0060A9] hover:bg-blue-700 px-3.5 py-2 text-xs font-black text-white shadow-xs transition"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-              <span>Buka Editor / Buat Draft</span>
-            </Link>
-          </div>
+
         </div>
 
         {/* ==================== TAB 1: MEDIA MONITORING ARCHIVE ==================== */}
@@ -991,7 +983,7 @@ export default function ReportsPage() {
         )}
 
         {/* ==================== TAB 2: SITUATION REPORT ARCHIVE ==================== */}
-        {activeTab === 'sitrep_kemenkes' && (
+        {activeTab === 'sitrep_abvc' && (
           <SituationReportArchive onToast={showToast} />
         )}
 

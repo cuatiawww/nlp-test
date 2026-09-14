@@ -121,7 +121,7 @@ function ExecutiveReportContent() {
 
   // 5. Narrative Content (Inline human editable)
   const [executiveSummary, setExecutiveSummary] = useState(
-    "Analisis intelijen surveilans epidemiologi terpadu mencatat akumulasi 7.640 kasus terkonfirmasi di wilayah Nasional & ASEAN. Integrasi sistem deteksi dini NLP Kemenkes RI telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time. Telaah lapangan mengidentifikasi 18 klaster aktif yang terus dipantau intensif, serta 24 kasus kematian (CFR rata-rata regional: 0.31%). Jejaring laboratorium kesehatan masyarakat bersama Balai Kekarantinaan Kesehatan terus mengoptimalkan pengawasan pintu masuk dan respon penanganan terarah guna memitigasi penyebaran transmisi lintas batas."
+    "Analisis intelijen surveilans epidemiologi terpadu mencatat akumulasi 7.640 kasus terkonfirmasi di wilayah Nasional & ASEAN. Integrasi sistem deteksi dini NLP ABVC Surveillance Engine telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time. Telaah lapangan mengidentifikasi 18 klaster aktif yang terus dipantau intensif, serta 24 kasus kematian (CFR rata-rata regional: 0.31%). Jejaring laboratorium kesehatan masyarakat bersama Balai Kekarantinaan Kesehatan terus mengoptimalkan pengawasan pintu masuk dan respon penanganan terarah guna memitigasi penyebaran transmisi lintas batas."
   )
 
   const [tacticalPoints, setTacticalPoints] = useState<string[]>([
@@ -423,7 +423,7 @@ function ExecutiveReportContent() {
     setWatermarkEnabled(false)
     setWatermarkText("")
     setExecutiveSummary(
-      "Analisis intelijen operasional surveilans epidemiologi terpadu mencatat eskalasi sebanyak 7.640 kasus terkonfirmasi di wilayah Seluruh Wilayah (Nasional & ASEAN). Integrasi sistem deteksi dini NLP Kemenkes RI telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time."
+      "Analisis intelijen operasional surveilans epidemiologi terpadu mencatat eskalasi sebanyak 7.640 kasus terkonfirmasi di wilayah Seluruh Wilayah (Nasional & ASEAN). Integrasi sistem deteksi dini NLP ABVC Surveillance Engine telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time."
     )
   }
 
@@ -493,7 +493,14 @@ function ExecutiveReportContent() {
             className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-bold text-teal-100 hover:bg-white/20 transition"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Kembali ke Laporan</span>
+            <span>Portal Publik</span>
+          </Link>
+          <Link
+            href="/console/reports-cms"
+            className="hidden sm:flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-bold text-teal-100 hover:bg-white/20 transition"
+          >
+            <Shield className="h-3.5 w-3.5" />
+            <span>Console CMS</span>
           </Link>
           <div className="h-4 w-px bg-white/20" />
           <div className="flex items-center gap-2">
@@ -815,7 +822,7 @@ function ExecutiveReportContent() {
                     <div className="text-right">
                       <p className="text-[11px] text-slate-500">Jakarta, {new Date().toLocaleDateString("id-ID", { dateStyle: "long" })}</p>
                       <p className="mt-8 font-black text-slate-900">Pusat Operasi Kedaruratan Kesehatan Masyarakat (PHEOC)</p>
-                      <p className="text-[10px] text-slate-500">Kementerian Kesehatan Republik Indonesia</p>
+                      <p className="text-[10px] text-slate-500">Pusat Operasi EOC ABVC / ASEAN Biological Threats Surveillance Centre</p>
                     </div>
                   </div>
                 </section>
@@ -955,7 +962,7 @@ function ExecutiveReportContent() {
                   Sumber Informasi & Jejaring Kemitraan
                 </h4>
                 <p className="leading-relaxed">
-                  Laporan ini dikompilasi secara otomatis melalui pemantauan media daring berbasis kecerdasan buatan (NLP Pipeline Kemenkes RI) dan diverifikasi silang dengan kanal resmi: Kementerian Kesehatan RI, Department of Disease Control Thailand, Ministry of Health Malaysia, Ministry of Health Viet Nam, Department of Health Philippines, dan buletin WHO SEARO / WPRO.
+                  Laporan ini dikompilasi secara otomatis melalui pemantauan media daring berbasis kecerdasan buatan (NLP Pipeline Surveilans ABVC) dan diverifikasi silang dengan kanal resmi: Kementerian Kesehatan RI, Department of Disease Control Thailand, Ministry of Health Malaysia, Ministry of Health Viet Nam, Department of Health Philippines, dan buletin WHO SEARO / WPRO.
                 </p>
               </div>
             </div>
@@ -992,7 +999,7 @@ function ExecutiveReportContent() {
                 {[
                   { id: "formal_white", label: "Clean White", desc: "Standar formal cetak" },
                   { id: "asean_navy", label: "ASEAN Navy", desc: "Aksen biru kartografis" },
-                  { id: "kemenkes_teal", label: "Kemenkes Teal", desc: "Aksen hijau PHEOC" },
+                  { id: "kemenkes_teal", label: "ABVC Teal", desc: "Aksen hijau PHEOC ABVC" },
                   { id: "slate_minimal", label: "Slate Dark", desc: "Minimalis modern" },
                 ].map((th) => (
                   <button
@@ -1363,10 +1370,16 @@ function ExecutiveReportContent() {
                 Cetak / Unduh PDF
               </button>
               <Link
+                href="/console/reports-cms"
+                className="w-full sm:w-auto rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-4 py-2 text-xs font-bold text-slate-800 transition text-center shadow-2xs"
+              >
+                Ke Console CMS
+              </Link>
+              <Link
                 href={
                   template === "asean_bulletin"
                     ? "/reports?tab=media_monitoring"
-                    : "/reports?tab=sitrep_kemenkes"
+                    : "/reports?tab=sitrep_abvc"
                 }
                 className="w-full sm:w-auto rounded-xl bg-[#0060A9] hover:bg-blue-700 px-4 py-2 text-xs font-black text-white shadow-xs transition text-center"
               >
