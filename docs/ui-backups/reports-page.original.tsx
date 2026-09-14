@@ -38,6 +38,7 @@ import {
   Percent,
   SlidersHorizontal,
   Table as TableIcon,
+  CalendarDays,
   Loader2,
 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
@@ -47,7 +48,6 @@ import SocialMediaIcon from '@/components/SocialMediaIcon'
 import { fetchPublicDashboard, fetchEvents } from '@/lib/api'
 import type { PublicDashboard, OutbreakLocation, DiseaseEvent } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
-import CustomReportBuilder from '@/components/CustomReportBuilder'
 
 // Unified surveillance report row model (100% mapped from live NLP pipeline)
 export type SurveillanceReportRow = {
@@ -193,7 +193,7 @@ export default function ReportsPage() {
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
 
   // State: Active View Tab
-  const [activeTab, setActiveTab] = useState<'cross_matrix' | 'event_log' | 'custom_report'>('cross_matrix')
+  const [activeTab, setActiveTab] = useState<'cross_matrix' | 'event_log' | 'time_distribution'>('cross_matrix')
   const [matrixMetric, setMatrixMetric] = useState<'both' | 'cases' | 'deaths'>('both')
 
   // State: Detail Modal
@@ -701,6 +701,47 @@ export default function ReportsPage() {
       outsideGrandDeaths,
     }
   }, [filteredData, selectedDiseases, selectedCountries])
+
+  // MODE 3: TEMPORAL DISTRIBUTION (Real Disease x Month of Year)
+  const temporalDistribution = useMemo(() => {
+    const months = [
+      { key: 0, label: 'Jan' },
+      { key: 1, label: 'Feb' },
+      { key: 2, label: 'Mar' },
+      { key: 3, label: 'Apr' },
+      { key: 4, label: 'May' },
+      { key: 5, label: 'Jun' },
+      { key: 6, label: 'Jul' },
+      { key: 7, label: 'Aug' },
+      { key: 8, label: 'Sep' },
+      { key: 9, label: 'Oct' },
+      { key: 10, label: 'Nov' },
+      { key: 11, label: 'Dec' },
+    ]
+
+    const dist: Record<string, number[]> = {}
+    const monthlyTotals = new Array(12).fill(0)
+
+    crossTabMatrix.diseases.forEach((d) => {
+      dist[d] = new Array(12).fill(0)
+    })
+
+    filteredData
+      .filter((item) => item.country !== OUTSIDE_ASEAN_LABEL)
+      .forEach((item) => {
+        const d = new Date(item.date)
+        if (!isNaN(d.getTime())) {
+          const m = d.getMonth()
+          if (!dist[item.disease]) {
+            dist[item.disease] = new Array(12).fill(0)
+          }
+          dist[item.disease][m] += item.cases
+          monthlyTotals[m] += item.cases
+        }
+      })
+
+    return { months, dist, monthlyTotals }
+  }, [filteredData, crossTabMatrix.diseases])
 
   // Overall KPIs calculated from real database records
   const metrics = useMemo(() => {
@@ -1371,15 +1412,15 @@ export default function ReportsPage() {
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('custom_report')}
+                    onClick={() => setActiveTab('time_distribution')}
                     className={`flex items-center gap-2 rounded-lg px-4 py-2.5 transition cursor-pointer ${
-                      activeTab === 'custom_report'
+                      activeTab === 'time_distribution'
                         ? 'bg-[#0060A9] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <Sparkles className="h-4 w-4" />
-                    <span>Create Your Own Report</span>
+                    <CalendarDays className="h-4 w-4" />
+                    <span>Monthly Temporal Distribution (Seasonality)</span>
                   </button>
                 </div>
 
@@ -1950,13 +1991,102 @@ export default function ReportsPage() {
                     </div>
                   )}
 
-                  {/* ==================== TAB 3: CUSTOM REPORT BUILDER ==================== */}
-                  {activeTab === 'custom_report' && (
-                    <CustomReportBuilder
-                      rows={dataList}
-                      loading={loading}
-                      onToast={showToast}
-                    />
+                  {/* ==================== TAB 3: MONTHLY TEMPORAL MATRIX ==================== */}
+                  {activeTab === 'time_distribution' && (
+                    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                      <div className="flex-1 overflow-auto rounded-xl border border-slate-200 custom-scrollbar">
+                        <table className="w-full border-collapse text-left text-sm">
+                          <thead className="sticky top-0 z-10 bg-[#0060A9] text-white">
+                            <tr>
+                              <th className="py-3.5 px-4 font-black uppercase tracking-wider border-r border-[#004b85] whitespace-nowrap bg-[#0060A9] text-xs md:text-sm">
+                                DISEASE CLASSIFICATION
+                              </th>
+                              {temporalDistribution.months.map((m) => (
+                                <th
+                                  key={m.key}
+                                  className="py-3.5 px-2.5 text-center font-black border-r border-[#004b85] whitespace-nowrap bg-[#0060A9] text-xs md:text-sm"
+                                >
+                                  {m.label}
+                                </th>
+                              ))}
+                              <th className="py-3.5 px-4 text-center font-black whitespace-nowrap bg-[#004b85] text-xs md:text-sm">
+                                ANNUAL TOTAL
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200 bg-white font-mono text-xs md:text-sm">
+                            {crossTabMatrix.diseases.length === 0 ? (
+                              <tr>
+                                <td colSpan={14} className="py-14 text-center text-slate-400 font-bold text-sm font-sans">
+                                  No surveillance records in the selected time range.
+                                </td>
+                              </tr>
+                            ) : (
+                              crossTabMatrix.diseases.map((dis, idx) => {
+                                const monthData = temporalDistribution.dist[dis] || new Array(12).fill(0)
+                                const diseaseAnnual = monthData.reduce((acc, c) => acc + c, 0)
+                                return (
+                                  <tr
+                                    key={dis}
+                                    className={`transition ${
+                                      idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                                    } hover:bg-blue-50/40`}
+                                  >
+                                    <td className="py-3 px-4 font-sans font-black text-slate-900 border-r border-slate-200 whitespace-nowrap sticky left-0 bg-inherit text-sm md:text-base">
+                                      {dis}
+                                    </td>
+                                    {monthData.map((val, mIdx) => (
+                                      <td
+                                        key={mIdx}
+                                        className="py-3 px-2.5 text-center border-r border-slate-200 whitespace-nowrap font-mono text-sm md:text-base"
+                                      >
+                                        {val > 0 ? (
+                                          <span
+                                            className={`font-black ${
+                                              val > 100
+                                                ? 'text-rose-700 bg-rose-50 px-2 py-0.5 rounded-lg font-mono'
+                                                : val > 30
+                                                ? 'text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg font-mono'
+                                                : 'text-slate-900 font-mono'
+                                            }`}
+                                          >
+                                            {val.toLocaleString()}
+                                          </span>
+                                        ) : (
+                                          <span className="text-slate-300 font-normal">-</span>
+                                        )}
+                                      </td>
+                                    ))}
+                                    <td className="py-3 px-4 text-center font-black text-[#0060A9] bg-blue-50/40 font-mono text-sm md:text-base">
+                                      {diseaseAnnual.toLocaleString()}
+                                    </td>
+                                  </tr>
+                                )
+                              })
+                            )}
+                          </tbody>
+                          <tfoot className="border-t-2 border-slate-300 bg-slate-100 font-bold text-slate-900 font-mono text-xs md:text-sm">
+                            <tr>
+                              <td className="py-3.5 px-4 font-sans uppercase tracking-wider border-r border-slate-200 text-sm md:text-base font-black">
+                                MONTHLY TOTAL CASES
+                              </td>
+                              {temporalDistribution.monthlyTotals.map((tot, mIdx) => (
+                                <td key={mIdx} className="py-3.5 px-2.5 text-center border-r border-slate-200 text-sm md:text-base">
+                                  <span className="text-blue-950 font-black">
+                                    {tot > 0 ? tot.toLocaleString() : '-'}
+                                  </span>
+                                </td>
+                              ))}
+                              <td className="py-3.5 px-4 text-center font-black text-[#0060A9] bg-blue-100 text-sm md:text-base">
+                                {temporalDistribution.monthlyTotals
+                                  .reduce((a, b) => a + b, 0)
+                                  .toLocaleString()}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
                   )}
                 </>
               )}
