@@ -47,7 +47,8 @@ import SocialMediaIcon from '@/components/SocialMediaIcon'
 import { fetchPublicDashboard, fetchEvents } from '@/lib/api'
 import type { PublicDashboard, OutbreakLocation, DiseaseEvent } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
-import CustomReportBuilder from '@/components/CustomReportBuilder'
+import { MediaMonitoringArchive } from '@/components/reports/MediaMonitoringArchive'
+import { SituationReportArchive } from '@/components/reports/SituationReportArchive'
 
 // Unified surveillance report row model (100% mapped from live NLP pipeline)
 export type SurveillanceReportRow = {
@@ -192,8 +193,19 @@ export default function ReportsPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
 
-  // State: Active View Tab
-  const [activeTab, setActiveTab] = useState<'cross_matrix' | 'event_log' | 'custom_report'>('cross_matrix')
+  // State: Active View Tab (Default to Media Monitoring Archive)
+  const [activeTab, setActiveTab] = useState<'media_monitoring' | 'sitrep_kemenkes' | 'cross_matrix' | 'event_log'>('media_monitoring')
+
+  // Check URL tab parameter on initial load
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const tab = params.get('tab')
+      if (tab === 'media_monitoring' || tab === 'sitrep_kemenkes' || tab === 'cross_matrix' || tab === 'event_log') {
+        setActiveTab(tab)
+      }
+    }
+  }, [])
   const [matrixMetric, setMatrixMetric] = useState<'both' | 'cases' | 'deaths'>('both')
 
   // State: Detail Modal
@@ -906,8 +918,86 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* ==================== MAIN EQUAL-HEIGHT LAYOUT: FILTER SIDEBAR + DATA MATRIX ==================== */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 items-stretch lg:min-h-[760px]">
+        {/* ==================== MASTER TAB SWITCHER ==================== */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs print:hidden">
+          <div className="inline-flex flex-wrap items-center rounded-xl border border-slate-200 bg-slate-100/90 p-1 text-xs sm:text-sm font-bold">
+            <button
+              type="button"
+              onClick={() => setActiveTab('media_monitoring')}
+              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
+                activeTab === 'media_monitoring'
+                  ? 'bg-[#0060A9] text-white shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Globe className="h-4 w-4" />
+              <span>Buletin Media Monitoring ASEAN</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('sitrep_kemenkes')}
+              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
+                activeTab === 'sitrep_kemenkes'
+                  ? 'bg-teal-700 text-white shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ShieldAlert className="h-4 w-4" />
+              <span>Laporan Situasi (SitRep Kemenkes)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('cross_matrix')}
+              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
+                activeTab === 'cross_matrix'
+                  ? 'bg-[#0060A9] text-white shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <TableIcon className="h-4 w-4" />
+              <span>Cross-Tabulation Matrix</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('event_log')}
+              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
+                activeTab === 'event_log'
+                  ? 'bg-[#0060A9] text-white shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="h-4 w-4" />
+              <span>Surveillance Events Ledger</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 pr-1">
+            <Link
+              href="/reports/executive?mode=create"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#0060A9] hover:bg-blue-700 px-3.5 py-2 text-xs font-black text-white shadow-xs transition"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+              <span>Buka Editor / Buat Draft</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* ==================== TAB 1: MEDIA MONITORING ARCHIVE ==================== */}
+        {activeTab === 'media_monitoring' && (
+          <MediaMonitoringArchive onToast={showToast} />
+        )}
+
+        {/* ==================== TAB 2: SITUATION REPORT ARCHIVE ==================== */}
+        {activeTab === 'sitrep_kemenkes' && (
+          <SituationReportArchive onToast={showToast} />
+        )}
+
+        {/* ==================== TAB 3 & 4: MATRIX & EVENT LEDGER ==================== */}
+        {(activeTab === 'cross_matrix' || activeTab === 'event_log') && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 items-stretch lg:min-h-[760px]">
           {/* ==================== LEFT MULTI FILTER SIDEBAR (PRINT HIDDEN) ==================== */}
           <aside className="lg:col-span-3 xl:col-span-3 flex min-h-0 flex-col h-full rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden print:hidden">
             {/* Filter Header */}
@@ -1369,18 +1459,7 @@ export default function ReportsPage() {
                     <span>Surveillance Events Ledger (Detailed Log)</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('custom_report')}
-                    className={`flex items-center gap-2 rounded-lg px-4 py-2.5 transition cursor-pointer ${
-                      activeTab === 'custom_report'
-                        ? 'bg-[#0060A9] text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    <span>Create Your Own Report</span>
-                  </button>
+
                 </div>
 
                 {/* Sub-Metric Switcher for Cross-Matrix */}
@@ -1950,19 +2029,12 @@ export default function ReportsPage() {
                     </div>
                   )}
 
-                  {/* ==================== TAB 3: CUSTOM REPORT BUILDER ==================== */}
-                  {activeTab === 'custom_report' && (
-                    <CustomReportBuilder
-                      rows={dataList}
-                      loading={loading}
-                      onToast={showToast}
-                    />
-                  )}
                 </>
               )}
             </div>
           </main>
         </div>
+        )}
       </div>
 
       {/* ==================== DETAIL EVENT INSIGHT MODAL ==================== */}

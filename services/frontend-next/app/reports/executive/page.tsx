@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react"
 import Link from "next/link"
+import { useSearchParams, useRouter } from "next/navigation"
+import { PublishedReportItem, ReportTemplateType } from "@/types/reports"
+import { getStoredReports, saveReportToStore } from "@/lib/reports-store"
 import {
   Printer,
   Download,
@@ -62,7 +65,9 @@ interface DiseaseHighlight {
   }[]
 }
 
-export default function ExecutiveReportPage() {
+export type ReportThemeType = "formal_white" | "asean_navy" | "kemenkes_teal" | "slate_minimal"
+
+function ExecutiveReportContent() {
   const [loading, setLoading] = useState(true)
   const [dashboardData, setDashboardData] = useState<PublicDashboard | null>(null)
   const [events, setEvents] = useState<DiseaseEvent[]>([])
@@ -74,6 +79,19 @@ export default function ExecutiveReportPage() {
   const [activeSection, setActiveSection] = useState<string>("ringkasan")
 
   // 1. Template & Cadence
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const templateParam = searchParams.get("template") as TemplateType | null
+  const reportIdParam = searchParams.get("reportId")
+  const autoEditParam = searchParams.get("edit")
+  const autoPrintParam = searchParams.get("print")
+
+  // Theme & Author states
+  const [reportTheme, setReportTheme] = useState<ReportThemeType>("formal_white")
+  const [reportAuthor, setReportAuthor] = useState<string>("yusuf")
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false)
+  const [publishSuccessItem, setPublishSuccessItem] = useState<PublishedReportItem | null>(null)
+
   const [template, setTemplate] = useState<TemplateType>("kemenkes_sitrep")
   const [cadence, setCadence] = useState<CadenceType>("weekly")
   const [epiPeriodText, setEpiPeriodText] = useState("14 Sep 2026 (Minggu ke-38)")
@@ -189,6 +207,90 @@ export default function ExecutiveReportPage() {
       ],
     },
   ])
+
+  // Initialize from searchParams
+  useEffect(() => {
+    if (templateParam === "asean_bulletin" || templateParam === "kemenkes_sitrep") {
+      setTemplate(templateParam)
+      if (templateParam === "asean_bulletin") {
+        setReportTitle("Media Monitoring for Infectious and Emerging Diseases in the ASEAN Region")
+        setReportSubtitle("ASEAN Biological Threats Surveillance Centre — Health Intelligence Report")
+        setReportAuthor("yusuf")
+      } else {
+        setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI")
+        setReportSubtitle("Pusat Intelijen Epidemiologi & SPGDT — Kementerian Kesehatan Republik Indonesia")
+        setReportAuthor("PHEOC Kemenkes RI")
+      }
+    }
+  }, [templateParam])
+
+  useEffect(() => {
+    if (reportIdParam) {
+      const stored = getStoredReports().find((r) => r.id === reportIdParam)
+      if (stored) {
+        setReportTitle(stored.title)
+        setReportAuthor(stored.author)
+        setEpiPeriodText(stored.period)
+        setTemplate(stored.type)
+        if (stored.description) {
+          setExecutiveSummary(stored.description)
+        }
+      }
+    }
+  }, [reportIdParam])
+
+  useEffect(() => {
+    if (autoEditParam === "true") {
+      setIsEditDrawerOpen(true)
+    }
+    if (autoPrintParam === "true") {
+      setTimeout(() => {
+        window.print()
+      }, 700)
+    }
+  }, [autoEditParam, autoPrintParam])
+
+  const handlePublishReport = () => {
+    const newId = reportIdParam || (template === "asean_bulletin" ? `mm-${Date.now()}` : `sitrep-${Date.now()}`)
+    const publishedItem: PublishedReportItem = {
+      id: newId,
+      category:
+        template === "asean_bulletin"
+          ? "Data & Publications Media Monitoring Report"
+          : "Laporan Situasi Resmi Kemenkes RI",
+      title: reportTitle,
+      period: epiPeriodText,
+      author: reportAuthor || (template === "asean_bulletin" ? "yusuf" : "PHEOC Kemenkes RI"),
+      publishedAt: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+      type: template,
+      status: "published",
+      description: executiveSummary.length > 220 ? executiveSummary.slice(0, 217) + "..." : executiveSummary,
+      summaryStats: {
+        cases: metricTotalKasus,
+        deaths: metricKorbanMeninggal,
+        countriesCount: metricWilayahTerpantau,
+        topDisease: template === "asean_bulletin" ? "Dengue Fever" : "Dengue / DBD",
+      },
+    }
+
+    saveReportToStore(publishedItem)
+    setPublishSuccessItem(publishedItem)
+    setIsPublishModalOpen(true)
+  }
+
+  const getThemeClass = () => {
+    switch (reportTheme) {
+      case "asean_navy":
+        return "bg-gradient-to-b from-blue-50/50 via-white to-white border-blue-200 shadow-md"
+      case "kemenkes_teal":
+        return "bg-gradient-to-b from-teal-50/50 via-white to-white border-teal-200 shadow-md"
+      case "slate_minimal":
+        return "bg-slate-50/90 border-slate-300 shadow-sm"
+      case "formal_white":
+      default:
+        return "bg-white border-slate-200 shadow-sm"
+    }
+  }
 
   // ==========================================
   // FETCH LIVE DATA ON MOUNT
@@ -448,6 +550,16 @@ export default function ExecutiveReportPage() {
             <span>{isEditDrawerOpen ? "Tutup Editor" : "Kustomisasi Narasi"}</span>
           </button>
 
+          {/* Publikasikan Laporan */}
+          <button
+            type="button"
+            onClick={handlePublishReport}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 text-xs font-black text-white transition shadow-sm cursor-pointer active:scale-95"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span>Publikasikan</span>
+          </button>
+
           {/* Print / Download PDF */}
           <button
             type="button"
@@ -506,7 +618,47 @@ export default function ExecutiveReportPage() {
         {/* ==========================================
             DOCUMENT CANVAS (PRINT AREA)
         ========================================== */}
-        <main className="print-area relative flex-1 rounded-2xl border border-slate-200 bg-white p-6 sm:p-10 shadow-sm z-10">
+        <main className={`print-area relative flex-1 rounded-2xl border p-6 sm:p-10 z-10 transition duration-200 ${getThemeClass()}`}>
+          {/* ==================== WORKFLOW DRAFT BANNER ==================== */}
+          <div className="no-print mb-6 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 via-indigo-50/50 to-blue-50 p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#0060A9] text-white shadow-xs">
+                <Sparkles className="h-5 w-5 text-amber-300 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="rounded-md bg-[#0060A9] px-2 py-0.5 text-[10px] font-black text-white uppercase tracking-wider">
+                    Draft Otomatis Sistem (AI Surveillance)
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">
+                    • Siap untuk Analisis &amp; Kustomisasi
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Sistem telah menghasilkan draf awal dari intelijen surveilans real-time. Anda dapat mengedit narasi dokumen, memilih latar belakang/template, lalu mempublikasikan ke arsip.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsEditDrawerOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-white px-3 py-1.5 text-xs font-bold text-[#0060A9] hover:bg-blue-50 shadow-2xs transition"
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+                <span>Kustomisasi Dokumen</span>
+              </button>
+              <button
+                type="button"
+                onClick={handlePublishReport}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-3.5 py-1.5 text-xs font-black text-white shadow-xs transition cursor-pointer active:scale-95"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span>Publikasikan</span>
+              </button>
+            </div>
+          </div>
           {/* -------------------------------------------
               TEMPLATE 1: KEMENKES EXECUTIVE SITREP (IMAGE 1)
           -------------------------------------------- */}
@@ -871,6 +1023,49 @@ export default function ExecutiveReportPage() {
               </button>
             </div>
 
+            {/* Background & Template Theme Styling */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2.5">
+              <label className="block text-[11px] font-black uppercase text-slate-700">
+                Latar Belakang &amp; Gaya Dokumen
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: "formal_white", label: "Clean White", desc: "Standar formal cetak" },
+                  { id: "asean_navy", label: "ASEAN Navy", desc: "Aksen biru kartografis" },
+                  { id: "kemenkes_teal", label: "Kemenkes Teal", desc: "Aksen hijau PHEOC" },
+                  { id: "slate_minimal", label: "Slate Dark", desc: "Minimalis modern" },
+                ].map((th) => (
+                  <button
+                    key={th.id}
+                    type="button"
+                    onClick={() => setReportTheme(th.id as any)}
+                    className={`rounded-xl border p-2 text-left text-xs transition cursor-pointer ${
+                      reportTheme === th.id
+                        ? "border-[#0060A9] bg-white text-[#0060A9] font-black shadow-xs ring-2 ring-blue-500/20"
+                        : "border-slate-200 bg-white/70 text-slate-700 hover:bg-white"
+                    }`}
+                  >
+                    <p className="font-bold">{th.label}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{th.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Author / Penelaah */}
+            <div>
+              <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
+                Penyusun / Penelaah Dokumen
+              </label>
+              <input
+                type="text"
+                value={reportAuthor}
+                onChange={(e) => setReportAuthor(e.target.value)}
+                placeholder="Contoh: yusuf, Rijal, vira, PHEOC Kemenkes RI"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-800"
+              />
+            </div>
+
             {/* Template Selection */}
             <div>
               <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
@@ -1127,8 +1322,16 @@ export default function ExecutiveReportPage() {
           <div className="pt-6 border-t border-slate-200 mt-6 space-y-2">
             <button
               type="button"
+              onClick={handlePublishReport}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 text-xs font-black text-white shadow-xs transition cursor-pointer"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              <span>Publikasikan Laporan Ini ke Arsip</span>
+            </button>
+            <button
+              type="button"
               onClick={handleResetToBaseline}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               <span>Reset ke Baseline AI Otomatis</span>
@@ -1144,6 +1347,90 @@ export default function ExecutiveReportPage() {
           </div>
         </div>
       )}
+
+      {/* ==========================================
+          PUBLISH SUCCESS / CONFIRMATION MODAL
+      ========================================== */}
+      {isPublishModalOpen && publishSuccessItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-100 text-emerald-700">
+                <CheckCircle2 className="h-7 w-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900">
+                  Laporan Berhasil Dipublikasikan!
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Telah disimpan ke Arsip Publikasi dan siap diakses.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
+              <div>
+                <span className="font-bold text-slate-500">Judul Laporan:</span>
+                <p className="font-black text-slate-900">{publishSuccessItem.title}</p>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                <span className="text-slate-500">Kategori:</span>
+                <span className="font-bold text-[#0060A9]">{publishSuccessItem.category}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Penelaah / Analis:</span>
+                <span className="font-bold text-slate-800">{publishSuccessItem.author}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Periode Terbit:</span>
+                <span className="font-bold text-slate-800">{publishSuccessItem.period}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsPublishModalOpen(false)}
+                className="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+              >
+                Tetap di Sini
+              </button>
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="w-full sm:w-auto rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 transition shadow-2xs"
+              >
+                Cetak / Unduh PDF
+              </button>
+              <Link
+                href={
+                  template === "asean_bulletin"
+                    ? "/reports?tab=media_monitoring"
+                    : "/reports?tab=sitrep_kemenkes"
+                }
+                className="w-full sm:w-auto rounded-xl bg-[#0060A9] hover:bg-blue-700 px-4 py-2 text-xs font-black text-white shadow-xs transition text-center"
+              >
+                Lihat di Daftar Arsip (/reports)
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+export default function ExecutiveReportPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white space-y-3">
+          <div className="h-8 w-8 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+          <p className="text-sm font-bold text-slate-300">Memuat Editor Laporan Eksekutif...</p>
+        </div>
+      }
+    >
+      <ExecutiveReportContent />
+    </React.Suspense>
   )
 }
