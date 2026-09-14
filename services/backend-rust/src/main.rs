@@ -229,6 +229,37 @@ struct UpdateSourceRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CreateInteroperabilityIntegrationRequest {
+    name: String,
+    integration_type: String,
+    provider: Option<String>,
+    source_url: Option<String>,
+    endpoint: Option<String>,
+    status: Option<String>,
+    #[serde(default)]
+    integrated_in: Value,
+    description: Option<String>,
+    enabled: Option<bool>,
+    last_checked_at: Option<String>,
+    last_error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateInteroperabilityIntegrationRequest {
+    name: Option<String>,
+    integration_type: Option<String>,
+    provider: Option<String>,
+    source_url: Option<String>,
+    endpoint: Option<String>,
+    status: Option<String>,
+    integrated_in: Option<Value>,
+    description: Option<String>,
+    enabled: Option<bool>,
+    last_checked_at: Option<String>,
+    last_error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct RunsQuery {
     source_id: Option<Uuid>,
     page: Option<i64>,
@@ -491,6 +522,15 @@ struct SourcesQuery {
 }
 
 #[derive(Debug, Deserialize)]
+struct InteroperabilityIntegrationsQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+    q: Option<String>,
+    status: Option<String>,
+    enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UsersQuery {
     page: Option<i64>,
     per_page: Option<i64>,
@@ -708,6 +748,16 @@ async fn main() -> anyhow::Result<()> {
             get(get_source).put(update_source).delete(delete_source),
         )
         .route("/api/v1/sources/:id/collect", post(trigger_collect))
+        .route(
+            "/api/v1/interoperability-integrations",
+            get(list_interoperability_integrations).post(create_interoperability_integration),
+        )
+        .route(
+            "/api/v1/interoperability-integrations/:id",
+            get(get_interoperability_integration)
+                .put(update_interoperability_integration)
+                .delete(delete_interoperability_integration),
+        )
         .route("/api/v1/runs", get(list_runs))
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
@@ -4342,6 +4392,194 @@ async fn summary(
     Ok(Json(ApiResponse {
         success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
     }))
+}
+
+fn validate_interoperability_status(status: &str) -> Result<(), (StatusCode, Json<Value>)> {
+    match status {
+        "ACTIVE" | "IN_PROGRESS" | "INACTIVE" | "ERROR" | "PLANNED" => Ok(()),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": "Invalid integration status. Use ACTIVE, IN_PROGRESS, INACTIVE, ERROR, or PLANNED.",
+            })),
+        )),
+    }
+}
+
+fn normalize_integrated_in(value: Value) -> Value {
+    if value.is_array() { value } else { json!([]) }
+}
+
+fn interoperability_value(row: &tokio_postgres::Row) -> Value {
+    json!({
+        "id": row.get::<_, Uuid>(0),
+        "name": row.get::<_, String>(1),
+        "integration_type": row.get::<_, String>(2),
+        "provider": row.get::<_, Option<String>>(3),
+        "source_url": row.get::<_, Option<String>>(4),
+        "endpoint": row.get::<_, Option<String>>(5),
+        "status": row.get::<_, String>(6),
+        "integrated_in": row.get::<_, Value>(7),
+        "description": row.get::<_, Option<String>>(8),
+        "enabled": row.get::<_, bool>(9),
+        "last_checked_at": row.get::<_, Option<String>>(10),
+        "last_error": row.get::<_, Option<String>>(11),
+        "created_at": row.get::<_, Option<String>>(12),
+        "updated_at": row.get::<_, Option<String>>(13),
+    })
+}
+
+async fn list_interoperability_integrations(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<InteroperabilityIntegrationsQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+    let rows = client.query(
+        "SELECT id, name, integration_type, provider, source_url, endpoint, status,
+                integrated_in, description, enabled, last_checked_at::text, last_error,
+                created_at::text, updated_at::text
+         FROM interoperability_integrations
+         WHERE ($1::text IS NULL OR name ILIKE '%'||$1||'%' OR provider ILIKE '%'||$1||'%' OR integration_type ILIKE '%'||$1||'%')
+           AND ($2::text IS NULL OR status = $2)
+           AND ($3::bool IS NULL OR enabled = $3)
+         ORDER BY updated_at DESC
+         LIMIT $4 OFFSET $5",
+        &[&query.q, &query.status, &query.enabled, &per_page, &offset],
+    ).await.map_err(internal_error)?;
+    let data = rows.iter().map(interoperability_value).collect::<Vec<_>>();
+    let total: i64 = client.query_one(
+        "SELECT COUNT(*) FROM interoperability_integrations
+         WHERE ($1::text IS NULL OR name ILIKE '%'||$1||'%' OR provider ILIKE '%'||$1||'%' OR integration_type ILIKE '%'||$1||'%')
+           AND ($2::text IS NULL OR status = $2)
+           AND ($3::bool IS NULL OR enabled = $3)",
+        &[&query.q, &query.status, &query.enabled],
+    ).await.map_err(internal_error)?.get(0);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: Some(total),
+        page: Some(page),
+        per_page: Some(per_page),
+        total_pages: Some(calc_total_pages(total, per_page)),
+    }))
+}
+
+async fn get_interoperability_integration(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client.query_opt(
+        "SELECT id, name, integration_type, provider, source_url, endpoint, status,
+                integrated_in, description, enabled, last_checked_at::text, last_error,
+                created_at::text, updated_at::text
+         FROM interoperability_integrations WHERE id = $1",
+        &[&id],
+    ).await.map_err(internal_error)?.ok_or_else(|| (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "success": false, "error": "Integration not found" })),
+    ))?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: interoperability_value(&row),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn create_interoperability_integration(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<CreateInteroperabilityIntegrationRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let _admin = require_admin(&state, &headers).await?;
+    let name = payload.name.trim();
+    let integration_type = payload.integration_type.trim();
+    if name.is_empty() || integration_type.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Name and integration type are required" })),
+        ));
+    }
+    let status = payload.status.as_deref().unwrap_or("PLANNED");
+    validate_interoperability_status(status)?;
+    let integrated_in = normalize_integrated_in(payload.integrated_in);
+    let enabled = payload.enabled.unwrap_or(true);
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client.query_one(
+        "INSERT INTO interoperability_integrations
+            (name, integration_type, provider, source_url, endpoint, status, integrated_in,
+             description, enabled, last_checked_at, last_error)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text::timestamptz, $11)
+         RETURNING id, name, integration_type, provider, source_url, endpoint, status,
+                   integrated_in, description, enabled, last_checked_at::text, last_error,
+                   created_at::text, updated_at::text",
+        &[&name, &integration_type, &payload.provider, &payload.source_url, &payload.endpoint,
+          &status, &integrated_in, &payload.description, &enabled, &payload.last_checked_at,
+          &payload.last_error],
+    ).await.map_err(|e| {
+        tracing::error!(error = ?e, "Failed to create interoperability integration");
+        (StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": e.to_string() })))
+    })?;
+
+    Ok(Json(ApiResponse { success: true, data: interoperability_value(&row), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn update_interoperability_integration(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<UpdateInteroperabilityIntegrationRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let _admin = require_admin(&state, &headers).await?;
+    if let Some(status) = payload.status.as_deref() { validate_interoperability_status(status)?; }
+    if let Some(name) = payload.name.as_deref() {
+        if name.trim().is_empty() {
+            return Err((StatusCode::BAD_REQUEST, Json(json!({ "success": false, "error": "Name cannot be empty" }))));
+        }
+    }
+    let integrated_in = payload.integrated_in.map(normalize_integrated_in);
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client.query_opt(
+        "UPDATE interoperability_integrations
+         SET name = COALESCE($1, name), integration_type = COALESCE($2, integration_type),
+             provider = COALESCE($3, provider), source_url = COALESCE($4, source_url),
+             endpoint = COALESCE($5, endpoint), status = COALESCE($6, status),
+             integrated_in = COALESCE($7, integrated_in), description = COALESCE($8, description),
+             enabled = COALESCE($9, enabled),
+             last_checked_at = COALESCE($10::text::timestamptz, last_checked_at),
+             last_error = COALESCE($11, last_error), updated_at = NOW()
+         WHERE id = $12
+         RETURNING id, name, integration_type, provider, source_url, endpoint, status,
+                   integrated_in, description, enabled, last_checked_at::text, last_error,
+                   created_at::text, updated_at::text",
+        &[&payload.name, &payload.integration_type, &payload.provider, &payload.source_url,
+          &payload.endpoint, &payload.status, &integrated_in, &payload.description, &payload.enabled,
+          &payload.last_checked_at, &payload.last_error, &id],
+    ).await.map_err(internal_error)?.ok_or_else(|| (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "success": false, "error": "Integration not found" })),
+    ))?;
+
+    Ok(Json(ApiResponse { success: true, data: interoperability_value(&row), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn delete_interoperability_integration(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let _admin = require_admin(&state, &headers).await?;
+    let client = state.db.get().await.map_err(internal_error)?;
+    let deleted = client.execute("DELETE FROM interoperability_integrations WHERE id = $1", &[&id])
+        .await.map_err(internal_error)?;
+    if deleted == 0 {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "success": false, "error": "Integration not found" }))));
+    }
+    Ok(Json(ApiResponse { success: true, data: "Integration deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 
 async fn list_sources(

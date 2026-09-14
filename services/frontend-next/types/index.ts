@@ -240,6 +240,23 @@ export type AnalyzeResponse = {
   sources: Record<string, string>;
 };
 
+export type InteroperabilityIntegration = {
+  id: string;
+  name: string;
+  integration_type: string;
+  provider?: string | null;
+  source_url?: string | null;
+  endpoint?: string | null;
+  status: 'ACTIVE' | 'IN_PROGRESS' | 'INACTIVE' | 'ERROR' | 'PLANNED' | string;
+  integrated_in: string[];
+  description?: string | null;
+  enabled: boolean;
+  last_checked_at?: string | null;
+  last_error?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 export type CrawlMatrixRow = {
   id: string;
   disease_name: string;

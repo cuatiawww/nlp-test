@@ -7,6 +7,7 @@
   DiseaseEvent,
   IbsSummary,
   CrawlJobStatus,
+  InteroperabilityIntegration,
 } from "@/types";
 
 // Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
@@ -152,6 +153,15 @@ export const createSource = (data: Partial<Source>) =>
 export const updateSource = (id: string, data: Partial<Source>) =>
   putTo<Source>(`/api/v1/sources/${id}`, data);
 export const deleteSource = (id: string) => delFrom(`/api/v1/sources/${id}`);
+
+// ── Interoperability catalog (admin mutations) ───────────────
+
+export const createInteroperabilityIntegration = (data: Partial<InteroperabilityIntegration>) =>
+  postAuth<InteroperabilityIntegration>('/api/v1/interoperability-integrations', data);
+export const updateInteroperabilityIntegration = (id: string, data: Partial<InteroperabilityIntegration>) =>
+  putAuth<InteroperabilityIntegration>(`/api/v1/interoperability-integrations/${id}`, data);
+export const deleteInteroperabilityIntegration = (id: string) =>
+  delAuth(`/api/v1/interoperability-integrations/${id}`);
 export const triggerCollect = (id: string) =>
   postTo(`/api/v1/sources/${id}/collect`);
 export const triggerCollectAll = () => postTo("/api/v1/sources/collect-all");

@@ -48,6 +48,7 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'Language Markers', labelKey: 'sidebar.items.languageMarkers', icon: Languages, href: '/language-markers' },
       { label: 'Extraction Rules', labelKey: 'sidebar.items.extractionRules', icon: Braces, href: '/extraction-rules' },
       { label: 'Language Models', labelKey: 'sidebar.items.languageModels', icon: Cpu, href: '/language-models' },
+      { label: 'Interoperability', icon: Settings, href: '/interoperability' },
     ],
   },
   {

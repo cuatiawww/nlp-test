@@ -34,6 +34,7 @@ export const SYSTEM_MODULES: SystemModule[] = [
   { id: 'credibility', label: 'Source Credibility', description: 'Source media credibility scores and reputation', category: 'Master Data & Configuration', path: '/source-credibility' },
   { id: 'outbreak_rules', label: 'Outbreak Rules', description: 'Outbreak thresholds and alert rule configuration', category: 'Master Data & Configuration', path: '/outbreak-rules' },
   { id: 'nlp_config', label: 'NLP Labels & Keywords', description: 'NER labels, keyword dictionaries, and language models', category: 'Master Data & Configuration', path: '/nlp-labels' },
+  { id: 'interoperability', label: 'Interoperability', description: 'Manage external APIs, feeds, and service integration status', category: 'Master Data & Configuration', path: '/interoperability' },
 
   // System Management
   { id: 'console_users', label: 'User Management', description: 'Create accounts and manage module permissions', category: 'System Management', path: '/console/users' },
@@ -76,6 +77,7 @@ export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string):
   if (moduleKeyOrPath.startsWith('/source-credibility') && user.permissions?.includes('credibility')) return true;
   if (moduleKeyOrPath.startsWith('/outbreak-rules') && user.permissions?.includes('outbreak_rules')) return true;
   if ((moduleKeyOrPath.startsWith('/nlp-labels') || moduleKeyOrPath.startsWith('/nlp-keywords') || moduleKeyOrPath.startsWith('/language-markers') || moduleKeyOrPath.startsWith('/extraction-rules') || moduleKeyOrPath.startsWith('/language-models')) && user.permissions?.includes('nlp_config')) return true;
+  if (moduleKeyOrPath.startsWith('/interoperability') && user.permissions?.includes('interoperability')) return true;
   if (moduleKeyOrPath.startsWith('/console/users') && user.permissions?.includes('console_users')) return true;
   if (moduleKeyOrPath.startsWith('/console/settings') && user.permissions?.includes('console_settings')) return true;
 
