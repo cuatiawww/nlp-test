@@ -97,18 +97,18 @@ export default function ExecutiveReportPage() {
   // 4. Key Metric Overrides (Analyst can fine tune)
   const [metricTotalKasus, setMetricTotalKasus] = useState<number>(7640)
   const [metricKorbanMeninggal, setMetricKorbanMeninggal] = useState<number>(24)
-  const [metricKasusGawat, setMetricKasusGawat] = useState<number>(142)
+  const [metricCfr, setMetricCfr] = useState<number>(0.31)
   const [metricKlasterAktif, setMetricKlasterAktif] = useState<number>(18)
   const [metricWilayahTerpantau, setMetricWilayahTerpantau] = useState<number>(11)
 
   // 5. Narrative Content (Inline human editable)
   const [executiveSummary, setExecutiveSummary] = useState(
-    "Analisis intelijen operasional surveilans epidemiologi terpadu mencatat eskalasi sebanyak 7.640 kasus terkonfirmasi di wilayah Seluruh Wilayah (Nasional & ASEAN). Integrasi sistem deteksi dini NLP Kemenkes RI telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time. Telaah kedaruratan mengidentifikasi 142 kasus dengan tingkat keparahan tinggi yang berhasil distabilkan, serta 24 kasus kematian (CFR: 0.31%). Jejaring laboratorium kesehatan masyarakat bersama Rumah Sakit Rujukan terus mengoptimalkan penanganan dan tracing terarah guna memitigasi penyebaran lintas batas."
+    "Analisis intelijen surveilans epidemiologi terpadu mencatat akumulasi 7.640 kasus terkonfirmasi di wilayah Nasional & ASEAN. Integrasi sistem deteksi dini NLP Kemenkes RI telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time. Telaah lapangan mengidentifikasi 18 klaster aktif yang terus dipantau intensif, serta 24 kasus kematian (CFR rata-rata regional: 0.31%). Jejaring laboratorium kesehatan masyarakat bersama Balai Kekarantinaan Kesehatan terus mengoptimalkan pengawasan pintu masuk dan respon penanganan terarah guna memitigasi penyebaran transmisi lintas batas."
   )
 
   const [tacticalPoints, setTacticalPoints] = useState<string[]>([
     "Agregasi Kasus & Sinyal NLP: Rekapitulasi intelijen surveilans di wilayah Nasional dan ASEAN mencatat 7.640 kasus dengan kecepatan respon konfirmasi laboratorium terkoordinasi real-time.",
-    "Prioritas Tindakan Klinis: Dari seluruh kasus terpantau, teridentifikasi 142 kasus gawat darurat yang membutuhkan stabilisasi intensif, tata laksana isolasi, dan dukungan logistik obat.",
+    "Deteksi Dini & Respon Cepat: Penguatan pelacakan kontak erat (contact tracing), konfirmasi diagnostik laboratorium cepat (RDT/PCR), dan isolasi terarah pada sentra transmisi lokal.",
     "Intervensi Pengendalian Vektor: Penguatan larvasidasi massal dan fogging fokus di wilayah hotspot (Sumatera Selatan, Jawa Barat, dan Bangkok) jelang puncak musim penghujan.",
     "Komunikasi Publik & Edukasi: Penerbitan peringatan dini bagi masyarakat di sentra transmisi aktif guna mempercepat deteksi gejala dini tanpa memicu kepanikan massal."
   ])
@@ -207,7 +207,7 @@ export default function ExecutiveReportPage() {
           if (dashRes.total_events) {
             setMetricTotalKasus(dashRes.total_events * 45)
             setMetricKorbanMeninggal(Math.max(1, Math.round(dashRes.total_events * 0.4)))
-            setMetricKasusGawat(Math.round(dashRes.total_events * 2.2))
+            setMetricCfr(Number(((Math.max(1, Math.round(dashRes.total_events * 0.4)) / Math.max(1, dashRes.total_events * 45)) * 100).toFixed(2)))
           }
         }
         if (eventsRes && eventsRes.length > 0) {
@@ -271,6 +271,37 @@ export default function ExecutiveReportPage() {
   }, [])
 
   // ==========================================
+  // DYNAMIC SIDEBAR CONTENTS (ADAPTIF SESUAI TEMPLATE)
+  // ==========================================
+  const navItems = useMemo(() => {
+    if (template === "asean_bulletin") {
+      return [
+        { id: "asean-header", label: "Identitas & Pengantar Buletin" },
+        { id: "asean-overview", label: "Ringkasan Situasi Regional" },
+        ...diseaseHighlights.map((dh) => ({
+          id: `asean-disease-${dh.id}`,
+          label: `Sorotan: ${dh.diseaseName}`,
+        })),
+        { id: "asean-matrix", label: "Matriks Beban Kasus ASEAN" },
+        { id: "asean-spasial", label: "Pemetaan Spasial Hotspot (GIS)" },
+        { id: "asean-preparedness", label: "Kesiapsiagaan Kawasan" },
+        { id: "asean-sources", label: "Sumber Informasi & Kemitraan" },
+      ]
+    }
+    return [
+      { id: "ringkasan", label: "Ringkasan Eksekutif" },
+      { id: "poin-utama", label: "Poin Utama & Respon Cepat" },
+      { id: "kpi-metrik", label: "Indikator Utama (KPI)" },
+      { id: "spasial-hotspot", label: "Pemetaan Spasial Hotspot (GIS)" },
+      { id: "tren-visualisasi", label: "Surveilans Tren Kasus" },
+      { id: "distribusi-penyakit", label: "Distribusi Penyakit (ICD-11)" },
+      { id: "situasi-regional", label: "Situasi Regional ASEAN" },
+      { id: "matriks-wilayah", label: "Matriks Beban Wilayah" },
+      { id: "pengesahan", label: "Pengesahan Dokumen PHEOC" },
+    ]
+  }, [template, diseaseHighlights])
+
+  // ==========================================
   // ACTIONS
   // ==========================================
   const handlePrint = () => {
@@ -285,7 +316,7 @@ export default function ExecutiveReportPage() {
     setFilterLayananText("Semua Kategori Penyakit Infeksi Emerging")
     setMetricTotalKasus(7640)
     setMetricKorbanMeninggal(24)
-    setMetricKasusGawat(142)
+    setMetricCfr(0.31)
     setMetricKlasterAktif(18)
     setWatermarkText("RESMI KEMENKES RI")
     setExecutiveSummary(
@@ -441,17 +472,7 @@ export default function ExecutiveReportPage() {
               Contents (Daftar Isi)
             </h3>
             <nav className="space-y-1">
-              {[
-                { id: "ringkasan", label: "Ringkasan Eksekutif" },
-                { id: "poin-utama", label: "Poin Utama & Rekomendasi" },
-                { id: "kpi-metrik", label: "Indikator Utama (KPI)" },
-                { id: "spasial-hotspot", label: "Pemetaan Spasial Hotspot" },
-                { id: "tren-visualisasi", label: "Surveilans Tren Kasus" },
-                { id: "distribusi-penyakit", label: "Distribusi Penyakit (ICD-11)" },
-                { id: "situasi-regional", label: "Situasi Regional ASEAN" },
-                { id: "matriks-wilayah", label: "Matriks Beban Wilayah" },
-                { id: "pengesahan", label: "Pengesahan Tim Analis" },
-              ].map((item) => (
+              {navItems.map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -517,11 +538,12 @@ export default function ExecutiveReportPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-3.5 text-center">
                       <p className="text-[10px] font-black uppercase tracking-wider text-teal-800">
-                        TOTAL LAPORAN KASUS
+                        TOTAL KASUS TERKONFIRMASI
                       </p>
                       <p className="mt-1 font-mono text-2xl sm:text-3xl font-black text-teal-900">
                         {metricTotalKasus.toLocaleString()}
                       </p>
+                      <p className="text-[9px] font-bold text-teal-700/80 mt-0.5">Surveilans Nasional &amp; ASEAN</p>
                     </div>
 
                     <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3.5 text-center">
@@ -532,16 +554,17 @@ export default function ExecutiveReportPage() {
                         {metricKorbanMeninggal}{" "}
                         <span className="text-xs font-semibold">Jiwa</span>
                       </p>
+                      <p className="text-[9px] font-bold text-rose-700/80 mt-0.5">Kasus Fatal Terverifikasi</p>
                     </div>
 
                     <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 text-center">
                       <p className="text-[10px] font-black uppercase tracking-wider text-amber-800">
-                        KASUS GAWAT DARURAT
+                        CASE FATALITY RATE (CFR)
                       </p>
                       <p className="mt-1 font-mono text-2xl sm:text-3xl font-black text-amber-900">
-                        {metricKasusGawat}{" "}
-                        <span className="text-xs font-semibold">Pasien</span>
+                        {metricCfr}%
                       </p>
+                      <p className="text-[9px] font-bold text-amber-700/80 mt-0.5">Ambang Batas WHO &lt; 1%</p>
                     </div>
 
                     <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3.5 text-center">
@@ -678,7 +701,7 @@ export default function ExecutiveReportPage() {
                     </div>
                     <div className="text-right">
                       <p className="text-[11px] text-slate-500">Jakarta, {new Date().toLocaleDateString("id-ID", { dateStyle: "long" })}</p>
-                      <p className="mt-8 font-black text-slate-900">Pusat Krisis & Pengawasan Epidemiologi EOC 119</p>
+                      <p className="mt-8 font-black text-slate-900">Pusat Operasi Kedaruratan Kesehatan Masyarakat (PHEOC)</p>
                       <p className="text-[10px] text-slate-500">Kementerian Kesehatan Republik Indonesia</p>
                     </div>
                   </div>
@@ -717,8 +740,8 @@ export default function ExecutiveReportPage() {
                 </div>
               </div>
 
-              {/* Introductory Paragraph */}
-              <div className="text-xs sm:text-sm text-slate-700 leading-relaxed border-b border-slate-200 pb-4">
+              {/* Section: Overview */}
+              <div id="asean-overview" className="text-xs sm:text-sm text-slate-700 leading-relaxed border-b border-slate-200 pb-4">
                 <p>
                   This report is based on media monitoring of infectious and emerging diseases globally and within ASEAN Member States, to enhance pandemic and epidemic preparedness and response in the ASEAN Region. We publish this report regularly for technical situational awareness.
                 </p>
@@ -731,7 +754,7 @@ export default function ExecutiveReportPage() {
                 </h3>
 
                 {diseaseHighlights.map((dh) => (
-                  <div key={dh.id} className="space-y-2.5 break-inside-avoid">
+                  <div key={dh.id} id={`asean-disease-${dh.id}`} className="space-y-2.5 break-inside-avoid">
                     <h4 className="text-sm font-black italic text-[#0060A9] border-b border-blue-100 pb-1">
                       {dh.diseaseName}
                     </h4>
@@ -758,8 +781,8 @@ export default function ExecutiveReportPage() {
                 ))}
               </div>
 
-              {/* Quick Regional Comparison Table */}
-              <div className="pt-6 border-t border-slate-200 break-inside-avoid">
+              {/* Section: Matrix */}
+              <div id="asean-matrix" className="pt-6 border-t border-slate-200 break-inside-avoid">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-3">
                   Summary Matrix (Epi-Week Breakdown)
                 </h4>
@@ -785,6 +808,42 @@ export default function ExecutiveReportPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              {/* Section: Spatial Hotspot Map for ASEAN */}
+              <div id="asean-spasial" className="pt-6 border-t border-slate-200 break-inside-avoid">
+                <SpatialHotspotMap hotspots={hotspots} title="Pemetaan Spasial Hotspot & Koridor Epidemiologi Regional ASEAN" />
+              </div>
+
+              {/* Section: Regional Preparedness */}
+              <div id="asean-preparedness" className="pt-6 border-t border-slate-200 break-inside-avoid space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                  Rekomendasi Kesiapsiagaan Kawasan (Regional Preparedness & Early Action)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3.5 space-y-1">
+                    <p className="font-black text-[#0060A9]">1. Pengawasan Pintu Masuk Internasional (PoE)</p>
+                    <p className="text-slate-600 leading-relaxed">
+                      Pemeriksaan termal dan digital health pass di bandara internasional utama (Jakarta, Bangkok, Ho Chi Minh, Manila) guna menyaring penumpang bergejala ruam atau demam tinggi.
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5 space-y-1">
+                    <p className="font-black text-emerald-800">2. Pertukaran Data Sinyal IHR & EOC Network</p>
+                    <p className="text-slate-600 leading-relaxed">
+                      Pemberitahuan dini antar National Focal Point IHR negara ASEAN terhadap kemunculan varian atau lonjakan transmisi tak biasa dalam waktu 24 jam.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section: Sources & Partnership */}
+              <div id="asean-sources" className="pt-6 border-t border-slate-200 break-inside-avoid text-xs text-slate-500 space-y-2">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">
+                  Sumber Informasi & Jejaring Kemitraan
+                </h4>
+                <p className="leading-relaxed">
+                  Laporan ini dikompilasi secara otomatis melalui pemantauan media daring berbasis kecerdasan buatan (NLP Pipeline Kemenkes RI) dan diverifikasi silang dengan kanal resmi: Kementerian Kesehatan RI, Department of Disease Control Thailand, Ministry of Health Malaysia, Ministry of Health Viet Nam, Department of Health Philippines, dan buletin WHO SEARO / WPRO.
+                </p>
               </div>
             </div>
           )}
@@ -999,7 +1058,7 @@ export default function ExecutiveReportPage() {
                   />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Kematian / DOA</span>
+                  <span className="text-[10px] font-bold text-slate-500">Total Kematian (Jiwa)</span>
                   <input
                     type="number"
                     value={metricKorbanMeninggal}
@@ -1008,11 +1067,12 @@ export default function ExecutiveReportPage() {
                   />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Kasus Gawat</span>
+                  <span className="text-[10px] font-bold text-slate-500">Rata-rata CFR (%)</span>
                   <input
                     type="number"
-                    value={metricKasusGawat}
-                    onChange={(e) => setMetricKasusGawat(Number(e.target.value))}
+                    step="0.01"
+                    value={metricCfr}
+                    onChange={(e) => setMetricCfr(Number(e.target.value))}
                     className="w-full rounded border border-slate-200 px-2 py-1 text-xs font-mono font-bold"
                   />
                 </div>

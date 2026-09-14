@@ -64,160 +64,104 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
   hotspots,
   title = "Pemetaan Spasial Hotspot Wabah & Klaster Penyakit Infeksi",
 }) => {
-  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [downloading, setDownloading] = React.useState(false)
 
-  const handleDownload = () => {
-    exportSvgToPng(svgRef.current, "peta_spasial_hotspot_surveilans")
+  const handleDownload = async () => {
+    try {
+      setDownloading(true)
+      const res = await fetch("/generated_charts/spatial_geomap_indonesia.svg")
+      if (!res.ok) throw new Error("Gagal memuat SVG peta")
+      const svgText = await res.text()
+      const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" })
+      const blobURL = URL.createObjectURL(svgBlob)
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement("canvas")
+        canvas.width = 1920
+        canvas.height = 840
+        const ctx = canvas.getContext("2d")
+        if (!ctx) return
+        ctx.fillStyle = "#f8fafc"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        canvas.toBlob((blob) => {
+          if (!blob) return
+          const a = document.createElement("a")
+          a.download = "peta_spasial_hotspot_gis_indonesia.png"
+          a.href = URL.createObjectURL(blob)
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(blobURL)
+          setDownloading(false)
+        }, "image/png")
+      }
+      img.src = blobURL
+    } catch (err) {
+      console.error("Gagal export geomap:", err)
+      setDownloading(false)
+    }
   }
-
-  const landmasses = [
-    "M 90,130 L 140,80 L 180,120 L 210,160 L 225,200 L 210,215 L 180,205 L 140,170 L 100,150 Z",
-    "M 215,225 L 320,230 L 370,235 L 430,240 L 460,245 L 455,255 L 390,250 L 300,245 L 220,240 Z",
-    "M 270,110 L 340,95 L 385,120 L 375,170 L 330,190 L 285,185 L 265,150 Z",
-    "M 420,115 L 440,110 L 450,140 L 480,150 L 445,165 L 450,195 L 435,200 L 430,170 L 415,145 Z",
-    "M 510,140 L 535,135 L 530,165 L 505,160 Z M 520,180 L 545,185 L 540,210 L 515,200 Z",
-    "M 570,140 L 650,130 L 730,150 L 730,230 L 680,225 L 630,210 L 585,175 Z",
-    "M 120,30 L 160,20 L 175,70 L 160,110 L 145,115 L 135,75 Z",
-    "M 430,40 L 460,35 L 475,70 L 455,105 L 435,70 Z M 460,105 L 485,115 L 475,135 L 450,125 Z",
-    "M 170,10 L 230,15 L 245,65 L 220,95 L 195,85 L 180,45 Z",
-  ]
 
   return (
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div className="flex items-center gap-2">
           <MapPin className="h-5 w-5 text-[#0060A9]" />
           <div>
-            <h4 className="text-sm font-black text-slate-900">{title}</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-black text-slate-900">{title}</h4>
+              <span className="hidden sm:inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700 border border-emerald-200">
+                Python GIS Geomap Engine (38 Provinsi)
+              </span>
+            </div>
             <p className="text-[11px] font-medium text-slate-500">
-              Koordinat kartografis spasial klaster kejadian terkonfirmasi NLP
+              Koordinat kartografis spasial klaster kejadian terkonfirmasi NLP (Sabang ? Merauke & Koridor ASEAN)
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleDownload}
-          className="no-print inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-          title="Unduh Peta sebagai Gambar PNG"
-        >
-          <Download className="h-3.5 w-3.5 text-slate-500" />
-          <span>Unduh PNG</span>
-        </button>
+        <div className="no-print flex items-center gap-2">
+          <a
+            href="/generated_charts/spatial_geomap_indonesia.svg"
+            download="peta_spasial_geomap_indonesia.svg"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+            title="Unduh Format Vektor SVG Asli"
+          >
+            <Download className="h-3 w-3 text-slate-500" />
+            <span>Unduh SVG</span>
+          </a>
+          <button
+            type="button"
+            disabled={downloading}
+            onClick={handleDownload}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#0060A9] px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 transition cursor-pointer shadow-xs disabled:opacity-50"
+            title="Unduh Peta sebagai Gambar PNG Resolusi Tinggi (300 DPI)"
+          >
+            <Download className="h-3.5 w-3.5 text-white" />
+            <span>{downloading ? "Memproses..." : "Unduh PNG 300 DPI"}</span>
+          </button>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-[#f4fbfb]">
-        <svg
-          ref={svgRef}
-          viewBox="0 0 800 320"
-          className="w-full h-auto block"
-          style={{
-            background: "linear-gradient(180deg, #f0fdfa 0%, #e6fffa 100%)",
-            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-          }}
-        >
-          <defs>
-            <pattern id="seaGrid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#ccfbf1" strokeWidth="0.5" opacity="0.6" />
-            </pattern>
-          </defs>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-[#f8fafc] shadow-2xs">
+        <img
+          src="/generated_charts/spatial_geomap_indonesia.svg"
+          alt="Peta Spasial Hotspot GIS Python (38 Provinsi)"
+          className="w-full h-auto block select-none"
+        />
+      </div>
 
-          <rect width="100%" height="100%" fill="url(#seaGrid)" />
-
-          <line x1="0" y1="180" x2="800" y2="180" stroke="#0d9488" strokeWidth="0.8" strokeDasharray="4,4" opacity="0.45" />
-          <text x="12" y="174" fontSize="7" fill="#0f766e" fontWeight="800" letterSpacing="0.4">
-            GARIS KHATULISTIWA (0° EQUATOR - SECTOR SURVEILLANCE)
-          </text>
-
-          <line x1="160" y1="0" x2="160" y2="320" stroke="#cbd5e1" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.5" />
-          <text x="165" y="312" fontSize="6.5" fill="#64748b" fontWeight="600">100° BT</text>
-
-          <line x1="320" y1="0" x2="320" y2="320" stroke="#cbd5e1" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.5" />
-          <text x="325" y="312" fontSize="6.5" fill="#64748b" fontWeight="600">110° BT</text>
-
-          <line x1="480" y1="0" x2="480" y2="320" stroke="#cbd5e1" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.5" />
-          <text x="485" y="312" fontSize="6.5" fill="#64748b" fontWeight="600">120° BT</text>
-
-          <line x1="640" y1="0" x2="640" y2="320" stroke="#cbd5e1" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.5" />
-          <text x="645" y="312" fontSize="6.5" fill="#64748b" fontWeight="600">130° BT</text>
-
-          <g transform="translate(760, 40)">
-            <circle cx="0" cy="0" r="16" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" opacity="0.9" />
-            <polygon points="0,-13 3,-2 0,0 -3,-2" fill="#0060A9" />
-            <polygon points="0,13 3,2 0,0 -3,2" fill="#94a3b8" />
-            <polygon points="13,0 2,3 0,0 2,-3" fill="#94a3b8" />
-            <polygon points="-13,0 -2,3 0,0 -2,-3" fill="#94a3b8" />
-            <text x="0" y="-14" fontSize="6.5" fontWeight="900" fill="#0060A9" textAnchor="middle">U</text>
-          </g>
-
-          <g id="landmass-layer" fill="#d1fae5" stroke="#10b981" strokeWidth="1" opacity="0.85">
-            {landmasses.map((d, i) => (
-              <path key={i} d={d} />
-            ))}
-          </g>
-
-          <g id="hotspots-layer">
-            {hotspots.map((h, i) => {
-              const color =
-                h.severity === "critical"
-                  ? "#dc2626"
-                  : h.severity === "high"
-                  ? "#ea580c"
-                  : h.severity === "medium"
-                  ? "#d97706"
-                  : "#059669"
-
-              return (
-                <g key={h.id || i} transform={`translate(${h.x}, ${h.y})`}>
-                  <circle cx="0" cy="0" r="12" fill={color} opacity="0.25" />
-                  <circle cx="0" cy="0" r="5" fill={color} stroke="#ffffff" strokeWidth="1.5" />
-                  <rect
-                    x="-40"
-                    y="-24"
-                    width="80"
-                    height="18"
-                    rx="4"
-                    fill="#0f172a"
-                    opacity="0.92"
-                    stroke="#ffffff"
-                    strokeWidth="0.6"
-                  />
-                  <text
-                    x="0"
-                    y="-12"
-                    fontSize="7"
-                    fontWeight="800"
-                    fill="#ffffff"
-                    textAnchor="middle"
-                    letterSpacing="0.2"
-                  >
-                    {h.name} ({h.cases.toLocaleString()})
-                  </text>
-                </g>
-              )
-            })}
-          </g>
-
-          <g transform="translate(16, 260)">
-            <rect x="0" y="0" width="260" height="44" rx="6" fill="#ffffff" opacity="0.95" stroke="#94a3b8" strokeWidth="0.8" />
-            <text x="8" y="14" fontSize="7.5" fontWeight="900" fill="#0f172a" letterSpacing="0.3">
-              TINGKAT SEVERITY KLUSTER (HOTSPOT):
-            </text>
-            <circle cx="16" cy="28" r="4.5" fill="#059669" />
-            <text x="25" y="31" fontSize="6.5" fontWeight="700" fill="#475569">Rendah</text>
-            <circle cx="70" cy="28" r="4.5" fill="#d97706" />
-            <text x="79" y="31" fontSize="6.5" fontWeight="700" fill="#475569">Sedang</text>
-            <circle cx="125" cy="28" r="4.5" fill="#ea580c" />
-            <text x="134" y="31" fontSize="6.5" fontWeight="700" fill="#475569">Tinggi</text>
-            <circle cx="185" cy="28" r="4.5" fill="#dc2626" />
-            <text x="194" y="31" fontSize="6.5" fontWeight="900" fill="#dc2626">Kritis / Outbreak</text>
-          </g>
-
-          <g transform="translate(520, 305)">
-            <text x="0" y="0" fontSize="6" fontWeight="700" fill="#0f766e" opacity="0.85">
-              PETA RESMI SURVEILANS BIOLOGIS & EPIDEMIOLOGI KEMENKES - EOC
-            </text>
-          </g>
-        </svg>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[11px] font-semibold text-slate-500">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-slate-700">Proyeksi:</span> Equirectangular GIS Kartografis
+          <span className="text-slate-300">?</span>
+          <span className="font-bold text-slate-700">Datum:</span> WGS84
+          <span className="text-slate-300">?</span>
+          <span className="font-bold text-slate-700">Cakupan:</span> 94?BT ? 142?BT | -12?LS ? 8.5?LU
+        </div>
+        <div className="font-black text-[#0060A9]">
+          Terverifikasi Otomatis Pipeline Python GIS
+        </div>
       </div>
     </div>
   )
