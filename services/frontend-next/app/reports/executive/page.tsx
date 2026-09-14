@@ -103,10 +103,10 @@ function ExecutiveReportContent() {
 
   // 3. Document Meta
   const [reportTitle, setReportTitle] = useState(
-    "Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI"
+    "Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC"
   )
   const [reportSubtitle, setReportSubtitle] = useState(
-    "Pusat Intelijen Surveilans Epidemiologi — Kementerian Kesehatan Republik Indonesia"
+    "Pusat Intelijen Surveilans Epidemiologi — ASEAN Biological Threats Surveillance Centre (ABVC)"
   )
   const [filterWilayahText, setFilterWilayahText] = useState("Seluruh Wilayah (Nasional & ASEAN)")
   const [filterLayananText, setFilterLayananText] = useState("Semua Kategori Penyakit Infeksi Emerging")
@@ -217,9 +217,9 @@ function ExecutiveReportContent() {
         setReportSubtitle("ASEAN Biological Threats Surveillance Centre — Health Intelligence Report")
         setReportAuthor("yusuf")
       } else {
-        setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI")
-        setReportSubtitle("Pusat Intelijen Surveilans Epidemiologi — Kementerian Kesehatan Republik Indonesia")
-        setReportAuthor("PHEOC Kemenkes RI")
+        setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC")
+        setReportSubtitle("Pusat Intelijen Surveilans Epidemiologi — ASEAN Biological Threats Surveillance Centre (ABVC)")
+        setReportAuthor("PHEOC ABVC")
       }
     }
   }, [templateParam])
@@ -257,10 +257,10 @@ function ExecutiveReportContent() {
       category:
         template === "asean_bulletin"
           ? "Data & Publications Media Monitoring Report"
-          : "Laporan Situasi Resmi Kemenkes RI",
+          : "Laporan Situasi Resmi ABVC",
       title: reportTitle,
       period: epiPeriodText,
-      author: reportAuthor || (template === "asean_bulletin" ? "yusuf" : "PHEOC Kemenkes RI"),
+      author: reportAuthor || (template === "asean_bulletin" ? "yusuf" : "PHEOC ABVC"),
       publishedAt: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
       type: template,
       status: "published",
@@ -411,8 +411,8 @@ function ExecutiveReportContent() {
   }
 
   const handleResetToBaseline = () => {
-    setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI")
-    setReportSubtitle("Pusat Intelijen Surveilans Epidemiologi — Kementerian Kesehatan Republik Indonesia")
+    setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC")
+    setReportSubtitle("Pusat Intelijen Surveilans Epidemiologi — ASEAN Biological Threats Surveillance Centre (ABVC)")
     setEpiPeriodText("14 Sep 2026 (Minggu ke-38)")
     setFilterWilayahText("Seluruh Wilayah (Nasional & ASEAN)")
     setFilterLayananText("Semua Kategori Penyakit Infeksi Emerging")
@@ -498,7 +498,7 @@ function ExecutiveReportContent() {
           <div className="h-4 w-px bg-white/20" />
           <div className="flex items-center gap-2">
             <span className="font-extrabold text-xs sm:text-sm tracking-tight">
-              EOC Kemenkes RI — Laporan Situasi Resmi
+              ABVC EOC Centre — Laporan Situasi Resmi
             </span>
             <span className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] font-bold text-teal-100">
               AI Token Generated
@@ -521,7 +521,7 @@ function ExecutiveReportContent() {
                   : "text-blue-100 hover:text-white"
               }`}
             >
-              Kemenkes SitRep
+              SitRep ABVC
             </button>
             <button
               type="button"
@@ -628,9 +628,9 @@ function ExecutiveReportContent() {
               <div className="border-b border-slate-200 pb-5">
                 <div className="flex items-center gap-3 text-xs font-bold text-slate-600">
                   <span className="rounded-md bg-teal-50 px-2 py-0.5 text-teal-800 font-extrabold border border-teal-200">
-                    KEMENKES RI
+                    ABVC CENTRE
                   </span>
-                  <span>Pusat Operasi Kedaruratan Kesehatan Masyarakat (PHEOC) — 24 Jam</span>
+                  <span>Pusat Operasi Kedaruratan Kesehatan Regional (PHEOC ABVC) — 24 Jam</span>
                 </div>
                 <h1 className="mt-2 text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-snug">
                   {reportTitle} : {epiPeriodText}
@@ -809,7 +809,7 @@ function ExecutiveReportContent() {
                 <section id="pengesahan" className="border-t border-slate-200 pt-6 text-xs text-slate-600 break-inside-avoid">
                   <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
                     <div>
-                      <p className="font-bold text-slate-800">Sistem Surveilans & Intelijen Penyakit Kemenkes RI</p>
+                      <p className="font-bold text-slate-800">Sistem Surveilans & Intelijen Penyakit ABVC</p>
                       <p className="text-[11px] text-slate-500">Dokumen sah diterbitkan otomatis melalui verifikasi tim epidemiolog</p>
                     </div>
                     <div className="text-right">
@@ -1021,7 +1021,7 @@ function ExecutiveReportContent() {
                 type="text"
                 value={reportAuthor}
                 onChange={(e) => setReportAuthor(e.target.value)}
-                placeholder="Contoh: yusuf, Rijal, vira, PHEOC Kemenkes RI"
+                placeholder="Contoh: yusuf, Rijal, vira, PHEOC ABVC"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-800"
               />
             </div>
@@ -1041,8 +1041,8 @@ function ExecutiveReportContent() {
                       : "border-slate-200 hover:bg-slate-50"
                   }`}
                 >
-                  <p className="font-black">EOC Kemenkes SitRep</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">Format resmi Kop Kemenkes (Gambar 1)</p>
+                  <p className="font-black">EOC SitRep ABVC</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Format resmi Situasi Regional ABVC</p>
                 </button>
                 <button
                   type="button"

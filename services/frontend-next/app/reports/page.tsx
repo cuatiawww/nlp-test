@@ -944,7 +944,7 @@ export default function ReportsPage() {
               }`}
             >
               <ShieldAlert className="h-4 w-4" />
-              <span>Laporan Situasi (SitRep Kemenkes)</span>
+              <span>Laporan Situasi (SitRep ABVC)</span>
             </button>
 
             <button

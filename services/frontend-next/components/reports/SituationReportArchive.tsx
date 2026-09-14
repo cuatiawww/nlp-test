@@ -40,7 +40,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = ({ 
   // Upload Form State
   const [newTitle, setNewTitle] = useState("")
   const [newPeriod, setNewPeriod] = useState("Minggu ke-38 (14 Sep 2026)")
-  const [newAuthor, setNewAuthor] = useState("PHEOC Kemenkes RI")
+  const [newAuthor, setNewAuthor] = useState("PHEOC ABVC")
   const [newDescription, setNewDescription] = useState("")
   const [uploadedFileName, setUploadedFileName] = useState("")
 
@@ -65,14 +65,14 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = ({ 
 
     const newItem: PublishedReportItem = {
       id: `sitrep-${Date.now()}`,
-      category: "Laporan Situasi Resmi Kemenkes RI",
+      category: "Laporan Situasi Resmi ABVC",
       title: newTitle.trim(),
       period: newPeriod.trim(),
-      author: newAuthor.trim() || "PHEOC Kemenkes RI",
+      author: newAuthor.trim() || "PHEOC ABVC",
       publishedAt: new Date().toLocaleDateString("id-ID", { dateStyle: "long" }),
       type: "kemenkes_sitrep",
       status: "published",
-      description: newDescription.trim() || "Laporan pengawasan surveilans mingguan terpadu PHEOC Kemenkes RI.",
+      description: newDescription.trim() || "Laporan pengawasan surveilans mingguan terpadu PHEOC ABVC.",
       pdfUrl: uploadedFileName ? `/sample_template/${uploadedFileName}` : undefined,
       summaryStats: {
         cases: 7640,
@@ -107,13 +107,13 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = ({ 
           <div>
             <div className="inline-flex items-center gap-2 rounded-md bg-teal-100 px-2.5 py-0.5 text-xs font-black text-teal-800 border border-teal-200 mb-2">
               <Shield className="h-3.5 w-3.5" />
-              <span>PHEOC KEMENKES RI ? 24 JAM</span>
+              <span>PHEOC ABVC — 24 JAM</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
               Laporan Situasi Resmi (Situation Report / SitRep)
             </h2>
             <p className="text-xs font-medium text-slate-500 mt-1">
-              Dokumen pengawasan mingguan dan bulanan kewaspadaan dini outbreak penyakit infeksi menular Kemenkes RI
+              Dokumen pengawasan mingguan dan bulanan kewaspadaan dini outbreak penyakit infeksi menular ABVC Regional
             </p>
           </div>
 
@@ -209,7 +209,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = ({ 
                   <span className="text-[11px] font-black text-teal-800 uppercase tracking-wider">
                     {item.category}
                   </span>
-                  <span className="text-slate-300">?</span>
+                  <span className="text-slate-300">•</span>
                   <span
                     className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${
                       item.status === "published"
@@ -217,7 +217,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = ({ 
                         : "bg-amber-50 text-amber-800 border border-amber-200"
                     }`}
                   >
-                    {item.status === "published" ? "Resmi Kemenkes" : "Draft AI"}
+                    {item.status === "published" ? "Resmi ABVC" : "Draft AI"}
                   </span>
                 </div>
 
@@ -249,7 +249,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = ({ 
                     className="inline-flex items-center gap-1.5 rounded-xl bg-teal-50 px-3.5 py-1.5 text-xs font-black text-teal-800 hover:bg-teal-100 transition"
                   >
                     <Eye className="h-3.5 w-3.5" />
-                    <span>Buka SitRep Resmi</span>
+                    <span>Buka SitRep ABVC</span>
                   </Link>
 
                   <Link
@@ -309,7 +309,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = ({ 
                 <input
                   type="text"
                   required
-                  placeholder="Contoh: Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI ? Minggu ke-38"
+                  placeholder="Contoh: Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC ? Minggu ke-38"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold focus:border-teal-500 focus:outline-none"
@@ -324,7 +324,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = ({ 
                   <input
                     type="text"
                     required
-                    placeholder="Contoh: PHEOC Kemenkes RI"
+                    placeholder="Contoh: PHEOC ABVC"
                     value={newAuthor}
                     onChange={(e) => setNewAuthor(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold focus:border-teal-500 focus:outline-none"

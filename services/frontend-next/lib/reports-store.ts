@@ -74,14 +74,14 @@ export const INITIAL_ASEAN_MEDIA_REPORTS: PublishedReportItem[] = [
 export const INITIAL_KEMENKES_SITREPS: PublishedReportItem[] = [
   {
     id: "sitrep-20260914",
-    category: "Laporan Situasi Resmi Kemenkes RI",
-    title: "Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI — Minggu ke-38 (14 Sep 2026)",
+    category: "Laporan Situasi Resmi ABVC",
+    title: "Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC — Minggu ke-38 (14 Sep 2026)",
     period: "Minggu ke-38 (08 - 14 Sep 2026)",
-    author: "PHEOC Kemenkes RI",
+    author: "PHEOC ABVC",
     publishedAt: "14 September 2026",
     type: "kemenkes_sitrep",
     status: "published",
-    description: "Laporan pengawasan surveilans mingguan terpadu PHEOC Kemenkes RI untuk deteksi dini peringatan KLB/wabah tingkat nasional.",
+    description: "Laporan pengawasan surveilans mingguan terpadu PHEOC ABVC untuk deteksi dini peringatan KLB/wabah tingkat nasional.",
     summaryStats: {
       cases: 7640,
       deaths: 24,
@@ -91,14 +91,14 @@ export const INITIAL_KEMENKES_SITREPS: PublishedReportItem[] = [
   },
   {
     id: "sitrep-20260907",
-    category: "Laporan Situasi Resmi Kemenkes RI",
-    title: "Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak Kemenkes RI — Minggu ke-37 (07 Sep 2026)",
+    category: "Laporan Situasi Resmi ABVC",
+    title: "Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC — Minggu ke-37 (07 Sep 2026)",
     period: "Minggu ke-37 (01 - 07 Sep 2026)",
-    author: "PHEOC Kemenkes RI",
+    author: "PHEOC ABVC",
     publishedAt: "07 September 2026",
     type: "kemenkes_sitrep",
     status: "published",
-    description: "Rekapitulasi surveilans epidemiologi mingguan seluruh 38 provinsi di Indonesia dan pemantauan tren transmisi lokal.",
+    description: "Rekapitulasi surveilans epidemiologi mingguan kawasan regional ASEAN dan pemantauan tren transmisi lokal.",
     summaryStats: {
       cases: 6920,
       deaths: 21,

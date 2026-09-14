@@ -80,13 +80,13 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
       <div className="relative z-10">
         <div className="flex items-center gap-1 text-[7px] font-black uppercase tracking-wider text-teal-800">
           <Shield className="h-2.5 w-2.5 text-teal-700" />
-          <span>KEMENKES RI</span>
+          <span>ABVC CENTRE</span>
         </div>
         <p className="mt-1 text-[8.5px] font-black leading-tight text-slate-900">
           Laporan Situasi (SitRep)
         </p>
         <p className="text-[7px] font-bold text-teal-700">
-          Pusat Operasi PHEOC
+          Pusat Operasi EOC ABVC
         </p>
       </div>
 
@@ -100,13 +100,13 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
       {/* Bottom Title & Period */}
       <div className="relative z-10 border-t border-teal-200/80 pt-1.5">
         <p className="text-[6.5px] font-bold uppercase text-slate-500">
-          Surveilans Nasional
+          Surveilans Regional
         </p>
         <p className="text-[7.5px] font-extrabold text-slate-900 line-clamp-2 leading-tight">
           {period}
         </p>
         <div className="mt-1 flex items-center justify-between text-[6px] text-teal-800 font-mono font-bold">
-          <span>Resmi PHEOC</span>
+          <span>Resmi ABVC</span>
           <span className="rounded bg-teal-200/80 px-1 py-0.2 text-[5.5px]">PDF</span>
         </div>
       </div>
