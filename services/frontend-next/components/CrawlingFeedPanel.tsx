@@ -13,7 +13,7 @@ import {
   Share2,
 } from "lucide-react";
 import { useCrawlingFeed } from "@/hooks/useCrawlingFeed";
-import { relativeTime, type CrawlingFeedItem, type FeedChannel } from "@/lib/crawling-feed";
+import { relativeTime, timestampMs, type CrawlingFeedItem, type FeedChannel } from "@/lib/crawling-feed";
 import CountryFlag from "@/components/CountryFlag";
 import SocialMediaIcon from "@/components/SocialMediaIcon";
 
@@ -44,7 +44,9 @@ export default function CrawlingFeedPanel({ collapsed, onToggle, t, translateDis
 
   const hasRecentActivity = useMemo(
     () => items.some((item) => {
-      const timestamp = Date.parse(item.detectedAt);
+      // API timestamps are PostgreSQL UTC values without an explicit offset.
+      // Use the shared parser so live status is timezone-safe.
+      const timestamp = timestampMs(item.detectedAt);
       return Number.isFinite(timestamp) && now - timestamp <= 15 * 60 * 1_000;
     }),
     [items, now],

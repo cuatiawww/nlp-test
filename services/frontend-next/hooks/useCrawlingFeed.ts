@@ -22,19 +22,30 @@ export function useCrawlingFeed() {
     try {
       // Concurrently query web/RSS and social channels to guarantee both sections
       // remain populated in the TV crawling feed without one starving the other.
-      const [rssEvents, webEvents, socialEvents] = await Promise.all([
-        fetchEvents({ source_type: "rss", per_page: 50 }).catch(() => []),
-        fetchEvents({ source_type: "web", per_page: 25 }).catch(() => []),
-        fetchEvents({ source_type: "social_media", per_page: 50 }).catch(() => []),
+      // Keep the connection state truthful when one or all event requests
+      // fail. Promise.all with swallowed errors made a dead backend look live.
+      const channelResults = await Promise.allSettled([
+        fetchEvents({ source_type: "rss", per_page: 50 }),
+        fetchEvents({ source_type: "web", per_page: 25 }),
+        fetchEvents({ source_type: "social_media", per_page: 50 }),
       ]);
+      const channelEvents = channelResults.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      let requestSucceeded = channelEvents.length > 0;
 
       const eventMap = new Map();
-      for (const ev of [...rssEvents, ...webEvents, ...socialEvents]) {
+      for (const ev of channelEvents.flat()) {
         if (ev && ev.id) eventMap.set(ev.id, ev);
       }
       let events = Array.from(eventMap.values());
       if (events.length === 0) {
-        events = await fetchEvents({ per_page: MAX_ITEMS }).catch(() => []);
+        try {
+          events = await fetchEvents({ per_page: MAX_ITEMS });
+          requestSucceeded = true;
+        } catch {
+          // Preserve the last rendered items while showing the disconnected state.
+        }
       }
       if (!mounted.current) return;
       const nextItems = events
@@ -52,7 +63,7 @@ export function useCrawlingFeed() {
         );
         return unchanged ? previous : merged;
       });
-      setConnected(true);
+      setConnected(requestSucceeded);
     } catch {
       if (mounted.current) setConnected(false);
     } finally {
@@ -65,9 +76,14 @@ export function useCrawlingFeed() {
     mounted.current = true;
     void refresh();
     const interval = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       mounted.current = false;
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [refresh]);
 

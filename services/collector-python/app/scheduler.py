@@ -15,6 +15,7 @@ from .collectors.skdr_api import SKDRCollector
 
 logger = logging.getLogger(__name__)
 _source_run_semaphore = None
+_source_job_signatures = {}
 
 CSV_WATCHER_INTERVAL_MINUTES = 5
 CRAWLER_MAX_INTERVAL_MINUTES = 180
@@ -146,11 +147,41 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
     # CSV social ingestion is independent from the configured DB sources.
     # Keep it alive when the source registry is temporarily unavailable; the
     # old behavior aborted collector startup before the CSV job was registered.
+    _register_source_jobs(scheduler, _load_sources() or [])
+    scheduler.add_job(
+        refresh_scheduled_source_jobs,
+        "interval",
+        minutes=1,
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=1),
+        id="job_refresh_source_schedules",
+        args=[scheduler],
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info("Scheduled source registry refresh: every 1 min")
+
+
+def _load_sources():
+    """Load enabled sources without stopping the scheduler on a DB hiccup."""
     try:
-        sources = db.fetch_sources()
+        return db.fetch_sources()
     except Exception as exc:
         logger.exception("Could not load scheduled sources; continuing with CSV watcher: %s", exc)
-        sources = []
+        return None
+
+
+async def refresh_scheduled_source_jobs(scheduler: AsyncIOScheduler):
+    """Pick up source/schedule changes made by the admin without a restart."""
+    sources = await asyncio.to_thread(_load_sources)
+    if sources is None:
+        # Keep the existing jobs if PostgreSQL is temporarily unavailable.
+        return
+    _register_source_jobs(scheduler, sources)
+
+
+def _register_source_jobs(scheduler: AsyncIOScheduler, sources):
+    desired_job_ids = set()
     for idx, source in enumerate(sources):
         if source.get("source_type") == "skdr_api":
             logger.info("SKDR source %s is disabled; skipping schedule", source.get("name"))
@@ -159,6 +190,14 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
         if not schedule:
             continue
         source_id = str(source["id"])
+        job_id = f"source_{source_id}"
+        desired_job_ids.add(job_id)
+        signature = f"{source.get('source_type')}|{schedule}"
+        if scheduler.get_job(job_id) is not None and _source_job_signatures.get(job_id) == signature:
+            continue
+        if scheduler.get_job(job_id) is not None:
+            scheduler.remove_job(job_id)
+        _source_job_signatures[job_id] = signature
         if schedule.startswith("daily:"):
             schedule_value = schedule
             if source.get("source_type") == "skdr_api":
@@ -176,7 +215,7 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
                 hour=hour,
                 minute=minute,
                 timezone=schedule_timezone,
-                id=f"source_{source_id}",
+                id=job_id,
                 args=[source_id],
                 replace_existing=True,
                 max_instances=1,
@@ -202,13 +241,22 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
             "interval",
             minutes=interval_minutes,
             next_run_time=start_time,
-            id=f"source_{source_id}",
+            id=job_id,
             args=[source_id],
             replace_existing=True,
+            max_instances=1,
             coalesce=True,
             misfire_grace_time=3600,
         )
         logger.info("Scheduled %s: every %d min (first run in %ds)", source["name"], interval_minutes, idx * 2)
+
+    # Remove jobs for sources disabled or deleted in the admin registry.
+    for job_id in list(_source_job_signatures):
+        if job_id in desired_job_ids:
+            continue
+        if scheduler.get_job(job_id) is not None:
+            scheduler.remove_job(job_id)
+        _source_job_signatures.pop(job_id, None)
 
 def _parse_interval(schedule: str) -> int:
     # Seeded feeds use intervals between 60 and 180 minutes. A 10-minute

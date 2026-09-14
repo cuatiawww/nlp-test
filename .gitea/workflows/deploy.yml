@@ -67,7 +67,10 @@ jobs:
       - name: Start dependency services
         run: |
           docker compose -f docker-compose.yml -f docker-compose-prod.override.yml stop disease-frontend-next || true
-          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d disease-nlp-python disease-rabbitmq disease-collector-python
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d disease-nlp-python disease-rabbitmq
+          # APScheduler loads collector_sources only during collector startup.
+          # Recreate the collector so schedule/source changes are picked up.
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d --no-deps --force-recreate disease-collector-python
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
 
       - name: Healthcheck collector sebelum backend
@@ -89,7 +92,10 @@ jobs:
 
       - name: Deploy backend setelah collector sehat
         run: |
-          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d disease-backend-rust
+          # Migrations run during backend startup. Force recreation is required
+          # when a deployment only changes database/init/*.sql and the image
+          # digest therefore remains unchanged.
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d --no-deps --force-recreate disease-backend-rust
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
 
       - name: Healthcheck backend
@@ -109,6 +115,15 @@ jobs:
           echo "--- LOGS DISEASE-NLP-PYTHON ---"
           docker compose -f docker-compose.yml -f docker-compose-prod.override.yml logs --tail 50 disease-nlp-python
           exit 1
+        working-directory: /home/nlpdev/docker/nlp-penyakit-git
+
+      - name: Verify database migration mount and interoperability catalog
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml exec -T disease-backend-rust \
+            test -f /init/062_seed_interoperability_catalog.sql
+          response=$(curl -fsS http://127.0.0.1:8081/api/v1/interoperability-integrations)
+          echo "$response"
+          echo "$response" | grep -q '"success":true'
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
 
       - name: Start frontend dan service lain setelah backend sehat
