@@ -44,7 +44,7 @@ function formatApiError(res: Response, json?: any): string {
 }
 
 export async function fetchFrom<T>(path: string): Promise<T> {
-  const res = await fetch(`${baseURL()}${path}`, { cache: "no-store" });
+  const res = await fetch(`${baseURL()}${path}`, { cache: "no-store", headers: authHeaders() });
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(formatApiError(res, json));
   return (json?.data ?? json) as T;
@@ -53,7 +53,7 @@ export async function fetchFrom<T>(path: string): Promise<T> {
 export async function postTo<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${baseURL()}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -68,7 +68,7 @@ export async function postTo<T>(path: string, body?: unknown): Promise<T> {
 export async function putTo<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${baseURL()}${path}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
 
@@ -79,7 +79,7 @@ export async function putTo<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function delFrom(path: string): Promise<void> {
-  const res = await fetch(`${baseURL()}${path}`, { method: "DELETE" });
+  const res = await fetch(`${baseURL()}${path}`, { method: "DELETE", headers: authHeaders() });
   if (!res.ok) {
     const json = await res.json().catch(() => null);
     throw new Error(formatApiError(res, json));
@@ -139,7 +139,7 @@ export async function loginUser(
 ): Promise<any> {
   const res = await fetch(`${baseURL()}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ username, password }),
   });
   const data = await res.json();
@@ -417,6 +417,15 @@ export const fetchPublicDashboard = (filters?: PublicDashboardApiParams) => {
   );
 };
 
+export const fetchPipelineHealth = () => fetchFrom<{
+  status: string;
+  nlp?: { status?: string; service?: string; model?: string };
+  last_event_at?: string | null;
+  last_collector_run?: Record<string, unknown> | null;
+  collector_runs_24h?: number;
+  collector_failures_24h?: number;
+}>("/api/v1/pipeline-health");
+
 export const fetchIbsSummary = (filters?: { year?: number; province?: string }) => {
   const params = new URLSearchParams();
   if (filters?.year) params.set("year", String(filters.year));
@@ -457,9 +466,7 @@ export const analyzeUrl = async (url: string) => {
   const initial = (json?.data ?? json) as any;
   return waitForAnalysis(initial, async (id: string) => {
     const res = await fetch(baseURL() + "/api/v1/analysis-jobs/" + encodeURIComponent(id),
-      // Status reads must not fail just because a large PDF is still being
-      // processed or the backend is briefly waiting on the collector DB.
-      { cache: "no-store", signal: AbortSignal.timeout(30000) });
+      { cache: "no-store", headers: authHeaders(), signal: AbortSignal.timeout(30000) });
     const json = await res.json().catch(() => null);
     if (!res.ok) throw new Error(formatApiError(res, json));
     return json.data;
@@ -471,7 +478,7 @@ export const analyzeUrl = async (url: string) => {
 export async function fetchPaginated<T>(
   path: string,
 ): Promise<{ data: T[]; total: number; totalPages: number }> {
-  const res = await fetch(`${baseURL()}${path}`, { cache: "no-store" });
+  const res = await fetch(`${baseURL()}${path}`, { cache: "no-store", headers: authHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
   const json = await res.json();
   return {

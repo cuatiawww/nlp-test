@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import type { CrawlingStats } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
+import { getCurrentEpiWeek } from "@/lib/epi-week";
 
 interface WeeklyPerformanceItem {
   weekNum: number;
@@ -67,7 +68,7 @@ export default function CrawlingEnginePerformance({
 }: CrawlingEnginePerformanceProps) {
   const { t } = useTranslation();
   const [startWeek, setStartWeek] = useState<number>(1);
-  const [endWeek, setEndWeek] = useState<number>(9);
+  const [endWeek, setEndWeek] = useState<number>(getCurrentEpiWeek().week || 1);
   const [chartMode, setChartMode] = useState<ChartDisplayMode>("stacked");
   const [activePreset, setActivePreset] = useState<DynamicPreset>("all");
   const [isCumulative, setIsCumulative] = useState<boolean>(false);

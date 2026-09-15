@@ -64,7 +64,7 @@ class ClassificationRulesTest(unittest.TestCase):
 
     def test_deaths_are_not_counted_as_cases(self):
         text = "Lebih dari 2.300 orang telah meninggal dalam wabah Ebola di Kongo."
-        self.assertEqual(extract_case_count(text), 1)
+        self.assertEqual(extract_case_count(text), 0)
         self.assertEqual(extract_death_count(text), 2300)
         self.assertFalse(has_explicit_case_count(text))
         self.assertTrue(has_explicit_case_count("1 confirmed case and 23 deaths."))
