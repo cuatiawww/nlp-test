@@ -323,7 +323,9 @@ WHERE LOWER(BTRIM(COALESCE(location_name, ''))) = 'were'
    OR LOWER(BTRIM(COALESCE(province, ''))) = 'were';
 
 UPDATE disease_event_locations
-SET location_name = NULL, latitude = NULL, longitude = NULL, geocode_needs_review = TRUE
+-- location_name is NOT NULL in the event-location history table. Preserve the
+-- raw value for auditability while removing only the unusable coordinates.
+SET latitude = NULL, longitude = NULL, geocode_needs_review = TRUE
 WHERE LOWER(BTRIM(COALESCE(location_name, ''))) = 'were';
 
 -- Optional backfill: null pins that sit outside the event's ASEAN member bbox.
