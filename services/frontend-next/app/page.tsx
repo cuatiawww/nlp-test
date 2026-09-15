@@ -44,6 +44,7 @@ import {
 } from "recharts";
 import { fetchPublicDashboard, fetchKpiSnapshot, fetchCrawlingStats } from "@/lib/api";
 import { scopeDashboardLocations } from "@/lib/asean-scope";
+import AseanScopeBanner from "@/components/AseanScopeBanner";
 import CrawlingEnginePerformance from "@/components/CrawlingEnginePerformance";
 import CaseLocationHeatmap from "@/components/CaseLocationHeatmap";
 import DiseaseTrendOverview from "@/components/DiseaseTrendOverview";
@@ -940,6 +941,8 @@ export default function DashboardPage() {
         }}
         isLoading={loading}
       />
+
+      <AseanScopeBanner country={filters.country} />
 
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">

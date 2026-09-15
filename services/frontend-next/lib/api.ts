@@ -1,4 +1,5 @@
 ﻿import { getCurrentEpiWeek } from "@/lib/epi-week";
+import { ASEAN11_SCOPE, isAseanDefaultScope } from "@/lib/asean-scope";
 import type {
   Source,
   Run,
@@ -394,6 +395,7 @@ export const fetchDashboardStats = () =>
   fetchFrom<DashboardStats>("/api/v1/events/stats");
 export interface PublicDashboardApiParams {
   country?: string;
+  scope?: string;
   year?: number;
   source?: "ibs" | "ebs" | "skdr" | string;
   disease?: string;
@@ -409,8 +411,12 @@ export function withDefaultDashboardParams(
 ): PublicDashboardApiParams {
   const epi = getCurrentEpiWeek();
   const country = !filters?.country || filters.country === "all" ? "ASEAN" : filters.country;
+  const scope =
+    filters?.scope ||
+    (isAseanDefaultScope(country) ? ASEAN11_SCOPE : country === "global" ? "global" : undefined);
   return {
     country,
+    scope,
     disease: filters?.disease && filters.disease !== "" ? filters.disease : "all",
     start_year: filters?.start_year ?? epi.year,
     start_week: filters?.start_week ?? 1,
@@ -425,6 +431,7 @@ function applyDashboardParams(filters?: PublicDashboardApiParams) {
   const merged = withDefaultDashboardParams(filters);
   const params = new URLSearchParams();
   params.set("country", merged.country || "ASEAN");
+  if (merged.scope) params.set("scope", merged.scope);
   if (merged.year) params.set("year", String(merged.year));
   if (merged.source && merged.source !== "all") params.set("source", merged.source);
   if (merged.disease && merged.disease !== "all") params.set("disease", merged.disease);

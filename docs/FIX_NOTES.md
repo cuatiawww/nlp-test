@@ -104,6 +104,18 @@ Table `kpi_snapshots` (`database/init/067_kpi_snapshots.sql`) stores one row per
 
 `filter_key = start_date|end_date|country|disease|source`
 
+Default **country/scope token is `asean11`**. Query aliases `country=ASEAN`, `country=all`, missing country, and `scope=asean11` all canonicalize to `asean11`. `country=global` / `scope=global` opts out.
+
+**Canonical 11 jurisdictions** (storage labels; UI shows Lao PDR / Viet Nam):
+
+Brunei, Cambodia, Indonesia, Laos (Lao PDR), Malaysia, Myanmar, Philippines, Singapore, Thailand, Viet Nam (Vietnam), **Timor-Leste**.
+
+KPI/map/TV/reports totals on this default **count only events whose folded country is in that IN-list**. Gazetteer hits such as Utah/`United States`, India, DRC, Europe, Brazil are folded to `OUTSIDE ASEAN` and do **not** inflate cases/deaths/events/locations. A member with zero events is still padded into `by_country` (missing ≠ dropped from the 11).
+
+The same fold (`asean11_fold_sql` / `resolved_country_expr`) is used by the KPI snapshot, public-dashboard map clusters, weekly trend, heatmap grid, disease-trend overview, and morbidity series. `country=all` is **not** an unfiltered global bypass; only `scope=global` / `country=global` opts out. Display aliases `Viet Nam` / `Lao PDR` fold to storage labels `Vietnam` / `Laos` before the IN-list, so they are not dropped.
+
+Previously `country=ASEAN` meant `resolved_country <> 'OUTSIDE ASEAN'`, which let `locations.country = United States` through. That negation is gone.
+
 **Refresh semantics**
 
 1. Ingest / URL analysis marks existing rows `is_stale = TRUE`.
@@ -111,15 +123,15 @@ Table `kpi_snapshots` (`database/init/067_kpi_snapshots.sql`) stores one row per
 3. Concurrent dashboard, heatmap, trend, morbidity, TV, and reports read **that same row** (`snapshot_id` + `computed_at`). They never invent totals.
 4. Stale snapshots are still served for **90 seconds** after `computed_at` so a reload in the same session cannot drift. After that floor, the next reader refreshes under the lock; if the lock is busy, the previous row is returned.
 
-`fetchPublicDashboard` (and heatmap/trend/morbidity/kpi-events) always sends `country=ASEAN` plus week 1→current epi week unless the caller overrides. TV and Reports use that helper, so they cannot silently hit a different window than the homepage.
+`fetchPublicDashboard` (and heatmap/trend/morbidity/kpi-events) always sends `country=ASEAN` **and `scope=asean11`** plus week 1→current epi week unless the caller overrides. TV and Reports use that helper, so they cannot silently hit a different window than the homepage.
 
 `GET /api/v1/kpi-events` pages the same `valid` event set as the snapshot. Reports ledger total is `snapshot.events`, not the 250 map clusters. Reports headlines bind `GET /api/v1/kpi-snapshot` (same default ASEAN week-1→current filter as dashboard/TV) and fall back to `public-dashboard` kpis only if that call fails. Reloads within 90s keep the same `snapshot_id`.
 
-Map/TV markers drop `OUTSIDE ASEAN` / non-ASEAN countries unless `country=global`.
+Map/TV markers drop `OUTSIDE ASEAN` / non-ASEAN-11 countries unless `country=global`. Filter control label: **ASEAN — all locations**. Banner: **Totals shown: ASEAN 11 jurisdictions**.
 
 Default filter (missing query params, same as the homepage):
 
-- country = **ASEAN** (+ Timor-Leste); `global` opts into outside-ASEAN
+- scope = **`asean11`** (ASEAN + Timor-Leste, 11 jurisdictions); `global` opts into outside-ASEAN
 - disease = all
 - source = all (SKDR IBS/EBS ignored)
 - dates = ISO week 1 of the current epi year through the current epi week
@@ -147,7 +159,7 @@ Map popup `recent_cases` uses the same per-event cap as `cases` and a date (not 
 URL: `https://www.cidrap.umn.edu/avian-influenza-bird-flu/cambodia-confirms-human-h5n1-avian-flu-case-h5n1-hits-more-utah-egg-farms`
 
 - Disease from title/lede: Avian influenza / H5N1 (not Measles)
-- Primary ASEAN location: Cambodia (Kampong Thom allowed); Utah is secondary / dropped under ASEAN filter
+- Country: Cambodia (Kampong Thom allowed). Utah/US is secondary and is stored/folded as `OUTSIDE ASEAN`, so it does **not** enter default `asean11` KPI totals.
 - `"Were"` is a location stopword; never Indonesia province Were
 - Multi-country headlines do not hard-filter the gazetteer to the language-default country
 

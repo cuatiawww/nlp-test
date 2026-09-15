@@ -137,7 +137,7 @@
   },
   "dashboard": {
     "pageTitle": "Dashboard Surveilans Real-time ASEAN",
-    "pageSubtitle": "Pemantauan multibahasa dari berita, media, dan sumber data resmi di Asia Tenggara.",
+    "pageSubtitle": "Total yang ditampilkan: 11 yurisdiksi ASEAN (Brunei, Kamboja, Indonesia, Lao PDR, Malaysia, Myanmar, Filipina, Singapura, Thailand, Viet Nam, Timor-Leste). Peristiwa di luar ASEAN tidak dihitung kecuali mode Global.",
     "lastUpdate": "Pembaruan Terakhir",
     "stats": {
       "activeCases": "Kasus Terpantau",
@@ -417,7 +417,7 @@
     "focusRegion": "Fokus Wilayah ?",
     "outbreakSummary": "Terdeteksi {cases} kasus dan {deaths} kematian. Ambang outbreak {threshold} kasus.",
     "title": "DASHBOARD OUTBREAK PENYAKIT - ASEAN",
-    "subtitle": "Analisis spasial kejadian penyakit dan peringatan dini kesehatan kawasan Asia Tenggara.",
+    "subtitle": "Total yang ditampilkan: 11 yurisdiksi ASEAN. Penanda di luar ASEAN (Utah/AS, India, DRC, Eropa) disembunyikan pada tampilan ini.",
     "surveillanceAsean": "Pemantauan: ASEAN ({count} LOKASI)",
     "mapSettings": "Pengaturan Peta",
     "showKpi": "TAMPILKAN RINGKASAN KPI",

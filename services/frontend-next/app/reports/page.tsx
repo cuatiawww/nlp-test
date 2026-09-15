@@ -45,7 +45,8 @@ import { useSettings } from '@/lib/settings-context'
 import CountryFlag from '@/components/CountryFlag'
 import SocialMediaIcon from '@/components/SocialMediaIcon'
 import { fetchKpiEvents, fetchKpiSnapshot, fetchPublicDashboard, type KpiEventRow } from '@/lib/api'
-import { isAseanCountryName } from '@/lib/asean-scope'
+import { isAseanCountryName, ASEAN_SCOPE_BANNER } from '@/lib/asean-scope'
+import AseanScopeBanner from '@/components/AseanScopeBanner'
 import type { PublicDashboard, OutbreakLocation } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { MediaMonitoringArchive } from '@/components/reports/MediaMonitoringArchive'
@@ -879,6 +880,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="w-full px-4 md:px-6 pt-3 space-y-4">
+        <AseanScopeBanner country="ASEAN" />
         {/* ==================== TOP KPI STAT CARDS ==================== */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 print:grid-cols-3">
           {/* Card 1: Total Cases */}
@@ -898,7 +900,7 @@ export default function ReportsPage() {
               </div>
             </div>
             <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
-              Across {metrics.affectedCountries} monitored jurisdictions
+              {ASEAN_SCOPE_BANNER} — a member with zero events is still counted in the 11.
               {kpiSnapshot?.snapshot_computed_at ? (
                 <span className="block text-[10px] font-semibold text-slate-400">
                   Snapshot {kpiSnapshot.snapshot_id?.slice(0, 8)} · {kpiSnapshot.snapshot_computed_at}

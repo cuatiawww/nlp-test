@@ -345,8 +345,13 @@ def extract_country_hint(text: str) -> Optional[str]:
 
 
 def country_scope(country: Optional[str]) -> Optional[str]:
-    """Return the display/filter country without relabeling known ASEAN data."""
-    value = (country or "").strip()
+    """Return the display/filter country without relabeling known ASEAN data.
+
+    Non-ASEAN labels (United States/Utah, India, DRC, ...) become OUTSIDE ASEAN
+    so default asean11 KPIs cannot be inflated by secondary geographies.
+    """
+    mapped = normalize_country(country)
+    value = (mapped or "").strip()
     if not value:
         return None
     if value in config.ASEAN_COUNTRIES:

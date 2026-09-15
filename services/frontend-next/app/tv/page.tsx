@@ -8,6 +8,7 @@ import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronUp, Globe2
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchCrawlingStats, fetchKpiSnapshot, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
 import { isAseanCountryName, scopeDashboardLocations } from '@/lib/asean-scope'
+import AseanScopeBanner from '@/components/AseanScopeBanner'
 import type { OutbreakLocation, PublicDashboard } from '@/types'
 import type { CrawlingFeedItem } from '@/lib/crawling-feed'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
@@ -235,6 +236,11 @@ export default function TvPage() {
               <ChevronUp className="h-3 w-3 text-[#0060A9]" />
             )}
           </button>
+          {!kpiHidden ? (
+            <div className="pointer-events-auto mb-1 w-full max-w-[1680px]">
+              <AseanScopeBanner country="ASEAN" />
+            </div>
+          ) : null}
 
           {/* Smooth Collapsible KPI Cards Container */}
           <div

@@ -6,9 +6,10 @@ import { Download, ExternalLink, Loader2, Play, RefreshCw } from 'lucide-react'
 import { createCrawlJob, fetchCrawlJob, fetchPaginated, reprocessCrawlJob } from '@/lib/api'
 import type { CrawlJobStatus, CrawlMatrixRow } from '@/types'
 import type { DiseaseConcept } from '@/lib/api'
+import { ASEAN11_COUNTRY_NAMES } from '@/lib/asean-scope'
 
 type LocationOption = { country?: string | null; name?: string | null }
-const ASEAN_COUNTRIES = ['Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam']
+const ASEAN_COUNTRIES = [...ASEAN11_COUNTRY_NAMES]
 
 function csvCell(value: unknown) {
   const text = value == null ? '' : String(value)

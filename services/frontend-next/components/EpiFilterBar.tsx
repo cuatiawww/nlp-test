@@ -15,6 +15,11 @@ import {
 } from 'lucide-react';
 import { getEpiWeekDateRange, getCurrentEpiWeek, formatEpiRangeDescription } from '@/lib/epi-week';
 import { useTranslation } from '@/lib/i18n/LanguageContext';
+import {
+  ASEAN11_DISPLAY,
+  ASEAN_SCOPE_FILTER_LABEL,
+  ASEAN_SCOPE_HINT,
+} from '@/lib/asean-scope';
 
 export interface EpiFilterState {
   disease: string;
@@ -35,20 +40,6 @@ interface EpiFilterBarProps {
   onApply: (filters: EpiFilterState) => void;
   isLoading?: boolean;
 }
-
-const ASEAN_COUNTRIES = [
-  'Indonesia',
-  'Malaysia',
-  'Philippines',
-  'Singapore',
-  'Thailand',
-  'Vietnam',
-  'Brunei',
-  'Cambodia',
-  'Laos',
-  'Myanmar',
-  'Timor-Leste',
-];
 
 const WEEKS_LIST = Array.from({ length: 52 }, (_, i) => i + 1);
 
@@ -238,11 +229,11 @@ export default function EpiFilterBar({
                 onChange={(e) => setDraft({ ...draft, country: e.target.value })}
                 className="w-full bg-transparent px-3 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer pr-8"
               >
-                <option value="ASEAN">ASEAN + Timor-Leste</option>
+                <option value="ASEAN">{ASEAN_SCOPE_FILTER_LABEL}</option>
                 <option value="global">Global (include outside ASEAN)</option>
-                {ASEAN_COUNTRIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                {ASEAN11_DISPLAY.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
                   </option>
                 ))}
               </select>
@@ -251,8 +242,8 @@ export default function EpiFilterBar({
             <p className="text-[10px] text-slate-400 px-1 truncate">
               {draft.country === 'global'
                 ? 'Worldwide including outside ASEAN'
-                : draft.country === 'all' || draft.country === 'ASEAN'
-                ? 'ASEAN + Timor-Leste (India/Pakistan excluded)'
+                : draft.country === 'all' || draft.country === 'ASEAN' || draft.country === 'asean11'
+                ? ASEAN_SCOPE_HINT
                 : `Selected country: ${draft.country}`}
             </p>
           </div>
