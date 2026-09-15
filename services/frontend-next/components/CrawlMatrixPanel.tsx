@@ -6,10 +6,10 @@ import { Download, ExternalLink, Loader2, Play, RefreshCw } from 'lucide-react'
 import { createCrawlJob, fetchCrawlJob, fetchPaginated, reprocessCrawlJob } from '@/lib/api'
 import type { CrawlJobStatus, CrawlMatrixRow } from '@/types'
 import type { DiseaseConcept } from '@/lib/api'
-import { ASEAN11_COUNTRY_NAMES } from '@/lib/asean-scope'
+import { ASEAN11_COUNTRY_NAMES, isAseanCountryName } from '@/lib/asean-scope'
 
 type LocationOption = { country?: string | null; name?: string | null }
-const ASEAN_COUNTRIES = [...ASEAN11_COUNTRY_NAMES]
+const ASEAN_COUNTRIES: string[] = [...ASEAN11_COUNTRY_NAMES]
 
 function csvCell(value: unknown) {
   const text = value == null ? '' : String(value)
@@ -133,7 +133,7 @@ export default function CrawlMatrixPanel() {
 
   const handleRegionChange = (newRegion: string) => {
     setRegion(newRegion)
-    if (newRegion === 'ASEAN' && country && !ASEAN_COUNTRIES.includes(country)) {
+    if (newRegion === 'ASEAN' && country && !isAseanCountryName(country)) {
       setCountry('')
     }
   }
