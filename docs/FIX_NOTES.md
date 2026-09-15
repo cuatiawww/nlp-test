@@ -258,22 +258,30 @@ Do **not** deploy this PR to production. Staging only.
 
 ### 1) Source country ≠ article event country
 
-Live confusion (~27 ASEAN-tagged sources vs ~1471 “outside”) came from treating missing/non-member **outlet** labels as “bukan media ASEAN”. Google News Health ID/EN, WHO, CIDRAP, and other aggregators often cover ASEAN stories while the outlet itself is global.
+Live confusion (~27 ASEAN-tagged sources vs ~1471 “outside”) came from treating missing/non-member **outlet** labels as “bukan media ASEAN”, and from counting **only the top-level `country` column**.
 
-- `collector_sources.country` is **source country** (outlet attribution): ASEAN-11 member **or** `GLOBAL`. Never a fake country named `ASEAN` / `ASEAN / Asia` / `Outside ASEAN`.
-- Google News Health ID/EN, WHO, CIDRAP, CDC, and ReliefWeb are retagged to `GLOBAL` even if a feed locale was `gl=ID`. Locale is not outlet country.
+**Audit (2026-09-15):** `docs/source-tagging-audit.md` (copied from live audit `/workspace/phase-compare/source-tagging-audit.md` / attached `source-tagging-audit.md`). Public GET of `/nlp/api/v1/sources/summary` + paginated list: 1,498 sources, 27 ASEAN, 1,471 “outside”. **~777 catalog rows already had an ASEAN-11 member name in `config.country` but top-level `country` was null**, so they were dumped into outside. Credibility was six static catalog-type buckets (gov 0.95, Local News 0.84, rss 0.78, Google/web 0.65, Facebook 0.35); ≥0.7 matched Official+Local News+rss+JSON, not live verification.
+
+Must-fix from that audit:
+
+- Summary/list **coalesce** `country`, `config.country`, and `config.source_country_original` via `abvc_source_country_raw` / `abvc_source_country_resolved` (aliases: Brunei Darussalam, Viet Nam, Lao PDR, Timor Leste, Kamboja, …).
+- Migration `068` **backfills** top-level `country` when it is null.
+- Google News / WHO / CIDRAP / CDC / ReliefWeb remain `GLOBAL` even if a feed locale is `gl=ID`. Locale is not outlet country.
 - New fields: `coverage_scope` (`asean_outlet` | `global_outlet` | `unclassified`), `covers_asean` (health/ASEAN-focused catalogs used for ASEAN monitoring — not every global URL).
-- Dashboard copy: “Sumber dengan negara ASEAN terisi” vs “Sumber tanpa negara ASEAN terisi / sumber global”. Filters: ASEAN-11 outlets / Global outlets / Covers ASEAN stories.
-- API still returns `outside_sources` as an alias of `source_country_unfilled` so existing clients do not break.
+- Dashboard copy: “Sumber dengan negara ASEAN terisi (kolom country atau config.country)” vs “Sumber tanpa negara ASEAN terisi / sumber global”.
+- API still returns `outside_sources` as an alias of `source_country_unfilled`.
+
+After staging `068`, expect `asean_sources` to jump from 27 toward the ~777+ catalog ASEAN outlets (exact number depends on aliases and Google News aggregator retag).
 
 ### 2) Credibility refresh (≥ threshold)
 
-Scores used to be a static join on `source_credibility` by source type (almost every `news` row = 0.70). Round 3 stores:
+Scores used to be a **static join** on `source_credibility` by catalog type (live: Google/web **0.65 forever**, Local News 0.84, rss 0.78, Official 0.95). Round 3 stores a refreshable score:
 
-- `credibility_score`, `credibility_reason` (`type_baseline` | `domain_boost` | `override`), `last_credibility_refresh`, optional `credibility_override`
-- Admin `POST /api/v1/source-credibility/recompute` (does **not** wipe unrelated source/event data)
+- `credibility_score`, `credibility_reason` (`catalog_heuristic` | `domain_boost` | `override`), `last_credibility_refresh`, optional `credibility_override`
+- Admin `POST /api/v1/source-credibility/recompute` updates **only** those columns (migration-safe; does **not** wipe name/url/schedule/events)
+- Domain rules replace frozen Google/web 0.65 for known hosts (`who.int`, ASEAN `.gov.*` / `.go.id`, wire agencies, major ASEAN dailies)
 - Threshold: `SOURCE_CREDIBILITY_THRESHOLD` (default 0.70)
-- UI tooltip: catalog/domain reputation, **bukan “sudah diverifikasi epidemiolog”**
+- **≥0.7 is a catalog-type heuristic unless an admin override is stored.** It is not live crawl quality and **bukan “sudah diverifikasi epidemiolog”**
 
 ### 3) Province / city
 
@@ -318,5 +326,5 @@ POST /nlp/api/v1/source-credibility/recompute   # admin
 GET /nlp/api/v1/crawl-ops
 ```
 
-Expect `source_country_meaning` on the summary, `asean_outlet_sources` matching ASEAN-11 outlet counts, and `global_covering_asean` > 0 for Google News / WHO-style catalogs. Map points for Singapore stay on the island. KPI endpoints from Round 2 are unchanged.
+Expect `asean_outlet_sources` to include catalog rows whose **config.country** is an ASEAN-11 member (not only the 27 enabled RSS feeds). `credibility_meaning` must say ≥0.7 is a catalog heuristic. WHO `who.int` rows should leave the frozen 0.65 Google/web bucket after recompute (`domain_boost`).
 

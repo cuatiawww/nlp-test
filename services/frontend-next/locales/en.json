@@ -550,7 +550,7 @@
     },
     "sources": {
       "title": "Data Sources",
-      "subtitle": "Manage data sources for news and report collection. Source country is the outlet attribution, not the article event country.",
+      "subtitle": "Manage data sources for news and report collection. Outlet country coalesces the country column with config.country (catalog import). It is not the article event country.",
       "add": "Add Source",
       "triggerAll": "Trigger All",
       "colName": "Source Name",
@@ -615,7 +615,7 @@
         "sentiment": "Classified by XLM-RoBERTa AI model with sentiment labels: positive, negative, or neutral",
         "event_type": "Classified by XLM-RoBERTa AI model with event type labels from NLP Labels database ('event_type' category)",
         "relevance_score": "Classified by XLM-RoBERTa AI model whether text is health-related or not",
-        "source_credibility": "Catalog/domain reputation score from Source Credibility rules (not epidemiologist verification). Type 'web' defaults to 0.50 unless a domain boost or admin override is stored.",
+        "source_credibility": "Catalog-type heuristic from Source Credibility rules unless Refresh scores stored a domain boost or admin override. ≥0.7 is not live crawl quality and not epidemiologist verification. Google/web 0.65 is not frozen.",
         "published_at": "Extracted from article web metadata (og:published_time meta tag, JSON-LD, URL path, or article dateline)",
         "is_health_related": "Classified by XLM-RoBERTa AI model whether article is related to human disease/health surveillance"
       }

@@ -549,7 +549,7 @@
     },
     "sources": {
       "title": "Sumber Data",
-      "subtitle": "Kelola sumber data untuk koleksi berita dan laporan. Negara sumber = atribusi outlet, bukan negara kejadian artikel.",
+      "subtitle": "Kelola sumber data untuk koleksi berita dan laporan. Negara outlet menggabungkan kolom country dengan config.country (impor katalog). Bukan negara kejadian artikel.",
       "add": "Tambah",
       "triggerAll": "Trigger All",
       "colName": "Nama Sumber",
@@ -614,7 +614,7 @@
         "sentiment": "Diklasifikasikan oleh model AI XLM-RoBERTa dengan label sentimen: positive, negative, atau neutral",
         "event_type": "Diklasifikasikan oleh model AI XLM-RoBERTa dengan label tipe kejadian dari database NLP Labels (kategori 'event_type')",
         "relevance_score": "Diklasifikasikan oleh model AI XLM-RoBERTa apakah teks terkait kesehatan (health) atau tidak",
-        "source_credibility": "Skor reputasi katalog/domain dari aturan Source Credibility (bukan verifikasi epidemiolog). Tipe 'web' default 0.50 kecuali ada domain boost atau override admin.",
+        "source_credibility": "Heuristik tipe katalog dari aturan Source Credibility kecuali Refresh scores menyimpan domain boost atau override admin. ≥0.7 bukan kualitas crawl live dan bukan verifikasi epidemiolog. Nilai Google/web 0.65 tidak dibekukan.",
         "published_at": "Diekstrak dari metadata artikel web (meta tag og:published_time, JSON-LD, URL path, atau dateline artikel)",
         "is_health_related": "Diklasifikasikan oleh model AI XLM-RoBERTa apakah artikel terkait pemantauan penyakit/kesehatan"
       }

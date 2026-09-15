@@ -96,7 +96,7 @@ export default function SourcesPage() {
     return (
       <span
         className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}
-        title={`${credibilityReasonLabel(reason)}${refreshed ? ` · refreshed ${refreshed}` : ''}. Catalog/domain score, not epidemiologist verification.`}
+        title={`${credibilityReasonLabel(reason)}${refreshed ? ` · refreshed ${refreshed}` : ''}. ≥0.7 is a catalog heuristic unless domain refresh or admin override. Not epidemiologist verification.`}
       >
         {`${(s * 100).toFixed(0)}%`}
       </span>
@@ -199,7 +199,7 @@ export default function SourcesPage() {
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Source Credibility</p>
               <p className="mt-2 text-3xl font-bold text-emerald-600">{summaryLoading ? '—' : (summary?.credible_sources ?? 0).toLocaleString()}</p>
-              <p className="mt-1 text-xs text-slate-500">Catalog/domain score ≥ {Math.round((summary?.credibility_threshold ?? 0.7) * 100)}% — not epidemiologist-verified</p>
+              <p className="mt-1 text-xs text-slate-500">≥ {Math.round((summary?.credibility_threshold ?? 0.7) * 100)}% is a catalog-type heuristic unless refreshed / overridden — not live verification</p>
               {summary?.last_credibility_refresh ? (
                 <p className="mt-1 text-[11px] text-slate-400">Last refresh {summary.last_credibility_refresh.slice(0, 19)}</p>
               ) : (
@@ -219,7 +219,7 @@ export default function SourcesPage() {
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Outlet country (ASEAN-11)</p>
               <p className="mt-2 text-3xl font-bold text-[#0060A9]">{summaryLoading ? '—' : (summary?.asean_sources ?? 0).toLocaleString()}</p>
-              <p className="mt-1 text-xs text-slate-500">Sumber dengan negara ASEAN terisi</p>
+              <p className="mt-1 text-xs text-slate-500">Sumber dengan negara ASEAN terisi (kolom country atau config.country)</p>
             </div>
             <span className="rounded-xl bg-blue-50 p-2.5 text-[#0060A9]"><Globe2 className="h-5 w-5" /></span>
           </div>
@@ -236,7 +236,7 @@ export default function SourcesPage() {
             <div>
               <h2 className="text-sm font-bold uppercase tracking-[0.06em] text-slate-800">ASEAN outlet distribution</h2>
               <p className="mt-1 text-xs text-slate-500">
-                Source country = where the outlet is attributed (ASEAN-11 or GLOBAL). This is not the article event country. Google News / WHO / CIDRAP can still cover ASEAN stories while source_country is GLOBAL.
+                Source country coalesces the top-level country column with config.country / source_country_original (ASEAN-11 aliases). It is not the article event country. Catalog rows with Indonesia/Vietnam/… only in config.country now count as ASEAN outlets. Google News / WHO / CIDRAP stay GLOBAL while still covering ASEAN stories.
                 {typeof summary.global_covering_asean === 'number' ? ` Global outlets covering ASEAN: ${summary.global_covering_asean.toLocaleString()}.` : ''}
               </p>
             </div>

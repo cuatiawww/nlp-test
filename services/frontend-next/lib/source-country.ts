@@ -41,6 +41,7 @@ const COUNTRIES: Record<string, SourceCountry> = {
   kh: { name: 'Cambodia', code: 'KH', coverageScope: 'asean_outlet', coversAsean: true },
   cambodia: { name: 'Cambodia', code: 'KH', coverageScope: 'asean_outlet', coversAsean: true },
   kampuchea: { name: 'Cambodia', code: 'KH', coverageScope: 'asean_outlet', coversAsean: true },
+  kamboja: { name: 'Cambodia', code: 'KH', coverageScope: 'asean_outlet', coversAsean: true },
   la: { name: 'Laos', code: 'LA', coverageScope: 'asean_outlet', coversAsean: true },
   lao: { name: 'Laos', code: 'LA', coverageScope: 'asean_outlet', coversAsean: true },
   laos: { name: 'Laos', code: 'LA', coverageScope: 'asean_outlet', coversAsean: true },
@@ -203,11 +204,12 @@ export function resolveSourceCountry(source: Pick<Source, 'name' | 'config' | 'c
 export function credibilityReasonLabel(code?: string | null): string {
   switch (code) {
     case 'override':
-      return 'Admin override'
+      return 'Manually verified / admin override'
     case 'domain_boost':
-      return 'Domain reputation'
+      return 'Domain reputation refresh'
+    case 'catalog_heuristic':
     case 'type_baseline':
-      return 'Source-type baseline'
+      return 'Catalog-type heuristic'
     default:
       return code || 'Not refreshed'
   }

@@ -18,7 +18,7 @@ COMMENT ON COLUMN collector_sources.covers_asean IS
 COMMENT ON COLUMN collector_sources.credibility_score IS
     'Last computed source credibility 0-1 (type + domain + override). Not epidemiologist verification.';
 COMMENT ON COLUMN collector_sources.credibility_reason IS
-    'Reason code for last credibility refresh (type_baseline, domain_boost, override).';
+    'Reason code: catalog_heuristic (type bucket), domain_boost, override. ≥0.7 is not live verification.';
 COMMENT ON COLUMN collector_sources.credibility_override IS
     'Optional admin override; when set, recompute uses this value.';
 
@@ -48,8 +48,41 @@ AS $$
     WHEN 'timor-leste' THEN 'Timor-Leste'
     WHEN 'timor leste' THEN 'Timor-Leste'
     WHEN 'east timor' THEN 'Timor-Leste'
+    WHEN 'kamboja' THEN 'Cambodia'
+    WHEN 'lao people''s democratic republic' THEN 'Laos'
+    WHEN 'lao peoples democratic republic' THEN 'Laos'
     ELSE NULL
   END;
+$$;
+
+-- Live audit 2026-09-15: summary used ONLY top-level country, so ~777 catalog
+-- rows with ASEAN names in config.country (top-level NULL) were counted as
+-- "outside". Always coalesce column + config.country + source_country_original.
+CREATE OR REPLACE FUNCTION abvc_source_country_raw(country text, config jsonb)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT COALESCE(
+    NULLIF(BTRIM(country), ''),
+    NULLIF(BTRIM(config->>'country'), ''),
+    NULLIF(BTRIM(config->>'source_country_original'), '')
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION abvc_source_country_resolved(country text, config jsonb)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT COALESCE(
+    abvc_asean11_source_country(raw),
+    CASE
+      WHEN raw IS NULL OR raw = '' THEN NULL
+      ELSE 'GLOBAL'
+    END
+  )
+  FROM (SELECT abvc_source_country_raw(country, config) AS raw) t;
 $$;
 
 CREATE OR REPLACE FUNCTION abvc_source_coverage_scope(country text)
@@ -69,19 +102,39 @@ RETURNS double precision
 LANGUAGE sql
 IMMUTABLE
 AS $$
+  -- Replaces frozen catalog buckets (Google/web=0.65) when the URL/name is known.
+  -- Still a heuristic, not live crawl quality or epidemiologist verification.
   SELECT CASE
-    WHEN blob LIKE '%who.int%' OR blob LIKE '%kemenkes.go.id%' OR blob LIKE '%kemkes.go.id%' THEN 0.98
+    WHEN blob ~ '(who\.int|kemenkes\.go\.id|kemkes\.go\.id|moh\.gov|moph\.go\.th|moh\.gov\.sg|moh\.gov\.my|doh\.gov\.ph)' THEN 0.98
     WHEN blob LIKE '%cdc.gov%' THEN 0.97
+    WHEN blob ~ '\.(go\.id|gov\.vn|go\.th|gov\.sg|gov\.my|gov\.ph|gov\.bn|gov\.la|gov\.mm|gov\.kh|gov\.tl)([/:?]|$)' THEN 0.95
     WHEN blob LIKE '%bbc.com%' OR blob LIKE '%bbc.co.uk%' OR blob LIKE '%reuters.com%' THEN 0.94
     WHEN blob LIKE '%cidrap%' OR blob LIKE '%apnews.com%' OR blob LIKE '%dw.com%' THEN 0.92
+    WHEN blob LIKE '%reliefweb.int%' THEN 0.90
     WHEN blob LIKE '%antaranews.com%' OR blob LIKE '%detik.com%' THEN 0.90
-    WHEN blob LIKE '%kompas.com%' OR blob LIKE '%cnnindonesia.com%' OR blob LIKE '%channelnewsasia.com%' THEN 0.88
+    WHEN blob LIKE '%kompas.com%' OR blob LIKE '%cnnindonesia.com%' OR blob LIKE '%channelnewsasia.com%'
+      OR blob LIKE '%vnexpress.net%' OR blob LIKE '%thestar.com.my%' OR blob LIKE '%straitstimes.com%'
+      OR blob LIKE '%bangkokpost.com%' OR blob LIKE '%nationthailand.com%' OR blob LIKE '%rappler.com%'
+      OR blob LIKE '%phnompenhpost.com%' OR blob LIKE '%malaymail.com%' OR blob LIKE '%astroawani.com%'
+      THEN 0.88
     ELSE NULL
   END
   FROM (
-    SELECT LOWER(COALESCE(config->>'url', '') || ' ' || COALESCE(config->>'rss_url', '') || ' ' || COALESCE(name, '')) AS blob
+    SELECT LOWER(
+      COALESCE(config->>'url', '') || ' ' ||
+      COALESCE(config->>'rss_url', '') || ' ' ||
+      COALESCE(config->>'urls', '') || ' ' ||
+      COALESCE(name, '')
+    ) AS blob
   ) t;
 $$;
+
+-- Backfill top-level country from config when the column is empty
+-- (live: 1,458 catalog rows had country NULL; ~777 already named an ASEAN-11 member in config.country).
+UPDATE collector_sources
+SET country = abvc_source_country_resolved(country, config)
+WHERE (country IS NULL OR BTRIM(country) = '')
+  AND abvc_source_country_resolved(country, config) IS NOT NULL;
 
 -- Never store fake country "ASEAN" / "Outside ASEAN". Aggregators → GLOBAL.
 UPDATE collector_sources
@@ -101,7 +154,9 @@ WHERE LOWER(COALESCE(name, '')) ~ '(google news|cidrap|promed|healthmap|outbreak
         ~ '(news\.google|who\.int|reliefweb\.int|cidrap\.umn\.edu|cdc\.gov|promedmail|healthmap)';
 
 UPDATE collector_sources
-SET coverage_scope = abvc_source_coverage_scope(country);
+SET coverage_scope = abvc_source_coverage_scope(
+    COALESCE(country, abvc_source_country_resolved(country, config))
+);
 
 -- covers_asean is about monitoring use, not "this outlet is an ASEAN newspaper".
 UPDATE collector_sources
@@ -149,7 +204,7 @@ BEGIN
                 WHEN abvc_source_domain_boost(s.config, s.name) IS NOT NULL
                      AND abvc_source_domain_boost(s.config, s.name) >= COALESCE(sc.score, 0.50)
                     THEN 'domain_boost'
-                ELSE 'type_baseline'
+                ELSE 'catalog_heuristic'
             END AS reason
         FROM collector_sources s
         LEFT JOIN source_credibility sc

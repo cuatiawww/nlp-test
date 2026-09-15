@@ -5782,7 +5782,7 @@ async fn list_sources(
                         'finished_at', lr.finished_at::text
                     ) END AS last_run,
                     COALESCE(s.credibility_score, sc.score, 0.50) AS source_credibility,
-                    s.country,
+                    abvc_source_country_resolved(s.country, s.config) AS country,
                     COALESCE(NULLIF(BTRIM(s.config->>'catalog_type'), ''), s.source_type) AS catalog_type,
                     NULLIF(BTRIM(s.config->>'validity_status'), '') AS validity_status,
                     NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin,
@@ -5891,12 +5891,12 @@ async fn source_summary(
                     COUNT(*) FILTER (WHERE COALESCE(s.credibility_score, sc.score, 0.50) >= $1)::bigint AS credible_sources,
                     COUNT(*) FILTER (WHERE COALESCE(s.credibility_score, sc.score, 0.50) < $1)::bigint AS needs_review_sources,
                     COALESCE(AVG(COALESCE(s.credibility_score, sc.score, 0.50)), 0.0)::double precision AS average_credibility,
-                    COUNT(*) FILTER (WHERE abvc_asean11_source_country(s.country) IS NOT NULL)::bigint AS asean_sources,
-                    COUNT(*) FILTER (WHERE s.coverage_scope = 'global_outlet')::bigint AS global_outlet_sources,
-                    COUNT(*) FILTER (WHERE s.coverage_scope = 'unclassified' OR s.country IS NULL OR BTRIM(s.country) = '')::bigint AS unclassified_sources,
+                    COUNT(*) FILTER (WHERE abvc_asean11_source_country(abvc_source_country_raw(s.country, s.config)) IS NOT NULL)::bigint AS asean_sources,
+                    COUNT(*) FILTER (WHERE abvc_source_country_resolved(s.country, s.config) = 'GLOBAL' OR s.coverage_scope = 'global_outlet')::bigint AS global_outlet_sources,
+                    COUNT(*) FILTER (WHERE abvc_source_country_resolved(s.country, s.config) IS NULL)::bigint AS unclassified_sources,
                     COUNT(*) FILTER (WHERE COALESCE(s.covers_asean, FALSE))::bigint AS covers_asean_sources,
-                    COUNT(*) FILTER (WHERE s.coverage_scope = 'global_outlet' AND COALESCE(s.covers_asean, FALSE))::bigint AS global_covering_asean,
-                    COUNT(*) FILTER (WHERE abvc_asean11_source_country(s.country) IS NULL)::bigint AS source_country_unfilled,
+                    COUNT(*) FILTER (WHERE (s.coverage_scope = 'global_outlet' OR abvc_source_country_resolved(s.country, s.config) = 'GLOBAL') AND COALESCE(s.covers_asean, FALSE))::bigint AS global_covering_asean,
+                    COUNT(*) FILTER (WHERE abvc_asean11_source_country(abvc_source_country_raw(s.country, s.config)) IS NULL)::bigint AS source_country_unfilled,
                     MAX(s.last_credibility_refresh)::text AS last_credibility_refresh
              FROM collector_sources s
              LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = abvc_source_credibility_type(s.config, s.source_type)
@@ -5913,7 +5913,7 @@ async fn source_summary(
     let country_rows = client
         .query(
             "WITH normalized AS (
-                 SELECT abvc_asean11_source_country(country) AS country
+                 SELECT abvc_asean11_source_country(abvc_source_country_raw(country, config)) AS country
                  FROM collector_sources
              )
              SELECT country, COUNT(*)::bigint AS source_count
@@ -5989,8 +5989,8 @@ async fn source_summary(
             "by_catalog_type": by_catalog_type,
             "credibility_threshold": threshold,
             "last_credibility_refresh": totals.get::<_, Option<String>>(11),
-            "credibility_meaning": "Catalog/domain reputation score, not epidemiologist verification.",
-            "source_country_meaning": "source_country is the outlet attribution (ASEAN-11 member or GLOBAL). It is not the article event country. Global aggregators used for ASEAN monitoring have covers_asean=true.",
+            "credibility_meaning": "≥ threshold is a catalog-type heuristic (gov/news/web buckets) unless a domain refresh or admin override is stored. Not live crawl quality and not epidemiologist verification. Google/web 0.65 is not frozen — Refresh scores applies domain rules (e.g. who.int).",
+            "source_country_meaning": "Outlet country coalesces top-level country with config.country and config.source_country_original (ASEAN-11 aliases). It is not the article event country. Null top-level catalog rows with Indonesia/Vietnam/… in config.country count as ASEAN outlets. Google News aggregators stay GLOBAL with covers_asean=true.",
             "enabled_sources": crawl_health.as_ref().map(|row| row.get::<_, i64>(0)).unwrap_or(0),
             "scheduled_sources": crawl_health.as_ref().map(|row| row.get::<_, i64>(1)).unwrap_or(0),
             "active_run_count": crawl_health.as_ref().map(|row| row.get::<_, i64>(2)).unwrap_or(0),
@@ -6047,7 +6047,7 @@ async fn get_source(
     let row = client
         .query_one(
             "SELECT s.id, s.name, s.source_type, s.config, s.schedule, s.enabled, s.created_at::text, s.updated_at::text,
-                    COALESCE(s.credibility_score, sc.score, 0.50) AS source_credibility, s.country,
+                    COALESCE(s.credibility_score, sc.score, 0.50) AS source_credibility, abvc_source_country_resolved(s.country, s.config) AS country,
                     COALESCE(NULLIF(BTRIM(s.config->>'catalog_type'), ''), s.source_type) AS catalog_type,
                     NULLIF(BTRIM(s.config->>'validity_status'), '') AS validity_status,
                     NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin,
@@ -6386,7 +6386,7 @@ async fn recompute_source_credibility(
         data: json!({
             "updated": updated,
             "threshold": source_credibility_threshold(),
-            "meaning": "Catalog/domain reputation score, not epidemiologist verification.",
+            "meaning": "≥ threshold is a catalog-type heuristic unless domain_boost or an admin override is stored. Not live verification. Google/web 0.65 is replaced when a domain rule matches.",
         }),
         total: None, page: None, per_page: None, total_pages: None,
     }))
