@@ -879,7 +879,6 @@ export default function ReportsPage() {
 
       <div className="w-full px-4 md:px-6 pt-3 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#0060A9]/20 bg-white px-4 py-3 print:hidden">
-          <ReportsModeNav />
           <p className="text-sm text-slate-600">
             Live analysis: filters, disease×AMS cross-tabs, and the events ledger. Published bulletins are a separate frozen gallery.
           </p>
@@ -956,37 +955,9 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* ==================== MASTER TAB SWITCHER ==================== */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs print:hidden">
-          <div className="inline-flex flex-wrap items-center rounded-xl border border-slate-200 bg-slate-100/90 p-1 text-xs sm:text-sm font-bold">
-            <button
-              type="button"
-              onClick={() => setActiveTab('cross_matrix')}
-              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
-                activeTab === 'cross_matrix'
-                  ? 'bg-[#0060A9] text-white shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <TableIcon className="h-4 w-4" />
-              <span>Cross-Tabulation Matrix</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('event_log')}
-              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
-                activeTab === 'event_log'
-                  ? 'bg-[#0060A9] text-white shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <FileText className="h-4 w-4" />
-              <span>Surveillance Events Ledger</span>
-            </button>
-          </div>
-
-
+        {/* ==================== PUBLIC REPORT NAVIGATION ==================== */}
+        <div className="print:hidden">
+          <ReportsModeNav />
         </div>
 
         {/* ==================== MATRIX & EVENT LEDGER ==================== */}
