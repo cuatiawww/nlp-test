@@ -143,5 +143,64 @@ class WebScraperHelpersTest(unittest.TestCase):
         self.assertEqual(_extract_published_at(html), "2026-08-19")
 
 
+class InteractiveExtractTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_auto_mode_skips_stealth_for_url_analysis(self):
+        from unittest.mock import AsyncMock, patch
+        from app.collectors.web_scraper import FetchOutcome, WebScraperCollector
+
+        html = (
+            "<html><body><article><h1>Dengue outbreak</h1>"
+            "<p>Health officials reported fifty dengue cases in the province this week.</p>"
+            "</article></body></html>"
+        )
+        outcome = FetchOutcome(
+            page=None,
+            html=html,
+            status=200,
+            mode="direct_http",
+            final_url="https://example.org/news",
+        )
+        collector = WebScraperCollector({
+            "id": "interactive-analyzer",
+            "name": "URL Analyzer",
+            "config": {
+                "fetch_mode": "auto",
+                "timeout_ms": 5000,
+                "max_retries": 0,
+                "skip_stealth": True,
+            },
+        })
+        with patch.object(collector, "_fetch_direct_http", AsyncMock(return_value=outcome)) as direct, \
+             patch.object(collector, "_fetch_stealth", AsyncMock()) as stealth, \
+             patch("app.collectors.web_scraper.validate_public_url", side_effect=lambda value: value), \
+             patch("app.collectors.web_scraper._extract_main_content", return_value=(
+                 "Dengue outbreak",
+                 "Health officials reported fifty dengue cases in the province this week.",
+             )), \
+             patch("app.collectors.web_scraper._extract_published_at", return_value="2026-09-01"), \
+             patch("app.collectors.web_scraper._identity_payload", return_value={
+                 "normalized_url": "https://example.org/news",
+                 "canonical_url": "https://example.org/news",
+                 "url_hash": "abc",
+                 "content_hash": "def",
+                 "final_url": "https://example.org/news",
+                 "author": "",
+             }):
+            data = await collector.extract_url("https://example.org/news")
+        stealth.assert_not_called()
+        direct.assert_called()
+        self.assertIn("dengue", data["content"].lower())
+
+    def test_interactive_timeout_is_capped_at_twenty_seconds(self):
+        from app.collectors.web_scraper import WebScraperCollector
+
+        collector = WebScraperCollector({
+            "id": "interactive-analyzer",
+            "name": "URL Analyzer",
+            "config": {"timeout_ms": 120_000},
+        })
+        self.assertEqual(collector._interactive_timeout_seconds(), 20)
+
+
 if __name__ == "__main__":
     unittest.main()

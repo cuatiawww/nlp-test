@@ -1612,7 +1612,7 @@ async fn analyze_url(
     let resp = state
         .http
         .post(&collector_endpoint)
-        .json(&json!({ "url": url, "fetch_mode": "auto", "timeout_ms": 18000 }))
+        .json(&json!({ "url": url, "fetch_mode": "http", "timeout_ms": 18000, "max_retries": 0 }))
         .timeout(std::time::Duration::from_secs(25))
         .send()
         .await
@@ -1630,13 +1630,18 @@ async fn analyze_url(
             )
         })?;
     if !resp.status().is_success() {
-        let _status = resp.status();
+        let status = resp.status();
         let detail = resp.text().await.unwrap_or_default();
         let parsed_error = serde_json::from_str::<serde_json::Value>(&detail)
             .ok()
             .and_then(|v| v.get("detail").or_else(|| v.get("error")).and_then(|d| d.as_str()).map(String::from))
             .unwrap_or(detail);
-        return Err((StatusCode::BAD_REQUEST, Json(json!({
+        let mapped_status = if status.as_u16() == 408 {
+            StatusCode::GATEWAY_TIMEOUT
+        } else {
+            StatusCode::BAD_REQUEST
+        };
+        return Err((mapped_status, Json(json!({
             "success": false, "error": format!("Gagal mengambil URL: {}", parsed_error)
         }))));
     }

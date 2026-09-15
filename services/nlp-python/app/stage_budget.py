@@ -20,7 +20,10 @@ def bounded_call(function, args, seconds):
     try:
         if process.is_alive():
             process.terminate()
-            process.join(2)
+            process.join(1)
+            if process.is_alive():
+                process.kill()
+                process.join(1)
             raise TimeoutError(f"Stage exceeded time budget ({seconds}s)")
 
         try:

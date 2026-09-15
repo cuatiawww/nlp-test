@@ -64,6 +64,12 @@ def analyze_bounded(payload: BoundedRequest):
                 (payload.model_dump(), translation, payload.rules_only),
                 INFERENCE_STAGE_TIMEOUT_SECONDS,
             )
+        except TimeoutError as exc:
+            logger.warning("Inference stage timed out: %s", exc)
+            raise HTTPException(
+                408,
+                f"NLP stage exceeded budget ({INFERENCE_STAGE_TIMEOUT_SECONDS}s)",
+            ) from exc
         except Exception as exc:
             logger.warning("Inference stage failed: %s", exc)
             raise HTTPException(503, f"NLP stage exceeded budget or failed: {exc}")

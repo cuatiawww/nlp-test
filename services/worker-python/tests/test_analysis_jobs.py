@@ -1,9 +1,9 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.analysis_jobs import analyze_stages, validate_url
+from app.analysis_jobs import analyze_stages, fetch_article, validate_url
 
 class AnalysisJobTests(unittest.TestCase):
     def test_rejects_non_http_urls(self):
@@ -64,3 +64,18 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertTrue(result["cached"])
         self.assertEqual(result["result"]["case_count"], 12)
         nlp.assert_not_called()
+
+    def test_fetch_article_uses_fail_fast_http(self):
+        response = Mock()
+        response.json.return_value = {"data": {"content": "hello"}}
+        response.raise_for_status.return_value = None
+        with patch("requests.post", return_value=response) as post:
+            payload = fetch_article("https://example.org/news", fallback=False)
+        self.assertEqual(payload["content"], "hello")
+        sent = post.call_args.kwargs["json"]
+        self.assertEqual(sent["fetch_mode"], "http")
+        self.assertEqual(sent["max_retries"], 0)
+        self.assertLessEqual(sent["timeout_ms"], 15000)
+        connect_timeout, read_timeout = post.call_args.kwargs["timeout"]
+        self.assertEqual(connect_timeout, 5)
+        self.assertLessEqual(read_timeout, 20)

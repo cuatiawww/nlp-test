@@ -29,6 +29,9 @@ function authHeaders(): Record<string, string> {
 function formatApiError(res: Response, json?: any): string {
   if (json?.error && typeof json.error === "string") return json.error;
   if (json?.detail && typeof json.detail === "string") return json.detail;
+  if (res.status === 408) {
+    return "URL extraction timed out. The source website is slow or blocking crawler access.";
+  }
   if (res.status === 504) {
     return "Gateway Timeout (504): Server atau website sumber artikel membutuhkan waktu terlalu lama untuk merespons. Silakan periksa apakah tautan dapat diakses dan coba beberapa saat lagi.";
   }
@@ -441,11 +444,15 @@ export const analyzeUrl = async (url: string) => {
   // Interactive URL analysis must use the dedicated async worker. The old
   // synchronous/force-refresh flags made the browser wait for crawling and
   // NLP in the API request, which caused 504s and defeated URL caching.
-  const initial = await postTo<any>("/api/v1/analyze-url", {
-    url,
-    async: true,
-    force_refresh: false,
+  const res = await fetch(`${baseURL()}/api/v1/analyze-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ url, async: true, force_refresh: false }),
+    signal: AbortSignal.timeout(20000),
   });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(formatApiError(res, json));
+  const initial = (json?.data ?? json) as any;
   return waitForAnalysis(initial, async (id: string) => {
     const res = await fetch(baseURL() + "/api/v1/analysis-jobs/" + encodeURIComponent(id),
       // Status reads must not fail just because a large PDF is still being

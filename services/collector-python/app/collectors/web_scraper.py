@@ -435,6 +435,10 @@ def _extract_published_at(html: str, url: str = "", text: str = "") -> str:
 
 
 class WebScraperCollector(BaseCollector):
+    def _interactive_timeout_seconds(self) -> int:
+        configured_ms = int(self.config.get("timeout_ms", app_config.INTERACTIVE_HTML_TIMEOUT_SECONDS * 1000))
+        return max(1, min(configured_ms // 1000, 20))
+
     async def _fetch_direct_http(self, url: str, timeout_seconds: int = 12) -> FetchOutcome:
         """Fast bounded HTTP fetch with redirect SSRF checks and finite retries."""
         import requests
@@ -551,21 +555,26 @@ class WebScraperCollector(BaseCollector):
             raise ValueError(f"Invalid fetch_mode: {fetch_mode}")
 
         outcome = None
+        timeout_seconds = self._interactive_timeout_seconds()
+        skip_stealth = fetch_mode != "stealth" and bool(self.config.get("skip_stealth", False))
 
-        if fetch_mode == "http":
+        if fetch_mode == "http" or skip_stealth:
             try:
-                outcome = await self._fetch_direct_http(url, timeout_seconds=12)
+                outcome = await self._fetch_direct_http(url, timeout_seconds=timeout_seconds)
             except Exception as direct_exc:
                 logger.warning("Direct HTTP failed for %s (%s), trying Scrapling HTTP", url, direct_exc)
                 outcome = await self._fetch_http(url)
         else:
             async with AsyncExitStack() as stack:
                 try:
-                    outcome, _ = await self._fetch(url, fetch_mode, "body", None, stack)
+                    outcome, _ = await asyncio.wait_for(
+                        self._fetch(url, fetch_mode, "body", None, stack),
+                        timeout=timeout_seconds + 1,
+                    )
                 except Exception as exc:
                     logger.warning("Primary fetch failed for %s (%s), trying fast direct http fallback", url, exc)
                     try:
-                        outcome = await self._fetch_direct_http(url, timeout_seconds=12)
+                        outcome = await self._fetch_direct_http(url, timeout_seconds=timeout_seconds)
                     except Exception as fallback_exc:
                         logger.error("Direct HTTP fallback also failed for %s: %s", url, fallback_exc)
                         if outcome is None:
@@ -575,7 +584,7 @@ class WebScraperCollector(BaseCollector):
         if outcome is None or not outcome.html or len(outcome.html) < 200 or outcome.status != 200:
             try:
                 logger.info("Attempting direct HTTP fallback for %s", url)
-                direct_outcome = await self._fetch_direct_http(url, timeout_seconds=12)
+                direct_outcome = await self._fetch_direct_http(url, timeout_seconds=timeout_seconds)
                 if direct_outcome.status == 200 and len(direct_outcome.html) > 200:
                     outcome = direct_outcome
             except Exception as e:
@@ -743,16 +752,16 @@ class WebScraperCollector(BaseCollector):
         from scrapling.fetchers import AsyncFetcher
         url = await asyncio.to_thread(validate_public_url, url)
         await asyncio.to_thread(wait_for_domain, url, app_config.CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS)
-        timeout_seconds = max(1, min(int(self.config.get("timeout_ms", 15_000)) // 1000, 15))
+        timeout_seconds = self._interactive_timeout_seconds()
         kwargs = {
             "timeout": timeout_seconds,
-            "retries": int(self.config.get("max_retries", 2)),
+            "retries": int(self.config.get("max_retries", app_config.CRAWLER_MAX_RETRIES)),
             "stealthy_headers": True,
             "impersonate": self.config.get("impersonate", "chrome"),
         }
         if self.config.get("proxy"):
             kwargs["proxy"] = self.config["proxy"]
-        page = await AsyncFetcher.get(url, **kwargs)
+        page = await asyncio.wait_for(AsyncFetcher.get(url, **kwargs), timeout=timeout_seconds + 1)
         final_url = str(getattr(page, "url", "") or url)
         final_url = await asyncio.to_thread(validate_public_url, final_url)
         html = _response_html(page)
@@ -777,15 +786,16 @@ class WebScraperCollector(BaseCollector):
     async def _fetch_stealth(self, url: str, session: Any) -> FetchOutcome:
         url = await asyncio.to_thread(validate_public_url, url)
         await asyncio.to_thread(wait_for_domain, url, app_config.CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS)
+        timeout_seconds = self._interactive_timeout_seconds()
         kwargs = {
-            "retries": int(self.config.get("max_retries", 2)),
+            "retries": int(self.config.get("max_retries", app_config.CRAWLER_MAX_RETRIES)),
             "wait": int(self.config.get("wait_ms", 5000)),
         }
         if self.config.get("wait_selector"):
             kwargs["wait_selector"] = self.config["wait_selector"]
         if self.config.get("network_idle"):
             kwargs["network_idle"] = True
-        page = await session.fetch(url, **kwargs)
+        page = await asyncio.wait_for(session.fetch(url, **kwargs), timeout=timeout_seconds + 1)
         html = _response_html(page)
         status = int(getattr(page, "status", 0) or 0)
         if _is_challenge(status, html):

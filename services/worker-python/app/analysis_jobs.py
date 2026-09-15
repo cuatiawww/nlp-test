@@ -21,7 +21,7 @@ def _json_safe(value):
         return [_json_safe(item) for item in value]
     return value
 QUEUE = "disease.analysis-url"
-NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "240"))
+NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "180"))
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
 ).lower() in {"1", "true", "yes", "on"}
@@ -98,7 +98,7 @@ def fetch_article(url, fallback=False):
     read_timeout = 140 if is_pdf else 20
     response = requests.post(
         endpoint + "/extract-url",
-        json={"url": url, "fetch_mode": "http" if fallback else "auto", "timeout_ms": timeout_ms},
+        json={"url": url, "fetch_mode": "http", "timeout_ms": timeout_ms, "max_retries": 0},
         timeout=(connect_timeout, read_timeout),
     )
     response.raise_for_status()

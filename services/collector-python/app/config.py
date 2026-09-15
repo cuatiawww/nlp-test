@@ -47,3 +47,15 @@ CRAWLER_BACKOFF_MAX_SECONDS = max(
 CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS = max(
     0.0, float(os.getenv("CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS", "0.25"))
 )
+
+# Interactive URL analysis must fail fast so reverse proxies do not return 504
+# while Scrapling stealth/browser sessions ignore their configured timeout.
+INTERACTIVE_HTML_TIMEOUT_SECONDS = max(
+    1, min(int(os.getenv("INTERACTIVE_HTML_TIMEOUT_SECONDS", "12")), 20)
+)
+INTERACTIVE_HTML_MAX_BOUND_MS = max(
+    1_000, min(int(os.getenv("INTERACTIVE_HTML_MAX_BOUND_MS", "20000")), 20_000)
+)
+INTERACTIVE_SKIP_STEALTH = os.getenv("INTERACTIVE_SKIP_STEALTH", "true").lower() in {
+    "1", "true", "yes", "on",
+}
