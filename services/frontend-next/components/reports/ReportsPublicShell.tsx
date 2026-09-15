@@ -8,7 +8,7 @@ import { useSettings } from '@/lib/settings-context'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import { fetchLatestPublicReport, formatEpiBadge } from '@/lib/sitrep-api'
 import { getCurrentEpiWeek } from '@/lib/epi-week'
-import { getAuthUser, isLoggedIn } from '@/lib/auth'
+import { isLoggedIn } from '@/lib/auth'
 
 const NAV = [
   { href: '/', label: 'Home' },
@@ -107,11 +107,11 @@ export default function ReportsPublicShell({ children }: { children: React.React
       <main className="mx-auto w-full max-w-6xl px-4 py-6">{children}</main>
       <footer className="no-print border-t border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 text-xs text-slate-500">
-          <p>Publicly available sources · ASEAN-11 KPI snapshot · Template {getAuthUser()?.username ? 'CMS enabled' : 'weekly_sitrep_v1'}</p>
+          <p>Publicly available sources · ASEAN-11 KPI snapshot · Bulletin and SitRep templates</p>
           <div className="flex gap-3">
             <Link href="/reports/archive" className="font-semibold text-[#0060A9]">Archive</Link>
             <Link href="/reports/methodology" className="font-semibold text-[#0060A9]">Methodology</Link>
-            <Link href="/reports/matrix" className="font-semibold text-slate-500">Event matrix</Link>
+            <Link href="/reports/matrix" className="font-semibold text-slate-400">Event matrix</Link>
           </div>
         </div>
       </footer>

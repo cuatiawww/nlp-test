@@ -15,6 +15,8 @@ const CHECKS = [
   'KPI snapshot pulled for the correct epi week',
   'Sources and limitations present',
   'No LLM essay pasted as the body',
+  'Template section order matches bulletin or SitRep outline',
+  'Heatmap / map missing cells are No data, not zero',
 ]
 
 export default function CmsIssueReviewPage() {

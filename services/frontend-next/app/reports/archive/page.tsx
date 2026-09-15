@@ -29,11 +29,14 @@ export default function ReportsArchivePage() {
           <h2 className="mb-2 text-lg font-extrabold">{year}</h2>
           <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
             {rows.map((item) => (
-              <li key={item.slug} className="flex items-center justify-between px-4 py-3 text-sm">
+              <li key={item.slug} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                 <Link href={`/reports/${item.slug}`} className="font-semibold text-[#0060A9]">
                   {item.title}
                 </Link>
-                <span className="text-xs text-slate-500">{formatEpiBadge(item.epi_year, item.epi_week)}</span>
+                <span className="shrink-0 text-xs text-slate-500">
+                  {item.template_id ? `${item.template_id} · ` : ''}
+                  {formatEpiBadge(item.epi_year, item.epi_week)}
+                </span>
               </li>
             ))}
           </ul>

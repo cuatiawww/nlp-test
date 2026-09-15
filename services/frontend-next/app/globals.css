@@ -79,7 +79,7 @@
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm 12mm 12mm 12mm;
+    margin: 16mm 14mm 18mm 14mm;
   }
 
   body {
@@ -95,7 +95,8 @@
   .no-print,
   .print\:hidden,
   aside,
-  nav,
+  header nav,
+  footer,
   button,
   input,
   select,
@@ -122,6 +123,25 @@
   .break-inside-avoid {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+  }
+
+  .sitrep-document {
+    counter-reset: sitrep-page;
+  }
+
+  .sitrep-print-page {
+    counter-increment: sitrep-page;
+    position: relative;
+    padding-bottom: 18px;
+  }
+
+  .sitrep-print-page::after {
+    content: counter(sitrep-page);
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    font-size: 10px;
+    color: #64748b;
   }
 
   .sitrep-document svg {

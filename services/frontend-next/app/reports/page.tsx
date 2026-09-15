@@ -1,12 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { listPublicReportIssues, formatEpiBadge, fetchLatestPublicReport } from '@/lib/sitrep-api'
 import type { ReportIssueCard } from '@/types/sitrep'
-import { ReportCoverThumbnail } from '@/components/reports/ReportCoverThumbnail'
+import PublicationCover from '@/components/reports/PublicationCover'
+import { REPORT_TEMPLATES, templateById, type TemplateFamily } from '@/lib/report-templates'
+
+const FILTERS: Array<{ id: 'all' | TemplateFamily; label: string }> = [
+  { id: 'all', label: 'All editions' },
+  { id: 'mmwr', label: 'Bulletin' },
+  { id: 'sitrep', label: 'SitRep' },
+  { id: 'ei', label: 'Epidemic intelligence' },
+  { id: 'focus', label: 'Focus' },
+]
 
 function IssueCard({ item }: { item: ReportIssueCard }) {
+  const tpl = templateById(item.template_id)
   return (
     <Link
       href={`/reports/${item.slug}`}
@@ -14,17 +24,18 @@ function IssueCard({ item }: { item: ReportIssueCard }) {
     >
       {item.cover_url ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.cover_url} alt="" className="h-28 w-20 shrink-0 rounded-lg object-cover" />
+        <img src={item.cover_url} alt="" className="h-32 w-24 shrink-0 rounded-lg object-cover" />
       ) : (
-        <ReportCoverThumbnail
-          type="kemenkes_sitrep"
-          period={formatEpiBadge(item.epi_year, item.epi_week)}
+        <PublicationCover
+          templateId={item.template_id}
           title={item.title}
+          period={formatEpiBadge(item.epi_year, item.epi_week)}
+          epiLabel={formatEpiBadge(item.epi_year, item.epi_week)}
         />
       )}
       <div className="min-w-0">
         <p className="text-[11px] font-bold uppercase tracking-wide text-[#0060A9]">
-          {formatEpiBadge(item.epi_year, item.epi_week)} · Published
+          {tpl.short} · {formatEpiBadge(item.epi_year, item.epi_week)}
         </p>
         <h2 className="mt-1 text-base font-black leading-snug text-slate-900">{item.title}</h2>
         <p className="mt-1 text-xs text-slate-500">
@@ -42,6 +53,7 @@ function IssueCard({ item }: { item: ReportIssueCard }) {
 export default function ReportsGalleryPage() {
   const [items, setItems] = useState<ReportIssueCard[]>([])
   const [q, setQ] = useState('')
+  const [family, setFamily] = useState<'all' | TemplateFamily>('all')
   const [error, setError] = useState<string | null>(null)
   const [latestSlug, setLatestSlug] = useState<string | null>(null)
 
@@ -54,30 +66,49 @@ export default function ReportsGalleryPage() {
       .catch(() => setLatestSlug(null))
   }, [])
 
-  const filtered = items.filter((item) => {
-    const hay = `${item.title} ${item.slug} ${(item.diseases || []).join(' ')}`.toLowerCase()
-    return hay.includes(q.toLowerCase())
-  })
+  const filtered = useMemo(() => {
+    return items.filter((item) => {
+      const tpl = templateById(item.template_id)
+      if (family !== 'all' && tpl.family !== family) return false
+      const hay = `${item.title} ${item.slug} ${(item.diseases || []).join(' ')} ${tpl.label}`.toLowerCase()
+      return hay.includes(q.toLowerCase())
+    })
+  }, [items, q, family])
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Epidemiological reports</h1>
+          <h1 className="text-2xl font-black text-slate-900">Publications</h1>
           <p className="text-sm text-slate-600">
-            Template sitreps bound to the ASEAN-11 KPI snapshot — not AI essay pages.
+            Published bulletins and situation reports. Each edition is a versioned template filled from the ASEAN-11 KPI
+            snapshot, then frozen on publish.
           </p>
         </div>
         <div className="flex gap-2">
           {latestSlug ? (
             <Link href="/reports/latest" className="rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold text-white">
-              Browse latest
+              Latest edition
             </Link>
           ) : null}
           <Link href="/reports/archive" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700">
             Archive
           </Link>
         </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {FILTERS.map((chip) => (
+          <button
+            key={chip.id}
+            type="button"
+            onClick={() => setFamily(chip.id)}
+            className={`rounded-full px-3 py-1 text-xs font-bold ${
+              family === chip.id ? 'bg-[#0060A9] text-white' : 'border border-slate-200 bg-white text-slate-600'
+            }`}
+          >
+            {chip.label}
+          </button>
+        ))}
       </div>
       <input
         value={q}
@@ -86,13 +117,28 @@ export default function ReportsGalleryPage() {
         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
       />
       {error ? <p className="text-sm text-rose-600">{error}</p> : null}
-      {!error && filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-          No published sitreps yet. The report team creates issues from <code>weekly_sitrep_v1</code> in the CMS.
+      {!error && items.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
+          <p className="text-lg font-black text-slate-900">0 published bulletin / SitRep editions</p>
+          <p className="mt-2 text-sm text-slate-600">
+            This gallery lists frozen publications only. Create a Bulletin or SitRep in CMS (Draft → In review →
+            Approved → Published). Primary templates: {REPORT_TEMPLATES.filter((t) => t.primary).map((t) => t.label).join(' and ')}.
+          </p>
         </div>
+      ) : !error && filtered.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
+          No editions match this filter.
+        </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">{filtered.map((item) => <IssueCard key={item.slug} item={item} />)}</div>
       )}
+      <p className="text-[11px] text-slate-500">
+        Live event ledger (not a bulletin):{' '}
+        <Link href="/reports/matrix" className="font-semibold text-slate-600 underline">
+          Event matrix
+        </Link>
+        .
+      </p>
     </div>
   )
 }

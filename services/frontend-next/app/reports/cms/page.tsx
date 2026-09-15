@@ -42,9 +42,10 @@ export default function ReportsCmsQueuePage() {
     <div className="space-y-4 px-4 md:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black">Sitrep CMS</h1>
+          <h1 className="text-2xl font-black">Publication CMS</h1>
           <p className="text-sm text-slate-600">
-            Draft → In review → Changes requested → Approved → Published. KPI tables are pulled; notes are human.
+            Draft → In review → Changes requested → Approved → Published. Primary templates: bulletin and SitRep.
+            KPI tables are pulled; narrative slots are human.
           </p>
         </div>
         <Link href="/reports/cms/issues/new" className="rounded-xl bg-[#0060A9] px-4 py-2 text-sm font-bold text-white">
@@ -77,6 +78,7 @@ export default function ReportsCmsQueuePage() {
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-2">Week</th>
+              <th className="px-3 py-2">Template</th>
               <th className="px-3 py-2">Title</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">Updated</th>
@@ -87,6 +89,7 @@ export default function ReportsCmsQueuePage() {
             {items.map((item) => (
               <tr key={item.id} className="border-t border-slate-100">
                 <td className="px-3 py-2 font-mono text-xs">{formatEpiBadge(item.epi_year, item.epi_week)}</td>
+                <td className="px-3 py-2 font-mono text-[11px] text-slate-500">{item.template_id}</td>
                 <td className="px-3 py-2 font-semibold">{item.title}</td>
                 <td className="px-3 py-2">
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${statusClass(item.status)}`}>
@@ -108,8 +111,8 @@ export default function ReportsCmsQueuePage() {
             ))}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-sm text-slate-500">
-                  Queue is empty. Create a weekly sitrep from the template.
+                <td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-500">
+                  Queue is empty. Create a bulletin or SitRep from a template.
                 </td>
               </tr>
             ) : null}

@@ -7837,6 +7837,17 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        ALTER TABLE report_issues
+            ADD COLUMN IF NOT EXISTS narrative JSONB NOT NULL DEFAULT '{}'::jsonb;
+        ALTER TABLE report_issues
+            ALTER COLUMN template_id SET DEFAULT 'situation_report_v1';
+        UPDATE report_issues
+           SET template_id = 'situation_report_v1'
+         WHERE template_id IN ('weekly_sitrep_v1', '');
+        DROP INDEX IF EXISTS idx_report_issues_one_published_week;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_report_issues_one_published_template_week
+            ON report_issues (template_id, epi_year, epi_week)
+            WHERE status = 'published';
         CREATE TABLE IF NOT EXISTS report_issue_events (
             id SERIAL PRIMARY KEY,
             issue_id INTEGER NOT NULL REFERENCES report_issues(id) ON DELETE CASCADE,

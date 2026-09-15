@@ -14,6 +14,7 @@ import {
   transitionReportIssue,
 } from '@/lib/sitrep-api'
 import type { ReportIssue, ReportIssueStatus } from '@/types/sitrep'
+import { NARRATIVE_LABELS, templateById } from '@/lib/report-templates'
 
 const NEXT: Partial<Record<ReportIssueStatus, ReportIssueStatus>> = {
   draft: 'in_review',
@@ -49,6 +50,7 @@ export default function CmsIssueEditorPage() {
   )
 
   if (!issue) return <p className="px-6 text-sm text-slate-500">Loading issue…</p>
+  const tpl = templateById(issue.template_id)
 
   const saveNotes = async () => {
     setBusy(true)
@@ -65,6 +67,7 @@ export default function CmsIssueEditorPage() {
         cover_url: issue.cover_url,
         limitations: issue.limitations,
         map_indicator: issue.map?.indicator,
+        narrative: issue.narrative || {},
       })
       setIssue(saved)
       toast.success('Saved analyst fields (KPIs unchanged)')
@@ -96,7 +99,7 @@ export default function CmsIssueEditorPage() {
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-            {issue.status.replace('_', ' ')} · {issue.template_id} {issue.template_version}
+            {issue.status.replace('_', ' ')} · {tpl.short} · {issue.template_id} {issue.template_version}
           </p>
           <label className="block text-xs font-semibold">
             Title
@@ -175,6 +178,23 @@ export default function CmsIssueEditorPage() {
             value={highlightsText}
             onChange={(e) => setHighlightsText(e.target.value)}
           />
+          {tpl.narrativeKeys.map((key) => (
+            <label key={key} className="block text-xs font-semibold">
+              {NARRATIVE_LABELS[key] || key}
+              <textarea
+                disabled={!!frozen}
+                rows={4}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm font-normal"
+                value={issue.narrative?.[key] || ''}
+                onChange={(e) =>
+                  setIssue({
+                    ...issue,
+                    narrative: { ...(issue.narrative || {}), [key]: e.target.value },
+                  })
+                }
+              />
+            </label>
+          ))}
           {(issue.sections || []).map((section, idx) => (
             <label key={section.disease_code} className="block text-xs font-semibold">
               Note · {section.name}
@@ -207,7 +227,7 @@ export default function CmsIssueEditorPage() {
             onClick={saveNotes}
             className="rounded-lg bg-[#0060A9] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
           >
-            Save notes
+            Save notes & narrative
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -270,14 +290,9 @@ export default function CmsIssueEditorPage() {
         </div>
         {tab === 'edit' ? (
           <ol className="list-decimal space-y-2 rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm">
-            <li>Title / epi week meta</li>
-            <li>Highlights (human, ≤5)</li>
-            <li>Regional KPI strip + AMS table</li>
-            <li>Choropleth (No data ≠ zero)</li>
-            <li>Epi curves / AMS bars</li>
-            <li>Disease blocks + short notes</li>
-            <li>Alerts</li>
-            <li>Limitations & sources</li>
+            {tpl.outline.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
           </ol>
         ) : (
           <SitrepView issue={issue} preview={issue.status !== 'published'} />

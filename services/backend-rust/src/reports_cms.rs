@@ -18,8 +18,113 @@ use crate::{
     sql_disease_param, AppState, ASEAN11_MEMBERS,
 };
 
-pub const TEMPLATE_ID: &str = "weekly_sitrep_v1";
+pub const TEMPLATE_ID: &str = "situation_report_v1";
 pub const TEMPLATE_VERSION: &str = "1.0.0";
+const LEGACY_SITREP_ID: &str = "weekly_sitrep_v1";
+
+struct TemplateSpec {
+    id: &'static str,
+    family: &'static str,
+    primary: bool,
+    label: &'static str,
+    slug_prefix: &'static str,
+    version: &'static str,
+    narrative_keys: &'static [&'static str],
+    outline: &'static [&'static str],
+}
+
+const TEMPLATES: &[TemplateSpec] = &[
+    TemplateSpec {
+        id: "mmwr_bulletin_v1",
+        family: "mmwr",
+        primary: true,
+        label: "Epidemiological bulletin",
+        slug_prefix: "mmwr",
+        version: "1.0.0",
+        narrative_keys: &["publisher", "editorial"],
+        outline: &[
+            "Cover",
+            "Publisher / editorial board",
+            "Table of contents (linked)",
+            "Executive summary",
+            "Disease chapters (tables, maps, line/bar, small multiples)",
+            "Source notes",
+            "Page numbers (print)",
+        ],
+    },
+    TemplateSpec {
+        id: "situation_report_v1",
+        family: "sitrep",
+        primary: true,
+        label: "Situation report",
+        slug_prefix: "sitrep",
+        version: "1.0.0",
+        narrative_keys: &["response", "recommendations", "country_updates"],
+        outline: &[
+            "Glance KPIs",
+            "Health-zone choropleth (Admin-0)",
+            "AMS cases / deaths / CFR table",
+            "Weekly chart",
+            "Country updates",
+            "Epidemiology",
+            "Response",
+            "Recommendations",
+            "References",
+        ],
+    },
+    TemplateSpec {
+        id: "epidemic_intelligence_v1",
+        family: "ei",
+        primary: false,
+        label: "Epidemic intelligence",
+        slug_prefix: "ei",
+        version: "1.0.0",
+        narrative_keys: &["editorial", "definitions"],
+        outline: &[
+            "Cover + regional map",
+            "Editorial",
+            "Definitions",
+            "Two-week event summary",
+            "Executive summary",
+            "Disease-signal visual",
+            "Summary table",
+            "References",
+        ],
+    },
+    TemplateSpec {
+        id: "focus_report_v1",
+        family: "focus",
+        primary: false,
+        label: "Focus report",
+        slug_prefix: "focus",
+        version: "1.0.0",
+        narrative_keys: &["abstract", "methods", "discussion"],
+        outline: &[
+            "Abstract",
+            "Methods",
+            "Results (small multiples + heatmap)",
+            "Discussion",
+            "Limitations",
+            "References",
+        ],
+    },
+];
+
+fn canonicalize_template_id(raw: &str) -> Option<&'static str> {
+    let id = raw.trim();
+    if id.is_empty() || id.eq_ignore_ascii_case(LEGACY_SITREP_ID) {
+        return Some(TEMPLATE_ID);
+    }
+    TEMPLATES
+        .iter()
+        .find(|t| t.id.eq_ignore_ascii_case(id))
+        .map(|t| t.id)
+}
+
+fn template_spec(id: &str) -> Option<&'static TemplateSpec> {
+    let canon = canonicalize_template_id(id)?;
+    TEMPLATES.iter().find(|t| t.id == canon)
+}
 const DEFAULT_LIMITATIONS: &str = "Figures are aggregated from publicly available sources processed by the ABVC NLP pipeline (per-event caps applied). An ASEAN Member State (AMS) with no matching events in the reporting window is shown as No data / Not reported — never as zero. Case fatality is omitted when the case denominator is missing or zero. Official national counts may differ.";
 
 const ALLOWED: &[(&str, &str)] = &[
@@ -103,10 +208,22 @@ fn cfr_json(cases: i64, deaths: i64) -> Value {
     }
 }
 
-fn slug_for(year: i32, week: i32, extra: Option<i32>) -> String {
+fn slug_for(template_id: &str, year: i32, week: i32, extra: Option<i32>) -> String {
+    let prefix = template_spec(template_id)
+        .map(|t| t.slug_prefix)
+        .unwrap_or("sitrep");
     match extra {
-        Some(n) if n > 1 => format!("sitrep-{year}-w{week:02}-{n}"),
-        _ => format!("sitrep-{year}-w{week:02}"),
+        Some(n) if n > 1 => format!("{prefix}-{year}-w{week:02}-{n}"),
+        _ => format!("{prefix}-{year}-w{week:02}"),
+    }
+}
+
+fn default_title(template_id: &str, year: i32, week: i32) -> String {
+    match template_spec(template_id).map(|t| t.family) {
+        Some("mmwr") => format!("ASEAN Epidemiological Bulletin — EW {week:02}, {year}"),
+        Some("ei") => format!("ASEAN Epidemic Intelligence — EW {week:02}, {year}"),
+        Some("focus") => format!("Focus report — EW {week:02}, {year}"),
+        _ => format!("ASEAN Situation Report — EW {week:02}, {year}"),
     }
 }
 
@@ -149,6 +266,7 @@ fn issue_from_row(row: &tokio_postgres::Row) -> Value {
         "map": row.get::<_, Value>("map_meta"),
         "sources": row.get::<_, Value>("sources"),
         "limitations": row.get::<_, Option<String>>("limitations"),
+        "narrative": row.try_get::<_, Value>("narrative").unwrap_or_else(|_| json!({})),
         "visibility": row.get::<_, String>("visibility"),
         "created_by": row.get::<_, Option<String>>("created_by"),
         "updated_by": row.get::<_, Option<String>>("updated_by"),
@@ -162,7 +280,8 @@ fn issue_from_row(row: &tokio_postgres::Row) -> Value {
 const ISSUE_SELECT: &str = r#"
     SELECT id, slug, title, epi_year, epi_week, period_start, period_end, status,
            template_id, template_version, cover_url, highlights, sections,
-           kpi_snapshot, published_snapshot, map_meta, sources, limitations, visibility,
+           kpi_snapshot, published_snapshot, map_meta, sources, limitations,
+           COALESCE(narrative, '{}'::jsonb) AS narrative, visibility,
            created_by, updated_by, published_at::text, created_at::text, updated_at::text
     FROM report_issues
 "#;
@@ -339,6 +458,133 @@ async fn query_weekly_series(
                 "cases": r.get::<_, i64>("cases"),
                 "deaths": r.get::<_, i64>("deaths"),
                 "events": r.get::<_, i64>("events"),
+            })
+        })
+        .collect())
+}
+
+async fn query_weekly_by_disease(
+    client: &deadpool_postgres::Object,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    selected_country: &Option<String>,
+    selected_source: &Option<String>,
+) -> Result<Vec<Value>, (StatusCode, Json<Value>)> {
+    let selected_disease: Option<String> = None;
+    let sql = format!(
+        "{} SELECT COALESCE(NULLIF(TRIM(disease_classification), ''), 'UNKNOWN') AS name,
+            TO_CHAR(published_at, 'IYYY-\"W\"IW') AS period,
+            EXTRACT(ISOYEAR FROM published_at)::int AS year,
+            EXTRACT(WEEK FROM published_at)::int AS week,
+            COALESCE(SUM({cases}), 0)::bigint AS cases,
+            COALESCE(SUM({deaths}), 0)::bigint AS deaths,
+            COUNT(*)::bigint AS events
+         FROM valid
+         WHERE {}
+         GROUP BY 1, 2, 3, 4
+         ORDER BY name, year, week",
+        dashboard_valid_cte(),
+        crate::country_scope_sql(),
+        cases = security::SANE_CASES_SQL,
+        deaths = security::SANE_DEATHS_SQL,
+    );
+    let rows = client
+        .query(
+            &sql,
+            &[
+                &start_date,
+                &end_date,
+                selected_country,
+                &selected_disease,
+                selected_source,
+            ],
+        )
+        .await
+        .map_err(internal_error)?;
+    let mut by_name = std::collections::BTreeMap::<String, Vec<Value>>::new();
+    for r in &rows {
+        let name: String = r.get("name");
+        if name.eq_ignore_ascii_case("UNKNOWN") {
+            continue;
+        }
+        by_name.entry(name.clone()).or_default().push(json!({
+            "period": r.get::<_, String>("period"),
+            "year": r.get::<_, i32>("year"),
+            "week": r.get::<_, i32>("week"),
+            "cases": r.get::<_, i64>("cases"),
+            "deaths": r.get::<_, i64>("deaths"),
+            "events": r.get::<_, i64>("events"),
+        }));
+    }
+    let mut ranked: Vec<(String, i64, Vec<Value>)> = by_name
+        .into_iter()
+        .map(|(name, series)| {
+            let events: i64 = series.iter().map(|p| p["events"].as_i64().unwrap_or(0)).sum();
+            (name, events, series)
+        })
+        .collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1));
+    Ok(ranked
+        .into_iter()
+        .take(8)
+        .map(|(name, _events, series)| {
+            json!({
+                "disease_code": disease_code(&name),
+                "name": name,
+                "series": series,
+            })
+        })
+        .collect())
+}
+
+async fn query_ams_weekly(
+    client: &deadpool_postgres::Object,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    selected_country: &Option<String>,
+    selected_source: &Option<String>,
+) -> Result<Vec<Value>, (StatusCode, Json<Value>)> {
+    let selected_disease: Option<String> = None;
+    let sql = format!(
+        "{} SELECT resolved_country AS name,
+            EXTRACT(ISOYEAR FROM published_at)::int AS year,
+            EXTRACT(WEEK FROM published_at)::int AS week,
+            COALESCE(SUM({cases}), 0)::bigint AS cases,
+            COUNT(*)::bigint AS events
+         FROM valid
+         WHERE {}
+         GROUP BY 1, 2, 3
+         ORDER BY name, year, week",
+        dashboard_valid_cte(),
+        crate::country_scope_sql(),
+        cases = security::SANE_CASES_SQL,
+    );
+    let rows = client
+        .query(
+            &sql,
+            &[
+                &start_date,
+                &end_date,
+                selected_country,
+                &selected_disease,
+                selected_source,
+            ],
+        )
+        .await
+        .map_err(internal_error)?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            let name: String = r.get("name");
+            json!({
+                "country": name,
+                "display_name": display_ams_name(&name),
+                "iso3": iso3_for_country(&name),
+                "year": r.get::<_, i32>("year"),
+                "week": r.get::<_, i32>("week"),
+                "cases": r.get::<_, i64>("cases"),
+                "events": r.get::<_, i64>("events"),
+                "has_data": true,
             })
         })
         .collect())
@@ -538,6 +784,9 @@ pub async fn build_kpi_package(
     let series_weekly =
         query_weekly_series(client, ytd_start, ytd_end, &sql_country, &sql_disease, &sql_source)
             .await?;
+    let series_by_disease =
+        query_weekly_by_disease(client, ytd_start, ytd_end, &sql_country, &sql_source).await?;
+    let ams_weekly = query_ams_weekly(client, ytd_start, ytd_end, &sql_country, &sql_source).await?;
     let sources = query_sources(
         client,
         ytd_start,
@@ -574,6 +823,8 @@ pub async fn build_kpi_package(
         "by_ams": by_ams,
         "by_disease": by_disease,
         "series_weekly": series_weekly,
+        "series_by_disease": series_by_disease,
+        "ams_weekly": ams_weekly,
         "sources": sources,
         "alerts": alerts,
         "map": map_meta(),
@@ -605,6 +856,11 @@ fn merge_sections(package: &Value, previous: Option<&Value>) -> Value {
         .cloned()
         .unwrap_or(json!([]));
     let by_ams = package.get("by_ams").cloned().unwrap_or(json!([]));
+    let series_by_disease = package
+        .get("series_by_disease")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let sections: Vec<Value> = diseases
         .into_iter()
         .take(8)
@@ -615,6 +871,13 @@ fn merge_sections(package: &Value, previous: Option<&Value>) -> Value {
                 .unwrap_or("unspecified")
                 .to_string();
             let note = notes.remove(&code).unwrap_or_default();
+            let disease_series = series_by_disease
+                .iter()
+                .find(|item| {
+                    item.get("disease_code").and_then(Value::as_str) == Some(code.as_str())
+                })
+                .and_then(|item| item.get("series").cloned())
+                .unwrap_or_else(|| series.clone());
             json!({
                 "disease_code": code,
                 "name": d.get("name"),
@@ -624,7 +887,7 @@ fn merge_sections(package: &Value, previous: Option<&Value>) -> Value {
                     "events": d.get("events"),
                     "cfr": d.get("cfr"),
                 },
-                "series_weekly": series,
+                "series_weekly": disease_series,
                 "by_ams": by_ams,
                 "analyst_note": note,
                 "analyst_note_status": if note.is_empty() { "empty" } else { "human" },
@@ -675,6 +938,7 @@ pub struct ListQuery {
     pub disease: Option<String>,
     pub country: Option<String>,
     pub q: Option<String>,
+    pub template: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -695,6 +959,7 @@ pub struct PatchIssueRequest {
     pub limitations: Option<String>,
     pub map_indicator: Option<String>,
     pub visibility: Option<String>,
+    pub narrative: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -743,6 +1008,7 @@ fn public_card(row: &tokio_postgres::Row) -> Value {
         "status": row.get::<_, String>("status"),
         "cover_url": row.get::<_, Option<String>>("cover_url"),
         "published_at": row.get::<_, Option<String>>("published_at"),
+        "template_id": row.get::<_, String>("template_id"),
         "template_version": row.get::<_, String>("template_version"),
         "diseases": diseases,
         "kpis": {
@@ -827,6 +1093,14 @@ pub async fn list_public_issues(
                 .to_ascii_lowercase()
                 .contains(&text_q)
                 || row.get::<_, String>("slug").to_ascii_lowercase().contains(&text_q)
+        })
+        .filter(|row| {
+            let wanted = query.template.as_deref().unwrap_or("").trim();
+            if wanted.is_empty() || wanted.eq_ignore_ascii_case("all") {
+                return true;
+            }
+            let canon = canonicalize_template_id(wanted).unwrap_or(wanted);
+            canonicalize_template_id(&row.get::<_, String>("template_id")).unwrap_or("") == canon
         })
         .map(public_card)
         .collect();
@@ -972,15 +1246,22 @@ pub async fn create_issue(
     let package = build_kpi_package(&client, body.epi_year, body.epi_week as u32).await?;
     let sections = merge_sections(&package, None);
     let sources = package.get("sources").cloned().unwrap_or(json!([]));
-    let title = body.title.unwrap_or_else(|| {
-        format!(
-            "ASEAN Epidemiological Situation Report — Epi Week {:02}, {}",
-            body.epi_week, body.epi_year
-        )
-    });
+    let template_id = canonicalize_template_id(body.template_id.as_deref().unwrap_or(TEMPLATE_ID))
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"success": false, "error": "Unknown template_id. Use mmwr_bulletin_v1, situation_report_v1, epidemic_intelligence_v1, or focus_report_v1."})),
+            )
+        })?
+        .to_string();
+    let spec = template_spec(&template_id).unwrap();
+    let title = body
+        .title
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| default_title(&template_id, body.epi_year, body.epi_week));
     let mut n = 1;
     let slug = loop {
-        let candidate = slug_for(body.epi_year, body.epi_week, Some(n));
+        let candidate = slug_for(&template_id, body.epi_year, body.epi_week, Some(n));
         let exists = client
             .query_opt("SELECT 1 FROM report_issues WHERE slug = $1", &[&candidate])
             .await
@@ -996,28 +1277,19 @@ pub async fn create_issue(
             ));
         }
     };
-    let template_id = body
-        .template_id
-        .unwrap_or_else(|| TEMPLATE_ID.to_string());
-    if template_id != TEMPLATE_ID {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"success": false, "error": "Unknown template_id; only weekly_sitrep_v1 is enabled"})),
-        ));
-    }
     let map = map_meta();
     let highlights = json!([]);
     let limitations = DEFAULT_LIMITATIONS.to_string();
+    let narrative = json!({});
+    let version = spec.version.to_string();
     let row = client
         .query_one(
-            &format!(
-                "INSERT INTO report_issues (
+            "INSERT INTO report_issues (
                     slug, title, epi_year, epi_week, period_start, period_end, status,
                     template_id, template_version, highlights, sections, kpi_snapshot,
-                    map_meta, sources, limitations, created_by, updated_by
-                 ) VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
-                 RETURNING id"
-            ),
+                    map_meta, sources, limitations, narrative, created_by, updated_by
+                 ) VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)
+                 RETURNING id",
             &[
                 &slug,
                 &title,
@@ -1026,20 +1298,29 @@ pub async fn create_issue(
                 &period_start,
                 &period_end,
                 &template_id,
-                &TEMPLATE_VERSION,
+                &version,
                 &highlights,
                 &sections,
                 &package,
                 &map,
                 &sources,
                 &limitations,
+                &narrative,
                 &actor,
             ],
         )
         .await
         .map_err(internal_error)?;
     let id: i32 = row.get(0);
-    record_event(&client, id, None, "draft", &actor, Some("Created from weekly_sitrep_v1 + KPI pull")).await?;
+    record_event(
+        &client,
+        id,
+        None,
+        "draft",
+        &actor,
+        Some("Created from versioned template + KPI pull"),
+    )
+    .await?;
     let created = fetch_issue(&client, id).await?;
     Ok((
         StatusCode::CREATED,
@@ -1071,6 +1352,7 @@ pub async fn patch_issue(
     let mut limitations: Option<String> = row.get("limitations");
     let mut map_meta_val: Value = row.get("map_meta");
     let mut visibility: String = row.get("visibility");
+    let mut narrative: Value = row.try_get("narrative").unwrap_or_else(|_| json!({}));
 
     if let Some(v) = body.title {
         title = v;
@@ -1137,12 +1419,28 @@ pub async fn patch_issue(
         }
         visibility = v;
     }
+    if let Some(v) = body.narrative {
+        if let Some(obj) = v.as_object() {
+            for val in obj.values() {
+                if let Some(s) = val.as_str() {
+                    if s.chars().count() > 4000 {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({"success": false, "error": "Narrative fields are capped at 4000 characters"})),
+                        ));
+                    }
+                }
+            }
+        }
+        narrative = v;
+    }
 
     client
         .execute(
             "UPDATE report_issues SET
                 title = $2, slug = $3, highlights = $4, sections = $5, cover_url = $6,
-                limitations = $7, map_meta = $8, visibility = $9, updated_by = $10, updated_at = NOW()
+                limitations = $7, map_meta = $8, visibility = $9, narrative = $10,
+                updated_by = $11, updated_at = NOW()
              WHERE id = $1",
             &[
                 &id,
@@ -1154,6 +1452,7 @@ pub async fn patch_issue(
                 &limitations,
                 &map_meta_val,
                 &visibility,
+                &narrative,
                 &actor,
             ],
         )
@@ -1281,11 +1580,12 @@ pub async fn publish_issue(
     let visibility = body.visibility.unwrap_or_else(|| "public".into());
     let epi_year: i32 = row.get("epi_year");
     let epi_week: i32 = row.get("epi_week");
+    let template_id: String = row.get("template_id");
     client
         .execute(
             "UPDATE report_issues SET status = 'superseded', updated_by = $3, updated_at = NOW()
-             WHERE epi_year = $1 AND epi_week = $2 AND status = 'published' AND id <> $4",
-            &[&epi_year, &epi_week, &actor, &id],
+             WHERE epi_year = $1 AND epi_week = $2 AND template_id = $5 AND status = 'published' AND id <> $4",
+            &[&epi_year, &epi_week, &actor, &id, &template_id],
         )
         .await
         .map_err(internal_error)?;
@@ -1341,25 +1641,23 @@ pub async fn suggest_notes(
 }
 
 pub async fn list_templates() -> Json<Value> {
-    Json(json!({
-        "success": true,
-        "data": [{
-            "id": TEMPLATE_ID,
-            "version": TEMPLATE_VERSION,
-            "title": "Weekly ASEAN epidemiological situation report",
-            "outline": [
-                "Title + issue meta (epi week, cutoff)",
-                "Highlights (human, ≤5)",
-                "Regional KPI strip + AMS table",
-                "Choropleth (ISO3 Admin-0, No data ≠ zero)",
-                "Epi curve(s)",
-                "Disease blocks (templated KPIs + short analyst note)",
-                "Other alerts / events",
-                "Limitations & sources"
-            ],
-            "llm_role": "optional draft notes only; never the sitrep body"
-        }]
-    }))
+    let data: Vec<Value> = TEMPLATES
+        .iter()
+        .map(|t| {
+            json!({
+                "id": t.id,
+                "family": t.family,
+                "primary": t.primary,
+                "title": t.label,
+                "version": t.version,
+                "slug_prefix": t.slug_prefix,
+                "narrative_keys": t.narrative_keys,
+                "outline": t.outline,
+                "llm_role": "optional draft notes only; never the bulletin body"
+            })
+        })
+        .collect();
+    Json(json!({"success": true, "data": data}))
 }
 
 pub async fn list_taxonomies() -> Json<Value> {
@@ -1433,5 +1731,17 @@ mod tests {
         assert_eq!(sgp["has_data"], json!(false));
         assert!(sgp["cases"].is_null());
         assert!(sgp["events"].is_null());
+    }
+
+    #[test]
+    fn templates_prefer_mmwr_and_sitrep() {
+        assert_eq!(canonicalize_template_id("weekly_sitrep_v1"), Some("situation_report_v1"));
+        assert_eq!(canonicalize_template_id("mmwr_bulletin_v1"), Some("mmwr_bulletin_v1"));
+        assert!(template_spec("mmwr_bulletin_v1").unwrap().primary);
+        assert!(template_spec("situation_report_v1").unwrap().primary);
+        assert!(!template_spec("focus_report_v1").unwrap().primary);
+        assert_eq!(slug_for("mmwr_bulletin_v1", 2026, 7, None), "mmwr-2026-w07");
+        assert_eq!(slug_for("situation_report_v1", 2026, 7, Some(2)), "sitrep-2026-w07-2");
+        assert!(canonicalize_template_id("not-a-template").is_none());
     }
 }

@@ -7,6 +7,7 @@ export function listPublicReportIssues(params?: {
   q?: string
   epi_year?: number
   epi_week?: number
+  template?: string
 }) {
   const sp = new URLSearchParams()
   if (params?.disease) sp.set("disease", params.disease)
@@ -14,6 +15,7 @@ export function listPublicReportIssues(params?: {
   if (params?.q) sp.set("q", params.q)
   if (params?.epi_year) sp.set("epi_year", String(params.epi_year))
   if (params?.epi_week) sp.set("epi_week", String(params.epi_week))
+  if (params?.template) sp.set("template", params.template)
   const q = sp.toString()
   return fetchFrom<ReportIssueCard[]>(`/api/v1/public/report-issues${q ? `?${q}` : ""}`)
 }
@@ -35,7 +37,12 @@ export function fetchCmsIssue(id: number) {
   return fetchFrom<ReportIssue>(`/api/v1/report-issues/${id}`)
 }
 
-export function createReportIssue(body: { epi_year: number; epi_week: number; title?: string }) {
+export function createReportIssue(body: {
+  epi_year: number
+  epi_week: number
+  title?: string
+  template_id?: string
+}) {
   return postTo<ReportIssue>("/api/v1/report-issues", body)
 }
 
@@ -65,9 +72,18 @@ export function suggestReportNotes(id: number) {
 }
 
 export function fetchReportTemplates() {
-  return fetchFrom<Array<{ id: string; version: string; title: string; outline: string[] }>>(
-    "/api/v1/report-issues/templates",
-  )
+  return fetchFrom<
+    Array<{
+      id: string
+      family?: string
+      primary?: boolean
+      title: string
+      version: string
+      outline: string[]
+      narrative_keys?: string[]
+      slug_prefix?: string
+    }>
+  >("/api/v1/report-issues/templates")
 }
 
 export function fetchReportTaxonomies() {

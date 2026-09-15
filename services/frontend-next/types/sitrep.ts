@@ -37,6 +37,23 @@ export type WeeklyPoint = {
   events: number
 }
 
+export type DiseaseSeries = {
+  disease_code: string
+  name: string
+  series: WeeklyPoint[]
+}
+
+export type AmsWeekPoint = {
+  country: string
+  display_name: string
+  iso3: string | null
+  year: number
+  week: number
+  cases: number | null
+  events: number | null
+  has_data: boolean
+}
+
 export type SitrepKpiPackage = {
   kpi_source: string
   scope: string
@@ -58,6 +75,8 @@ export type SitrepKpiPackage = {
   by_ams: AmsKpiRow[]
   by_disease: DiseaseKpiRow[]
   series_weekly: WeeklyPoint[]
+  series_by_disease?: DiseaseSeries[]
+  ams_weekly?: AmsWeekPoint[]
   sources: { name: string; source_type: string; events: number }[]
   alerts: {
     disease: string
@@ -101,6 +120,7 @@ export type ReportIssue = {
   cover_url?: string | null
   highlights: string[]
   sections: ReportSection[]
+  narrative?: Record<string, string>
   kpi_snapshot?: SitrepKpiPackage | null
   published_snapshot?: SitrepKpiPackage | null
   map?: {
@@ -137,6 +157,7 @@ export type ReportIssueCard = {
   status: ReportIssueStatus
   cover_url?: string | null
   published_at?: string | null
+  template_id?: string
   template_version?: string
   diseases?: string[]
   kpis?: { cases?: number; deaths?: number; events?: number }
