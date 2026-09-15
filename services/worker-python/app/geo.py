@@ -15,3 +15,50 @@ def st_makepoint_args(latitude, longitude):
         END
     """
     return (longitude, latitude, longitude, latitude)
+
+
+# Country-level pins only. Never used as a fallback for a missing city.
+ASEAN_COUNTRY_CENTROIDS = {
+    "Brunei": (4.5353, 114.7277),
+    "Cambodia": (12.5657, 104.9910),
+    "Indonesia": (-2.5489, 118.0149),
+    "Laos": (17.9757, 102.6331),
+    "Malaysia": (3.1390, 101.6869),
+    "Myanmar": (19.7633, 96.0785),
+    "Philippines": (14.5995, 120.9842),
+    "Singapore": (1.3521, 103.8198),
+    "Thailand": (13.7563, 100.5018),
+    "Vietnam": (21.0278, 105.8342),
+    "Timor-Leste": (-8.5569, 125.5603),
+}
+
+# south, north, west, east
+ASEAN_COUNTRY_BBOXES = {
+    "Brunei": (4.0, 5.15, 114.0, 115.5),
+    "Cambodia": (10.3, 14.75, 102.3, 107.7),
+    "Indonesia": (-11.2, 6.35, 94.9, 141.1),
+    "Laos": (13.9, 22.55, 100.0, 107.8),
+    "Malaysia": (0.85, 7.55, 99.55, 119.4),
+    "Myanmar": (9.5, 28.55, 92.1, 101.2),
+    "Philippines": (4.55, 21.25, 116.9, 126.7),
+    "Singapore": (1.15, 1.48, 103.6, 104.1),
+    "Thailand": (5.55, 20.55, 97.3, 105.7),
+    "Vietnam": (8.35, 23.45, 102.1, 109.55),
+    "Timor-Leste": (-9.55, -8.1, 124.0, 127.45),
+}
+
+
+def coords_in_country_bbox(lat, lon, country: str | None) -> bool:
+    if lat is None or lon is None or not country:
+        return False
+    bbox = ASEAN_COUNTRY_BBOXES.get(country.strip())
+    if not bbox:
+        return True
+    south, north, west, east = bbox
+    return south <= float(lat) <= north and west <= float(lon) <= east
+
+
+def country_centroid(country: str | None):
+    if not country:
+        return None
+    return ASEAN_COUNTRY_CENTROIDS.get(country.strip())

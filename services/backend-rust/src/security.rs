@@ -137,6 +137,7 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/sources",
         "/api/v1/sources/summary",
         "/api/v1/runs",
+        "/api/v1/crawl-ops",
         "/api/v1/analysis-jobs",
         "/api/v1/interoperability-integrations",
         "/api/v1/dashboard/summary",
@@ -150,6 +151,7 @@ pub fn is_admin_route(method: &Method, path: &str) -> bool {
     path.starts_with("/api/v1/users")
         || path.starts_with("/api/v1/roles")
         || path == "/api/v1/data/cleanup-events"
+        || path == "/api/v1/source-credibility/recompute"
         || path.starts_with("/api/v1/console/audit-logs")
         || path == "/api/v1/console/upload"
         || (path == "/api/v1/console/settings" && *method != Method::GET)

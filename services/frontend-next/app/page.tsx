@@ -1347,7 +1347,7 @@ export default function DashboardPage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {[
                   [t("dashboard.labelDisease"), translateDisease(selected.disease)],
-                  [t("dashboard.labelLocation"), `${selected.location_name}, ${selected.country}`],
+                  [t("dashboard.labelLocation"), `${selected.location_name}${selected.province || selected.city ? ` · ${[selected.province, selected.city].filter(Boolean).join(" / ")}` : ""}, ${selected.country}`],
                   [t("dashboard.labelTotalCases"), formatNumber(selected.cases ?? 0, numLocale)],
                   [t("dashboard.labelDeaths"), formatNumber(selected.deaths ?? 0, numLocale)],
                   [

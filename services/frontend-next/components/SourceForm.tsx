@@ -94,12 +94,13 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
           placeholder={sourceType === 'web' ? 'URL or {"url":"...","title_selector":"h1","body_selector":"article"}' : 'https://...'} />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Country</label>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Source country (outlet)</label>
         <select value={country} onChange={e => setCountry(e.target.value)} required
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
-          <option value="">Select country or coverage</option>
+          <option value="">ASEAN-11 member or GLOBAL aggregator</option>
           {SOURCE_COUNTRY_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
         </select>
+        <p className="mt-1 text-[11px] text-slate-400">Outlet country is not the article event country. Use GLOBAL for Google News / WHO / international media that still cover ASEAN stories.</p>
       </div>
       <div>
         <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colFrequency')}</label>

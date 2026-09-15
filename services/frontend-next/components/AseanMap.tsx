@@ -1083,6 +1083,9 @@ export default function AseanMap({
             </h3>
             <p className="truncate text-[11px] font-semibold text-slate-500">
               {translateDisease(selectedLocation.disease)} • {selectedLocation.country}
+              {(selectedLocation.province || selectedLocation.city || selectedLocation.detail?.province || selectedLocation.detail?.city)
+                ? ` · ${[selectedLocation.province || selectedLocation.detail?.province, selectedLocation.city || selectedLocation.detail?.city].filter(Boolean).join(" / ")}`
+                : ""}
             </p>
             <p className="mt-1 text-[10px] font-semibold text-slate-400">
               Aggregated NLP result for this location and disease

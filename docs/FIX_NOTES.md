@@ -249,5 +249,74 @@ Same equality for deaths and events. Reports page Total Cases matches that `snap
 CIDRAP fixture:
 
 ```
-cd services/nlp-python && python3 -m unittest tests.test_cidrap_cambodia -v
+cd services/nlp-python && python3 -m unittest tests.test_cidrap_cambodia tests.test_geocode_bbox tests.test_llm_gate -v
 ```
+
+## Round 3 — source coverage, credibility refresh, province/city, geocode, DeepSeek caps
+
+Do **not** deploy this PR to production. Staging only.
+
+### 1) Source country ≠ article event country
+
+Live confusion (~27 ASEAN-tagged sources vs ~1471 “outside”) came from treating missing/non-member **outlet** labels as “bukan media ASEAN”. Google News Health ID/EN, WHO, CIDRAP, and other aggregators often cover ASEAN stories while the outlet itself is global.
+
+- `collector_sources.country` is **source country** (outlet attribution): ASEAN-11 member **or** `GLOBAL`. Never a fake country named `ASEAN` / `ASEAN / Asia` / `Outside ASEAN`.
+- Google News Health ID/EN, WHO, CIDRAP, CDC, and ReliefWeb are retagged to `GLOBAL` even if a feed locale was `gl=ID`. Locale is not outlet country.
+- New fields: `coverage_scope` (`asean_outlet` | `global_outlet` | `unclassified`), `covers_asean` (health/ASEAN-focused catalogs used for ASEAN monitoring — not every global URL).
+- Dashboard copy: “Sumber dengan negara ASEAN terisi” vs “Sumber tanpa negara ASEAN terisi / sumber global”. Filters: ASEAN-11 outlets / Global outlets / Covers ASEAN stories.
+- API still returns `outside_sources` as an alias of `source_country_unfilled` so existing clients do not break.
+
+### 2) Credibility refresh (≥ threshold)
+
+Scores used to be a static join on `source_credibility` by source type (almost every `news` row = 0.70). Round 3 stores:
+
+- `credibility_score`, `credibility_reason` (`type_baseline` | `domain_boost` | `override`), `last_credibility_refresh`, optional `credibility_override`
+- Admin `POST /api/v1/source-credibility/recompute` (does **not** wipe unrelated source/event data)
+- Threshold: `SOURCE_CREDIBILITY_THRESHOLD` (default 0.70)
+- UI tooltip: catalog/domain reputation, **bukan “sudah diverifikasi epidemiolog”**
+
+### 3) Province / city
+
+`disease_events.province` and `disease_events.city` are first-class (plus crawl-matrix `province` / `city`). Map popup, events list, URL analysis, and crawler export expose them instead of only free-text `location_name`.
+
+### 4) Map lat/lon
+
+ASEAN gazetteer lookup is bbox-validated. Country-level events use curated ASEAN-11 centroids (Singapore `1.3521, 103.8198`). Gazetteer rows that land outside the member bbox (Singapore in the Bay of Bengal) become **null coords + needs_review**. Token `Were` remains rejected. Migration 068 also:
+
+- repairs `locations` Singapore rows to the island centroid
+- nulls other ASEAN gazetteer coords outside the member bbox
+- optional event backfill for existing pins outside the country bbox
+
+Nominatim (opt-in) now sends ASEAN `countrycodes`.
+
+### 5) Crawl ops (additive)
+
+Sources page adds a failed-queue + recent-history panel (`GET /api/v1/crawl-ops`). Dispatcher/backoff/rate limits from Round 2 are unchanged. `GET /api/v1/runs` now includes `source_name`.
+
+### 6) DeepSeek — re-enable path, save tokens
+
+Rules NLP always runs first. DeepSeek/OpenAI only on UNKNOWN / low confidence / missing location / needs_review. **Multiple extracted diseases no longer trigger the LLM.**
+
+Cost controls:
+
+| Control | Default |
+| --- | --- |
+| `AGENT_ENABLED` | true (set false to disable) |
+| `DEEPSEEK_DAILY_BUDGET` | 200 calls/day UTC (0 = kill switch) |
+| `DEEPSEEK_PROMPT_CHARS` | 1800 |
+| `DEEPSEEK_MAX_TOKENS` | 400 |
+| `DEEPSEEK_LOCATION_MAX_CANDIDATES` | 80 ASEAN gazetteer names |
+| Response cache | URL/prompt hash, 600s TTL |
+
+Never send full dashboard payloads to the LLM. Cache hits do not consume the daily budget.
+
+### Verify (staging)
+
+```
+GET /nlp/api/v1/sources/summary
+POST /nlp/api/v1/source-credibility/recompute   # admin
+GET /nlp/api/v1/crawl-ops
+```
+
+Expect `source_country_meaning` on the summary, `asean_outlet_sources` matching ASEAN-11 outlet counts, and `global_covering_asean` > 0 for Google News / WHO-style catalogs. Map points for Singapore stay on the island. KPI endpoints from Round 2 are unchanged.
+

@@ -279,6 +279,104 @@ def is_usable_place_name(name: str, surrounding_text: str = "", start: int = 0) 
     return True
 
 
+# south, north, west, east — used to reject gazetteer rows that land in the
+# wrong sea (live bug: Singapore pinned in the Bay of Bengal).
+ASEAN_COUNTRY_BBOXES: dict[str, tuple[float, float, float, float]] = {
+    "Brunei": (4.0, 5.15, 114.0, 115.5),
+    "Cambodia": (10.3, 14.75, 102.3, 107.7),
+    "Indonesia": (-11.2, 6.35, 94.9, 141.1),
+    "Laos": (13.9, 22.55, 100.0, 107.8),
+    "Malaysia": (0.85, 7.55, 99.55, 119.4),
+    "Myanmar": (9.5, 28.55, 92.1, 101.2),
+    "Philippines": (4.55, 21.25, 116.9, 126.7),
+    "Singapore": (1.15, 1.48, 103.6, 104.1),
+    "Thailand": (5.55, 20.55, 97.3, 105.7),
+    "Vietnam": (8.35, 23.45, 102.1, 109.55),
+    "Timor-Leste": (-9.55, -8.1, 124.0, 127.45),
+}
+
+# Country-level pins only. Never used as a fallback for a missing city.
+ASEAN_COUNTRY_CENTROIDS: dict[str, tuple[float, float]] = {
+    "Brunei": (4.5353, 114.7277),
+    "Cambodia": (12.5657, 104.9910),
+    "Indonesia": (-2.5489, 118.0149),
+    "Laos": (17.9757, 102.6331),
+    "Malaysia": (3.1390, 101.6869),
+    "Myanmar": (19.7633, 96.0785),
+    "Philippines": (14.5995, 120.9842),
+    "Singapore": (1.3521, 103.8198),
+    "Thailand": (13.7563, 100.5018),
+    "Vietnam": (21.0278, 105.8342),
+    "Timor-Leste": (-8.5569, 125.5603),
+}
+
+_CITY_HINTS = (
+    "city", "kota", "town", "municipality", "kabupaten", "regency",
+    "village", "kelurahan", "district", "kecamatan",
+)
+_PROVINCE_HINTS = (
+    "province", "provinsi", "state", "oblast", "prefecture", "region",
+)
+
+
+def coords_in_country_bbox(lat: Optional[float], lon: Optional[float], country: Optional[str]) -> bool:
+    """True when lat/lon sit inside the ASEAN member bbox (or country is not ASEAN-11)."""
+    if lat is None or lon is None:
+        return False
+    mapped = normalize_country(country)
+    bbox = ASEAN_COUNTRY_BBOXES.get(mapped or "")
+    if not bbox:
+        return True
+    south, north, west, east = bbox
+    return south <= float(lat) <= north and west <= float(lon) <= east
+
+
+def split_admin_place(location: Optional[str], country: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Return (province, city). Country-level events leave both empty."""
+    name = (location or "").strip()
+    mapped = normalize_country(country)
+    if not name:
+        return None, None
+    if mapped and name.casefold() == mapped.casefold():
+        return None, None
+    if name in config.ASEAN_COUNTRIES:
+        return None, None
+    folded = name.casefold()
+    if any(token in folded for token in _PROVINCE_HINTS):
+        return name, None
+    if any(token in folded for token in _CITY_HINTS):
+        return None, name
+    return name, None
+
+
+def geocode_place(
+    name: Optional[str],
+    country: Optional[str] = None,
+    surrounding_text: str = "",
+) -> tuple[Optional[float], Optional[float], float, bool]:
+    """Gazetteer lookup with ASEAN bbox validation.
+
+    Low-confidence or out-of-bbox rows return null coordinates and
+    needs_review=True rather than a wrong pin.
+    """
+    raw = (name or "").strip()
+    if not raw or not is_usable_place_name(raw, surrounding_text):
+        return None, None, 0.0, True
+    mapped = normalize_country(country) or config.LOCATION_COUNTRIES.get(raw)
+    if raw in config.ASEAN_COUNTRIES or (mapped and raw.casefold() == mapped.casefold()):
+        centroid = ASEAN_COUNTRY_CENTROIDS.get(raw) or ASEAN_COUNTRY_CENTROIDS.get(mapped or "")
+        if centroid:
+            return centroid[0], centroid[1], 0.95, False
+        return None, None, 0.0, True
+    lat, lon = config.LOCATION_COORDS.get(raw, (None, None))
+    loc_country = config.LOCATION_COUNTRIES.get(raw) or mapped
+    if lat is None or lon is None:
+        return None, None, 0.0, True
+    if loc_country in config.ASEAN_COUNTRIES and not coords_in_country_bbox(lat, lon, loc_country):
+        return None, None, 0.0, True
+    return float(lat), float(lon), 0.85, False
+
+
 def normalize_country(value: Optional[str]) -> Optional[str]:
     """Normalize a supplied country hint without confusing organizations with countries."""
     raw = (value or "").strip()
@@ -622,13 +720,15 @@ def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict
 
     results = []
     for name in distinct_names:
-        lat, lon = config.LOCATION_COORDS.get(name, (None, None))
         c = config.LOCATION_COUNTRIES.get(name, country)
+        lat, lon, conf, needs_review = geocode_place(name, c)
         results.append({
             "name": name,
             "latitude": lat,
             "longitude": lon,
-            "country": c
+            "country": c,
+            "geocode_confidence": conf,
+            "geocode_needs_review": needs_review,
         })
     return results
 

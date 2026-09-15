@@ -539,6 +539,8 @@
       "colDate": "Date",
       "colProcessed": "Processed",
       "colLocation": "Location",
+      "colProvince": "Province",
+      "colCity": "City",
       "colDisease": "Disease",
       "colCases": "Cases",
       "colSentiment": "Sentiment",
@@ -548,11 +550,11 @@
     },
     "sources": {
       "title": "Data Sources",
-      "subtitle": "Manage data sources for news and report collection",
+      "subtitle": "Manage data sources for news and report collection. Source country is the outlet attribution, not the article event country.",
       "add": "Add Source",
       "triggerAll": "Trigger All",
       "colName": "Source Name",
-      "colCountry": "Country",
+      "colCountry": "Outlet country",
       "colType": "Type",
       "colUrl": "URL",
       "colFrequency": "Frequency",
@@ -613,7 +615,7 @@
         "sentiment": "Classified by XLM-RoBERTa AI model with sentiment labels: positive, negative, or neutral",
         "event_type": "Classified by XLM-RoBERTa AI model with event type labels from NLP Labels database ('event_type' category)",
         "relevance_score": "Classified by XLM-RoBERTa AI model whether text is health-related or not",
-        "source_credibility": "Credibility score based on source type from Source Credibility database. Type 'web' defaults to 0.50",
+        "source_credibility": "Catalog/domain reputation score from Source Credibility rules (not epidemiologist verification). Type 'web' defaults to 0.50 unless a domain boost or admin override is stored.",
         "published_at": "Extracted from article web metadata (og:published_time meta tag, JSON-LD, URL path, or article dateline)",
         "is_health_related": "Classified by XLM-RoBERTa AI model whether article is related to human disease/health surveillance"
       }

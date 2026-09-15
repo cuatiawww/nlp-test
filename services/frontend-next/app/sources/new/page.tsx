@@ -103,12 +103,13 @@ export default function NewSourcePage() {
         </div>
 
         <div>
-          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colCountry')}</label>
+          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colCountry')} (outlet)</label>
           <select required value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
             className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
-            <option value="">Select country or coverage</option>
+            <option value="">ASEAN-11 member or GLOBAL aggregator</option>
             {SOURCE_COUNTRY_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
           </select>
+          <p className="mt-1 text-[11px] text-slate-400">Source country is the outlet attribution, not the article event country.</p>
         </div>
 
         {form.source_type === 'web' && (

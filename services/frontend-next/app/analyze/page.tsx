@@ -302,8 +302,10 @@ export default function AnalyzePage() {
                   <div>
                     <span className="font-bold text-slate-900">{result.location_name || '-'}</span>
                     {result.country && <span className="ml-1 text-xs font-normal text-slate-400">({result.country})</span>}
-                    {(result as { province?: string | null }).province ? (
-                      <span className="ml-1 text-xs text-slate-500">province/city: {(result as { province?: string }).province}</span>
+                    {(result as { province?: string | null; city?: string | null }).province || (result as { city?: string | null }).city ? (
+                      <span className="ml-1 text-xs text-slate-500">
+                        province/city: {[ (result as { province?: string }).province, (result as { city?: string }).city ].filter(Boolean).join(' / ')}
+                      </span>
                     ) : null}
                   </div>
                   {result.locations && result.locations.length > 0 && (

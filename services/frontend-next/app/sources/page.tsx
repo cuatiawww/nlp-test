@@ -10,14 +10,25 @@ import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import SourceForm from '@/components/SourceForm'
-import { fetchSourceSummary, triggerCollect, triggerCollectAll, deleteSource } from '@/lib/api'
+import { fetchSourceSummary, triggerCollect, triggerCollectAll, deleteSource, recomputeSourceCredibility } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
-import { resolveSourceCountry } from '@/lib/source-country'
+import { resolveSourceCountry, credibilityReasonLabel } from '@/lib/source-country'
 import { sourceCatalogType, sourceOrigin, sourceValidityStatus } from '@/lib/source-catalog.mjs'
+import CrawlOpsPanel from '@/components/CrawlOpsPanel'
+
+function coveragePath(filter: string) {
+  if (filter === 'asean_outlet') return '/api/v1/sources?coverage_scope=asean_outlet'
+  if (filter === 'global_outlet') return '/api/v1/sources?coverage_scope=global_outlet'
+  if (filter === 'covers_asean') return '/api/v1/sources?covers_asean=true'
+  return '/api/v1/sources'
+}
 
 export default function SourcesPage() {
   const { t } = useTranslation()
-  const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Source>('/api/v1/sources')
+  const [coverageFilter, setCoverageFilter] = useState('')
+  const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Source>(
+    coveragePath(coverageFilter)
+  )
   const [showModal, setShowModal] = useState(false)
   const [editSource, setEditSource] = useState<any | null>(null)
   const [summary, setSummary] = useState<SourceSummary | null>(null)
@@ -79,11 +90,17 @@ export default function SourcesPage() {
     return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.never')}</span>
   }
 
-  const credibilityBadge = (score?: number) => {
+  const credibilityBadge = (score?: number, reason?: string | null, refreshed?: string | null) => {
     const s = score ?? 0.50
-    if (s >= 0.7) return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{`${(s * 100).toFixed(0)}%`}</span>
-    if (s >= 0.5) return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-600">{`${(s * 100).toFixed(0)}%`}</span>
-    return <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">{`${(s * 100).toFixed(0)}%`}</span>
+    const tone = s >= 0.7 ? 'bg-emerald-100 text-emerald-600' : s >= 0.5 ? 'bg-amber-100 text-amber-600' : 'bg-red-100 text-red-600'
+    return (
+      <span
+        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}
+        title={`${credibilityReasonLabel(reason)}${refreshed ? ` · refreshed ${refreshed}` : ''}. Catalog/domain score, not epidemiologist verification.`}
+      >
+        {`${(s * 100).toFixed(0)}%`}
+      </span>
+    )
   }
 
   return (
@@ -102,11 +119,40 @@ export default function SourcesPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-amber-700">
             <Play className="h-4 w-4" /> Trigger All
           </button>
+          <button
+            onClick={() => {
+              toast.promise(recomputeSourceCredibility(), {
+                loading: 'Refreshing credibility scores…',
+                success: () => { void loadSummary(); return 'Credibility refreshed' },
+                error: 'Admin session required to recompute credibility',
+              })
+            }}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold uppercase text-slate-600 transition hover:bg-slate-50">
+            Refresh scores
+          </button>
           <button onClick={() => { setEditSource(null); setShowModal(true) }}
             className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-[#004b85]">
             <Plus className="h-4 w-4" /> {t("common.add")}
           </button>
         </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {[
+          { key: '', label: 'All outlets' },
+          { key: 'asean_outlet', label: 'ASEAN-11 outlets' },
+          { key: 'global_outlet', label: 'Global outlets' },
+          { key: 'covers_asean', label: 'Covers ASEAN stories' },
+        ].map((item) => (
+          <button
+            key={item.key || 'all'}
+            type="button"
+            onClick={() => setCoverageFilter(item.key)}
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${coverageFilter === item.key ? 'bg-[#0060A9] text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
 
       <div className="mt-4 flex gap-2">
@@ -153,7 +199,12 @@ export default function SourcesPage() {
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Source Credibility</p>
               <p className="mt-2 text-3xl font-bold text-emerald-600">{summaryLoading ? '—' : (summary?.credible_sources ?? 0).toLocaleString()}</p>
-              <p className="mt-1 text-xs text-slate-500">Credible sources (≥ 70%)</p>
+              <p className="mt-1 text-xs text-slate-500">Catalog/domain score ≥ {Math.round((summary?.credibility_threshold ?? 0.7) * 100)}% — not epidemiologist-verified</p>
+              {summary?.last_credibility_refresh ? (
+                <p className="mt-1 text-[11px] text-slate-400">Last refresh {summary.last_credibility_refresh.slice(0, 19)}</p>
+              ) : (
+                <p className="mt-1 text-[11px] text-slate-400">Not refreshed yet — use Refresh scores</p>
+              )}
             </div>
             <span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600"><ShieldCheck className="h-5 w-5" /></span>
           </div>
@@ -166,15 +217,15 @@ export default function SourcesPage() {
         <button type="button" onClick={() => setShowCoverage(value => !value)} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-[#0060A9]/40 hover:shadow-md">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Geographic Coverage</p>
+              <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Outlet country (ASEAN-11)</p>
               <p className="mt-2 text-3xl font-bold text-[#0060A9]">{summaryLoading ? '—' : (summary?.asean_sources ?? 0).toLocaleString()}</p>
-              <p className="mt-1 text-xs text-slate-500">ASEAN sources</p>
+              <p className="mt-1 text-xs text-slate-500">Sumber dengan negara ASEAN terisi</p>
             </div>
             <span className="rounded-xl bg-blue-50 p-2.5 text-[#0060A9]"><Globe2 className="h-5 w-5" /></span>
           </div>
           <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
-            <span className="text-slate-500">Outside ASEAN</span>
-            <span className="flex items-center gap-1 font-semibold text-slate-700">{summaryLoading ? '—' : (summary?.outside_sources ?? 0).toLocaleString()} <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showCoverage ? 'rotate-180' : ''}`} /></span>
+            <span className="text-slate-500">Sumber tanpa negara ASEAN terisi / sumber global</span>
+            <span className="flex items-center gap-1 font-semibold text-slate-700">{summaryLoading ? '—' : (summary?.source_country_unfilled ?? summary?.outside_sources ?? 0).toLocaleString()} <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showCoverage ? 'rotate-180' : ''}`} /></span>
           </div>
         </button>
       </div>
@@ -183,8 +234,11 @@ export default function SourcesPage() {
         <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-bold uppercase tracking-[0.06em] text-slate-800">ASEAN Source Distribution</h2>
-              <p className="mt-1 text-xs text-slate-500">Countries ranked by registered source count.</p>
+              <h2 className="text-sm font-bold uppercase tracking-[0.06em] text-slate-800">ASEAN outlet distribution</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Source country = where the outlet is attributed (ASEAN-11 or GLOBAL). This is not the article event country. Google News / WHO / CIDRAP can still cover ASEAN stories while source_country is GLOBAL.
+                {typeof summary.global_covering_asean === 'number' ? ` Global outlets covering ASEAN: ${summary.global_covering_asean.toLocaleString()}.` : ''}
+              </p>
             </div>
             <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-[#0060A9]">{summary.asean_sources.toLocaleString()} total</span>
           </div>
@@ -204,6 +258,8 @@ export default function SourcesPage() {
           </div>
         </div>
       )}
+
+      <CrawlOpsPanel />
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
@@ -242,6 +298,9 @@ export default function SourcesPage() {
                       {country.code ? <CountryFlag countryCode={country.code} countryName={country.name} shape="rounded" size="xs" /> : null}
                       <span className="text-slate-700">{country.name}</span>
                     </div>
+                    {s.covers_asean && country.name === 'GLOBAL' ? (
+                      <div className="mt-0.5 text-[10px] text-slate-400">covers ASEAN stories</div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3">
                     <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">{sourceCatalogType(s)}</span>
@@ -251,7 +310,7 @@ export default function SourcesPage() {
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-center">{credibilityBadge(s.source_credibility)}</td>
+                  <td className="px-4 py-3 text-center">{credibilityBadge(s.source_credibility, s.credibility_reason, s.last_credibility_refresh)}</td>
                   <td className="px-4 py-3 text-slate-700">{s.schedule || s.effective_schedule || 'interval:60'}</td>
                   <td className="px-4 py-3">{statusBadge(s)}</td>
                   <td className="px-4 py-3 text-right">

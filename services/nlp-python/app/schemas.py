@@ -32,6 +32,8 @@ class LocationItem(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     country: Optional[str] = None
+    geocode_confidence: Optional[float] = None
+    geocode_needs_review: bool = False
 
 
 class DiseaseMention(BaseModel):
@@ -85,6 +87,9 @@ class AnalyzeResponse(BaseModel):
     evidence: list[str] = []
     case_count_unknown: bool = False
     province: Optional[str] = None
+    city: Optional[str] = None
+    geocode_confidence: Optional[float] = None
+    geocode_needs_review: bool = False
     confidence: float
     outbreak_alert: bool
     sentiment: str = "neutral"

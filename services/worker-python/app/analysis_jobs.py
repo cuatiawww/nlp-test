@@ -182,15 +182,15 @@ def save_completed(conn, job_id, result, raw_report_id=None):
     from psycopg.types.json import Jsonb
     event = conn.execute(
         """INSERT INTO disease_events(raw_report_id,source_type,source_name,published_at,original_text,
-        language,location_name,geom,symptoms,disease_extracted,disease_mentions,disease_classification,
+        language,location_name,province,city,geom,symptoms,disease_extracted,disease_mentions,disease_classification,
         case_count,death_count,event_date,confirmed_cases,suspected_cases,hospitalizations,
         epidemiological_evidence,confidence,is_health_related,outbreak_alert,sentiment,event_type,relevance_score,
         source_credibility,source_credibility_label,needs_review)
-        VALUES (%s,'web','URL Analyzer',%s,%s,%s,%s,
+        VALUES (%s,'web','URL Analyzer',%s,%s,%s,%s,%s,%s,
         CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL ELSE ST_SetSRID(ST_MakePoint(%s,%s),4326) END,
         %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (row["id"],result.get("published_at") or None,result.get("content",""),result.get("language"),
-         result.get("location_name"),*st_makepoint_args(result.get("latitude"), result.get("longitude")),Jsonb(result.get("symptoms",[])),
+         result.get("location_name"),result.get("province"),result.get("city"),*st_makepoint_args(result.get("latitude"), result.get("longitude")),Jsonb(result.get("symptoms",[])),
          Jsonb(result.get("disease_extracted",[])),Jsonb(result.get("disease_mentions",[])),
          result.get("disease_classification"),result.get("case_count",0),result.get("death_count",0),
          result.get("event_date"),result.get("confirmed_cases"),result.get("suspected_cases"),
@@ -203,15 +203,18 @@ def save_completed(conn, job_id, result, raw_report_id=None):
             conn.execute(
                 """INSERT INTO disease_event_locations
                    (disease_event_id, location_ref, location_name, role, country,
-                    latitude, longitude, case_count, death_count, evidence)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    latitude, longitude, case_count, death_count, evidence,
+                    geocode_confidence, geocode_needs_review)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (disease_event_id, location_ref, role) DO UPDATE SET
                      country = EXCLUDED.country,
                      latitude = EXCLUDED.latitude,
                      longitude = EXCLUDED.longitude,
                      case_count = EXCLUDED.case_count,
                      death_count = EXCLUDED.death_count,
-                     evidence = EXCLUDED.evidence""",
+                     evidence = EXCLUDED.evidence,
+                     geocode_confidence = EXCLUDED.geocode_confidence,
+                     geocode_needs_review = EXCLUDED.geocode_needs_review""",
                 (
                     event["id"],
                     relation["location_ref"],
@@ -223,6 +226,8 @@ def save_completed(conn, job_id, result, raw_report_id=None):
                     relation.get("case_count"),
                     relation.get("death_count"),
                     relation.get("evidence"),
+                    relation.get("geocode_confidence"),
+                    relation.get("geocode_needs_review", False),
                 ),
             )
     if ENTITY_DISEASE_STORAGE_ENABLED:
@@ -269,13 +274,13 @@ def save_completed(conn, job_id, result, raw_report_id=None):
             child = conn.execute(
                 """INSERT INTO disease_events
                    (raw_report_id, source_type, source_name, published_at,
-                    original_text, language, location_name, geom,
+                    original_text, language, location_name, province, city, geom,
                     disease_classification, case_count, death_count,
                     confidence, outbreak_alert, sentiment, event_type,
                     relevance_score, source_credibility,
                     source_credibility_label, is_health_related,
                     parent_event_id, source_url)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s,
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
@@ -284,7 +289,7 @@ def save_completed(conn, job_id, result, raw_report_id=None):
                 (
                     row["id"], result.get("source_type"), result.get("source_name"),
                     result.get("published_at"), sub_evt.get("evidence", ""),
-                    result.get("language", "id"), sub_location,
+                    result.get("language", "id"), sub_location, result.get("province"), result.get("city"),
                     *st_makepoint_args(sub_lat, sub_lon),
                     sub_disease, sub_cases, sub_deaths,
                     result.get("confidence", 0.0), result.get("outbreak_alert", False),

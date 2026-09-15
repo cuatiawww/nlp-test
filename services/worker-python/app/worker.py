@@ -150,15 +150,18 @@ def persist_location_relations(conn, event_id, nlp: dict) -> None:
         conn.execute(
             """INSERT INTO disease_event_locations
                (disease_event_id, location_ref, location_name, role, country,
-                latitude, longitude, case_count, death_count, evidence)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                latitude, longitude, case_count, death_count, evidence,
+                geocode_confidence, geocode_needs_review)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (disease_event_id, location_ref, role) DO UPDATE SET
                  country = EXCLUDED.country,
                  latitude = EXCLUDED.latitude,
                  longitude = EXCLUDED.longitude,
                  case_count = EXCLUDED.case_count,
                  death_count = EXCLUDED.death_count,
-                 evidence = EXCLUDED.evidence""",
+                 evidence = EXCLUDED.evidence,
+                 geocode_confidence = EXCLUDED.geocode_confidence,
+                 geocode_needs_review = EXCLUDED.geocode_needs_review""",
             (
                 event_id,
                 relation["location_ref"],
@@ -170,6 +173,8 @@ def persist_location_relations(conn, event_id, nlp: dict) -> None:
                 relation.get("case_count"),
                 relation.get("death_count"),
                 relation.get("evidence"),
+                relation.get("geocode_confidence"),
+                relation.get("geocode_needs_review", False),
             ),
         )
 
@@ -588,12 +593,12 @@ def callback(ch, method, properties, body):
                 conn.execute(
                     """INSERT INTO disease_events
                        (raw_report_id, source_type, source_name, published_at, original_text, language,
-                        location_name, geom, disease_extracted, disease_mentions, disease_classification,
+                        location_name, province, city, geom, disease_extracted, disease_mentions, disease_classification,
                         case_count, death_count, event_date, confirmed_cases, suspected_cases,
                         hospitalizations, epidemiological_evidence,
                         confidence, outbreak_alert, sentiment, event_type, relevance_score,
                          source_credibility, source_credibility_label, is_health_related)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s,
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                                CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                     ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                                END,
@@ -607,6 +612,8 @@ def callback(ch, method, properties, body):
                         msg.get("text"),
                         nlp["language"],
                         nlp.get("location_name"),
+                        nlp.get("province"),
+                        nlp.get("city"),
                         *st_makepoint_args(nlp.get("latitude"), nlp.get("longitude")),
                         json.dumps(nlp.get("disease_extracted", [])),
                         json.dumps(nlp.get("disease_mentions", [])),
@@ -635,12 +642,12 @@ def callback(ch, method, properties, body):
             event_cursor = conn.execute(
                 """INSERT INTO disease_events
                    (raw_report_id, source_type, source_name, published_at, original_text, language,
-                         location_name, geom, symptoms, disease_extracted, disease_mentions, disease_classification,
+                         location_name, province, city, geom, symptoms, disease_extracted, disease_mentions, disease_classification,
                     case_count, death_count, event_date, confirmed_cases, suspected_cases,
                     hospitalizations, epidemiological_evidence, confidence, outbreak_alert,
                     sentiment, event_type, relevance_score,
                     source_credibility, source_credibility_label, is_health_related)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s,
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
@@ -655,6 +662,8 @@ def callback(ch, method, properties, body):
                     msg.get("text"),
                     nlp["language"],
                     nlp.get("location_name"),
+                    nlp.get("province"),
+                    nlp.get("city"),
                     *st_makepoint_args(nlp.get("latitude"), nlp.get("longitude")),
                     json.dumps(nlp.get("symptoms", [])),
                     json.dumps(nlp.get("disease_extracted", [])),
@@ -697,14 +706,14 @@ def callback(ch, method, properties, body):
                     child_cursor = conn.execute(
                         """INSERT INTO disease_events
                            (raw_report_id, source_type, source_name, published_at,
-                            original_text, language, location_name, geom,
+                            original_text, language, location_name, province, city, geom,
                             symptoms, disease_extracted, disease_mentions,
                             disease_classification, case_count, death_count,
                             confidence, outbreak_alert, sentiment, event_type,
                             relevance_score, source_credibility,
                             source_credibility_label, is_health_related,
                             parent_event_id, source_url)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s,
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                          ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                                     END,
@@ -719,6 +728,8 @@ def callback(ch, method, properties, body):
                             sub_evidence or msg.get("text", ""),
                             nlp["language"],
                             sub_location,
+                            nlp.get("province"),
+                            nlp.get("city"),
                             *st_makepoint_args(sub_lat, sub_lon),
                             json.dumps(nlp.get("symptoms", [])),
                             json.dumps([sub_disease] if sub_disease else []),
