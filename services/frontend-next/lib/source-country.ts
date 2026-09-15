@@ -3,6 +3,8 @@ import type { Source } from '@/types'
 export type SourceCountry = {
   name: string
   code: string | null
+  coverageScope?: 'asean_outlet' | 'global_outlet' | 'unclassified'
+  coversAsean?: boolean
 }
 
 export const SOURCE_COUNTRY_OPTIONS = [
@@ -17,43 +19,50 @@ export const SOURCE_COUNTRY_OPTIONS = [
   'Laos',
   'Myanmar',
   'Timor-Leste',
-  'ASEAN / Asia',
-  'Outside ASEAN',
+  'GLOBAL',
 ]
 
 const COUNTRIES: Record<string, SourceCountry> = {
-  id: { name: 'Indonesia', code: 'ID' },
-  indonesia: { name: 'Indonesia', code: 'ID' },
-  my: { name: 'Malaysia', code: 'MY' },
-  malaysia: { name: 'Malaysia', code: 'MY' },
-  sg: { name: 'Singapore', code: 'SG' },
-  singapore: { name: 'Singapore', code: 'SG' },
-  th: { name: 'Thailand', code: 'TH' },
-  thailand: { name: 'Thailand', code: 'TH' },
-  ph: { name: 'Philippines', code: 'PH' },
-  philippines: { name: 'Philippines', code: 'PH' },
-  vn: { name: 'Vietnam', code: 'VN' },
-  vietnam: { name: 'Vietnam', code: 'VN' },
-  'viet nam': { name: 'Vietnam', code: 'VN' },
-  bn: { name: 'Brunei', code: 'BN' },
-  brunei: { name: 'Brunei', code: 'BN' },
-  kh: { name: 'Cambodia', code: 'KH' },
-  cambodia: { name: 'Cambodia', code: 'KH' },
-  kampuchea: { name: 'Cambodia', code: 'KH' },
-  la: { name: 'Laos', code: 'LA' },
-  lao: { name: 'Laos', code: 'LA' },
-  laos: { name: 'Laos', code: 'LA' },
-  mm: { name: 'Myanmar', code: 'MM' },
-  myanmar: { name: 'Myanmar', code: 'MM' },
-  burma: { name: 'Myanmar', code: 'MM' },
-  tl: { name: 'Timor-Leste', code: 'TL' },
-  'timor-leste': { name: 'Timor-Leste', code: 'TL' },
-  'timor leste': { name: 'Timor-Leste', code: 'TL' },
-  timor: { name: 'Timor-Leste', code: 'TL' },
+  id: { name: 'Indonesia', code: 'ID', coverageScope: 'asean_outlet', coversAsean: true },
+  indonesia: { name: 'Indonesia', code: 'ID', coverageScope: 'asean_outlet', coversAsean: true },
+  my: { name: 'Malaysia', code: 'MY', coverageScope: 'asean_outlet', coversAsean: true },
+  malaysia: { name: 'Malaysia', code: 'MY', coverageScope: 'asean_outlet', coversAsean: true },
+  sg: { name: 'Singapore', code: 'SG', coverageScope: 'asean_outlet', coversAsean: true },
+  singapore: { name: 'Singapore', code: 'SG', coverageScope: 'asean_outlet', coversAsean: true },
+  th: { name: 'Thailand', code: 'TH', coverageScope: 'asean_outlet', coversAsean: true },
+  thailand: { name: 'Thailand', code: 'TH', coverageScope: 'asean_outlet', coversAsean: true },
+  ph: { name: 'Philippines', code: 'PH', coverageScope: 'asean_outlet', coversAsean: true },
+  philippines: { name: 'Philippines', code: 'PH', coverageScope: 'asean_outlet', coversAsean: true },
+  vn: { name: 'Vietnam', code: 'VN', coverageScope: 'asean_outlet', coversAsean: true },
+  vietnam: { name: 'Vietnam', code: 'VN', coverageScope: 'asean_outlet', coversAsean: true },
+  'viet nam': { name: 'Vietnam', code: 'VN', coverageScope: 'asean_outlet', coversAsean: true },
+  bn: { name: 'Brunei', code: 'BN', coverageScope: 'asean_outlet', coversAsean: true },
+  brunei: { name: 'Brunei', code: 'BN', coverageScope: 'asean_outlet', coversAsean: true },
+  kh: { name: 'Cambodia', code: 'KH', coverageScope: 'asean_outlet', coversAsean: true },
+  cambodia: { name: 'Cambodia', code: 'KH', coverageScope: 'asean_outlet', coversAsean: true },
+  kampuchea: { name: 'Cambodia', code: 'KH', coverageScope: 'asean_outlet', coversAsean: true },
+  kamboja: { name: 'Cambodia', code: 'KH', coverageScope: 'asean_outlet', coversAsean: true },
+  la: { name: 'Laos', code: 'LA', coverageScope: 'asean_outlet', coversAsean: true },
+  lao: { name: 'Laos', code: 'LA', coverageScope: 'asean_outlet', coversAsean: true },
+  laos: { name: 'Laos', code: 'LA', coverageScope: 'asean_outlet', coversAsean: true },
+  mm: { name: 'Myanmar', code: 'MM', coverageScope: 'asean_outlet', coversAsean: true },
+  myanmar: { name: 'Myanmar', code: 'MM', coverageScope: 'asean_outlet', coversAsean: true },
+  burma: { name: 'Myanmar', code: 'MM', coverageScope: 'asean_outlet', coversAsean: true },
+  tl: { name: 'Timor-Leste', code: 'TL', coverageScope: 'asean_outlet', coversAsean: true },
+  'timor-leste': { name: 'Timor-Leste', code: 'TL', coverageScope: 'asean_outlet', coversAsean: true },
+  'timor leste': { name: 'Timor-Leste', code: 'TL', coverageScope: 'asean_outlet', coversAsean: true },
+  timor: { name: 'Timor-Leste', code: 'TL', coverageScope: 'asean_outlet', coversAsean: true },
+}
+
+const GLOBAL_OUTLET: SourceCountry = {
+  name: 'GLOBAL',
+  code: null,
+  coverageScope: 'global_outlet',
+  coversAsean: true,
 }
 
 const DOMAIN_COUNTRIES: Array<[string, SourceCountry]> = [
-  ['cdc.gov', { name: 'United States', code: 'US' }],
+  ['cdc.gov', { name: 'United States', code: 'US', coverageScope: 'global_outlet', coversAsean: true }],
   ['phnompenhpost.com', COUNTRIES.kh],
   ['channelnewsasia.com', COUNTRIES.sg],
   ['rappler.com', COUNTRIES.ph],
@@ -84,15 +93,19 @@ const TLD_COUNTRIES: Record<string, SourceCountry> = {
 function countryFromValue(value: unknown): SourceCountry | undefined {
   if (typeof value !== 'string') return undefined
   const normalized = value.trim().toLowerCase()
-  if (normalized.includes('outside asean')) {
-    return { name: 'Outside ASEAN', code: 'GLOBAL' }
-  }
   if (!normalized) return undefined
-  if (normalized.includes('global') || normalized.includes('international') || normalized.includes('world')) {
-    return { name: 'Outside ASEAN', code: 'GLOBAL' }
+  if (
+    normalized === 'global'
+    || normalized.includes('outside asean')
+    || normalized.includes('international')
+    || normalized.includes('worldwide')
+    || normalized === 'world'
+  ) {
+    return GLOBAL_OUTLET
   }
-  if (normalized.includes('asean') || normalized.includes('regional') || normalized.includes('asia')) {
-    return { name: 'ASEAN / Asia', code: 'ASEAN' }
+  // Never invent a fake country named "ASEAN". Regional aggregators are GLOBAL.
+  if (normalized === 'asean' || normalized.includes('asean / asia') || normalized === 'asia') {
+    return GLOBAL_OUTLET
   }
   return COUNTRIES[normalized]
 }
@@ -112,7 +125,7 @@ function collectUrls(value: unknown, urls: string[] = []): string[] {
   return urls
 }
 
-function countryFromUrl(url: string, sourceName: string): SourceCountry | undefined {
+function countryFromUrl(url: string): SourceCountry | undefined {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -127,22 +140,37 @@ function countryFromUrl(url: string, sourceName: string): SourceCountry | undefi
   const tld = hostname.split('.').pop()
   if (tld && TLD_COUNTRIES[tld]) return TLD_COUNTRIES[tld]
 
-  // Google News uses the edition in `gl`. This is only used when the source
-  // name explicitly identifies a country-specific feed; a generic edition is
-  // intentionally classified as international/regional.
+  // Google News is a global aggregator. Feed locale (`gl=ID`) is not outlet country.
   if (hostname === 'news.google.com') {
-    const namedCountry = countryFromValue(sourceName)
-    if (namedCountry) return namedCountry
-    const locale = parsed.searchParams.get('gl')?.toLowerCase()
-    if (locale && ['id', 'my', 'sg', 'th', 'ph', 'vn', 'bn', 'kh', 'la', 'mm', 'tl'].includes(locale)) {
-      return TLD_COUNTRIES[locale]
-    }
+    return GLOBAL_OUTLET
   }
 
   return undefined
 }
 
 export function resolveSourceCountry(source: Pick<Source, 'name' | 'config' | 'country'>): SourceCountry {
+  const name = source.name.toLowerCase()
+  const urls = collectUrls(source.config || {})
+  const hostnameBlob = urls.map((url) => {
+    try {
+      return new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+    } catch {
+      return ''
+    }
+  }).join(' ')
+  if (
+    name.includes('google news')
+    || hostnameBlob.includes('news.google.com')
+    || hostnameBlob.includes('who.int')
+    || hostnameBlob.includes('cidrap.umn.edu')
+    || hostnameBlob.includes('reliefweb.int')
+    || hostnameBlob.includes('cdc.gov')
+    || name.includes('cidrap')
+    || name.includes('reliefweb')
+  ) {
+    return GLOBAL_OUTLET
+  }
+
   const persisted = countryFromValue(source.country)
   if (persisted) return persisted
 
@@ -150,26 +178,39 @@ export function resolveSourceCountry(source: Pick<Source, 'name' | 'config' | 'c
   const explicit = countryFromValue(config.country)
   if (explicit) return explicit
 
-  const urls = collectUrls(config)
   for (const url of urls) {
-    const fromUrl = countryFromUrl(url, source.name)
+    const fromUrl = countryFromUrl(url)
     if (fromUrl) return fromUrl
   }
 
   const byName = countryFromValue(source.name)
   if (byName) return byName
 
-  const name = source.name.toLowerCase()
   if (name.includes('skdr') || name.includes('kemenkes') || name.includes('cdc')) {
-    return name.includes('cdc') ? { name: 'United States', code: 'US' } : COUNTRIES.id
+    return name.includes('cdc')
+      ? { name: 'United States', code: 'US', coverageScope: 'global_outlet', coversAsean: true }
+      : COUNTRIES.id
   }
-  if (name.includes('who') || name.includes('reliefweb') || name.includes('reddit') || name.includes('mastodon')) {
-    return { name: 'Outside ASEAN', code: 'GLOBAL' }
+  if (name.includes('who') || name.includes('reddit') || name.includes('mastodon')) {
+    return GLOBAL_OUTLET
   }
-  if (name.includes('google news asia')) return { name: 'ASEAN / Asia', code: 'ASEAN' }
-  if (name.includes('google news') || name.includes('outbreak news')) {
-    return { name: 'Outside ASEAN', code: 'GLOBAL' }
+  if (name.includes('outbreak news')) {
+    return GLOBAL_OUTLET
   }
 
-  return { name: 'Unclassified', code: null }
+  return { name: 'Unclassified', code: null, coverageScope: 'unclassified', coversAsean: false }
+}
+
+export function credibilityReasonLabel(code?: string | null): string {
+  switch (code) {
+    case 'override':
+      return 'Manually verified / admin override'
+    case 'domain_boost':
+      return 'Domain reputation refresh'
+    case 'catalog_heuristic':
+    case 'type_baseline':
+      return 'Catalog-type heuristic'
+    default:
+      return code || 'Not refreshed'
+  }
 }

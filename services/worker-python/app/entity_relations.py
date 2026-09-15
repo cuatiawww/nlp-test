@@ -65,6 +65,14 @@ def location_relation_rows(nlp: dict[str, Any]) -> list[dict[str, Any]]:
                 _as_int_or_none(nlp.get("death_count")) if is_event else None
             ),
             "evidence": str(item.get("evidence") or "").strip() or None,
+            "geocode_confidence": item.get("geocode_confidence") if item.get("geocode_confidence") is not None else (
+                nlp.get("geocode_confidence") if is_event else None
+            ),
+            "geocode_needs_review": bool(
+                item.get("geocode_needs_review")
+                if item.get("geocode_needs_review") is not None
+                else (nlp.get("geocode_needs_review") if is_event else False)
+            ),
         })
     return rows
 

@@ -79,6 +79,17 @@ export async function putTo<T>(path: string, body: unknown): Promise<T> {
   return (json?.data ?? json) as T;
 }
 
+export async function patchTo<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${baseURL()}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(formatApiError(res, json));
+  return (json?.data ?? json) as T;
+}
+
 export async function delFrom(path: string): Promise<void> {
   const res = await fetch(`${baseURL()}${path}`, { method: "DELETE", headers: authHeaders() });
   if (!res.ok) {
@@ -171,8 +182,16 @@ export const deleteInteroperabilityIntegration = (id: string) =>
 export const triggerCollect = (id: string) =>
   postTo(`/api/v1/sources/${id}/collect`);
 export const triggerCollectAll = () => postTo("/api/v1/sources/collect-all");
-export const fetchRuns = (sourceId?: string) =>
-  fetchFrom<Run[]>(`/api/v1/runs${sourceId ? `?source_id=${sourceId}` : ""}`);
+export const fetchRuns = (sourceId?: string, status?: string) => {
+  const params = new URLSearchParams();
+  if (sourceId) params.set("source_id", sourceId);
+  if (status) params.set("status", status);
+  const query = params.toString();
+  return fetchFrom<Run[]>(`/api/v1/runs${query ? `?${query}` : ""}`);
+};
+export const fetchCrawlOps = () => fetchFrom<import("@/types").CrawlOps>("/api/v1/crawl-ops");
+export const recomputeSourceCredibility = () =>
+  postTo<{ updated: number; threshold: number; meaning: string }>("/api/v1/source-credibility/recompute", {});
 export const fetchSummary = () => fetchFrom<SummaryRow[]>("/api/v1/summary");
 
 // ── NLP Keywords ──────────────────────────────────

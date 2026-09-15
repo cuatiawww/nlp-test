@@ -21,6 +21,11 @@ export type Source = {
   } | null;
   in_flight?: boolean;
   source_credibility?: number;
+  coverage_scope?: string | null;
+  covers_asean?: boolean;
+  credibility_reason?: string | null;
+  last_credibility_refresh?: string | null;
+  credibility_override?: number | null;
 };
 
 export type SourceSummary = {
@@ -30,8 +35,17 @@ export type SourceSummary = {
   needs_review_sources: number;
   average_credibility: number;
   asean_sources: number;
+  asean_outlet_sources?: number;
   outside_sources: number;
+  source_country_unfilled?: number;
+  global_outlet_sources?: number;
+  unclassified_sources?: number;
+  covers_asean_sources?: number;
+  global_covering_asean?: number;
   credibility_threshold: number;
+  last_credibility_refresh?: string | null;
+  credibility_meaning?: string;
+  source_country_meaning?: string;
   asean_by_country: { country: string; source_count: number }[];
   by_catalog_type?: { catalog_type: string; source_count: number }[];
   last_run_at?: string | null;
@@ -44,12 +58,33 @@ export type SourceSummary = {
 export type Run = {
   id: string;
   source_id: string;
+  source_name?: string | null;
   status: string;
   records_found: number;
   records_ingested: number;
   error_message?: string;
   started_at: string;
   finished_at?: string;
+  schedule?: string | null;
+};
+
+export type CrawlOps = {
+  failed_queue: Array<{
+    source_id: string;
+    source_name: string;
+    schedule?: string | null;
+    run_id: string;
+    status: string;
+    error_message?: string | null;
+    started_at?: string | null;
+    finished_at?: string | null;
+    records_found: number;
+    records_ingested: number;
+  }>;
+  recent_history: Run[];
+  backoff_source_count: number;
+  dispatcher?: string;
+  default_schedule?: string;
 };
 
 export type DiseaseEvent = {
@@ -60,6 +95,8 @@ export type DiseaseEvent = {
   language?: string | null;
   location_name?: string | null;
   country?: string | null;
+  province?: string | null;
+  city?: string | null;
   disease_classification?: string | null;
   case_count?: number | null;
   death_count?: number | null;
@@ -99,6 +136,8 @@ export type OutbreakLocation = {
   location_name: string;
   disease: string;
   country: string;
+  province?: string | null;
+  city?: string | null;
   latitude: number | null;
   longitude: number | null;
   cases: number;
@@ -123,6 +162,8 @@ export type OutbreakLocation = {
   is_hot?: boolean;
   detail?: {
     event_id?: string;
+    province?: string | null;
+    city?: string | null;
     raw_report_id?: string;
     url?: string | null;
     content?: string | null;
@@ -298,6 +339,8 @@ export type CrawlMatrixRow = {
   crawling_date?: string | null;
   region?: string | null;
   country: string;
+  province?: string | null;
+  city?: string | null;
   province_city_case?: string | null;
   article_date?: string | null;
   date_case?: string | null;

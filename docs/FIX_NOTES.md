@@ -249,5 +249,82 @@ Same equality for deaths and events. Reports page Total Cases matches that `snap
 CIDRAP fixture:
 
 ```
-cd services/nlp-python && python3 -m unittest tests.test_cidrap_cambodia -v
+cd services/nlp-python && python3 -m unittest tests.test_cidrap_cambodia tests.test_geocode_bbox tests.test_llm_gate -v
 ```
+
+## Round 3 — source coverage, credibility refresh, province/city, geocode, DeepSeek caps
+
+Do **not** deploy this PR to production. Staging only.
+
+### 1) Source country ≠ article event country
+
+Live confusion (~27 ASEAN-tagged sources vs ~1471 “outside”) came from treating missing/non-member **outlet** labels as “bukan media ASEAN”, and from counting **only the top-level `country` column**.
+
+**Audit (2026-09-15):** `docs/source-tagging-audit.md` (copied from live audit `/workspace/phase-compare/source-tagging-audit.md` / attached `source-tagging-audit.md`). Public GET of `/nlp/api/v1/sources/summary` + paginated list: 1,498 sources, 27 ASEAN, 1,471 “outside”. **~777 catalog rows already had an ASEAN-11 member name in `config.country` but top-level `country` was null**, so they were dumped into outside. Credibility was six static catalog-type buckets (gov 0.95, Local News 0.84, rss 0.78, Google/web 0.65, Facebook 0.35); ≥0.7 matched Official+Local News+rss+JSON, not live verification.
+
+Must-fix from that audit:
+
+- Summary/list **coalesce** `country`, `config.country`, and `config.source_country_original` via `abvc_source_country_raw` / `abvc_source_country_resolved` (aliases: Brunei Darussalam, Viet Nam, Lao PDR, Timor Leste, Kamboja, …).
+- Migration `068` **backfills** top-level `country` when it is null.
+- Google News / WHO / CIDRAP / CDC / ReliefWeb remain `GLOBAL` even if a feed locale is `gl=ID`. Locale is not outlet country.
+- New fields: `coverage_scope` (`asean_outlet` | `global_outlet` | `unclassified`), `covers_asean` (health/ASEAN-focused catalogs used for ASEAN monitoring — not every global URL).
+- Dashboard copy: “Sumber dengan negara ASEAN terisi (kolom country atau config.country)” vs “Sumber tanpa negara ASEAN terisi / sumber global”.
+- API still returns `outside_sources` as an alias of `source_country_unfilled`.
+
+After staging `068`, expect `asean_sources` to jump from 27 toward the ~777+ catalog ASEAN outlets (exact number depends on aliases and Google News aggregator retag).
+
+### 2) Credibility refresh (≥ threshold)
+
+Scores used to be a **static join** on `source_credibility` by catalog type (live: Google/web **0.65 forever**, Local News 0.84, rss 0.78, Official 0.95). Round 3 stores a refreshable score:
+
+- `credibility_score`, `credibility_reason` (`catalog_heuristic` | `domain_boost` | `override`), `last_credibility_refresh`, optional `credibility_override`
+- Admin `POST /api/v1/source-credibility/recompute` updates **only** those columns (migration-safe; does **not** wipe name/url/schedule/events)
+- Domain rules replace frozen Google/web 0.65 for known hosts (`who.int`, ASEAN `.gov.*` / `.go.id`, wire agencies, major ASEAN dailies)
+- Threshold: `SOURCE_CREDIBILITY_THRESHOLD` (default 0.70)
+- **≥0.7 is a catalog-type heuristic unless an admin override is stored.** It is not live crawl quality and **bukan “sudah diverifikasi epidemiolog”**
+
+### 3) Province / city
+
+`disease_events.province` and `disease_events.city` are first-class (plus crawl-matrix `province` / `city`). Map popup, events list, URL analysis, and crawler export expose them instead of only free-text `location_name`.
+
+### 4) Map lat/lon
+
+ASEAN gazetteer lookup is bbox-validated. Country-level events use curated ASEAN-11 centroids (Singapore `1.3521, 103.8198`). Gazetteer rows that land outside the member bbox (Singapore in the Bay of Bengal) become **null coords + needs_review**. Token `Were` remains rejected. Migration 068 also:
+
+- repairs `locations` Singapore rows to the island centroid
+- nulls other ASEAN gazetteer coords outside the member bbox
+- optional event backfill for existing pins outside the country bbox
+
+Nominatim (opt-in) now sends ASEAN `countrycodes`.
+
+### 5) Crawl ops (additive)
+
+Sources page adds a failed-queue + recent-history panel (`GET /api/v1/crawl-ops`). Dispatcher/backoff/rate limits from Round 2 are unchanged. `GET /api/v1/runs` now includes `source_name`.
+
+### 6) DeepSeek — re-enable path, save tokens
+
+Rules NLP always runs first. DeepSeek/OpenAI only on UNKNOWN / low confidence / missing location / needs_review. **Multiple extracted diseases no longer trigger the LLM.**
+
+Cost controls:
+
+| Control | Default |
+| --- | --- |
+| `AGENT_ENABLED` | true (set false to disable) |
+| `DEEPSEEK_DAILY_BUDGET` | 200 calls/day UTC (0 = kill switch) |
+| `DEEPSEEK_PROMPT_CHARS` | 1800 |
+| `DEEPSEEK_MAX_TOKENS` | 400 |
+| `DEEPSEEK_LOCATION_MAX_CANDIDATES` | 80 ASEAN gazetteer names |
+| Response cache | URL/prompt hash, 600s TTL |
+
+Never send full dashboard payloads to the LLM. Cache hits do not consume the daily budget.
+
+### Verify (staging)
+
+```
+GET /nlp/api/v1/sources/summary
+POST /nlp/api/v1/source-credibility/recompute   # admin
+GET /nlp/api/v1/crawl-ops
+```
+
+Expect `asean_outlet_sources` to include catalog rows whose **config.country** is an ASEAN-11 member (not only the 27 enabled RSS feeds). `credibility_meaning` must say ≥0.7 is a catalog heuristic. WHO `who.int` rows should leave the frozen 0.65 Google/web bucket after recompute (`domain_boost`).
+

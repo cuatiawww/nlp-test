@@ -19,6 +19,7 @@ from typing import Any
 from . import config
 
 import time
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 _PROVIDER_FAILURES: dict[str, float] = {}
@@ -27,6 +28,43 @@ _REQUEST_RATE_LOCK = threading.Lock()
 _LAST_REQUEST_AT = 0.0
 _RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _RESPONSE_CACHE_LOCK = threading.Lock()
+_DAILY_LOCK = threading.Lock()
+_DAILY_COUNT = 0
+_DAILY_STAMP = ""
+
+
+def _utc_today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def remaining_daily_budget() -> int:
+    """Calls remaining today. 0 or negative DEEPSEEK_DAILY_BUDGET is a kill switch."""
+    budget = int(config.DEEPSEEK_DAILY_BUDGET)
+    if budget <= 0:
+        return 0
+    global _DAILY_COUNT, _DAILY_STAMP
+    today = _utc_today()
+    with _DAILY_LOCK:
+        if _DAILY_STAMP != today:
+            _DAILY_STAMP = today
+            _DAILY_COUNT = 0
+        return max(0, budget - _DAILY_COUNT)
+
+
+def _consume_daily_budget() -> bool:
+    budget = int(config.DEEPSEEK_DAILY_BUDGET)
+    if budget <= 0:
+        return False
+    global _DAILY_COUNT, _DAILY_STAMP
+    today = _utc_today()
+    with _DAILY_LOCK:
+        if _DAILY_STAMP != today:
+            _DAILY_STAMP = today
+            _DAILY_COUNT = 0
+        if _DAILY_COUNT >= budget:
+            return False
+        _DAILY_COUNT += 1
+        return True
 
 
 def _json_response(value: str) -> dict[str, Any]:
@@ -107,7 +145,7 @@ def _send_bounded(send):
         return send()
 
 
-def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> dict[str, Any]:
+def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> dict[str, Any]:
     """Ask configured agents in order and return the first valid JSON object."""
     if not config.AGENT_ENABLED:
         return {}
@@ -115,6 +153,9 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> di
     cached = _cached_response(cache_key)
     if cached is not None:
         return cached
+    if remaining_daily_budget() <= 0:
+        logger.info("DeepSeek daily budget exhausted or disabled; skipping LLM call")
+        return {}
     now = time.time()
     for provider, api_key, base_url, model in _providers():
         if provider in _PROVIDER_FAILURES and now < _PROVIDER_FAILURES[provider]:
@@ -151,6 +192,8 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 800) -> di
                 return json.loads(response.read())
 
         try:
+            if not _consume_daily_budget():
+                return {}
             try:
                 payload = _send_bounded(lambda: _send(body))
             except urllib.error.HTTPError as http_err:

@@ -138,9 +138,11 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/sources",
         "/api/v1/sources/summary",
         "/api/v1/runs",
+        "/api/v1/crawl-ops",
         "/api/v1/analysis-jobs",
         "/api/v1/interoperability-integrations",
         "/api/v1/dashboard/summary",
+        "/api/v1/public/report-issues",
     ];
     PUBLIC_GET
         .iter()
@@ -151,6 +153,7 @@ pub fn is_admin_route(method: &Method, path: &str) -> bool {
     path.starts_with("/api/v1/users")
         || path.starts_with("/api/v1/roles")
         || path == "/api/v1/data/cleanup-events"
+        || path == "/api/v1/source-credibility/recompute"
         || path.starts_with("/api/v1/console/audit-logs")
         || path == "/api/v1/console/upload"
         || (path == "/api/v1/console/settings" && *method != Method::GET)
@@ -336,6 +339,10 @@ mod tests {
         assert!(is_public_route(&Method::GET, "/api/v1/region-context"));
         assert!(is_public_route(&Method::GET, "/api/v1/public-dashboard"));
         assert!(is_public_route(&Method::GET, "/api/v1/pipeline-health"));
+        assert!(is_public_route(&Method::GET, "/api/v1/public/report-issues"));
+        assert!(is_public_route(&Method::GET, "/api/v1/public/report-issues/sitrep-2026-w37"));
+        assert!(!is_public_route(&Method::POST, "/api/v1/report-issues"));
+        assert!(!is_public_route(&Method::GET, "/api/v1/report-issues"));
         assert!(is_service_route("/api/v1/ingest"));
         let pred = dashboard_event_predicate("evt");
         assert!(pred.contains("evt.is_health_related"));

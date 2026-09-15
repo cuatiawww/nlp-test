@@ -80,6 +80,8 @@ export default function EventsPage() {
                   <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.events.colDate')}</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.events.colProcessed')}</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.events.colLocation')}</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.events.colProvince')}</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.events.colCity')}</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.events.colDisease')}</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('pages.events.colCases')}</th>
                   <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('pages.events.colSentiment')}</th>
@@ -106,6 +108,8 @@ export default function EventsPage() {
                     <td className="px-4 py-3 text-xs text-slate-600">{e.published_at || '-'}</td>
                     <td className="px-4 py-3 text-xs text-slate-400">{e.created_at ? e.created_at.slice(0, 16) : '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-700">{e.location_name || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{e.province || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{e.city || '-'}</td>
                     <td className="px-4 py-3 text-sm text-slate-700">
                       {e.disease_classification ? translateDisease(e.disease_classification) : '-'}
                       {e.is_health_related === false && (

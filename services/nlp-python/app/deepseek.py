@@ -8,6 +8,7 @@ from typing import Any
 
 from . import config
 from .agent import chat_json
+from .llm_gate import truncate_for_llm
 
 
 def _normalize(value: str) -> str:
@@ -19,13 +20,24 @@ def detect_disease(text: str) -> dict[str, Any] | None:
     if not config.WHO_DISEASE_CONCEPTS:
         return None
 
+    folded = (text or "").lower()
+    ranked = []
+    for item in config.WHO_DISEASE_CONCEPTS:
+        name = str(item.get("canonical_name") or "").lower()
+        first = name.split()[0] if name else ""
+        score = 1 if first and first in folded else 0
+        ranked.append((score, item))
+    ranked.sort(key=lambda pair: -pair[0])
+    hits = [item for score, item in ranked if score]
+    rest = [item for score, item in ranked if not score]
+    selected = (hits + rest)[:80]
     allowed = [
         {
             "canonical_label": item["canonical_name"],
             "english_name": item.get("english_name") or item["canonical_name"],
             "icd_code": item.get("ontology_code"),
         }
-        for item in config.WHO_DISEASE_CONCEPTS
+        for item in selected
     ]
     prompt = (
         "Detect the PRIMARY disease or pathogen of this report. Return JSON only: "
@@ -36,12 +48,12 @@ def detect_disease(text: str) -> dict[str, Any] | None:
         "or a list introduced by 'including' are secondary and must not replace the "
         "primary disease. Do not infer from symptoms alone; preserve negation.\n\n"
         f"allowed_concepts={json.dumps(allowed, ensure_ascii=False)}\n"
-        f"report={json.dumps((text or '')[:5000], ensure_ascii=False)}"
+        f"report={json.dumps(truncate_for_llm(text), ensure_ascii=False)}"
     )
     result = chat_json(
         "You are a cautious medical entity detector. Output valid JSON only.",
         prompt,
-        max_tokens=config.DEEPSEEK_MAX_TOKENS,
+        max_tokens=min(400, config.DEEPSEEK_MAX_TOKENS),
     )
 
     label = str(result.get("canonical_label") or "").strip()
@@ -81,8 +93,14 @@ def detect_location(text: str, source_language: str = "", source_country: str = 
         ]
         if country_candidates:
             candidate_names = country_candidates
-    # Keep the prompt bounded if a URL has no country metadata.
-    max_candidates = int(__import__("os").getenv("DEEPSEEK_LOCATION_MAX_CANDIDATES", "3000"))
+    max_candidates = config.DEEPSEEK_LOCATION_MAX_CANDIDATES
+    asean_only = [
+        name for name in candidate_names
+        if config.LOCATION_COUNTRIES.get(name) in config.ASEAN_COUNTRIES
+        or name in config.ASEAN_COUNTRIES
+    ]
+    if asean_only:
+        candidate_names = asean_only
     candidate_names = sorted(candidate_names)[:max_candidates]
     allowed = [
         {"name": name, "country": config.LOCATION_COUNTRIES.get(name, "")}
@@ -96,12 +114,12 @@ def detect_location(text: str, source_language: str = "", source_country: str = 
         "Do not invent a place or coordinates. If no place is explicit, return null.\n\n"
         f"source_language={json.dumps(source_language)} source_country={json.dumps(source_country)}\n"
         f"allowed_locations={json.dumps(allowed, ensure_ascii=False)}\n"
-        f"report={json.dumps((text or '')[:7000], ensure_ascii=False)}"
+        f"report={json.dumps(truncate_for_llm(text), ensure_ascii=False)}"
     )
     result = chat_json(
         "You are a cautious geospatial news entity extractor. Output valid JSON only.",
         prompt,
-        max_tokens=500,
+        max_tokens=min(400, config.DEEPSEEK_MAX_TOKENS),
     )
     name = str(result.get("location_name") or "").strip()
     try:
