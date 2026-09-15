@@ -4,7 +4,6 @@ import { usePathname } from 'next/navigation'
 import { Toaster } from 'sonner'
 import AuthGuard from '@/components/AuthGuard'
 import AppShell from '@/components/layout/AppShell'
-import ReportsPublicShell from '@/components/reports/ReportsPublicShell'
 
 export default function LayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -56,7 +55,7 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
   if (isReportsCms) {
     return (
       <AuthGuard>
-        <AppShell>
+        <AppShell consoleMode>
           {children}
         </AppShell>
         <Toaster position="top-right" richColors />
@@ -67,7 +66,7 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
   if (isSitrepPublic) {
     return (
       <>
-        <ReportsPublicShell>{children}</ReportsPublicShell>
+        <AppShell publicMode>{children}</AppShell>
         <Toaster position="top-right" richColors />
       </>
     )

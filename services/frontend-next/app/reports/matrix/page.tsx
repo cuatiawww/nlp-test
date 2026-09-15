@@ -49,8 +49,6 @@ import { isAseanCountryName, ASEAN_SCOPE_BANNER } from '@/lib/asean-scope'
 import AseanScopeBanner from '@/components/AseanScopeBanner'
 import type { PublicDashboard, OutbreakLocation } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
-import { MediaMonitoringArchive } from '@/components/reports/MediaMonitoringArchive'
-import { SituationReportArchive } from '@/components/reports/SituationReportArchive'
 
 // Unified surveillance report row model (100% mapped from live NLP pipeline)
 export type SurveillanceReportRow = {
@@ -230,14 +228,14 @@ export default function ReportsPage() {
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
 
   // State: Active View Tab (Default to Media Monitoring Archive)
-  const [activeTab, setActiveTab] = useState<'media_monitoring' | 'sitrep_abvc' | 'cross_matrix' | 'event_log'>('media_monitoring')
+  const [activeTab, setActiveTab] = useState<'cross_matrix' | 'event_log'>('cross_matrix')
 
   // Check URL tab parameter on initial load
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
       const tab = params.get('tab')
-      if (tab === 'media_monitoring' || tab === 'sitrep_abvc' || tab === 'cross_matrix' || tab === 'event_log') {
+      if (tab === 'cross_matrix' || tab === 'event_log') {
         setActiveTab(tab)
       }
     }
@@ -963,32 +961,6 @@ export default function ReportsPage() {
           <div className="inline-flex flex-wrap items-center rounded-xl border border-slate-200 bg-slate-100/90 p-1 text-xs sm:text-sm font-bold">
             <button
               type="button"
-              onClick={() => setActiveTab('media_monitoring')}
-              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
-                activeTab === 'media_monitoring'
-                  ? 'bg-[#0060A9] text-white shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Globe className="h-4 w-4" />
-              <span>ASEAN Media Monitoring Bulletin</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('sitrep_abvc')}
-              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
-                activeTab === 'sitrep_abvc'
-                  ? 'bg-teal-700 text-white shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <ShieldAlert className="h-4 w-4" />
-              <span>Situation Report (ABVC SitRep)</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => setActiveTab('cross_matrix')}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 transition cursor-pointer ${
                 activeTab === 'cross_matrix'
@@ -1017,17 +989,7 @@ export default function ReportsPage() {
 
         </div>
 
-        {/* ==================== TAB 1: MEDIA MONITORING ARCHIVE ==================== */}
-        {activeTab === 'media_monitoring' && (
-          <MediaMonitoringArchive onToast={showToast} />
-        )}
-
-        {/* ==================== TAB 2: SITUATION REPORT ARCHIVE ==================== */}
-        {activeTab === 'sitrep_abvc' && (
-          <SituationReportArchive onToast={showToast} />
-        )}
-
-        {/* ==================== TAB 3 & 4: MATRIX & EVENT LEDGER ==================== */}
+        {/* ==================== MATRIX & EVENT LEDGER ==================== */}
         {(activeTab === 'cross_matrix' || activeTab === 'event_log') && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 items-stretch lg:min-h-[760px]">
           {/* ==================== LEFT MULTI FILTER SIDEBAR (PRINT HIDDEN) ==================== */}

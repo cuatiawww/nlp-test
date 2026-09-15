@@ -124,8 +124,8 @@ export default function DashboardHeader({
                 </Link>
                 <Link
                   href="/reports/cms"
-                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
-                    pathname?.startsWith("/console/reports-cms")
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname?.startsWith("/reports/cms") || pathname?.startsWith("/reports/generate")
                       ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
                       : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
                   }`}

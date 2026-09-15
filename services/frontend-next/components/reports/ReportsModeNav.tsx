@@ -4,11 +4,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { FileText, Sparkles, Table } from 'lucide-react'
 
-const MODES = [
+const PUBLIC_MODES = [
   { href: '/reports', id: 'published', label: 'Published bulletins', match: (p: string) => p === '/reports' || p.startsWith('/reports/archive') || p.startsWith('/reports/latest') },
-  { href: '/reports/generate', id: 'generate', label: 'Generate draft', match: (p: string) => p.startsWith('/reports/generate') || p.startsWith('/reports/cms') },
   { href: '/reports/matrix', id: 'matrix', label: 'Matrix & ledger', match: (p: string) => p.startsWith('/reports/matrix') },
 ]
+
+const ADMIN_MODE = { href: '/reports/generate', id: 'generate', label: 'Generate draft', match: (p: string) => p.startsWith('/reports/generate') || p.startsWith('/reports/cms') }
 
 const ICONS = {
   published: FileText,
@@ -18,9 +19,12 @@ const ICONS = {
 
 export default function ReportsModeNav() {
   const pathname = usePathname() || '/reports'
+  const modes = pathname.startsWith('/reports/generate') || pathname.startsWith('/reports/cms')
+    ? [...PUBLIC_MODES, ADMIN_MODE]
+    : PUBLIC_MODES
   return (
     <div className="no-print flex flex-wrap gap-1 rounded-2xl border border-slate-200 bg-white p-1 text-xs font-bold">
-      {MODES.map((mode) => {
+      {modes.map((mode) => {
         const Icon = ICONS[mode.id as keyof typeof ICONS]
         const active = mode.match(pathname)
         return (

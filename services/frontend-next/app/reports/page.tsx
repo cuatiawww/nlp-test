@@ -77,7 +77,7 @@ export default function ReportsGalleryPage() {
   }, [items, q, family])
 
   return (
-    <div className="space-y-5">
+    <div className="w-full space-y-5 px-4 md:px-6 lg:px-8">
       <ReportsModeNav />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -128,8 +128,8 @@ export default function ReportsGalleryPage() {
               : `0 published ${FILTERS.find((chip) => chip.id === family)?.label || family} editions`}
           </p>
           <p className="mt-2 text-sm text-slate-600">
-            This gallery lists frozen publications only. Analysts generate a draft from KPIs (Generate draft), review
-            in CMS, then publish. Live filters stay on Matrix &amp; ledger.
+            This gallery lists frozen publications only. Published editions are reviewed in the protected reports
+            console. Live filters stay on Matrix &amp; ledger.
           </p>
         </div>
       ) : !error && filtered.length === 0 ? (
@@ -143,10 +143,6 @@ export default function ReportsGalleryPage() {
         Operational live view:{' '}
         <Link href="/reports/matrix" className="font-semibold text-slate-600 underline">
           Matrix &amp; ledger
-        </Link>
-        {' · '}
-        <Link href="/reports/generate" className="font-semibold text-slate-600 underline">
-          Generate draft
         </Link>
         .
       </p>
