@@ -44,7 +44,8 @@ import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { useSettings } from '@/lib/settings-context'
 import CountryFlag from '@/components/CountryFlag'
 import SocialMediaIcon from '@/components/SocialMediaIcon'
-import { fetchPublicDashboard } from '@/lib/api'
+import { fetchKpiEvents, fetchPublicDashboard, type KpiEventRow } from '@/lib/api'
+import { isAseanCountryName } from '@/lib/asean-scope'
 import type { PublicDashboard, OutbreakLocation } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { MediaMonitoringArchive } from '@/components/reports/MediaMonitoringArchive'
@@ -178,6 +179,37 @@ function resolveCountry(country?: string | null, locationName?: string | null): 
   return { name: 'Outside ASEAN', code: 'GLOBAL' }
 }
 
+function formatLedgerDate(dateStr: string) {
+  const dObj = new Date(dateStr)
+  return !isNaN(dObj.getTime())
+    ? dObj.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'Recent'
+}
+
+function kpiEventToRow(row: KpiEventRow): SurveillanceReportRow {
+  const dateStr = row.published_at || new Date().toISOString()
+  const resolved = resolveCountry(row.country, row.location_name)
+  const cases = Number(row.case_count) || 0
+  const deaths = Number(row.death_count) || 0
+  return {
+    id: row.id,
+    date: dateStr,
+    dateFormatted: formatLedgerDate(dateStr),
+    country: resolved.code === 'GLOBAL' && !isAseanCountryName(row.country) ? OUTSIDE_ASEAN_LABEL : resolved.name,
+    countryCode: resolved.code,
+    locationName: row.location_name || resolved.name,
+    disease: formatDiseaseName(row.disease_classification),
+    rawDisease: row.disease_classification || 'Unknown',
+    cases,
+    deaths,
+    cfr: calculateCfr(cases, deaths),
+    confidence: Number(row.confidence) || 0,
+    sourceType: row.source_type || 'unknown',
+    sourceName: row.source_name || 'Unknown source',
+    url: row.url || null,
+  }
+}
+
 export default function ReportsPage() {
   const { t, setLocale } = useTranslation()
   const { settings } = useSettings()
@@ -190,6 +222,8 @@ export default function ReportsPage() {
   // State: Real Data loading (Strictly ZERO Hardcoded Seed Data)
   const [dataList, setDataList] = useState<SurveillanceReportRow[]>([])
   const [kpiSnapshot, setKpiSnapshot] = useState<{ cases: number; deaths: number; events: number; snapshot_id?: string; snapshot_computed_at?: string } | null>(null)
+  const [ledgerRows, setLedgerRows] = useState<SurveillanceReportRow[]>([])
+  const [ledgerTotal, setLedgerTotal] = useState(0)
   const [loading, setLoading] = useState<boolean>(true)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
@@ -286,6 +320,7 @@ export default function ReportsPage() {
 
           const resolved = resolveCountry(loc.country, loc.location_name)
           const displayCountry = resolved.code === 'GLOBAL' ? OUTSIDE_ASEAN_LABEL : resolved.name
+          if (!isAseanCountryName(displayCountry)) return
           const diseaseFormatted = formatDiseaseName(loc.disease)
           const cases = Number(loc.cases) || 0
           const deaths = Number(loc.deaths) || 0
@@ -327,9 +362,24 @@ export default function ReportsPage() {
     }
   }
 
+  const loadLedgerPage = async (page: number, perPage: number) => {
+    try {
+      const result = await fetchKpiEvents({ page, per_page: perPage })
+      setLedgerRows(result.data.map(kpiEventToRow).filter((row) => isAseanCountryName(row.country)))
+      setLedgerTotal(result.total || 0)
+    } catch (err) {
+      console.error('Failed to retrieve KPI event ledger:', err)
+    }
+  }
+
   useEffect(() => {
     loadRealSurveillanceData()
   }, [])
+
+  useEffect(() => {
+    if (activeTab !== 'event_log') return
+    void loadLedgerPage(currentPage, itemsPerPage)
+  }, [activeTab, currentPage, itemsPerPage])
 
   // Dynamically extract active diseases from the real dataset (Zero Hardcoding!)
   const availableDiseases = useMemo(() => {
@@ -533,12 +583,14 @@ export default function ReportsPage() {
     return list
   }, [filteredData, sortField, sortOrder])
 
-  // Pagination for Detailed Table (Tab 2)
-  const totalPages = Math.max(1, Math.ceil(sortedData.length / itemsPerPage))
+  // Pagination for Detailed Table (Tab 2) — event log is server-paged from the KPI snapshot set.
+  const ledgerPageCount = Math.max(1, Math.ceil((ledgerTotal || sortedData.length) / itemsPerPage))
+  const totalPages = activeTab === 'event_log' ? ledgerPageCount : Math.max(1, Math.ceil(sortedData.length / itemsPerPage))
   const paginatedData = useMemo(() => {
+    if (activeTab === 'event_log' && ledgerRows.length > 0) return ledgerRows
     const start = (currentPage - 1) * itemsPerPage
     return sortedData.slice(start, start + itemsPerPage)
-  }, [sortedData, currentPage, itemsPerPage])
+  }, [activeTab, ledgerRows, sortedData, currentPage, itemsPerPage])
 
   // MODE 1: EPIDEMIOLOGICAL CROSS-TABULATION MATRIX (Real Disease x Real Country)
   const crossTabMatrix = useMemo(() => {
@@ -682,11 +734,12 @@ export default function ReportsPage() {
 
   // Overall KPIs calculated from real database records
   const metrics = useMemo(() => {
-    const aseanData = filteredData.filter((row) => row.country !== OUTSIDE_ASEAN_LABEL)
-    const totalReports = kpiSnapshot?.events ?? aseanData.length
-    const totalCases = kpiSnapshot?.cases ?? aseanData.reduce((acc, curr) => acc + curr.cases, 0)
-    const totalDeaths = kpiSnapshot?.deaths ?? aseanData.reduce((acc, curr) => acc + curr.deaths, 0)
-    const affectedCountries = new Set(aseanData.map((d) => d.country)).size
+    const totalReports = kpiSnapshot?.events ?? 0
+    const totalCases = kpiSnapshot?.cases ?? 0
+    const totalDeaths = kpiSnapshot?.deaths ?? 0
+    const affectedCountries = new Set(
+      filteredData.filter((row) => row.country !== OUTSIDE_ASEAN_LABEL).map((d) => d.country),
+    ).size
     const avgCfr = calculateCfr(totalCases, totalDeaths)
 
     return {
@@ -838,6 +891,11 @@ export default function ReportsPage() {
             </div>
             <p className="mt-2.5 text-xs md:text-sm text-slate-600 font-medium">
               Across {metrics.affectedCountries} monitored jurisdictions
+              {kpiSnapshot?.snapshot_computed_at ? (
+                <span className="block text-[10px] font-semibold text-slate-400">
+                  Snapshot {kpiSnapshot.snapshot_id?.slice(0, 8)} · {kpiSnapshot.snapshot_computed_at}
+                </span>
+              ) : null}
             </p>
           </div>
 
@@ -1951,13 +2009,27 @@ export default function ReportsPage() {
                         <div>
                           Showing{' '}
                           <span className="font-black text-slate-900">
-                            {sortedData.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}
+                            {(activeTab === 'event_log' ? ledgerTotal : sortedData.length) === 0
+                              ? 0
+                              : (currentPage - 1) * itemsPerPage + 1}
                           </span>{' '}
                           to{' '}
                           <span className="font-black text-slate-900">
-                            {Math.min(currentPage * itemsPerPage, sortedData.length)}
+                            {Math.min(
+                              currentPage * itemsPerPage,
+                              activeTab === 'event_log' ? ledgerTotal : sortedData.length,
+                            )}
                           </span>{' '}
-                          of <span className="font-black text-slate-900">{sortedData.length}</span> total events
+                          of{' '}
+                          <span className="font-black text-slate-900">
+                            {activeTab === 'event_log' ? ledgerTotal || metrics.totalReports : sortedData.length}
+                          </span>{' '}
+                          total events
+                          {kpiSnapshot?.snapshot_id ? (
+                            <span className="ml-2 text-[10px] font-semibold text-slate-400">
+                              snapshot {kpiSnapshot.snapshot_id.slice(0, 8)}
+                            </span>
+                          ) : null}
                         </div>
 
                         <div className="flex items-center gap-2">

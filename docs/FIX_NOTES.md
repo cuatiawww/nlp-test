@@ -109,7 +109,13 @@ Table `kpi_snapshots` (`database/init/067_kpi_snapshots.sql`) stores one row per
 1. Ingest / URL analysis marks existing rows `is_stale = TRUE`.
 2. The next reader takes `pg_advisory_lock(hashtext(filter_key))`, recomputes `query_shared_kpis`, upserts, and clears stale.
 3. Concurrent dashboard, heatmap, trend, morbidity, TV, and reports read **that same row** (`snapshot_id` + `computed_at`). They never invent totals.
-4. Until a refresh completes, the previous snapshot is served with `snapshot_stale=true` and `snapshot_computed_at`.
+4. Stale snapshots are still served for **90 seconds** after `computed_at` so a reload in the same session cannot drift. After that floor, the next reader refreshes under the lock; if the lock is busy, the previous row is returned.
+
+`fetchPublicDashboard` (and heatmap/trend/morbidity/kpi-events) always sends `country=ASEAN` plus week 1→current epi week unless the caller overrides. TV and Reports use that helper, so they cannot silently hit a different window than the homepage.
+
+`GET /api/v1/kpi-events` pages the same `valid` event set as the snapshot. Reports ledger total is `snapshot.events`, not the 250 map clusters.
+
+Map/TV markers drop `OUTSIDE ASEAN` / non-ASEAN countries unless `country=global`.
 
 Default filter (missing query params, same as the homepage):
 
@@ -173,11 +179,14 @@ GET /nlp/api/v1/spatial-heatmap?...same...
 GET /nlp/api/v1/disease-trend-overview?...same...
 GET /nlp/api/v1/morbidity-mortality?...same...
 GET /nlp/api/v1/kpi-snapshot?...same...
+GET /nlp/api/v1/kpi-events?page=1&per_page=10&...same...
 ```
 
 Expect identical `snapshot_id` and:
 
 `kpis.cases == summary.total_cases == summary.total_cases_tracked == summary.total_morbidity == kpi-snapshot.data.kpis.cases`
+
+Same equality for deaths and events. `/nlp/reports` Total Cases matches that `snapshot_id`. Reloading Reports within 90s must keep the same totals. Ledger "total events" is `kpi-events.total` (== snapshot.events), not 250. TV KPIs use the same query string. Map/TV omit non-ASEAN markers unless `country=global`.
 
 Same equality for deaths and events. Reports page Total Cases matches that `snapshot_id`.
 

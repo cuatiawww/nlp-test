@@ -68,6 +68,13 @@ struct KpiSnapshotRow {
     kpis: SharedKpis,
     computed_at: String,
     is_stale: bool,
+    age_secs: i64,
+}
+
+const KPI_SNAPSHOT_MIN_REFRESH_SECS: i64 = 90;
+
+fn snapshot_needs_refresh(is_stale: bool, age_secs: i64) -> bool {
+    is_stale && age_secs >= KPI_SNAPSHOT_MIN_REFRESH_SECS
 }
 
 fn canonical_kpi_country(raw: &Option<String>) -> String {
@@ -289,6 +296,7 @@ fn snapshot_from_row(row: &tokio_postgres::Row, fallback_key: &str) -> KpiSnapsh
             .try_get::<_, String>("computed_at")
             .unwrap_or_else(|_| String::new()),
         is_stale: row.get("is_stale"),
+        age_secs: row.try_get::<_, i64>("age_secs").unwrap_or(0),
     }
 }
 
@@ -300,7 +308,8 @@ async fn read_kpi_snapshot(
         .query_opt(
             "SELECT id, filter_key, start_date, end_date, country, disease, source,
                     cases, deaths, events, active_locations, alerts, location_master_count,
-                    computed_at::text, is_stale
+                    computed_at::text, is_stale,
+                    EXTRACT(EPOCH FROM (NOW() - computed_at))::bigint AS age_secs
              FROM kpi_snapshots WHERE filter_key = $1",
             &[&filter_key],
         )
@@ -375,6 +384,104 @@ async fn kpi_snapshot(
     })))
 }
 
+async fn kpi_events(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<KpiEventsQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let country_key = canonical_kpi_country(&query.country);
+    let disease_key = canonical_kpi_disease(&query.disease);
+    let source_key = canonical_kpi_source(&None);
+    let (start_date, end_date) = default_kpi_dates(
+        query.year,
+        query.start_year,
+        query.start_week,
+        query.end_year,
+        query.end_week,
+    );
+    let snapshot = load_or_refresh_kpi_snapshot(
+        &client,
+        start_date,
+        end_date,
+        &country_key,
+        &disease_key,
+        &source_key,
+    )
+    .await?;
+    let sql_country = sql_country_param(&country_key);
+    let sql_disease = sql_disease_param(&disease_key);
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+    let sql = format!(
+        "{} SELECT id::text AS id,
+            COALESCE(NULLIF(TRIM(location_name), ''), resolved_country) AS location_name,
+            resolved_country AS country,
+            COALESCE(NULLIF(TRIM(disease_classification), ''), 'UNKNOWN') AS disease,
+            {cases}::bigint AS cases,
+            {deaths}::bigint AS deaths,
+            COALESCE(confidence, 0)::float8 AS confidence,
+            COALESCE(outbreak_alert, FALSE) AS outbreak_alert,
+            COALESCE(needs_review, FALSE) AS needs_review,
+            COALESCE(source_name, '') AS source_name,
+            COALESCE(source_type, '') AS source_type,
+            COALESCE(report_url, '') AS url,
+            COALESCE(published_at::text, '') AS published_at
+         FROM valid
+         WHERE {}
+         ORDER BY published_at DESC NULLS LAST, confidence DESC NULLS LAST
+         LIMIT $6 OFFSET $7",
+        dashboard_valid_cte(),
+        country_scope_sql(),
+        cases = security::SANE_CASES_SQL,
+        deaths = security::SANE_DEATHS_SQL,
+    );
+    let rows = client
+        .query(
+            &sql,
+            &[
+                &start_date,
+                &end_date,
+                &sql_country,
+                &sql_disease,
+                &None::<String>,
+                &per_page,
+                &offset,
+            ],
+        )
+        .await
+        .map_err(internal_error)?;
+    let data: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<_, String>("id"),
+                "location_name": r.get::<_, String>("location_name"),
+                "country": r.get::<_, String>("country"),
+                "disease_classification": r.get::<_, String>("disease"),
+                "case_count": r.get::<_, i64>("cases"),
+                "death_count": r.get::<_, i64>("deaths"),
+                "confidence": r.get::<_, f64>("confidence"),
+                "outbreak_alert": r.get::<_, bool>("outbreak_alert"),
+                "needs_review": r.get::<_, bool>("needs_review"),
+                "source_name": r.get::<_, String>("source_name"),
+                "source_type": r.get::<_, String>("source_type"),
+                "url": r.get::<_, String>("url"),
+                "published_at": r.get::<_, String>("published_at"),
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "success": true,
+        "data": data,
+        "total": snapshot.kpis.events,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": calc_total_pages(snapshot.kpis.events, per_page),
+        "snapshot_id": snapshot.id,
+        "snapshot_computed_at": snapshot.computed_at,
+        "snapshot_filter_key": snapshot.filter_key,
+    })))
+}
+
 async fn load_or_refresh_kpi_snapshot(
     client: &deadpool_postgres::Object,
     start_date: NaiveDate,
@@ -386,7 +493,7 @@ async fn load_or_refresh_kpi_snapshot(
     let filter_key = kpi_filter_key(start_date, end_date, country, disease, source);
     let previous = read_kpi_snapshot(client, &filter_key).await?;
     if let Some(row) = previous.as_ref() {
-        if !row.is_stale {
+        if !snapshot_needs_refresh(row.is_stale, row.age_secs) {
             return Ok(row.clone());
         }
     }
@@ -410,7 +517,7 @@ async fn load_or_refresh_kpi_snapshot(
     }
     let outcome = async {
         if let Some(row) = read_kpi_snapshot(client, &filter_key).await? {
-            if !row.is_stale {
+            if !snapshot_needs_refresh(row.is_stale, row.age_secs) {
                 return Ok(row);
             }
         }
@@ -493,6 +600,7 @@ async fn load_or_refresh_kpi_snapshot(
                         kpis: shared,
                         computed_at: chrono::Utc::now().to_rfc3339(),
                         is_stale: false,
+                        age_secs: 0,
                     })
                 } else {
                     Err(internal_error(err))
@@ -773,6 +881,14 @@ mod analysis_contract_tests {
     }
 
     #[test]
+    fn stale_snapshot_is_served_until_min_refresh_interval() {
+        assert!(!snapshot_needs_refresh(false, 10_000));
+        assert!(!snapshot_needs_refresh(true, 30));
+        assert!(snapshot_needs_refresh(true, KPI_SNAPSHOT_MIN_REFRESH_SECS));
+        assert!(snapshot_needs_refresh(true, KPI_SNAPSHOT_MIN_REFRESH_SECS + 1));
+    }
+
+    #[test]
     fn cfr_percentage_is_normalized_to_valid_range() {
         assert_eq!(normalize_cfr_percent(-1.0), 0.0);
         assert_eq!(normalize_cfr_percent(17_800.0), 100.0);
@@ -995,6 +1111,19 @@ struct PublicDashboardQuery {
     start_week: Option<u32>,
     end_year: Option<i32>,
     end_week: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct KpiEventsQuery {
+    country: Option<String>,
+    year: Option<i32>,
+    disease: Option<String>,
+    start_year: Option<i32>,
+    start_week: Option<u32>,
+    end_year: Option<i32>,
+    end_week: Option<u32>,
+    page: Option<i64>,
+    per_page: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1407,6 +1536,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/summary", get(summary))
         .route("/api/v1/public-dashboard", get(public_dashboard))
         .route("/api/v1/kpi-snapshot", get(kpi_snapshot))
+        .route("/api/v1/kpi-events", get(kpi_events))
         .route("/api/v1/skdr/ibs-summary", get(skdr_detached))
         .route("/api/v1/skdr/ebs-summary", get(skdr_detached))
         .route("/api/v1/spatial-heatmap", get(spatial_heatmap))
@@ -3517,6 +3647,25 @@ async fn crawling_stats(
         })
         .collect();
 
+    let crawl_meta = client
+        .query_opt(
+            "SELECT
+                COUNT(*) FILTER (WHERE enabled = TRUE AND LOWER(COALESCE(source_type,'')) <> 'skdr_api')::bigint AS enabled_sources,
+                (SELECT MAX(COALESCE(finished_at, started_at))::text FROM collector_runs) AS last_run_at
+             FROM collector_sources",
+            &[],
+        )
+        .await
+        .ok()
+        .flatten();
+    let enabled_sources = crawl_meta
+        .as_ref()
+        .map(|row| row.get::<_, i64>("enabled_sources"))
+        .unwrap_or(0);
+    let last_run_at: Option<String> = crawl_meta
+        .as_ref()
+        .and_then(|row| row.get::<_, Option<String>>("last_run_at"));
+
     Ok(Json(json!({
         "success": true,
         "data": {
@@ -3535,6 +3684,9 @@ async fn crawling_stats(
             "active_since": active_since,
             "collector_status": collector_status,
             "last_report_at": last_report_at,
+            "last_run_at": last_run_at,
+            "enabled_sources": enabled_sources,
+            "crawler_mode": "continuous_interval_with_backoff",
             "by_source_type": by_source_type,
         }
     })))
