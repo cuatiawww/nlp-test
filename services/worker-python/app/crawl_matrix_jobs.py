@@ -21,7 +21,7 @@ from urllib.parse import quote_plus, urlparse
 import psycopg
 import requests
 from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
+from .geo import coords_in_country_bbox, country_centroid
 
 logger = logging.getLogger("crawl-matrix-worker")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
@@ -49,6 +49,20 @@ def clean_province_names(provinces) -> list[str]:
             continue
         cleaned.append(name)
     return cleaned
+
+
+def split_province_city(names: list[str]) -> tuple[str | None, str | None]:
+    cleaned = clean_province_names(names)
+    if not cleaned:
+        return None, None
+    city_hints = ("city", "kota", "town", "municipality", "kabupaten")
+    cities = [name for name in cleaned if any(hint in name.casefold() for hint in city_hints)]
+    provinces = [name for name in cleaned if name not in cities]
+    province = provinces[0] if provinces else None
+    city = cities[0] if cities else (cleaned[1] if len(cleaned) > 1 else None)
+    if province is None and city is None and cleaned:
+        province = cleaned[0]
+    return province, city
 
 
 def connect():
@@ -407,7 +421,10 @@ def country_coordinates(conn, country: str, areas: list[str] | None = None):
             (area_name, country),
         ).fetchone()
         if row:
-            return row["latitude"], row["longitude"]
+            lat, lon = row["latitude"], row["longitude"]
+            if coords_in_country_bbox(lat, lon, country):
+                return lat, lon
+            return None, None
     row = conn.execute(
         """SELECT latitude, longitude FROM locations
            WHERE is_active=TRUE AND (LOWER(name)=LOWER(%s) OR LOWER(country)=LOWER(%s))
@@ -415,7 +432,14 @@ def country_coordinates(conn, country: str, areas: list[str] | None = None):
            LIMIT 1""",
         (country, country, country),
     ).fetchone()
-    return (row["latitude"], row["longitude"]) if row else (None, None)
+    if not row:
+        centroid = country_centroid(country)
+        return (centroid[0], centroid[1]) if centroid else (None, None)
+    lat, lon = row["latitude"], row["longitude"]
+    if not coords_in_country_bbox(lat, lon, country):
+        centroid = country_centroid(country)
+        return (centroid[0], centroid[1]) if centroid else (None, None)
+    return lat, lon
 
 
 def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, concepts: list[dict], request: dict) -> int:
@@ -466,18 +490,19 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             "",
         )
         latitude, longitude = country_coordinates(conn, country, provinces)
+        province, city = split_province_city(provinces)
         conn.execute(
             """INSERT INTO crawl_matrix_rows
                (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
-                crawling_date, region, country, province_city_case, article_date, date_case,
+                crawling_date, region, country, province_city_case, province, city, article_date, date_case,
                 number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name,
                 source_url, article_title, evidence, confidence, processing_status)
-               VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+               VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 job_id, raw_id, concept["id"] if concept else None, disease,
                 concept.get("ontology_code") if concept else None,
                 "ASEAN" if country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
-                country, ", ".join(provinces) or None, published, item.get("time_frame") or "",
+                country, ", ".join(provinces) or None, province, city, published, item.get("time_frame") or "",
                 0 if analysis.get("case_count_unknown") else int(item.get("reported_cases") or 0),
                 int(item.get("deaths") or 0),
                 latitude, longitude, "news", article.get("source_name"), article.get("url"),
@@ -514,15 +539,16 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             conn.execute(
                 """INSERT INTO crawl_matrix_rows
                    (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
-                    crawling_date, region, country, province_city_case, article_date, date_case,
+                    crawling_date, region, country, province_city_case, province, city, article_date, date_case,
                     number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name,
                     source_url, article_title, evidence, confidence, processing_status)
-                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     job_id, raw_id, concept["id"] if concept else None, disease,
                     concept.get("ontology_code") if concept else None,
                     "ASEAN" if detected_country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
-                    detected_country, detected_country, published,
+                    detected_country, analysis.get("province") or analysis.get("city") or detected_country,
+                    analysis.get("province"), analysis.get("city"), published,
                     analysis.get("time_frame") or analysis.get("event_date") or "",
                     cases, deaths,
                     latitude, longitude, "news", article.get("source_name"), article.get("url"),

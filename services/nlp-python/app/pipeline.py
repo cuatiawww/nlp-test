@@ -3,6 +3,7 @@ import re
 from typing import Optional
 
 from . import config, extractors
+from .llm_gate import should_escalate_to_llm
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
@@ -131,8 +132,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         location = location_country
     if location and not extractors.is_usable_place_name(location, text):
         location = extractors.extract_country_hint(text) or None
-    lat, lon = config.LOCATION_COORDS.get(location, (None, None))
-    raw_country = location_country or (config.LOCATION_COUNTRIES.get(location) if location else None) or None
     asean_hits = [
         loc for loc in all_locations
         if isinstance(loc, dict)
@@ -141,14 +140,26 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     ]
     if facts.get("country"):
         raw_country = facts["country"]
+    else:
+        raw_country = location_country or (config.LOCATION_COUNTRIES.get(location) if location else None) or None
     if asean_hits and (raw_country not in config.ASEAN_COUNTRIES or not location):
         location = asean_hits[0]["name"]
         raw_country = asean_hits[0].get("country") or raw_country
-        lat = asean_hits[0].get("latitude")
-        lon = asean_hits[0].get("longitude")
-        if lat is None or lon is None:
-            lat, lon = config.LOCATION_COORDS.get(location, (None, None))
     country = extractors.country_scope(raw_country)
+    lat, lon, geocode_confidence, geocode_needs_review = extractors.geocode_place(
+        location, raw_country if raw_country in config.ASEAN_COUNTRIES else country, text
+    )
+    if asean_hits and location == asean_hits[0].get("name"):
+        hit_lat, hit_lon = asean_hits[0].get("latitude"), asean_hits[0].get("longitude")
+        if hit_lat is not None and hit_lon is not None:
+            if extractors.coords_in_country_bbox(hit_lat, hit_lon, asean_hits[0].get("country")):
+                lat, lon = hit_lat, hit_lon
+                geocode_confidence = max(geocode_confidence, 0.85)
+                geocode_needs_review = False
+            else:
+                lat, lon = None, None
+                geocode_confidence = 0.0
+                geocode_needs_review = True
     symptoms = extractors.extract_terms(analysis_text, config.SYMPTOM_DICT)
     
     # Prefer explicit diseases in the title/lede; do not let later body
@@ -270,19 +281,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         is_health_related = False
         disease = "UNKNOWN"
 
-    # Multiple explicit diseases are common in prevention/advisory articles.
-    # Ask the constrained agent to arbitrate the primary disease instead of
-    # allowing alphabetical/global-frequency ordering to decide it.
-    should_use_deepseek = (
-        not payload.historical_fast
-        and not payload.interactive
-        and not is_noisy
-        and (
-            disease == "UNKNOWN"
-            or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
-            or (language not in {"en", "id"} and not extracted)
-            or len(extracted) > 1
-        )
+    # Cheap local/rules NLP first. DeepSeek only on UNKNOWN / low confidence /
+    # needs_review — never because an article listed more than one disease.
+    should_use_deepseek = should_escalate_to_llm(
+        historical_fast=payload.historical_fast,
+        interactive=payload.interactive,
+        is_noisy=is_noisy,
+        disease=disease,
+        confidence=confidence,
+        extracted=extracted,
+        language=language,
+        needs_review=geocode_needs_review,
+        location_missing=not location,
     )
     if should_use_deepseek:
         try:
@@ -437,6 +447,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if not explicit_case_count:
         needs_review = True
         case_count = 0
+    if geocode_needs_review:
+        needs_review = True
 
     source_type = payload.source_type or "web"
     cred_score = source_reliability_score(
@@ -755,11 +767,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         hospitalizations=typed_counts["hospitalizations"],
         evidence=evidence,
         case_count_unknown=not explicit_case_count,
-        province=(
-            location
-            if location and country and location.casefold() != str(country).casefold()
-            else None
-        ),
+        province=(admin_place := extractors.split_admin_place(location, country))[0],
+        city=admin_place[1],
+        geocode_confidence=geocode_confidence,
+        geocode_needs_review=geocode_needs_review,
         confidence=confidence,
         outbreak_alert=outbreak_alert,
         sentiment=sentiment,

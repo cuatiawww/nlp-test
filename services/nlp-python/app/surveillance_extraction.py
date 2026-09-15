@@ -268,7 +268,16 @@ class NominatimGeocoder:
         try:
             response = requests.get(
                 self.endpoint,
-                params={"q": query, "format": "jsonv2", "limit": 1, "addressdetails": 1},
+                params={
+                    "q": query,
+                    "format": "jsonv2",
+                    "limit": 1,
+                    "addressdetails": 1,
+                    "countrycodes": os.getenv(
+                        "SURVEILLANCE_GEOCODER_COUNTRYCODES",
+                        "bn,kh,id,la,my,mm,ph,sg,th,vn,tl",
+                    ),
+                },
                 headers={"User-Agent": os.getenv("SURVEILLANCE_GEOCODER_USER_AGENT", "disease-surveillance-nlp/1.0")},
                 timeout=self.timeout,
             )

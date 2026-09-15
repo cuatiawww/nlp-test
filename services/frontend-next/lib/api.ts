@@ -171,8 +171,16 @@ export const deleteInteroperabilityIntegration = (id: string) =>
 export const triggerCollect = (id: string) =>
   postTo(`/api/v1/sources/${id}/collect`);
 export const triggerCollectAll = () => postTo("/api/v1/sources/collect-all");
-export const fetchRuns = (sourceId?: string) =>
-  fetchFrom<Run[]>(`/api/v1/runs${sourceId ? `?source_id=${sourceId}` : ""}`);
+export const fetchRuns = (sourceId?: string, status?: string) => {
+  const params = new URLSearchParams();
+  if (sourceId) params.set("source_id", sourceId);
+  if (status) params.set("status", status);
+  const query = params.toString();
+  return fetchFrom<Run[]>(`/api/v1/runs${query ? `?${query}` : ""}`);
+};
+export const fetchCrawlOps = () => fetchFrom<import("@/types").CrawlOps>("/api/v1/crawl-ops");
+export const recomputeSourceCredibility = () =>
+  postTo<{ updated: number; threshold: number; meaning: string }>("/api/v1/source-credibility/recompute", {});
 export const fetchSummary = () => fetchFrom<SummaryRow[]>("/api/v1/summary");
 
 // ── NLP Keywords ──────────────────────────────────

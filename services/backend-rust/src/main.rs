@@ -162,6 +162,29 @@ fn canonical_member_name(value: &str) -> Option<String> {
     }
 }
 
+fn source_credibility_threshold() -> f64 {
+    env::var("SOURCE_CREDIBILITY_THRESHOLD")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value: &f64| *value > 0.0 && *value <= 1.0)
+        .unwrap_or(0.70)
+}
+
+fn source_coverage_fields(country: &Option<String>) -> (String, bool) {
+    match country.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) if canonical_member_name(value).is_some() => {
+            ("asean_outlet".to_string(), true)
+        }
+        Some(value) if value.eq_ignore_ascii_case("global")
+            || value.eq_ignore_ascii_case("international")
+            || value.eq_ignore_ascii_case("world") =>
+        {
+            ("global_outlet".to_string(), true)
+        }
+        _ => ("unclassified".to_string(), false),
+    }
+}
+
 fn resolve_kpi_country(country: &Option<String>, scope: &Option<String>) -> String {
     let country_raw = country.as_deref().unwrap_or("").trim();
     let scope_raw = scope.as_deref().unwrap_or("").trim();
@@ -1083,6 +1106,10 @@ struct LocationItem {
     longitude: Option<f64>,
     #[serde(default)]
     country: Option<String>,
+    #[serde(default)]
+    geocode_confidence: Option<f64>,
+    #[serde(default)]
+    geocode_needs_review: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1115,6 +1142,12 @@ struct NlpResponse {
     case_count_unknown: Option<bool>,
     #[serde(default)]
     province: Option<String>,
+    #[serde(default)]
+    city: Option<String>,
+    #[serde(default)]
+    geocode_confidence: Option<f64>,
+    #[serde(default)]
+    geocode_needs_review: Option<bool>,
     #[serde(default)]
     evidence: Option<Vec<String>>,
     confidence: f64,
@@ -1494,6 +1527,8 @@ struct SourcesQuery {
     q: Option<String>,
     source_type: Option<String>,
     enabled: Option<bool>,
+    coverage_scope: Option<String>,
+    covers_asean: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1750,7 +1785,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/disease-concepts", get(list_disease_concepts).post(create_disease_concept))
         .route("/api/v1/disease-concepts/:id", put(update_disease_concept).delete(delete_disease_concept))
         .route("/api/v1/source-credibility", get(list_source_credibility).post(create_source_credibility))
+        .route("/api/v1/source-credibility/recompute", post(recompute_source_credibility))
         .route("/api/v1/source-credibility/:id", put(update_source_credibility).delete(delete_source_credibility))
+        .route("/api/v1/crawl-ops", get(crawl_ops))
         .route(
             "/api/v1/language-markers",
             get(list_language_markers).post(create_language_marker),
@@ -1966,7 +2003,7 @@ async fn ingest(
                 raw_report_id, source_type, source_name, published_at, original_text, language,
                 location_name, geom, symptoms, disease_extracted, disease_classification,
                 case_count, death_count, confidence, outbreak_alert,
-                sentiment, event_type, relevance_score
+                sentiment, event_type, relevance_score, province, city
              ) VALUES (
                 $1, $2, $3, $4, $5, $6,
                 $7,
@@ -1975,7 +2012,7 @@ async fn ingest(
                 END,
                 $10::jsonb, $11::jsonb, $12,
                 $13, $14, $15, $16,
-                $17, $18, $19
+                $17, $18, $19, $20, $21
              )",
             &[
                         &raw_id,
@@ -1997,6 +2034,8 @@ async fn ingest(
                         &nlp.sentiment,
                         &nlp.event_type,
                         &nlp.relevance_score,
+                        &nlp.province,
+                        &nlp.city,
                     ],
                 )
                 .await
@@ -2739,7 +2778,7 @@ async fn analyze_url(
                 case_count, death_count, confidence, outbreak_alert, disease_mentions,
                 sentiment, needs_review, event_type, event_confidence,
                 relevance_score, relevance_confidence, source_credibility,
-                source_credibility_label, is_health_related
+                source_credibility_label, is_health_related, province, city
              ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6,
@@ -2751,7 +2790,7 @@ async fn analyze_url(
                  $16::jsonb,
                  $17, $18, $19, $20::float8,
                  $21, $22::float8, $23::float8,
-                 $24, $25
+                 $24, $25, $26, $27
              ) RETURNING id",
             &[
                 &raw_id,
@@ -2779,6 +2818,8 @@ async fn analyze_url(
                 &nlp.source_credibility,
                 &nlp.source_credibility_label,
                 &nlp.is_health_related,
+                &nlp.province,
+                &nlp.city,
             ],
         )
         .await
@@ -2897,6 +2938,8 @@ async fn analyze_url(
                 latitude: nlp.latitude,
                 longitude: nlp.longitude,
                 country: nlp.country.clone(),
+                geocode_confidence: nlp.geocode_confidence,
+                geocode_needs_review: nlp.geocode_needs_review,
             });
         }
     }
@@ -2906,19 +2949,30 @@ async fn analyze_url(
             let role = if is_event_location { "event" } else { "other" };
             let case_count = if is_event_location { Some(nlp.case_count) } else { None };
             let death_count = if is_event_location { Some(nlp.death_count) } else { None };
+            let geocode_confidence = loc.geocode_confidence.or(if is_event_location {
+                nlp.geocode_confidence
+            } else {
+                None
+            });
+            let geocode_needs_review = loc.geocode_needs_review.unwrap_or(
+                is_event_location && nlp.geocode_needs_review.unwrap_or(false),
+            );
             client
                 .execute(
                     "INSERT INTO disease_event_locations
                        (disease_event_id, location_ref, location_name, role, country,
-                        latitude, longitude, case_count, death_count, evidence)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        latitude, longitude, case_count, death_count, evidence,
+                        geocode_confidence, geocode_needs_review)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                      ON CONFLICT (disease_event_id, location_ref, role) DO UPDATE SET
                        country = EXCLUDED.country,
                        latitude = EXCLUDED.latitude,
                        longitude = EXCLUDED.longitude,
                        case_count = EXCLUDED.case_count,
                        death_count = EXCLUDED.death_count,
-                       evidence = EXCLUDED.evidence",
+                       evidence = EXCLUDED.evidence,
+                       geocode_confidence = EXCLUDED.geocode_confidence,
+                       geocode_needs_review = EXCLUDED.geocode_needs_review",
                     &[
                         &event_id,
                         &loc.name,
@@ -2930,6 +2984,8 @@ async fn analyze_url(
                         &case_count,
                         &death_count,
                         &Option::<String>::None,
+                        &geocode_confidence,
+                        &geocode_needs_review,
                     ],
                 )
                 .await
@@ -2948,7 +3004,7 @@ async fn analyze_url(
                     case_count, death_count, confidence, outbreak_alert, disease_mentions,
                     sentiment, needs_review, event_type, event_confidence,
                     relevance_score, relevance_confidence, source_credibility,
-                    source_credibility_label, is_health_related
+                    source_credibility_label, is_health_related, province, city
                  ) VALUES (
                     $1, $2, $3, $4, $5,
                     $6,
@@ -2960,7 +3016,7 @@ async fn analyze_url(
                      $16::jsonb,
                      $17, $18, $19, $20::float8,
                      $21, $22::float8, $23::float8,
-                     $24, $25
+                     $24, $25, $26, $27
                  ) RETURNING id",
                 &[
                     &raw_id,
@@ -2988,6 +3044,8 @@ async fn analyze_url(
                     &nlp.source_credibility,
                     &nlp.source_credibility_label,
                     &nlp.is_health_related,
+                    &nlp.province,
+                    &nlp.city,
                 ],
             )
             .await
@@ -3057,6 +3115,7 @@ async fn analyze_url(
             "case_count_unknown": nlp.case_count_unknown.unwrap_or(false),
             "death_count": nlp.death_count,
             "province": nlp.province,
+            "city": nlp.city,
             "evidence": nlp.evidence,
             "confidence": nlp.confidence,
             "sentiment": nlp.sentiment,
@@ -3339,7 +3398,7 @@ async fn list_events(
                     e.sentiment, e.event_type, e.relevance_score,
                     e.source_credibility::float8 AS source_credibility, e.source_credibility_label, e.needs_review,
                     r.url, SUBSTRING(r.original_text FROM 1 FOR 200) AS title,
-                    e.is_health_related
+                    e.is_health_related, e.province, e.city
              FROM disease_events e
              LEFT JOIN raw_reports r ON r.id = e.raw_report_id
              LEFT JOIN LATERAL (
@@ -3394,6 +3453,8 @@ async fn list_events(
             "url": r.get::<_, Option<String>>(21),
             "title": r.get::<_, Option<String>>(22),
             "is_health_related": r.get::<_, Option<bool>>(23),
+            "province": r.get::<_, Option<String>>(24),
+            "city": r.get::<_, Option<String>>(25),
         }))
         .collect();
 
@@ -5048,8 +5109,11 @@ async fn public_dashboard(
                   'source_credibility', e.source_credibility,
                   'source_credibility_label', e.source_credibility_label,
                   'needs_review', e.needs_review, 'is_health_related', e.is_health_related,
-                  'outbreak_alert', e.outbreak_alert
-                ) ORDER BY e.published_at DESC, e.confidence DESC)->0) AS detail
+                  'outbreak_alert', e.outbreak_alert,
+                  'province', e.province, 'city', e.city
+                ) ORDER BY e.published_at DESC, e.confidence DESC)->0) AS detail,
+                MAX(NULLIF(e.province, '')) AS province,
+                MAX(NULLIF(e.city, '')) AS city
             FROM (
               SELECT e0.*, rr.url AS report_url,
                      ROW_NUMBER() OVER (
@@ -5261,6 +5325,8 @@ async fn public_dashboard(
             recent_cases = cases;
         }
         let mut detail: Value = row.get::<_, Option<Value>>(17).unwrap_or(Value::Null);
+        let province: Option<String> = row.get(18);
+        let city: Option<String> = row.get(19);
         if let Value::Object(ref mut detail_object) = detail {
             detail_object.insert("disease_classification".to_string(), json!(disease));
             if let Some(Value::Array(values)) = detail_object.get_mut("disease_extracted") {
@@ -5301,7 +5367,8 @@ async fn public_dashboard(
             "previous_period_cases": previous_period_cases,
             "recent_event_count": recent_event_count,
             "recent_source_count": recent_source_count,
-            "is_recent": is_recent, "is_hot": is_hot, "detail": detail
+            "is_recent": is_recent, "is_hot": is_hot, "detail": detail,
+            "province": province, "city": city
         });
         if is_alert { alerts.push(item.clone()); }
         locations.push(item);
@@ -5714,8 +5781,8 @@ async fn list_sources(
                         'started_at', lr.started_at::text,
                         'finished_at', lr.finished_at::text
                     ) END AS last_run,
-                    COALESCE(sc.score, 0.50) AS source_credibility,
-                    s.country,
+                    COALESCE(s.credibility_score, sc.score, 0.50) AS source_credibility,
+                    abvc_source_country_resolved(s.country, s.config) AS country,
                     COALESCE(NULLIF(BTRIM(s.config->>'catalog_type'), ''), s.source_type) AS catalog_type,
                     NULLIF(BTRIM(s.config->>'validity_status'), '') AS validity_status,
                     NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin,
@@ -5725,7 +5792,12 @@ async fn list_sources(
                           AND r.status = 'RUNNING'
                           AND r.finished_at IS NULL
                           AND r.started_at >= NOW() - INTERVAL '30 minutes'
-                    ) AS in_flight
+                    ) AS in_flight,
+                    COALESCE(s.coverage_scope, 'unclassified') AS coverage_scope,
+                    COALESCE(s.covers_asean, FALSE) AS covers_asean,
+                    s.credibility_reason,
+                    s.last_credibility_refresh::text,
+                    s.credibility_override
              FROM collector_sources s
              LEFT JOIN LATERAL (
                  SELECT status, records_found, records_ingested, started_at, finished_at
@@ -5742,9 +5814,11 @@ async fn list_sources(
              WHERE ($1::text IS NULL OR s.name ILIKE '%'||$1||'%')
              AND ($2::text IS NULL OR s.source_type = $2)
              AND ($3::bool IS NULL OR s.enabled = $3)
+             AND ($6::text IS NULL OR s.coverage_scope = $6)
+             AND ($7::bool IS NULL OR s.covers_asean = $7)
              ORDER BY s.created_at DESC
              LIMIT $4 OFFSET $5",
-            &[&query.q, &query.source_type, &query.enabled, &per_page, &offset],
+            &[&query.q, &query.source_type, &query.enabled, &per_page, &offset, &query.coverage_scope, &query.covers_asean],
         )
         .await
         .map_err(internal_error)?;
@@ -5773,6 +5847,11 @@ async fn list_sources(
                 "catalog_type": r.get::<_, String>(11),
                 "validity_status": r.get::<_, Option<String>>(12),
                 "source_origin": r.get::<_, Option<String>>(13),
+                "coverage_scope": r.get::<_, String>(15),
+                "covers_asean": r.get::<_, bool>(16),
+                "credibility_reason": r.get::<_, Option<String>>(17),
+                "last_credibility_refresh": r.get::<_, Option<String>>(18),
+                "credibility_override": r.get::<_, Option<f64>>(19),
             })
         })
         .collect();
@@ -5782,8 +5861,10 @@ async fn list_sources(
             "SELECT COUNT(*) FROM collector_sources s
              WHERE ($1::text IS NULL OR s.name ILIKE '%'||$1||'%')
              AND ($2::text IS NULL OR s.source_type = $2)
-             AND ($3::bool IS NULL OR s.enabled = $3)",
-            &[&query.q, &query.source_type, &query.enabled],
+             AND ($3::bool IS NULL OR s.enabled = $3)
+             AND ($4::text IS NULL OR s.coverage_scope = $4)
+             AND ($5::bool IS NULL OR s.covers_asean = $5)",
+            &[&query.q, &query.source_type, &query.enabled, &query.coverage_scope, &query.covers_asean],
         )
         .await
         .map_err(internal_error)?
@@ -5799,56 +5880,40 @@ async fn source_summary(
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
 
-    // Source credibility is configured per source type. The 0.70 threshold is
-    // explicit so the dashboard classifies every source consistently.
+    // Source credibility: stored refresh score when present, else type baseline.
+    // The threshold is env-configurable (SOURCE_CREDIBILITY_THRESHOLD, default 0.70).
+    // It is a catalog/domain score, not epidemiologist verification.
+    let threshold = source_credibility_threshold();
     let totals = client
         .query_one(
             "SELECT COUNT(*)::bigint AS total_sources,
                     COUNT(*) FILTER (WHERE LOWER(s.source_type) = 'web')::bigint AS web_sources,
-                    COUNT(*) FILTER (WHERE COALESCE(sc.score, 0.50) >= 0.70)::bigint AS credible_sources,
-                    COUNT(*) FILTER (WHERE COALESCE(sc.score, 0.50) < 0.70)::bigint AS needs_review_sources,
-                    COALESCE(AVG(COALESCE(sc.score, 0.50)), 0.0)::double precision AS average_credibility,
-                    COUNT(*) FILTER (WHERE CASE
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) IN ('brunei', 'brunei darussalam') THEN 'brunei'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'cambodia' THEN 'cambodia'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'indonesia' THEN 'indonesia'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'laos' THEN 'laos'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'malaysia' THEN 'malaysia'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'myanmar' THEN 'myanmar'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'philippines' THEN 'philippines'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'singapore' THEN 'singapore'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'thailand' THEN 'thailand'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) IN ('timor-leste', 'timor leste', 'east timor') THEN 'timor-leste'
-                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'vietnam' THEN 'vietnam'
-                        ELSE NULL
-                    END IS NOT NULL)::bigint AS asean_sources
+                    COUNT(*) FILTER (WHERE COALESCE(s.credibility_score, sc.score, 0.50) >= $1)::bigint AS credible_sources,
+                    COUNT(*) FILTER (WHERE COALESCE(s.credibility_score, sc.score, 0.50) < $1)::bigint AS needs_review_sources,
+                    COALESCE(AVG(COALESCE(s.credibility_score, sc.score, 0.50)), 0.0)::double precision AS average_credibility,
+                    COUNT(*) FILTER (WHERE abvc_asean11_source_country(abvc_source_country_raw(s.country, s.config)) IS NOT NULL)::bigint AS asean_sources,
+                    COUNT(*) FILTER (WHERE abvc_source_country_resolved(s.country, s.config) = 'GLOBAL' OR s.coverage_scope = 'global_outlet')::bigint AS global_outlet_sources,
+                    COUNT(*) FILTER (WHERE abvc_source_country_resolved(s.country, s.config) IS NULL)::bigint AS unclassified_sources,
+                    COUNT(*) FILTER (WHERE COALESCE(s.covers_asean, FALSE))::bigint AS covers_asean_sources,
+                    COUNT(*) FILTER (WHERE (s.coverage_scope = 'global_outlet' OR abvc_source_country_resolved(s.country, s.config) = 'GLOBAL') AND COALESCE(s.covers_asean, FALSE))::bigint AS global_covering_asean,
+                    COUNT(*) FILTER (WHERE abvc_asean11_source_country(abvc_source_country_raw(s.country, s.config)) IS NULL)::bigint AS source_country_unfilled,
+                    MAX(s.last_credibility_refresh)::text AS last_credibility_refresh
              FROM collector_sources s
              LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = abvc_source_credibility_type(s.config, s.source_type)
+               AND sc.is_active = TRUE
              WHERE s.id IS NOT NULL",
-            &[],
+            &[&threshold],
         )
         .await
         .map_err(internal_error)?;
 
     let total_sources: i64 = totals.get(0);
     let asean_sources: i64 = totals.get(5);
+    let source_country_unfilled: i64 = totals.get(10);
     let country_rows = client
         .query(
             "WITH normalized AS (
-                 SELECT CASE
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'cambodia' THEN 'Cambodia'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'indonesia' THEN 'Indonesia'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'laos' THEN 'Laos'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'malaysia' THEN 'Malaysia'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'myanmar' THEN 'Myanmar'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'philippines' THEN 'Philippines'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'singapore' THEN 'Singapore'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'thailand' THEN 'Thailand'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) IN ('timor-leste', 'timor leste', 'east timor') THEN 'Timor-Leste'
-                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'vietnam' THEN 'Vietnam'
-                     ELSE NULL
-                 END AS country
+                 SELECT abvc_asean11_source_country(abvc_source_country_raw(country, config)) AS country
                  FROM collector_sources
              )
              SELECT country, COUNT(*)::bigint AS source_count
@@ -5913,10 +5978,19 @@ async fn source_summary(
             "needs_review_sources": totals.get::<_, i64>(3),
             "average_credibility": totals.get::<_, f64>(4),
             "asean_sources": asean_sources,
-            "outside_sources": total_sources - asean_sources,
+            "asean_outlet_sources": asean_sources,
+            "outside_sources": source_country_unfilled,
+            "source_country_unfilled": source_country_unfilled,
+            "global_outlet_sources": totals.get::<_, i64>(6),
+            "unclassified_sources": totals.get::<_, i64>(7),
+            "covers_asean_sources": totals.get::<_, i64>(8),
+            "global_covering_asean": totals.get::<_, i64>(9),
             "asean_by_country": asean_by_country,
             "by_catalog_type": by_catalog_type,
-            "credibility_threshold": 0.70,
+            "credibility_threshold": threshold,
+            "last_credibility_refresh": totals.get::<_, Option<String>>(11),
+            "credibility_meaning": "≥ threshold is a catalog-type heuristic (gov/news/web buckets) unless a domain refresh or admin override is stored. Not live crawl quality and not epidemiologist verification. Google/web 0.65 is not frozen — Refresh scores applies domain rules (e.g. who.int).",
+            "source_country_meaning": "Outlet country coalesces top-level country with config.country and config.source_country_original (ASEAN-11 aliases). It is not the article event country. Null top-level catalog rows with Indonesia/Vietnam/… in config.country count as ASEAN outlets. Google News aggregators stay GLOBAL with covers_asean=true.",
             "enabled_sources": crawl_health.as_ref().map(|row| row.get::<_, i64>(0)).unwrap_or(0),
             "scheduled_sources": crawl_health.as_ref().map(|row| row.get::<_, i64>(1)).unwrap_or(0),
             "active_run_count": crawl_health.as_ref().map(|row| row.get::<_, i64>(2)).unwrap_or(0),
@@ -5937,12 +6011,13 @@ async fn create_source(
     Json(payload): Json<CreateSourceRequest>,
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    let (coverage_scope, covers_asean) = source_coverage_fields(&payload.country);
     let row = client
         .query_one(
-            "INSERT INTO collector_sources (name, source_type, config, schedule, country)
-             VALUES ($1, $2, $3, $4, COALESCE($5, NULLIF(BTRIM($3->>'country'), '')))
-             RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text, country",
-            &[&payload.name, &payload.source_type, &payload.config, &payload.schedule, &payload.country],
+            "INSERT INTO collector_sources (name, source_type, config, schedule, country, coverage_scope, covers_asean)
+             VALUES ($1, $2, $3, $4, COALESCE($5, NULLIF(BTRIM($3->>'country'), '')), $6, $7)
+             RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text, country, coverage_scope, covers_asean",
+            &[&payload.name, &payload.source_type, &payload.config, &payload.schedule, &payload.country, &coverage_scope, &covers_asean],
         )
         .await
         .map_err(internal_error)?;
@@ -5953,6 +6028,8 @@ async fn create_source(
         "source_type": row.get::<_, String>(2),
         "config": row.get::<_, Value>(3),
         "country": row.get::<_, Option<String>>(8),
+        "coverage_scope": row.get::<_, String>(9),
+        "covers_asean": row.get::<_, bool>(10),
         "schedule": row.get::<_, Option<String>>(4),
         "enabled": row.get::<_, bool>(5),
         "created_at": row.get::<_, Option<String>>(6),
@@ -5970,10 +6047,15 @@ async fn get_source(
     let row = client
         .query_one(
             "SELECT s.id, s.name, s.source_type, s.config, s.schedule, s.enabled, s.created_at::text, s.updated_at::text,
-                    COALESCE(sc.score, 0.50) AS source_credibility, s.country,
+                    COALESCE(s.credibility_score, sc.score, 0.50) AS source_credibility, abvc_source_country_resolved(s.country, s.config) AS country,
                     COALESCE(NULLIF(BTRIM(s.config->>'catalog_type'), ''), s.source_type) AS catalog_type,
                     NULLIF(BTRIM(s.config->>'validity_status'), '') AS validity_status,
-                    NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin
+                    NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin,
+                    COALESCE(s.coverage_scope, 'unclassified') AS coverage_scope,
+                    COALESCE(s.covers_asean, FALSE) AS covers_asean,
+                    s.credibility_reason,
+                    s.last_credibility_refresh::text,
+                    s.credibility_override
              FROM collector_sources s
              LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = abvc_source_credibility_type(s.config, s.source_type) AND sc.is_active = TRUE
              WHERE s.id = $1",
@@ -6004,6 +6086,11 @@ async fn get_source(
             "catalog_type": row.get::<_, String>(10),
             "validity_status": row.get::<_, Option<String>>(11),
             "source_origin": row.get::<_, Option<String>>(12),
+            "coverage_scope": row.get::<_, String>(13),
+            "covers_asean": row.get::<_, bool>(14),
+            "credibility_reason": row.get::<_, Option<String>>(15),
+            "last_credibility_refresh": row.get::<_, Option<String>>(16),
+            "credibility_override": row.get::<_, Option<f64>>(17),
         }),
         total: None, page: None, per_page: None, total_pages: None,
     }))
@@ -6045,13 +6132,15 @@ async fn update_source(
     let schedule = payload.schedule.or_else(|| existing["schedule"].as_str().map(|s| s.to_string()));
     let enabled = payload.enabled.unwrap_or_else(|| existing["enabled"].as_bool().unwrap_or(true));
     let country = payload.country.or_else(|| existing["country"].as_str().map(|s| s.to_string()));
+    let (coverage_scope, covers_asean) = source_coverage_fields(&country);
 
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
         .query_one(
-            "UPDATE collector_sources SET name=$1, source_type=$2, config=$3, schedule=$4, enabled=$5, country=$6, updated_at=NOW()
-             WHERE id=$7 RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text, country",
-            &[&name, &source_type, &config, &schedule, &enabled, &country, &id],
+            "UPDATE collector_sources SET name=$1, source_type=$2, config=$3, schedule=$4, enabled=$5, country=$6,
+                    coverage_scope=$7, covers_asean=$8, updated_at=NOW()
+             WHERE id=$9 RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text, country, coverage_scope, covers_asean",
+            &[&name, &source_type, &config, &schedule, &enabled, &country, &coverage_scope, &covers_asean, &id],
         )
         .await
         .map_err(internal_error)?;
@@ -6064,6 +6153,8 @@ async fn update_source(
             "source_type": row.get::<_, String>(2),
             "config": row.get::<_, Value>(3),
             "country": row.get::<_, Option<String>>(8),
+            "coverage_scope": row.get::<_, String>(9),
+            "covers_asean": row.get::<_, bool>(10),
             "schedule": row.get::<_, Option<String>>(4),
             "enabled": row.get::<_, bool>(5),
             "created_at": row.get::<_, Option<String>>(6),
@@ -6138,11 +6229,12 @@ async fn list_runs(
 
     let rows = client
         .query(
-            "SELECT id, source_id, status, records_found, records_ingested, error_message, started_at::text, finished_at::text
-             FROM collector_runs
-             WHERE ($1::uuid IS NULL OR source_id = $1)
-             AND ($2::text IS NULL OR status = $2)
-             ORDER BY started_at DESC
+            "SELECT r.id, r.source_id, s.name AS source_name, r.status, r.records_found, r.records_ingested, r.error_message, r.started_at::text, r.finished_at::text, s.schedule
+             FROM collector_runs r
+             LEFT JOIN collector_sources s ON s.id = r.source_id
+             WHERE ($1::uuid IS NULL OR r.source_id = $1)
+             AND ($2::text IS NULL OR r.status = $2)
+             ORDER BY r.started_at DESC
              LIMIT $3 OFFSET $4",
             &[&query.source_id, &query.status, &per_page, &offset],
         )
@@ -6155,12 +6247,14 @@ async fn list_runs(
             json!({
                 "id": r.get::<_, Uuid>(0),
                 "source_id": r.get::<_, Uuid>(1),
-                "status": r.get::<_, String>(2),
-                "records_found": r.get::<_, i32>(3),
-                "records_ingested": r.get::<_, i32>(4),
-                "error_message": r.get::<_, Option<String>>(5),
-                "started_at": r.get::<_, Option<String>>(6),
-                "finished_at": r.get::<_, Option<String>>(7),
+                "source_name": r.get::<_, Option<String>>(2),
+                "status": r.get::<_, String>(3),
+                "records_found": r.get::<_, i32>(4),
+                "records_ingested": r.get::<_, i32>(5),
+                "error_message": r.get::<_, Option<String>>(6),
+                "started_at": r.get::<_, Option<String>>(7),
+                "finished_at": r.get::<_, Option<String>>(8),
+                "schedule": r.get::<_, Option<String>>(9),
             })
         })
         .collect();
@@ -6178,6 +6272,123 @@ async fn list_runs(
 
     Ok(Json(ApiResponse {
         success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
+}
+
+async fn crawl_ops(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let failed_rows = client
+        .query(
+            "SELECT s.id, s.name, s.schedule, r.id, r.status, r.error_message, r.started_at::text, r.finished_at::text,
+                    r.records_found, r.records_ingested
+             FROM collector_sources s
+             JOIN LATERAL (
+                 SELECT id, status, error_message, started_at, finished_at, records_found, records_ingested
+                 FROM collector_runs
+                 WHERE source_id = s.id
+                 ORDER BY started_at DESC
+                 LIMIT 1
+             ) r ON TRUE
+             WHERE r.status = 'FAILED'
+             ORDER BY r.started_at DESC
+             LIMIT 50",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+    let failed_queue: Vec<Value> = failed_rows
+        .into_iter()
+        .map(|row| json!({
+            "source_id": row.get::<_, Uuid>(0),
+            "source_name": row.get::<_, String>(1),
+            "schedule": row.get::<_, Option<String>>(2),
+            "run_id": row.get::<_, Uuid>(3),
+            "status": row.get::<_, String>(4),
+            "error_message": row.get::<_, Option<String>>(5),
+            "started_at": row.get::<_, Option<String>>(6),
+            "finished_at": row.get::<_, Option<String>>(7),
+            "records_found": row.get::<_, i32>(8),
+            "records_ingested": row.get::<_, i32>(9),
+        }))
+        .collect();
+
+    let history_rows = client
+        .query(
+            "SELECT r.id, r.source_id, s.name, r.status, r.records_found, r.records_ingested,
+                    r.error_message, r.started_at::text, r.finished_at::text, s.schedule
+             FROM collector_runs r
+             LEFT JOIN collector_sources s ON s.id = r.source_id
+             ORDER BY r.started_at DESC
+             LIMIT 40",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+    let recent_history: Vec<Value> = history_rows
+        .into_iter()
+        .map(|row| json!({
+            "id": row.get::<_, Uuid>(0),
+            "source_id": row.get::<_, Uuid>(1),
+            "source_name": row.get::<_, Option<String>>(2),
+            "status": row.get::<_, String>(3),
+            "records_found": row.get::<_, i32>(4),
+            "records_ingested": row.get::<_, i32>(5),
+            "error_message": row.get::<_, Option<String>>(6),
+            "started_at": row.get::<_, Option<String>>(7),
+            "finished_at": row.get::<_, Option<String>>(8),
+            "schedule": row.get::<_, Option<String>>(9),
+        }))
+        .collect();
+
+    let backoff = client
+        .query_one(
+            "SELECT COUNT(*)::bigint
+             FROM collector_sources s
+             JOIN LATERAL (
+                 SELECT status FROM collector_runs
+                 WHERE source_id = s.id AND status IN ('SUCCESS', 'FAILED')
+                 ORDER BY started_at DESC LIMIT 1
+             ) r ON TRUE
+             WHERE s.enabled = TRUE AND r.status = 'FAILED'",
+            &[],
+        )
+        .await
+        .ok();
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "failed_queue": failed_queue,
+            "recent_history": recent_history,
+            "backoff_source_count": backoff.map(|row| row.get::<_, i64>(0)).unwrap_or(0),
+            "dispatcher": "every 2 minutes, batch of due sources, exponential backoff up to 360 minutes",
+            "default_schedule": "interval:60",
+        }),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn recompute_source_credibility(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let _admin = require_admin(&state, &headers).await?;
+    let client = state.db.get().await.map_err(internal_error)?;
+    let updated: i32 = client
+        .query_one("SELECT abvc_recompute_source_credibility()", &[])
+        .await
+        .map_err(internal_error)?
+        .get(0);
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "updated": updated,
+            "threshold": source_credibility_threshold(),
+            "meaning": "≥ threshold is a catalog-type heuristic unless domain_boost or an admin override is stored. Not live verification. Google/web 0.65 is replaced when a domain rule matches.",
+        }),
+        total: None, page: None, per_page: None, total_pages: None,
     }))
 }
 
