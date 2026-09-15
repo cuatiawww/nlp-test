@@ -1494,18 +1494,37 @@ async fn analyze_url(
     };
 
     if let Some(row) = row {
-        let original_text: String = row.get("original_text");
-        let cached_summary: Option<String> = row.get("summary");
+        // Older disease-event rows can contain NULLs because those columns
+        // were populated by earlier versions of the NLP pipeline. Cache
+        // reads must never panic on legacy data; a bad cached row should be
+        // treated as an incomplete cache entry, not as a gateway failure.
+        let original_text: String = row
+            .try_get::<_, Option<String>>("original_text")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let cached_summary: Option<String> = row
+            .try_get::<_, Option<String>>("summary")
+            .ok()
+            .flatten();
         let (cached_title, cached_content) = if let Some(pos) = original_text.find(".\n") {
             (original_text[..pos].to_string(), original_text[pos + 2..].to_string())
         } else {
             (String::new(), original_text.clone())
         };
 
-        let symptoms_val: serde_json::Value = row.get("symptoms");
-        let symptoms: Vec<String> = serde_json::from_value(symptoms_val).unwrap_or_default();
-        let disease_val: serde_json::Value = row.get("disease_extracted");
-        let disease_extracted: Vec<String> = serde_json::from_value(disease_val).unwrap_or_default();
+        let symptoms: Vec<String> = row
+            .try_get::<_, Option<serde_json::Value>>("symptoms")
+            .ok()
+            .flatten()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
+        let disease_extracted: Vec<String> = row
+            .try_get::<_, Option<serde_json::Value>>("disease_extracted")
+            .ok()
+            .flatten()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
 
         let event_id: Uuid = row.get("id");
         let raw_report_id: Uuid = row.get("raw_report_id");
@@ -1541,14 +1560,46 @@ async fn analyze_url(
             )
             .await
             .unwrap_or_default();
-        let cached_locations: Vec<serde_json::Value> = loc_rows.iter().map(|r| {
-            json!({
-                "name": r.get::<_, String>("location_name"),
-                "latitude": r.get::<_, Option<f64>>("latitude"),
-                "longitude": r.get::<_, Option<f64>>("longitude"),
-                "country": r.get::<_, Option<String>>("country"),
-            })
+        let cached_locations: Vec<serde_json::Value> = loc_rows.iter().filter_map(|r| {
+            let name = r.try_get::<_, Option<String>>("location_name").ok().flatten()?;
+            Some(json!({
+                "name": name,
+                "latitude": r.try_get::<_, Option<f64>>("latitude").ok().flatten(),
+                "longitude": r.try_get::<_, Option<f64>>("longitude").ok().flatten(),
+                "country": r.try_get::<_, Option<String>>("country").ok().flatten(),
+            }))
         }).collect();
+
+        let language = row
+            .try_get::<_, Option<String>>("language")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "unknown".to_string());
+        let disease_mentions = row
+            .try_get::<_, Option<Value>>("disease_mentions")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| json!([]));
+        let disease_classification = row
+            .try_get::<_, Option<String>>("disease_classification")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "Unknown".to_string());
+        let case_count = row
+            .try_get::<_, Option<i32>>("case_count")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let death_count = row
+            .try_get::<_, Option<i32>>("death_count")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let confidence = row
+            .try_get::<_, Option<f64>>("confidence")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
 
         return Ok(Json(ApiResponse {
             success: true,
@@ -1558,29 +1609,29 @@ async fn analyze_url(
                 "summary": cached_summary.unwrap_or_default(),
                 "url": url,
                 "published_at": row.get::<_, Option<NaiveDate>>("published_at").map(|date| date.to_string()),
-                "language": row.get::<_, String>("language"),
-                "location_name": row.get::<_, Option<String>>("location_name"),
-                "latitude": row.get::<_, Option<f64>>("latitude"),
-                "longitude": row.get::<_, Option<f64>>("longitude"),
-                "country": row.get::<_, Option<String>>("country"),
+                "language": language,
+                "location_name": row.try_get::<_, Option<String>>("location_name").ok().flatten(),
+                "latitude": row.try_get::<_, Option<f64>>("latitude").ok().flatten(),
+                "longitude": row.try_get::<_, Option<f64>>("longitude").ok().flatten(),
+                "country": row.try_get::<_, Option<String>>("country").ok().flatten(),
                 "locations": cached_locations,
                 "symptoms": symptoms,
                 "disease_extracted": disease_extracted,
-                "disease_mentions": row.get::<_, Value>("disease_mentions"),
-                "disease_classification": row.get::<_, String>("disease_classification"),
-                "case_count": row.get::<_, i32>("case_count"),
-                "death_count": row.get::<_, i32>("death_count"),
-                "confidence": row.get::<_, f64>("confidence"),
-                "sentiment": row.get::<_, Option<String>>("sentiment"),
+                "disease_mentions": disease_mentions,
+                "disease_classification": disease_classification,
+                "case_count": case_count,
+                "death_count": death_count,
+                "confidence": confidence,
+                "sentiment": row.try_get::<_, Option<String>>("sentiment").ok().flatten(),
                 "sentiment_score": Value::Null,
-                "event_type": row.get::<_, Option<String>>("event_type"),
-                "event_confidence": row.get::<_, Option<f64>>("event_confidence"),
-                "relevance_score": row.get::<_, Option<String>>("relevance_score"),
-                "relevance_confidence": row.get::<_, Option<f64>>("relevance_confidence"),
-                "source_credibility": row.get::<_, Option<f64>>("source_credibility"),
-                "source_credibility_label": row.get::<_, Option<String>>("source_credibility_label"),
-                "needs_review": row.get::<_, Option<bool>>("needs_review"),
-                "is_health_related": row.get::<_, Option<bool>>("is_health_related"),
+                "event_type": row.try_get::<_, Option<String>>("event_type").ok().flatten(),
+                "event_confidence": row.try_get::<_, Option<f64>>("event_confidence").ok().flatten(),
+                "relevance_score": row.try_get::<_, Option<String>>("relevance_score").ok().flatten(),
+                "relevance_confidence": row.try_get::<_, Option<f64>>("relevance_confidence").ok().flatten(),
+                "source_credibility": row.try_get::<_, Option<f64>>("source_credibility").ok().flatten(),
+                "source_credibility_label": row.try_get::<_, Option<String>>("source_credibility_label").ok().flatten(),
+                "needs_review": row.try_get::<_, Option<bool>>("needs_review").ok().flatten(),
+                "is_health_related": row.try_get::<_, Option<bool>>("is_health_related").ok().flatten(),
                 "raw_report_id": raw_report_id,
                 "event_id": event_id,
                 "sources": Value::Object(sources),
