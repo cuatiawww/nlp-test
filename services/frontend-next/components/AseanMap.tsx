@@ -29,6 +29,18 @@ import CountryFlag from "@/components/CountryFlag";
 import { ASEAN_GEOJSON } from "@/data/asean-countries";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
 
+export type HazardEvent = {
+  id?: string | number | null;
+  source?: string | null;
+  kind?: string | null;
+  title?: string | null;
+  latitude: number;
+  longitude: number;
+  magnitude?: number | null;
+  alert_level?: string | null;
+  when?: string | number | null;
+};
+
 type Props = {
   result?: AnalyzeResponse | null;
   countryData?: { name: string; cases: number; deaths?: number }[];
@@ -53,6 +65,8 @@ type Props = {
   markerLookbackDays?: 7 | 14 | 30 | 90;
   embedded?: boolean;
   highlightCountry?: string;
+  hazardEvents?: HazardEvent[];
+  showHazards?: boolean;
 };
 
 type RegionMetric = {
@@ -66,7 +80,8 @@ const COUNTRY_ISO3: Record<string, string> = {
   "brunei darussalam": "BRN",
   cambodia: "KHM",
   indonesia: "IDN",
-  laos: "LAO",
+  "laos": "LAO",
+  "lao pdr": "LAO",
   malaysia: "MYS",
   myanmar: "MMR",
   philippines: "PHL",
@@ -133,12 +148,15 @@ export default function AseanMap({
   embedded,
   highlightCountry,
   hideLegend = false,
+  hazardEvents,
+  showHazards = true,
 }: Props) {
   const { t, locale, translateDisease } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorRef = useRef<VectorLayer<VectorSource> | null>(null);
   const markerRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const hazardRef = useRef<VectorLayer<VectorSource> | null>(null);
   const regionRef = useRef<VectorLayer<VectorSource> | null>(null);
   const currentCountryBoundaryRef = useRef<VectorLayer<VectorSource> | null>(null);
   const tileRef = useRef<TileLayer<OSM | XYZ> | null>(null);
@@ -308,6 +326,23 @@ export default function AseanMap({
     });
     markerRef.current = markerLayer;
 
+    const hazardLayer = new VectorLayer({
+      source: new VectorSource(),
+      zIndex: 21,
+      style: (f: FeatureLike) => {
+        const source = String(f.get("source") || "");
+        const color = source === "usgs" ? "#ea580c" : "#be123c";
+        return new Style({
+          image: new CircleStyle({
+            radius: 6,
+            fill: new Fill({ color }),
+            stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+          }),
+        });
+      },
+    });
+    hazardRef.current = hazardLayer;
+
     const radiusLayer = new VectorLayer({
       source: new VectorSource(),
       zIndex: 19,
@@ -369,12 +404,13 @@ export default function AseanMap({
         regionLayer,
         radiusLayer,
         markerLayer,
+        hazardLayer,
       ],
       view: new View({
         center: fromLonLat([110, 2]),
         zoom: 4,
         minZoom: 3,
-        maxZoom: 10,
+        maxZoom: 12,
       }),
       controls: defaultControls({ attribution: false }),
     });
@@ -660,6 +696,31 @@ export default function AseanMap({
     return () => cancelAnimationFrame(animId);
   }, []);
 
+  useEffect(() => {
+    const layer = hazardRef.current;
+    const source = layer?.getSource();
+    if (!layer || !source) return;
+    source.clear();
+    layer.setVisible(Boolean(showHazards));
+    if (!showHazards || !hazardEvents?.length) return;
+    hazardEvents.forEach((item) => {
+      if (item.latitude == null || item.longitude == null) return;
+      const feature = new GeoJSON().readFeature(
+        {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [item.longitude, item.latitude],
+          },
+          properties: {},
+        },
+        { featureProjection: "EPSG:3857" },
+      ) as Feature;
+      feature.set("source", item.source || "gdacs");
+      feature.set("hazard", item);
+      source.addFeature(feature);
+    });
+  }, [hazardEvents, showHazards]);
 
   useEffect(() => {
     const vectorLayer = vectorRef.current;
@@ -828,19 +889,19 @@ export default function AseanMap({
     };
   }, [highlightCountry]);
 
-  // Load regional boundaries only after a country is selected. Indonesia uses
-  // the project's own wilayah-data route; other ASEAN countries use the free
+  // Load ADM1 province polygons for the focused country (clicked or query-highlighted).
+  // Indonesia uses the project's own wilayah-data route; other ASEAN countries use
   // geoBoundaries Open dataset at ADM1 level.
   useEffect(() => {
     const layer = regionRef.current;
     const source = layer?.getSource();
-    const countryName = normalizedCountry(selected?.name);
+    const countryName = normalizedCountry(selected?.name || highlightCountry);
     const iso3 = COUNTRY_ISO3[countryName];
     if (!layer || !source) return;
 
     source.clear();
     layer.setVisible(false);
-    if (!iso3 || !showAdmin || !selected?.name) return;
+    if (!iso3 || !showAdmin || !countryName) return;
 
     let cancelled = false;
     const load = async () => {
@@ -889,7 +950,7 @@ export default function AseanMap({
           }
           maximumCases = Math.max(maximumCases, metric.cases);
           feature.set("regionName", regionName(feature.getProperties()));
-          feature.set("regionCountry", selected.name);
+          feature.set("regionCountry", selected?.name || highlightCountry || countryName);
           feature.set("regionMetric", metric);
         });
         features.forEach((feature) => feature.set("regionMaximumCases", maximumCases));
@@ -908,7 +969,7 @@ export default function AseanMap({
       source.clear();
       layer.setVisible(false);
     };
-  }, [selected?.name, showAdmin, outbreakLocations]);
+  }, [selected?.name, highlightCountry, showAdmin, outbreakLocations]);
 
   const resetView = () => {
     setSelected(null);

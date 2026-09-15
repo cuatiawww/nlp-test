@@ -485,6 +485,73 @@ export const fetchKpiEvents = (
   return fetchPaginated<KpiEventRow>(`/api/v1/kpi-events?${params.toString()}`);
 };
 
+export type RegionHazardEvent = {
+  id?: string | number | null;
+  source?: string | null;
+  kind?: string | null;
+  title?: string | null;
+  latitude: number;
+  longitude: number;
+  magnitude?: number | null;
+  alert_level?: string | null;
+  when?: string | number | null;
+  url?: string | null;
+};
+
+export type RegionContext = {
+  country: string;
+  display_name: string;
+  iso2: string;
+  iso3: string;
+  capital: { name: string; latitude: number; longitude: number };
+  timezone: string;
+  updated_at?: string;
+  weather?: {
+    status?: string;
+    source?: string;
+    attribution?: string;
+    error?: string;
+    precip_today_mm?: number | null;
+    current?: {
+      temperature_c?: number | null;
+      relative_humidity_pct?: number | null;
+      precipitation_mm?: number | null;
+      weather_code?: number | null;
+      wind_speed_kmh?: number | null;
+      observed_at?: string | null;
+    };
+  };
+  air_quality?: {
+    status?: string;
+    source?: string;
+    attribution?: string;
+    error?: string;
+    current?: {
+      european_aqi?: number | null;
+      us_aqi?: number | null;
+      aqi_label?: string | null;
+      pm2_5?: number | null;
+      pm10?: number | null;
+      so2?: number | null;
+    };
+  };
+  climate?: {
+    status?: string;
+    source?: string;
+    attribution?: string;
+    error?: string;
+    averages?: { t2m_c?: number | null; rh2m_pct?: number | null; precip_mm?: number | null };
+  };
+  usgs?: { status?: string; source?: string; error?: string; events?: RegionHazardEvent[] };
+  gdacs?: { status?: string; source?: string; error?: string; events?: RegionHazardEvent[] };
+  hazards?: RegionHazardEvent[];
+  layers?: { inarisk?: Array<{ key: string; label: string; provider: string; url: string }>; note?: string };
+  sources?: Array<{ name: string; provider: string; status: string; source_url?: string }>;
+};
+
+export const fetchRegionContext = (country: string) =>
+  fetchFrom<RegionContext>(`/api/v1/region-context?country=${encodeURIComponent(country)}`);
+
 export const fetchPipelineHealth = () => fetchFrom<{
   status: string;
   nlp?: { status?: string; service?: string; model?: string };

@@ -2,7 +2,7 @@
 
 import { Layers, MapPin, Settings, Wind, X } from "lucide-react";
 import { useState } from "react";
-import AseanMap from "./AseanMap";
+import AseanMap, { type HazardEvent } from "./AseanMap";
 import type { OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
@@ -31,12 +31,14 @@ export default function SpatialOutbreakMap({
   locations,
   highlightCountry,
   regionalMode = false,
+  hazardEvents = [],
 }: {
   countries: { name: string; cases: number; deaths?: number }[];
   locations: OutbreakLocation[];
   embedded?: boolean;
   highlightCountry?: string;
   regionalMode?: boolean;
+  hazardEvents?: HazardEvent[];
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState(false),
@@ -47,6 +49,8 @@ export default function SpatialOutbreakMap({
     [admin, setAdmin] = useState(true),
     [choropleth, setChoropleth] = useState(true),
     [wind, setWind] = useState(!regionalMode),
+    [usgs, setUsgs] = useState(true),
+    [gdacs, setGdacs] = useState(true),
     [bnpb, setBnpb] = useState({
       flood: false,
       earthquake: false,
@@ -64,6 +68,8 @@ export default function SpatialOutbreakMap({
     setChoropleth(true);
     setWind(!regionalMode);
     setWindLegend(true);
+    setUsgs(true);
+    setGdacs(true);
     setBnpb({
       flood: false,
       earthquake: false,
@@ -87,6 +93,13 @@ export default function SpatialOutbreakMap({
         bnpbLayers={bnpb}
         showWind={wind}
         highlightCountry={highlightCountry}
+        hazardEvents={hazardEvents.filter((item) => {
+          const source = (item.source || "").toLowerCase();
+          if (source === "usgs") return usgs;
+          if (source === "gdacs") return gdacs;
+          return usgs || gdacs;
+        })}
+        showHazards={usgs || gdacs}
       />
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         <button
@@ -205,6 +218,20 @@ export default function SpatialOutbreakMap({
                   sub={t("map.windSpeedSub")}
                   value={windLegend}
                   set={setWindLegend}
+                />
+                <Row
+                  icon={<Layers className="h-4 w-4" />}
+                  title="USGS earthquakes"
+                  sub="M4.5+ in the country window"
+                  value={usgs}
+                  set={setUsgs}
+                />
+                <Row
+                  icon={<Layers className="h-4 w-4" />}
+                  title="GDACS alerts"
+                  sub="EQ / flood / cyclone / volcano"
+                  value={gdacs}
+                  set={setGdacs}
                 />
               </Group>
 

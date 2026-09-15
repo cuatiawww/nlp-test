@@ -83,6 +83,13 @@ export function aseanDisplayName(country?: string | null): string {
   return ASEAN11_DISPLAY.find((item) => item.value === canonical)?.label || canonical;
 }
 
+/** Storage/API label (Laos / Vietnam) for an ASEAN+TL alias, or null if outside the set. */
+export function aseanStorageName(country?: string | null): string | null {
+  const value = (country || "").trim();
+  if (!value) return null;
+  return ASEAN11_ALIASES[value.toLowerCase()] || null;
+}
+
 export function scopeDashboardLocations<T extends { country?: string | null }>(
   locations: T[] | undefined,
   countryFilter?: string,
