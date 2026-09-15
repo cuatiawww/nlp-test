@@ -673,77 +673,115 @@ function ExecutiveReportContent() {
           -------------------------------------------- */}
           {template === "kemenkes_sitrep" && (
             <div className="space-y-8">
-              {/* Report Header Block */}
+              {/* Report Header Block (Authentic ABVC Situation Report Format) */}
               <header className="border-b-2 border-slate-900 pb-5">
+                {/* Authentic Running Top Rule Matching Official PDF */}
+                <div className="flex items-center justify-between pb-2.5 mb-4 border-b border-slate-200 text-[11px] font-bold text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-teal-700" />
+                    <span className="font-black tracking-wider uppercase text-slate-900">
+                      ASEAN Biodiaspora Virtual Center (ABVC)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-[10px] text-slate-500">
+                    <span>Weekly Situation Report</span>
+                    <span>•</span>
+                    <span className="font-bold text-teal-900">{epiPeriodText}</span>
+                    <span>•</span>
+                    <span className="rounded bg-teal-50 px-1.5 py-0.5 font-bold text-teal-800 border border-teal-200">WSR-2026-38</span>
+                  </div>
+                </div>
+
                 <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-                  <div className="space-y-1">
+                  <div className="space-y-1.5 max-w-2xl">
                     <div className="flex items-center gap-2">
-                      <span className="rounded bg-teal-800 px-2 py-0.5 text-[11px] font-black tracking-wider text-white uppercase">
+                      <span className="rounded bg-teal-800 px-2.5 py-0.5 text-[10px] font-black tracking-wider text-white uppercase">
                         ABVC PHEOC
                       </span>
-                      <span className="text-xs font-bold text-slate-500">
-                        Official Surveillance Intelligence System
+                      <span className="text-xs font-bold text-teal-800">
+                        Official Surveillance &amp; Outbreak Intelligence
                       </span>
                     </div>
                     <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight leading-tight">
                       {reportTitle}
                     </h1>
-                    <p className="text-xs sm:text-sm font-semibold text-teal-900">
+                    <p className="text-xs sm:text-sm font-semibold text-slate-600">
                       {reportSubtitle}
                     </p>
                   </div>
 
-                  <div className="shrink-0 text-right text-xs">
-                    <p className="font-mono font-bold text-slate-800">{epiPeriodText}</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">{updatedAtText}</p>
-                    <span className="inline-block mt-2 rounded-full border border-teal-300 bg-teal-50 px-2.5 py-0.5 text-[10px] font-black text-teal-800 uppercase">
-                      CONFIRMED LEVEL
+                  <div className="shrink-0 text-right text-xs space-y-1">
+                    <p className="font-mono font-black text-slate-900 text-sm">{epiPeriodText}</p>
+                    <p className="text-[11px] text-slate-500">{updatedAtText}</p>
+                    <span className="inline-block rounded-full border border-teal-300 bg-teal-50 px-2.5 py-0.5 text-[10px] font-black text-teal-800 uppercase">
+                      CONFIRMED OFFICIAL
                     </span>
                   </div>
                 </div>
-
-                {/* Filter Meta Badges */}
-                <div className="mt-4 flex flex-wrap items-center gap-2 pt-3 border-t border-slate-200 text-xs font-semibold text-slate-600">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1">
-                    <strong>SCOPE:</strong> {filterWilayahText}
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1">
-                    <strong>DISEASE:</strong> {filterLayananText}
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1">
-                    <strong>LEAD ANALYST:</strong> {reportAuthor}
-                  </span>
-                </div>
               </header>
 
-              {/* Section 1: KPI Indicator Cards */}
+              {/* Section 1: KPI Indicator Cards (Focused strictly on Confirmed Cases & Fatalities / Deaths) */}
               {visibility.kpi && (
-                <section id="kpi-cards" className="grid grid-cols-2 sm:grid-cols-4 gap-3 break-inside-avoid">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-1">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Total Confirmed</p>
-                    <p className="text-2xl font-black text-slate-900 font-mono">{metricTotalKasus.toLocaleString()}</p>
-                    <p className="text-[10px] text-emerald-700 font-bold">+6.2% vs previous week</p>
+                <section id="kpi-cards" className="grid grid-cols-1 sm:grid-cols-2 gap-4 break-inside-avoid">
+                  {/* Card 1: Total Confirmed Cases */}
+                  <div className="rounded-2xl border-2 border-teal-200/80 bg-gradient-to-br from-teal-50/70 via-white to-slate-50 p-5 space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-teal-600" />
+                        <p className="text-xs font-black uppercase tracking-wider text-teal-900">
+                          Total Confirmed Cases
+                        </p>
+                      </div>
+                      <span className="rounded-md bg-teal-100/80 px-2 py-0.5 text-[10px] font-black text-teal-900 uppercase">
+                        ASEAN Region
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-3">
+                      <p className="text-3xl sm:text-4xl font-black text-slate-950 font-mono tracking-tight">
+                        {metricTotalKasus.toLocaleString()}
+                      </p>
+                      <span className="inline-flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                        +6.2% vs previous week
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      Cumulative confirmed epidemiological cases recorded across all 11 ASEAN member territories.
+                    </p>
                   </div>
 
-                  <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3.5 space-y-1">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-rose-800">Total Fatalities</p>
-                    <p className="text-2xl font-black text-rose-700 font-mono">{metricKorbanMeninggal}</p>
-                    <p className="text-[10px] text-rose-700 font-bold">Accumulated fatalities</p>
-                  </div>
-
-                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 space-y-1">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-amber-800">Case Fatality Rate</p>
-                    <p className="text-2xl font-black text-amber-700 font-mono">{metricCfr}%</p>
-                    <p className="text-[10px] text-slate-500 font-medium">Safe threshold &lt; 1%</p>
-                  </div>
-
-                  <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3.5 space-y-1">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-blue-800">Hotspot Clusters</p>
-                    <p className="text-2xl font-black text-[#0060A9] font-mono">{metricKlasterAktif}</p>
-                    <p className="text-[10px] text-blue-700 font-bold">Active local transmission</p>
+                  {/* Card 2: Total Fatalities / Deaths */}
+                  <div className="rounded-2xl border-2 border-rose-200/80 bg-gradient-to-br from-rose-50/60 via-white to-slate-50 p-5 space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-rose-600" />
+                        <p className="text-xs font-black uppercase tracking-wider text-rose-900">
+                          Total Fatalities (Deaths)
+                        </p>
+                      </div>
+                      <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-800 font-mono">
+                        CFR: {metricCfr}%
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-3">
+                      <p className="text-3xl sm:text-4xl font-black text-rose-700 font-mono tracking-tight">
+                        {metricKorbanMeninggal.toLocaleString()}
+                      </p>
+                      <span className="inline-flex items-center text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                        Case Fatality Rate: {metricCfr}%
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      Accumulated mortality with safe threshold reference &lt; 1.0% established by WHO/ABVC.
+                    </p>
                   </div>
                 </section>
               )}
+
+              {/* Running Print Footer Matching Official ABVC SitRep */}
+              <div className="hidden print:flex items-center justify-between pt-4 mt-8 border-t border-slate-300 text-[9px] font-mono text-slate-500">
+                <span>ASEAN Biodiaspora Virtual Center (ABVC) • Confidential Public Health Intelligence</span>
+                <span>WSR-2026-38 • Official Surveillance SitRep</span>
+              </div>
 
               {/* Section 2: Executive Summary Narrative */}
               {visibility.summary && (
@@ -777,6 +815,8 @@ function ExecutiveReportContent() {
                 </section>
               )}
 
+              <div className="page-break" />
+
               {/* Section 4: Spatial GIS Hotspots (WGS84 ASEAN Geomap) */}
               {visibility.map && (
                 <section id="spatial-map" className="space-y-2 break-inside-avoid">
@@ -803,7 +843,7 @@ function ExecutiveReportContent() {
               {visibility.regionalTable && (
                 <section id="regional-matrix" className="space-y-3 break-inside-avoid">
                   <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 border-b border-slate-200 pb-1.5">
-                    Regional Multi-Country Surveillance Matrix (ASEAN &amp; Indonesia)
+                    Regional Multi-Country Surveillance Matrix (ASEAN Region)
                   </h3>
                   <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                     <table className="w-full text-left text-xs">
@@ -841,6 +881,8 @@ function ExecutiveReportContent() {
                   </div>
                 </section>
               )}
+
+              <div className="page-break" />
 
               {/* Section 7: Verification & Sign-off Sheet */}
               {visibility.signature && (

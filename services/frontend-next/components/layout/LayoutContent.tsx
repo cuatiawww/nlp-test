@@ -10,11 +10,31 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
   const isLoginPage = pathname === '/login'
   // The base dashboard (/nlp, represented as / here because Next basePath is stripped)
   // must require authentication. TV/reports remain public monitoring views.
-  const isPublicPage = pathname === '/tv' || pathname === '/reports' || pathname.startsWith('/reports') || pathname === '/laporan' || pathname.startsWith('/laporan') || pathname === '/detail-region'
+  const isExecutivePage =
+    pathname === '/reports/executive' ||
+    pathname.startsWith('/reports/executive') ||
+    pathname === '/laporan/eksekutif' ||
+    pathname.startsWith('/laporan/eksekutif')
+  const isPublicPage =
+    pathname === '/tv' ||
+    pathname === '/reports' ||
+    pathname.startsWith('/reports') ||
+    pathname === '/laporan' ||
+    pathname.startsWith('/laporan') ||
+    pathname === '/detail-region'
   const isConsolePage = pathname.startsWith('/console')
 
   if (isLoginPage) {
     return <>{children}</>
+  }
+
+  if (isExecutivePage) {
+    return (
+      <>
+        {children}
+        <Toaster position="top-right" richColors />
+      </>
+    )
   }
 
   if (isConsolePage) {

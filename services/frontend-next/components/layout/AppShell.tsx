@@ -103,18 +103,24 @@ export default function AppShell({
           className="fixed inset-0 z-30 bg-slate-900/35 backdrop-blur-[1px]"
         />
       )}
-      <DashboardSidebar
-        open={sidebarOpen}
-        menuGroups={activeMenu}
-        onClose={() => setSidebarOpen(false)}
-      />
-      <DashboardHeader
-        authenticated={authenticated}
-        consoleMode={consoleMode}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-      />
+      <div className="print:hidden">
+        <DashboardSidebar
+          open={sidebarOpen}
+          menuGroups={activeMenu}
+          onClose={() => setSidebarOpen(false)}
+        />
+      </div>
+      <div className="print:hidden">
+        <DashboardHeader
+          authenticated={authenticated}
+          consoleMode={consoleMode}
+          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        />
+      </div>
       <div className={`w-full flex-1 ${isDirectoryPage ? 'py-0' : 'py-3 md:py-5'}`}>{children}</div>
-      <Footer />
+      <div className="print:hidden">
+        <Footer />
+      </div>
     </main>
   );
 }
