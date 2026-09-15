@@ -51,6 +51,7 @@ import EpiFilterBar, { EpiFilterState } from "@/components/EpiFilterBar";
 
 import type { OutbreakLocation, PublicDashboard } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
+import { lookupMasterSource } from "@/lib/master-source";
 
 const SpatialOutbreakMap = dynamic(
   () => import("@/components/SpatialOutbreakMap"),
@@ -1420,6 +1421,17 @@ export default function DashboardPage() {
                     <p className="mt-1 text-sm font-bold text-slate-800">
                       {selected.detail?.source_name || "-"}
                     </p>
+                    {(() => {
+                      const match = lookupMasterSource(selected.detail?.url)
+                      if (!match) return null
+                      return (
+                        <p className={`mt-1 text-[10px] font-bold uppercase tracking-wide ${
+                          match.class === 'main' ? 'text-emerald-700' : 'text-slate-500'
+                        }`}>
+                          {match.class === 'main' ? t('pages.sources.mainSource') : t('pages.sources.otherSource')}
+                        </p>
+                      )
+                    })()}
                   </div>
                   <div>
                     <p className="text-[10px] font-bold uppercase text-slate-400">

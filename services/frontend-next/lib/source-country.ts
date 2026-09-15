@@ -1,4 +1,5 @@
 import type { Source } from '@/types'
+import { lookupMasterSourceFromUrls } from '@/lib/master-source'
 
 export type SourceCountry = {
   name: string
@@ -129,6 +130,13 @@ export function resolveSourceCountry(source: Pick<Source, 'name' | 'config'>): S
   if (explicit) return explicit
 
   const urls = collectUrls(config)
+  const catalogMatch = lookupMasterSourceFromUrls(urls)
+  if (catalogMatch?.country) {
+    const named = countryFromValue(catalogMatch.country)
+    if (named) return named
+    return { name: catalogMatch.country, code: null }
+  }
+
   for (const url of urls) {
     const fromUrl = countryFromUrl(url, source.name)
     if (fromUrl) return fromUrl

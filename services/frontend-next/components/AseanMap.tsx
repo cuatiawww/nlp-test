@@ -28,6 +28,7 @@ import CountryFlag from "@/components/CountryFlag";
 
 import { ASEAN_GEOJSON } from "@/data/asean-countries";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
+import { lookupMasterSource } from "@/lib/master-source";
 
 type Props = {
   result?: AnalyzeResponse | null;
@@ -1100,7 +1101,19 @@ export default function AseanMap({
           </div>
           <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-500">
             <div className="flex items-center justify-between gap-3">
-              <span>Source: {selectedLocation.detail?.source_name || (selectedLocation.detail?.source_type ? selectedLocation.detail.source_type.toUpperCase() : "Surveillance AI")}</span>
+              {(() => {
+                const match = lookupMasterSource(selectedLocation.detail?.url)
+                const label = match?.class === 'main'
+                  ? t('pages.sources.mainSource')
+                  : match?.class === 'other'
+                    ? t('pages.sources.otherSource')
+                    : 'Source'
+                return (
+              <span>
+                {label}: {selectedLocation.detail?.source_name || (selectedLocation.detail?.source_type ? selectedLocation.detail.source_type.toUpperCase() : "Surveillance AI")}
+              </span>
+                )
+              })()}
               <span>{selectedLocation.latest_date ? new Date(selectedLocation.latest_date).toLocaleDateString("en-US") : "-"}</span>
             </div>
             <p className="mt-1 text-[9px] font-medium leading-relaxed text-slate-400">
@@ -1113,7 +1126,7 @@ export default function AseanMap({
             )}
             {(selectedLocation.sources?.length ?? 0) > 0 && (
               <div className="mt-2 border-t border-slate-100 pt-2">
-                <p className="text-[9px] font-black uppercase tracking-wide text-slate-400">Related sources</p>
+                <p className="text-[9px] font-black uppercase tracking-wide text-slate-400">{t('pages.sources.otherSources')}</p>
                 <div className="mt-1 space-y-0.5">
                   {selectedLocation.sources?.slice(0, 3).map((source, index) => (
                     source.url ? (

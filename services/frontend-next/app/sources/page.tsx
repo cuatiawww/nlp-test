@@ -13,6 +13,7 @@ import SourceForm from '@/components/SourceForm'
 import { triggerCollect, triggerCollectAll, deleteSource } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
 import { resolveSourceCountry } from '@/lib/source-country'
+import { lookupMasterSourceForConfig, masterSourceStats } from '@/lib/master-source'
 
 export default function SourcesPage() {
   const { t } = useTranslation()
@@ -66,6 +67,13 @@ export default function SourcesPage() {
         <div>
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t("pages.sources.title")}</h1>
           <p className="mt-1 text-sm text-slate-500">{t("pages.sources.subtitle")}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            {t('pages.sources.catalogHint', {
+              total: masterSourceStats.count,
+              main: masterSourceStats.main,
+              other: masterSourceStats.other,
+            })}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={reload} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold uppercase text-slate-600 transition hover:bg-slate-50">
@@ -101,6 +109,7 @@ export default function SourcesPage() {
               <tr className="border-b bg-slate-50 text-left">
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colName")}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colCountry")}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colClass")}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colType")}</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-600">{t("pages.sources.colCredibility")}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colFrequency")}</th>
@@ -113,6 +122,7 @@ export default function SourcesPage() {
                 <tr key={s.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   {(() => {
                     const country = resolveSourceCountry(s)
+                    const catalogMatch = lookupMasterSourceForConfig(s.config)
                     return (
                       <>
                   <td className="px-4 py-3">
@@ -124,6 +134,15 @@ export default function SourcesPage() {
                       {country.code ? <CountryFlag countryCode={country.code} countryName={country.name} shape="rounded" size="xs" /> : null}
                       <span className="text-slate-700">{country.name}</span>
                     </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {catalogMatch?.class === 'main' ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">{t('pages.sources.mainSource')}</span>
+                    ) : catalogMatch?.class === 'other' ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">{t('pages.sources.otherSource')}</span>
+                    ) : (
+                      <span className="text-xs text-slate-400">{t('pages.sources.unlisted')}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">{s.source_type}</span>

@@ -551,7 +551,8 @@
       "add": "Tambah",
       "triggerAll": "Trigger All",
       "colName": "Nama Sumber",
-      "colCountry": "Country",
+      "colCountry": "Negara",
+      "colClass": "Kelas Sumber",
       "colType": "Tipe",
       "colUrl": "URL",
       "colFrequency": "Frekuensi",
@@ -567,7 +568,12 @@
       "editTitle": "Edit Sumber Data",
       "processing": "Memproses {name}...",
       "processingAll": "Memproses semua sumber...",
-      "allDone": "Semua sumber selesai"
+      "allDone": "Semua sumber selesai",
+      "mainSource": "Main Source",
+      "otherSource": "Other Source",
+      "otherSources": "Other Sources",
+      "unlisted": "Tidak di katalog",
+      "catalogHint": "Katalog ABVC terbaru: {total} host · {main} Main Source (Official) · {other} Other Source"
     },
     "analyze": {
       "title": "Analisis URL",

@@ -553,6 +553,7 @@
       "triggerAll": "Trigger All",
       "colName": "Source Name",
       "colCountry": "Country",
+      "colClass": "Source Class",
       "colType": "Type",
       "colUrl": "URL",
       "colFrequency": "Frequency",
@@ -568,7 +569,12 @@
       "editTitle": "Edit Data Source",
       "processing": "Processing {name}...",
       "processingAll": "Processing all sources...",
-      "allDone": "All sources completed"
+      "allDone": "All sources completed",
+      "mainSource": "Main Source",
+      "otherSource": "Other Source",
+      "otherSources": "Other Sources",
+      "unlisted": "Not in catalog",
+      "catalogHint": "Latest ABVC catalog: {total} hosts · {main} Main Source (Official) · {other} Other Source"
     },
     "analyze": {
       "title": "URL Analysis",
