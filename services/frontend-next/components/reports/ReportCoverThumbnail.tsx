@@ -14,7 +14,7 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
   type,
   period,
   title,
-  className = "w-28 sm:w-32 h-36 sm:h-44",
+  className = "w-28 sm:w-32 aspect-[3/4]",
 }) => {
   if (type === "asean_bulletin") {
     return (

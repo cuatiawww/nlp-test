@@ -299,15 +299,15 @@ export default function ConsoleReportsCmsPage() {
           {/* Table of Publications */}
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full min-w-[960px] text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-700">
                   <tr>
-                    <th className="py-3.5 px-4 font-black w-24">Cover</th>
-                    <th className="py-3.5 px-4 font-black">Publication Title &amp; Category</th>
-                    <th className="py-3.5 px-4 font-black">Lead Analyst / Reviewer</th>
-                    <th className="py-3.5 px-4 font-black">Publication Period</th>
-                    <th className="py-3.5 px-4 font-black text-center">Portal Status</th>
-                    <th className="py-3.5 px-4 font-black text-right">CMS Actions</th>
+                    <th className="py-3.5 px-4 font-black w-[112px] min-w-[112px]">Cover</th>
+                    <th className="py-3.5 px-4 font-black min-w-[320px]">Publication Title &amp; Category</th>
+                    <th className="py-3.5 px-4 font-black w-40 min-w-[140px]">Lead Analyst / Reviewer</th>
+                    <th className="py-3.5 px-4 font-black w-48 min-w-[160px]">Publication Period</th>
+                    <th className="py-3.5 px-4 font-black w-36 min-w-[125px] text-center">Portal Status</th>
+                    <th className="py-3.5 px-4 font-black w-36 min-w-[130px] text-right">CMS Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -320,15 +320,17 @@ export default function ConsoleReportsCmsPage() {
                   ) : (
                     filteredReports.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50/70 transition">
-                        <td className="py-3 px-4">
-                          <ReportCoverThumbnail
-                            type={item.type}
-                            period={item.period}
-                            title={item.title}
-                            className="w-16 h-22"
-                          />
+                        <td className="py-3.5 px-4 w-[112px] min-w-[112px] align-middle">
+                          <div className="w-[84px] h-[116px] shrink-0 shadow-xs rounded-lg overflow-hidden border border-slate-300">
+                            <ReportCoverThumbnail
+                              type={item.type}
+                              period={item.period}
+                              title={item.title}
+                              className="w-full h-full"
+                            />
+                          </div>
                         </td>
-                        <td className="py-3 px-4 min-w-[280px]">
+                        <td className="py-3.5 px-4 min-w-[320px]">
                           <span
                             className={`inline-block text-[10px] font-black uppercase tracking-wider mb-1 px-2 py-0.5 rounded ${
                               item.type === "asean_bulletin"
@@ -347,14 +349,14 @@ export default function ConsoleReportsCmsPage() {
                             {item.description}
                           </p>
                         </td>
-                        <td className="py-3 px-4 font-bold text-slate-700 whitespace-nowrap">
+                        <td className="py-3.5 px-4 w-40 min-w-[140px] font-bold text-slate-700 whitespace-nowrap">
                           {item.author}
                         </td>
-                        <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                        <td className="py-3.5 px-4 w-48 min-w-[160px] text-slate-600 whitespace-nowrap">
                           <p className="font-bold text-slate-800">{item.period}</p>
                           <p className="text-[10px] text-slate-400">Published: {item.publishedAt}</p>
                         </td>
-                        <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <td className="py-3.5 px-4 w-36 min-w-[125px] text-center whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => handleToggleStatus(item)}
@@ -373,7 +375,7 @@ export default function ConsoleReportsCmsPage() {
                             <span>{item.status === "published" ? "Published" : "Draft"}</span>
                           </button>
                         </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 w-36 min-w-[130px] text-right whitespace-nowrap">
                           <div className="inline-flex items-center gap-1.5">
                             <Link
                               href={`/reports/executive?template=${item.type}&reportId=${item.id}&edit=true`}

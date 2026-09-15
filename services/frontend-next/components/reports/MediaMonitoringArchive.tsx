@@ -207,11 +207,14 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
                   href={`/reports/executive?template=asean_bulletin&reportId=${item.id}`}
                   className="shrink-0 transition transform group-hover:scale-102 cursor-pointer"
                 >
-                  <ReportCoverThumbnail
-                    type="asean_bulletin"
-                    period={item.period}
-                    title={item.title}
-                  />
+                  <div className="w-28 sm:w-32 h-38 sm:h-44 shrink-0 rounded-lg overflow-hidden shadow-sm">
+                    <ReportCoverThumbnail
+                      type="asean_bulletin"
+                      period={item.period}
+                      title={item.title}
+                      className="w-full h-full"
+                    />
+                  </div>
                 </Link>
 
                 {/* Content Metadata */}
