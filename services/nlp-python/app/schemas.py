@@ -15,6 +15,18 @@ class AnalyzeRequest(BaseModel):
     interactive: bool = False
 
 
+def as_interactive(payload: "AnalyzeRequest") -> "AnalyzeRequest":
+    """Force interactive=True without duplicating a keyword argument.
+
+    ``model_dump()`` already includes ``interactive=False``. Passing
+    ``interactive=True`` after unpacking that dump raises TypeError and
+    aborts NLP for every URL analysis job.
+    """
+    data = payload.model_dump()
+    data["interactive"] = True
+    return AnalyzeRequest.model_validate(data)
+
+
 class LocationItem(BaseModel):
     name: str
     latitude: Optional[float] = None

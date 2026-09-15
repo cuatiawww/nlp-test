@@ -3,8 +3,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.bounded_analysis import BoundedRequest, as_interactive
-from app.schemas import AnalyzeRequest
+from app.schemas import AnalyzeRequest, as_interactive
 
 
 class InteractiveUrlRequestTests(unittest.TestCase):
@@ -16,7 +15,7 @@ class InteractiveUrlRequestTests(unittest.TestCase):
     def test_unpacking_dump_plus_interactive_kwarg_is_the_production_crash(self):
         payload = AnalyzeRequest(text="Eight hantavirus cases, including three deaths.")
         with self.assertRaises(TypeError):
-            BoundedRequest(**payload.model_dump(), interactive=True)
+            AnalyzeRequest(**payload.model_dump(), interactive=True)
 
     def test_as_interactive_overrides_without_typeerror(self):
         payload = AnalyzeRequest(

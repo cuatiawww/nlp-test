@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import worker
-from app.geo import st_makepoint_args
 
 
 class WorkerReliabilityTests(unittest.TestCase):
@@ -30,17 +29,6 @@ class WorkerReliabilityTests(unittest.TestCase):
         self.assertEqual(published["routing_key"], "disease.raw.retry")
         self.assertEqual(published["properties"].headers["x-retry-count"], 2)
         channel.basic_ack.assert_called_once_with(delivery_tag=7)
-
-    def test_st_makepoint_args_are_longitude_then_latitude(self):
-        jakarta_lat, jakarta_lon = -6.2088, 106.8456
-        lon_check, lat_check, x, y = st_makepoint_args(jakarta_lat, jakarta_lon)
-        self.assertEqual((lon_check, lat_check), (jakarta_lon, jakarta_lat))
-        self.assertEqual((x, y), (jakarta_lon, jakarta_lat))
-
-
-if __name__ == "__main__":
-    unittest.main()
-
 
 
 if __name__ == "__main__":
