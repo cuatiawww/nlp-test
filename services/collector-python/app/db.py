@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from psycopg.rows import dict_row
 from . import config
 from .crawler_identity import content_fingerprint, normalize_url, url_hash
+from .schedule_interval import source_interval_minutes
 
 _connection_state = threading.local()
 logger = logging.getLogger(__name__)
@@ -209,11 +210,17 @@ def source_in_backoff(source_id: str, max_backoff_minutes: int = 360) -> bool:
 
 
 def fetch_due_source_ids(limit: int = 3, default_interval_minutes: int = 60) -> list[str]:
-    """Enabled non-SKDR sources whose last finished run is older than their interval."""
+    """Enabled non-SKDR sources whose last finished run is older than their interval.
+
+    Covers every ACTIVE ``rss``/``web``/``csv``/``social_media``/``api`` row,
+    including explicit ``interval:120`` schedules. APScheduler still fires those
+    jobs; this dispatcher is the backup so missed ticks do not stall the catalog.
+    Stale RUNNING rows must be closed first (see ``finalize_stale_runs``).
+    """
     conn = get_conn()
     rows = conn.execute(
         """SELECT s.id::text AS id,
-                  COALESCE(NULLIF(BTRIM(s.schedule), ''), %s) AS schedule,
+                  s.schedule,
                   lr.finished_at,
                   lr.status
            FROM collector_sources s
@@ -229,23 +236,18 @@ def fetch_due_source_ids(limit: int = 3, default_interval_minutes: int = 60) -> 
              AND LOWER(COALESCE(s.source_type, '')) IN ('rss', 'web', 'csv', 'social_media', 'api')
              AND NOT EXISTS (
                  SELECT 1 FROM collector_runs r
-                 WHERE r.source_id = s.id AND r.status = 'RUNNING'
+                 WHERE r.source_id = s.id
+                   AND r.status = 'RUNNING'
+                   AND r.finished_at IS NULL
+                   AND r.started_at >= NOW() - INTERVAL '30 minutes'
              )
            ORDER BY lr.finished_at NULLS FIRST, s.updated_at DESC
-           LIMIT 50""",
-        (f"interval:{max(15, int(default_interval_minutes))}",),
+           LIMIT 200""",
+        (),
     ).fetchall()
     due = []
     for row in rows:
-        schedule = row["schedule"] or f"interval:{default_interval_minutes}"
-        interval = default_interval_minutes
-        if str(schedule).startswith("interval:"):
-            try:
-                interval = max(15, int(str(schedule).split(":", 1)[1]))
-            except ValueError:
-                interval = default_interval_minutes
-        elif str(schedule).startswith("daily:"):
-            interval = 24 * 60
+        interval = source_interval_minutes(row["schedule"], default_interval_minutes)
         finished = row["finished_at"]
         if finished is None or finished <= datetime.now(timezone.utc) - timedelta(minutes=interval):
             due.append(row["id"])

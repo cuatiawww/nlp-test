@@ -103,30 +103,8 @@ async def _run_source_bounded(source_id: str):
 
 
 async def run_skdr_startup(source_id: str):
-    logger.info("SKDR startup sync disabled; skipping")
+    logger.info("SKDR startup sync disabled; skipping %s", source_id)
     return
-    source = db.fetch_source(source_id)
-    if not source or source.get("source_type") != "skdr_api":
-        return
-    source = dict(source)
-    source["config"] = dict(source.get("config") or {})
-    source["config"]["startup_sync"] = True
-    # Keep the same run accounting as the normal scheduled path.
-    collector_cls = COLLECTOR_MAP["skdr_api"]
-    run_id = db.create_run(str(source["id"]))
-    collector = collector_cls(source)
-    result = await asyncio.to_thread(collector.collect)
-    db.finish_run(
-        run_id,
-        "SUCCESS" if not result.error_message else "FAILED",
-        result.records_found,
-        result.records_ingested,
-        result.error_message,
-    )
-    logger.info(
-        "Startup SKDR %s — found=%d ingested=%d error=%s",
-        source["name"], result.records_found, result.records_ingested, result.error_message,
-    )
 
 
 async def run_social_media_csv_job():
@@ -275,6 +253,7 @@ def _register_source_jobs(scheduler: AsyncIOScheduler, sources):
 async def run_due_sources():
     """Keep enabled sources working even when a per-source cron job is idle."""
     try:
+        await asyncio.to_thread(db.finalize_stale_runs)
         due_ids = await asyncio.to_thread(
             db.fetch_due_source_ids,
             DISPATCHER_BATCH_SIZE,

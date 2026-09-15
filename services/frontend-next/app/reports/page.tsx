@@ -44,7 +44,7 @@ import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { useSettings } from '@/lib/settings-context'
 import CountryFlag from '@/components/CountryFlag'
 import SocialMediaIcon from '@/components/SocialMediaIcon'
-import { fetchKpiEvents, fetchPublicDashboard, type KpiEventRow } from '@/lib/api'
+import { fetchKpiEvents, fetchKpiSnapshot, fetchPublicDashboard, type KpiEventRow } from '@/lib/api'
 import { isAseanCountryName } from '@/lib/asean-scope'
 import type { PublicDashboard, OutbreakLocation } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
@@ -288,24 +288,32 @@ export default function ReportsPage() {
   const loadRealSurveillanceData = async () => {
     setLoading(true)
     try {
-      const [dashRes] = await Promise.allSettled([
+      const [kpiRes, dashRes] = await Promise.allSettled([
+        fetchKpiSnapshot(),
         fetchPublicDashboard(),
       ])
 
       const combined: SurveillanceReportRow[] = []
       const seenIds = new Set<string>()
 
+      const snapshotKpis =
+        kpiRes.status === 'fulfilled' && kpiRes.value?.kpis
+          ? kpiRes.value.kpis
+          : dashRes.status === 'fulfilled'
+            ? dashRes.value?.kpis
+            : undefined
+      if (snapshotKpis) {
+        setKpiSnapshot({
+          cases: Number(snapshotKpis.cases) || 0,
+          deaths: Number(snapshotKpis.deaths) || 0,
+          events: Number(snapshotKpis.events) || 0,
+          snapshot_id: snapshotKpis.snapshot_id,
+          snapshot_computed_at: snapshotKpis.snapshot_computed_at,
+        })
+      }
+
       // 1. Process OutbreakLocations from Public Dashboard API (Aggregated NLP clusters)
       if (dashRes.status === 'fulfilled' && dashRes.value) {
-        if (dashRes.value.kpis) {
-          setKpiSnapshot({
-            cases: Number(dashRes.value.kpis.cases) || 0,
-            deaths: Number(dashRes.value.kpis.deaths) || 0,
-            events: Number(dashRes.value.kpis.events) || 0,
-            snapshot_id: dashRes.value.kpis.snapshot_id,
-            snapshot_computed_at: dashRes.value.kpis.snapshot_computed_at,
-          })
-        }
         if (Array.isArray(dashRes.value.locations)) {
         dashRes.value.locations.forEach((loc: OutbreakLocation, idx: number) => {
           const rowId = loc.detail?.event_id || `LOC-CLUSTER-${idx + 1}`

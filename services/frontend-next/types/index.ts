@@ -17,8 +17,9 @@ export type Source = {
     records_found: number;
     records_ingested: number;
     started_at: string;
-    finished_at?: string;
+    finished_at?: string | null;
   } | null;
+  in_flight?: boolean;
   source_credibility?: number;
 };
 

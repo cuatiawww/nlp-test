@@ -113,7 +113,7 @@ Table `kpi_snapshots` (`database/init/067_kpi_snapshots.sql`) stores one row per
 
 `fetchPublicDashboard` (and heatmap/trend/morbidity/kpi-events) always sends `country=ASEAN` plus week 1→current epi week unless the caller overrides. TV and Reports use that helper, so they cannot silently hit a different window than the homepage.
 
-`GET /api/v1/kpi-events` pages the same `valid` event set as the snapshot. Reports ledger total is `snapshot.events`, not the 250 map clusters.
+`GET /api/v1/kpi-events` pages the same `valid` event set as the snapshot. Reports ledger total is `snapshot.events`, not the 250 map clusters. Reports headlines bind `GET /api/v1/kpi-snapshot` (same default ASEAN week-1→current filter as dashboard/TV) and fall back to `public-dashboard` kpis only if that call fails. Reloads within 90s keep the same `snapshot_id`.
 
 Map/TV markers drop `OUTSIDE ASEAN` / non-ASEAN countries unless `country=global`.
 
@@ -155,19 +155,37 @@ Tests: `services/nlp-python/tests/test_cidrap_cambodia.py`
 
 ### D. SKDR IBS & EBS detached
 
+Sources search for SKDR/IBS/EBS returns no catalog rows (those feeds are not registered as `collector_sources`). Remaining processing hooks are also off:
+
 - `POST /api/v1/ingest/skdr`, `GET /api/v1/skdr/ibs-summary`, `GET /api/v1/skdr/ebs-summary`, `GET /api/v1/skdr-reports` → **410**
-- Collector does not import or schedule `skdr_api`
+- Dead `ingest_skdr` body removed; it only returns the same 410 payload
+- Collector does not import, schedule, or publish `skdr_api` (RabbitMQ `disease.skdr` is not declared)
+- Worker acks leftover `skdr_api` messages and never calls `/nlp/process/skdr`
+- NLP `/nlp/process/skdr` → **410**
 - Frontend `fetchIbsSummary` / `fetchEbsSummary` throw detached
 - RSS/web/catalog sources are unchanged
 - `skdr_reports` table is kept for a later reattach
 
 ### E. Continuous source crawl
 
-Enabled sources without a schedule are worked by the due-source dispatcher (every 2 minutes, batch of 5, failure backoff 15m × 2^streak cap 6h) instead of registering one APScheduler job per feed. Explicit `interval:` / `daily:` schedules still get their own jobs. `POST /collect/all` runs one dispatcher batch rather than every source at once. Concurrent runs stay limited by `COLLECTOR_MAX_CONCURRENT_RUNS`. Sources page shows enabled/scheduled/in-flight counts and the effective `interval:60` when the DB schedule is empty.
+Every **ACTIVE** (`enabled=true`) non-SKDR `rss`/`web`/`csv`/`social_media`/`api` source is worked:
+
+- Empty schedules → due-source dispatcher (every 2 minutes, batch of 5, default `interval:60`)
+- Explicit `interval:120` / `daily:` still get APScheduler jobs; the dispatcher is the backup if a tick is missed
+- Stale `RUNNING` collector_runs older than 30 minutes are closed (`finalize_stale_runs`) so they cannot block the next due pick or fake a live crawl
+- Failures back off 15m × 2^streak cap 6h
+- `POST /collect/all` runs one dispatcher batch rather than every source at once
+
+Sources page status is crawl state, not the Edit **ACTIVE** checkbox:
+
+- **Running** only when `in_flight` (unfinished `RUNNING` started within 30 minutes)
+- Otherwise Success / Failed / Never
+- Null `last_run` JSON (never crawled) is **Never**, not Running
+- Trigger All + per-source Trigger remain; there is no global cron UI (collector owns the interval)
 
 ### F. Manual crawler
 
-analyze-url returns `evidence`, `province`, `case_count_unknown`, `needs_review`. Crawl matrix rejects non-geo province tokens and no longer defaults ASEAN-region articles to Indonesia.
+analyze-url returns `evidence`, `province`, `case_count_unknown`, `needs_review`. Crawl matrix rejects non-geo province tokens and no longer defaults ASEAN-region articles to Indonesia. Start is disabled until at least one ICD-11 disease is selected. Article URL is optional (dedicated worker when provided). The job is on-demand and does not wait for the continuous pipeline.
 
 ### Verify snapshot parity (staging)
 

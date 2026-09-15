@@ -42,7 +42,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchPublicDashboard, fetchCrawlingStats } from "@/lib/api";
+import { fetchPublicDashboard, fetchKpiSnapshot, fetchCrawlingStats } from "@/lib/api";
 import { scopeDashboardLocations } from "@/lib/asean-scope";
 import CrawlingEnginePerformance from "@/components/CrawlingEnginePerformance";
 import CaseLocationHeatmap from "@/components/CaseLocationHeatmap";
@@ -845,8 +845,7 @@ export default function DashboardPage() {
     const active = customFilters || filters;
     try {
       setError("");
-      const [dashData, crawlData] = await Promise.all([
-        fetchPublicDashboard({
+      const dashboardFilters = {
           country: active.country,
           disease: active.disease,
           start_year: active.startYear,
@@ -854,9 +853,15 @@ export default function DashboardPage() {
           end_year: active.endYear,
           end_week: active.endWeek,
           year: active.endYear,
-        }),
+      }
+      const [dashData, kpiData, crawlData] = await Promise.all([
+        fetchPublicDashboard(dashboardFilters),
+        fetchKpiSnapshot(dashboardFilters).catch(() => null),
         fetchCrawlingStats().catch(() => null),
       ]);
+      if (kpiData?.kpis) {
+        dashData.kpis = { ...dashData.kpis, ...kpiData.kpis }
+      }
       setData(dashData);
       if (crawlData) setCrawlingStats(crawlData);
     } catch {

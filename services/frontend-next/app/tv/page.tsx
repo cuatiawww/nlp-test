@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronUp, Globe2, Layers, MapPin, Maximize, Minimize, Radio, RefreshCw, Settings, Skull, Volume2, VolumeX, X } from 'lucide-react'
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { fetchCrawlingStats, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
+import { fetchCrawlingStats, fetchKpiSnapshot, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
 import { isAseanCountryName, scopeDashboardLocations } from '@/lib/asean-scope'
 import type { OutbreakLocation, PublicDashboard } from '@/types'
 import type { CrawlingFeedItem } from '@/lib/crawling-feed'
@@ -66,10 +66,14 @@ export default function TvPage() {
   }, [kpiHidden, headerExpanded])
   const load=useCallback(async()=>{
     try {
-      const [dashboardData, crawlData] = await Promise.all([
+      const [dashboardData, kpiData, crawlData] = await Promise.all([
         fetchPublicDashboard(),
+        fetchKpiSnapshot().catch(() => null),
         fetchCrawlingStats().catch(() => null),
       ])
+      if (kpiData?.kpis) {
+        dashboardData.kpis = { ...dashboardData.kpis, ...kpiData.kpis }
+      }
       setData(dashboardData)
       if (crawlData) setCrawlingStats(crawlData)
       setCountdown(60)

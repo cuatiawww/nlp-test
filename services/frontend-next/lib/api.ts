@@ -440,6 +440,19 @@ export const fetchPublicDashboard = (filters?: PublicDashboardApiParams) => {
   return fetchFrom<PublicDashboard>(`/api/v1/public-dashboard?${query}`);
 };
 
+export const fetchKpiSnapshot = (filters?: PublicDashboardApiParams) => {
+  const query = applyDashboardParams(filters).toString();
+  return fetchFrom<{
+    kpis: PublicDashboard["kpis"];
+    snapshot?: {
+      id?: string;
+      computed_at?: string;
+      filter_key?: string;
+      stale?: boolean;
+    };
+  }>(`/api/v1/kpi-snapshot?${query}`);
+};
+
 export interface KpiEventRow {
   id: string;
   location_name: string;

@@ -1853,154 +1853,10 @@ async fn ingest(
 
 #[allow(dead_code)]
 async fn ingest_skdr(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<IngestRequest>,
+    State(_state): State<Arc<AppState>>,
+    Json(_payload): Json<IngestRequest>,
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
-    let client = state.db.get().await.map_err(internal_error)?;
-    let source_type = if payload.source_type.is_empty() {
-        "skdr_api".to_string()
-    } else {
-        payload.source_type.clone()
-    };
-    let source_name = payload
-        .source_name
-        .clone()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "SKDR Official".to_string());
-
-    let raw_id: Uuid = client
-        .query_one(
-            "INSERT INTO raw_reports (source_type, source_name, published_at, original_text, url, processing_status)
-             VALUES ($1, $2, $3, $4, $5, 'NEW') RETURNING id",
-            &[
-                &source_type,
-                &source_name,
-                &parse_date(payload.published_at.as_deref()),
-                &payload.text,
-                &payload.url,
-            ],
-        )
-        .await
-        .map_err(internal_error)?
-        .get(0);
-
-    let message = json!({
-        "raw_report_id": raw_id,
-        "source_type": source_type,
-        "source_name": source_name,
-        "published_at": payload.published_at,
-        "text": payload.text,
-        "url": payload.url,
-        "object_path": Value::Null,
-    });
-
-    let publish_result = state
-        .amqp_channel
-        .basic_publish(
-            "",
-            "disease.skdr",
-            BasicPublishOptions::default(),
-            &message.to_string().as_bytes(),
-            BasicProperties::default(),
-        )
-        .await;
-
-    match publish_result {
-        Ok(_) => Ok(Json(ApiResponse {
-            success: true,
-            data: json!({ "raw_report_id": raw_id, "status": "queued", "queue": "disease.skdr" }),
-            total: None, page: None, per_page: None, total_pages: None,
-        })),
-        Err(e) => {
-            tracing::warn!("RabbitMQ unavailable for SKDR, processing synchronously: {:?}", e);
-            let nlp_url = format!("{}/nlp/process/skdr", state.nlp_service_url.trim_end_matches('/'));
-            let nlp: NlpResponse = state
-                .http
-                .post(nlp_url)
-                .json(&json!({
-                    "text": payload.text,
-                    "source_type": source_type,
-                    "source_name": source_name,
-                    "published_at": payload.published_at
-                }))
-                .send()
-                .await
-                .map_err(|_| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "success": false, "error": "RabbitMQ unavailable and SKDR processor unreachable" })),
-                    )
-                })?
-                .json()
-                .await
-                .map_err(|_| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "success": false, "error": "RabbitMQ unavailable and SKDR processor response invalid" })),
-                    )
-                })?;
-
-            let _ = client
-                .execute(
-                    "UPDATE raw_reports SET processing_status='PROCESSED' WHERE id=$1",
-                    &[&raw_id],
-                )
-                .await;
-
-            client
-                .execute(
-                    "INSERT INTO disease_events (
-                raw_report_id, source_type, source_name, published_at, original_text, language,
-                location_name, geom, symptoms, disease_extracted, disease_classification,
-                case_count, death_count, confidence, outbreak_alert,
-                sentiment, event_type, relevance_score, is_health_related
-             ) VALUES (
-                $1, $2, $3, $4, $5, $6,
-                $7,
-                CASE WHEN $8::float8 IS NULL OR $9::float8 IS NULL THEN NULL
-                     ELSE ST_SetSRID(ST_MakePoint($9, $8), 4326)
-                END,
-                $10::jsonb, $11::jsonb, $12,
-                $13, $14, $15, $16,
-                $17, $18, $19, TRUE
-             )",
-            &[
-                        &raw_id,
-                        &source_type,
-                        &source_name,
-                        &parse_date(payload.published_at.as_deref()),
-                        &payload.text,
-                        &nlp.language,
-                        &nlp.location_name,
-                        &nlp.latitude,
-                        &nlp.longitude,
-                        &json!(nlp.symptoms),
-                        &json!(nlp.disease_extracted),
-                        &nlp.disease_classification,
-                        &nlp.case_count,
-                        &nlp.death_count,
-                        &nlp.confidence,
-                        &nlp.outbreak_alert,
-                        &nlp.sentiment,
-                        &nlp.event_type,
-                        &nlp.relevance_score,
-                    ],
-                )
-                .await
-                .map_err(|err| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "success": false, "error": format!("Sync SKDR processing failed: {}", err) })),
-                    )
-                })?;
-
-            Ok(Json(ApiResponse {
-                success: true,
-                data: json!({ "raw_report_id": raw_id, "nlp": nlp, "status": "processed_sync", "queue": "disease.skdr" }),
-                total: None, page: None, per_page: None, total_pages: None,
-            }))
-        }
-    }
+    Err(skdr_detached().await)
 }
 
 fn extract_title_from_html(html: &str) -> String {
@@ -3531,6 +3387,8 @@ async fn crawling_stats(
                  MIN(started_at)::text AS active_since
                FROM collector_runs
                WHERE status = 'RUNNING'
+                 AND finished_at IS NULL
+                 AND started_at >= NOW() - INTERVAL '30 minutes'
              ),
              run_totals AS (
                SELECT COALESCE(SUM(records_found), 0)::BIGINT AS historical_crawled
@@ -3544,6 +3402,8 @@ async fn crawling_stats(
                  SELECT 1
                  FROM collector_runs cr
                  WHERE cr.status = 'RUNNING'
+                   AND cr.finished_at IS NULL
+                   AND cr.started_at >= NOW() - INTERVAL '30 minutes'
                    AND rr.created_at >= cr.started_at
                )
              )
@@ -4613,25 +4473,26 @@ fn json_field_count(payload: &Value, candidates: &[&str]) -> i64 {
 }
 
 /// Dedicated IBS aggregate sourced directly from official SKDR records.
-/// It deliberately bypasses raw_reports, disease_events, and NLP.
+/// Detached: HTTP 410 until a later reattach.
 #[allow(dead_code)]
 async fn skdr_ibs_summary(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<IbsSummaryQuery>,
+    State(_state): State<Arc<AppState>>,
+    Query(_query): Query<IbsSummaryQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    skdr_summary(state, query, "ibs").await
+    Err(skdr_detached().await)
 }
 
 /// Dedicated EBS aggregate sourced directly from official SKDR records.
-/// Like IBS, this endpoint does not wait for the NLP processing pipeline.
+/// Detached: HTTP 410 until a later reattach.
 #[allow(dead_code)]
 async fn skdr_ebs_summary(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<IbsSummaryQuery>,
+    State(_state): State<Arc<AppState>>,
+    Query(_query): Query<IbsSummaryQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    skdr_summary(state, query, "ebs").await
+    Err(skdr_detached().await)
 }
 
+#[allow(dead_code)]
 async fn skdr_summary(
     state: Arc<AppState>,
     query: IbsSummaryQuery,
@@ -5678,23 +5539,35 @@ async fn list_sources(
     let rows = client
         .query(
             "SELECT s.id, s.name, s.source_type, s.config, s.schedule, s.enabled, s.created_at::text, s.updated_at::text,
-                    json_build_object(
+                    CASE WHEN lr.status IS NULL THEN NULL ELSE json_build_object(
                         'status', lr.status,
                         'records_found', lr.records_found,
                         'records_ingested', lr.records_ingested,
                         'started_at', lr.started_at::text,
                         'finished_at', lr.finished_at::text
-                    ) AS last_run,
+                    ) END AS last_run,
                     COALESCE(sc.score, 0.50) AS source_credibility,
                     s.country,
                     COALESCE(NULLIF(BTRIM(s.config->>'catalog_type'), ''), s.source_type) AS catalog_type,
                     NULLIF(BTRIM(s.config->>'validity_status'), '') AS validity_status,
-                    NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin
+                    NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin,
+                    EXISTS (
+                        SELECT 1 FROM collector_runs r
+                        WHERE r.source_id = s.id
+                          AND r.status = 'RUNNING'
+                          AND r.finished_at IS NULL
+                          AND r.started_at >= NOW() - INTERVAL '30 minutes'
+                    ) AS in_flight
              FROM collector_sources s
              LEFT JOIN LATERAL (
                  SELECT status, records_found, records_ingested, started_at, finished_at
                  FROM collector_runs
                  WHERE source_id = s.id
+                   AND NOT (
+                     status = 'RUNNING'
+                     AND finished_at IS NULL
+                     AND started_at < NOW() - INTERVAL '30 minutes'
+                   )
                  ORDER BY started_at DESC LIMIT 1
              ) lr ON TRUE
              LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = abvc_source_credibility_type(s.config, s.source_type) AND sc.is_active = TRUE
@@ -5727,6 +5600,7 @@ async fn list_sources(
                 "created_at": r.get::<_, Option<String>>(6),
                 "updated_at": r.get::<_, Option<String>>(7),
                 "last_run": last_run,
+                "in_flight": r.get::<_, bool>(14),
                 "source_credibility": r.get::<_, Option<f64>>(9),
                 "catalog_type": r.get::<_, String>(11),
                 "validity_status": r.get::<_, Option<String>>(12),
@@ -5851,7 +5725,10 @@ async fn source_summary(
             "SELECT
                 COUNT(*) FILTER (WHERE enabled = TRUE AND LOWER(COALESCE(source_type,'')) <> 'skdr_api')::bigint AS enabled_sources,
                 COUNT(*) FILTER (WHERE enabled = TRUE AND LOWER(COALESCE(source_type,'')) <> 'skdr_api')::bigint AS scheduled_sources,
-                (SELECT COUNT(*)::bigint FROM collector_runs WHERE status = 'RUNNING') AS active_run_count,
+                (SELECT COUNT(*)::bigint FROM collector_runs
+                  WHERE status = 'RUNNING'
+                    AND finished_at IS NULL
+                    AND started_at >= NOW() - INTERVAL '30 minutes') AS active_run_count,
                 (SELECT MAX(started_at)::text FROM collector_runs) AS last_run_at
              FROM collector_sources",
             &[],
