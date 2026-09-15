@@ -551,6 +551,7 @@
       "add": "Tambah",
       "triggerAll": "Trigger All",
       "colName": "Nama Sumber",
+      "colCountry": "Country",
       "colType": "Tipe",
       "colUrl": "URL",
       "colFrequency": "Frekuensi",

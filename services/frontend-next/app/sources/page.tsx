@@ -11,6 +11,8 @@ import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import SourceForm from '@/components/SourceForm'
 import { triggerCollect, triggerCollectAll, deleteSource } from '@/lib/api'
+import CountryFlag from '@/components/CountryFlag'
+import { resolveSourceCountry } from '@/lib/source-country'
 
 export default function SourcesPage() {
   const { t } = useTranslation()
@@ -98,6 +100,7 @@ export default function SourcesPage() {
             <thead>
               <tr className="border-b bg-slate-50 text-left">
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colName")}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colCountry")}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colType")}</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-600">{t("pages.sources.colCredibility")}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colFrequency")}</th>
@@ -108,9 +111,19 @@ export default function SourcesPage() {
             <tbody>
               {data.map((s) => (
                 <tr key={s.id} className="border-b border-slate-50 hover:bg-blue-50/40">
+                  {(() => {
+                    const country = resolveSourceCountry(s)
+                    return (
+                      <>
                   <td className="px-4 py-3">
                     <span className="font-semibold text-[#0060A9]">{s.name}</span>
                     <div className="mt-0.5 text-xs text-slate-400">{s.schedule || 'manual'}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2 whitespace-nowrap" title={`Detected from ${s.config?.country ? 'source configuration' : 'source URL or name'}`}>
+                      {country.code ? <CountryFlag countryCode={country.code} countryName={country.name} shape="rounded" size="xs" /> : null}
+                      <span className="text-slate-700">{country.name}</span>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">{s.source_type}</span>
@@ -130,6 +143,9 @@ export default function SourcesPage() {
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </td>
+                      </>
+                    )
+                  })()}
                 </tr>
               ))}
             </tbody>

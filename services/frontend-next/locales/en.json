@@ -552,6 +552,7 @@
       "add": "Add Source",
       "triggerAll": "Trigger All",
       "colName": "Source Name",
+      "colCountry": "Country",
       "colType": "Type",
       "colUrl": "URL",
       "colFrequency": "Frequency",
