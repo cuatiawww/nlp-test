@@ -141,6 +141,7 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/analysis-jobs",
         "/api/v1/interoperability-integrations",
         "/api/v1/dashboard/summary",
+        "/api/v1/public/report-issues",
     ];
     PUBLIC_GET
         .iter()
@@ -336,6 +337,10 @@ mod tests {
         assert!(is_public_route(&Method::GET, "/api/v1/kpi-events"));
         assert!(is_public_route(&Method::GET, "/api/v1/public-dashboard"));
         assert!(is_public_route(&Method::GET, "/api/v1/pipeline-health"));
+        assert!(is_public_route(&Method::GET, "/api/v1/public/report-issues"));
+        assert!(is_public_route(&Method::GET, "/api/v1/public/report-issues/sitrep-2026-w37"));
+        assert!(!is_public_route(&Method::POST, "/api/v1/report-issues"));
+        assert!(!is_public_route(&Method::GET, "/api/v1/report-issues"));
         assert!(is_service_route("/api/v1/ingest"));
         let pred = dashboard_event_predicate("evt");
         assert!(pred.contains("evt.is_health_related"));

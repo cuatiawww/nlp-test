@@ -79,6 +79,17 @@ export async function putTo<T>(path: string, body: unknown): Promise<T> {
   return (json?.data ?? json) as T;
 }
 
+export async function patchTo<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${baseURL()}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(formatApiError(res, json));
+  return (json?.data ?? json) as T;
+}
+
 export async function delFrom(path: string): Promise<void> {
   const res = await fetch(`${baseURL()}${path}`, { method: "DELETE", headers: authHeaders() });
   if (!res.ok) {

@@ -149,6 +149,16 @@ export default function ConsoleReportsCmsPage() {
         </div>
       )}
 
+      {/* Sitrep CMS is the editorial pipeline; this page keeps legacy media uploads. */}
+      <div className="rounded-2xl border border-[#0060A9]/20 bg-[#f0f6fc] p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <p className="text-sm text-slate-700">
+          Weekly sitreps now use the template CMS (Draft → Review → Publish) with frozen KPI snapshots.
+        </p>
+        <Link href="/reports/cms" className="rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-black text-white">
+          Open sitrep CMS
+        </Link>
+      </div>
+
       {/* Header Banner */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>

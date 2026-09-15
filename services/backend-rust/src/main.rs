@@ -1,11 +1,13 @@
-﻿mod security;
+﻿mod report_narrative;
+mod reports_cms;
+mod security;
 
 use axum::{
     extract::{Path, Query, Request, State},
     http::{Method, StatusCode},
     middleware::{self, Next},
     response::Response,
-    routing::{get, post, put},
+    routing::{get, patch, post, put},
     Json, Router,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
@@ -1739,6 +1741,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/public-dashboard", get(public_dashboard))
         .route("/api/v1/kpi-snapshot", get(kpi_snapshot))
         .route("/api/v1/kpi-events", get(kpi_events))
+        .route("/api/v1/public/report-issues", get(reports_cms::list_public_issues))
+        .route("/api/v1/public/report-issues/latest", get(reports_cms::get_public_latest))
+        .route("/api/v1/public/report-issues/:slug", get(reports_cms::get_public_issue))
+        .route("/api/v1/report-issues/templates", get(reports_cms::list_templates))
+        .route("/api/v1/report-issues/taxonomies", get(reports_cms::list_taxonomies))
+        .route("/api/v1/report-issues", get(reports_cms::list_cms_issues).post(reports_cms::create_issue))
+        .route("/api/v1/report-issues/:id", get(reports_cms::get_cms_issue).patch(reports_cms::patch_issue))
+        .route("/api/v1/report-issues/:id/pull-kpi", post(reports_cms::pull_kpi))
+        .route("/api/v1/report-issues/:id/transition", post(reports_cms::transition_issue))
+        .route("/api/v1/report-issues/:id/publish", post(reports_cms::publish_issue))
+        .route("/api/v1/report-issues/:id/suggest-notes", post(reports_cms::suggest_notes))
         .route("/api/v1/skdr/ibs-summary", get(skdr_detached))
         .route("/api/v1/skdr/ebs-summary", get(skdr_detached))
         .route("/api/v1/spatial-heatmap", get(spatial_heatmap))
@@ -8009,6 +8022,71 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_kpi_snapshots_window
             ON kpi_snapshots (start_date, end_date, country, disease);
+
+        CREATE TABLE IF NOT EXISTS report_issues (
+            id SERIAL PRIMARY KEY,
+            slug TEXT UNIQUE NOT NULL,
+            title TEXT NOT NULL,
+            epi_year INTEGER NOT NULL,
+            epi_week INTEGER NOT NULL,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            template_id TEXT NOT NULL DEFAULT 'weekly_sitrep_v1',
+            template_version TEXT NOT NULL DEFAULT '1.0.0',
+            cover_url TEXT,
+            highlights JSONB NOT NULL DEFAULT '[]'::jsonb,
+            sections JSONB NOT NULL DEFAULT '[]'::jsonb,
+            kpi_snapshot JSONB,
+            published_snapshot JSONB,
+            map_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+            sources JSONB NOT NULL DEFAULT '[]'::jsonb,
+            limitations TEXT,
+            visibility TEXT NOT NULL DEFAULT 'public',
+            created_by TEXT,
+            updated_by TEXT,
+            published_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        ALTER TABLE report_issues
+            ADD COLUMN IF NOT EXISTS narrative JSONB NOT NULL DEFAULT '{}'::jsonb;
+        ALTER TABLE report_issues
+            ALTER COLUMN template_id SET DEFAULT 'situation_report_v1';
+        UPDATE report_issues
+           SET template_id = 'situation_report_v1'
+         WHERE template_id IN ('weekly_sitrep_v1', '');
+        DROP INDEX IF EXISTS idx_report_issues_one_published_week;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_report_issues_one_published_template_week
+            ON report_issues (template_id, epi_year, epi_week)
+            WHERE status = 'published';
+        CREATE TABLE IF NOT EXISTS report_issue_events (
+            id SERIAL PRIMARY KEY,
+            issue_id INTEGER NOT NULL REFERENCES report_issues(id) ON DELETE CASCADE,
+            from_status TEXT,
+            to_status TEXT NOT NULL,
+            actor TEXT,
+            comment TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS report_narrative_cache (
+            cache_key TEXT PRIMARY KEY,
+            template_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            data_hash TEXT NOT NULL,
+            highlights JSONB NOT NULL DEFAULT '[]'::jsonb,
+            narrative JSONB NOT NULL DEFAULT '{}'::jsonb,
+            section_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+            llm_used BOOLEAN NOT NULL DEFAULT FALSE,
+            model TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_narrative_cache_lookup
+            ON report_narrative_cache (template_id, scope, period_start, period_end, data_hash);
+
         ALTER TABLE disease_events ALTER COLUMN case_count DROP DEFAULT;
         ALTER TABLE disease_events ALTER COLUMN case_count SET DEFAULT NULL;
 
