@@ -14,7 +14,7 @@ use std::sync::Arc;
 use crate::{
     dashboard_valid_cte, internal_error, iso_code_for_country, kpi_snapshot_json,
     kpis_json_with_snapshot, load_or_refresh_kpi_snapshot, query_shared_by_disease,
-    require_user_token, resolve_dashboard_dates, security, sql_country_param,
+    report_narrative, require_user_token, resolve_dashboard_dates, security, sql_country_param,
     sql_disease_param, AppState, ASEAN11_MEMBERS,
 };
 
@@ -38,7 +38,7 @@ const TEMPLATES: &[TemplateSpec] = &[
         id: "mmwr_bulletin_v1",
         family: "mmwr",
         primary: true,
-        label: "Epidemiological bulletin",
+        label: "Media monitoring bulletin",
         slug_prefix: "mmwr",
         version: "1.0.0",
         narrative_keys: &["publisher", "editorial"],
@@ -115,6 +115,11 @@ fn canonicalize_template_id(raw: &str) -> Option<&'static str> {
     if id.is_empty() || id.eq_ignore_ascii_case(LEGACY_SITREP_ID) {
         return Some(TEMPLATE_ID);
     }
+    if id.eq_ignore_ascii_case("media_monitoring_v1")
+        || id.eq_ignore_ascii_case("asean_bulletin")
+    {
+        return Some("mmwr_bulletin_v1");
+    }
     TEMPLATES
         .iter()
         .find(|t| t.id.eq_ignore_ascii_case(id))
@@ -183,6 +188,92 @@ pub fn display_ams_name(name: &str) -> &'static str {
     }
 }
 
+fn country_for_iso3(iso: &str) -> Option<&'static str> {
+    match iso.trim().to_ascii_uppercase().as_str() {
+        "BRN" => Some("Brunei"),
+        "KHM" => Some("Cambodia"),
+        "IDN" => Some("Indonesia"),
+        "LAO" => Some("Laos"),
+        "MYS" => Some("Malaysia"),
+        "MMR" => Some("Myanmar"),
+        "PHL" => Some("Philippines"),
+        "SGP" => Some("Singapore"),
+        "THA" => Some("Thailand"),
+        "VNM" => Some("Vietnam"),
+        "TLS" => Some("Timor-Leste"),
+        _ => None,
+    }
+}
+
+fn resolve_scope_key(raw: &str) -> String {
+    let t = raw.trim();
+    if t.is_empty()
+        || t.eq_ignore_ascii_case("all")
+        || t.eq_ignore_ascii_case("asean")
+        || t.eq_ignore_ascii_case("asean11")
+        || t.eq_ignore_ascii_case("all asean")
+    {
+        return "asean11".into();
+    }
+    if let Some(name) = country_for_iso3(t) {
+        return name.to_string();
+    }
+    if iso3_for_country(t).is_some() {
+        if t.eq_ignore_ascii_case("lao pdr") || t.eq_ignore_ascii_case("laos") {
+            return "Laos".into();
+        }
+        if t.eq_ignore_ascii_case("viet nam") || t.eq_ignore_ascii_case("vietnam") {
+            return "Vietnam".into();
+        }
+        for name in ASEAN11_MEMBERS {
+            if name.eq_ignore_ascii_case(t) {
+                return name.to_string();
+            }
+        }
+    }
+    "asean11".into()
+}
+
+fn scope_label(key: &str) -> String {
+    if key == "asean11" {
+        "ASEAN 11 jurisdictions".into()
+    } else {
+        display_ams_name(key).to_string()
+    }
+}
+
+fn apply_section_notes(sections: &mut Value, notes: &[Value]) {
+    let Some(arr) = sections.as_array_mut() else {
+        return;
+    };
+    for section in arr {
+        let code = section
+            .get("disease_code")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if let Some(note) = notes.iter().find_map(|n| {
+            if n.get("disease_code").and_then(Value::as_str) == Some(code.as_str()) {
+                n.get("note").and_then(Value::as_str)
+            } else {
+                None
+            }
+        }) {
+            if let Some(obj) = section.as_object_mut() {
+                let existing = obj
+                    .get("analyst_note")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                if existing.is_empty() {
+                    obj.insert("analyst_note".into(), json!(note));
+                    obj.insert("analyst_note_status".into(), json!("llm_draft"));
+                }
+            }
+        }
+    }
+}
+
 fn disease_code(name: &str) -> String {
     let mut out = String::new();
     for ch in name.trim().chars() {
@@ -220,7 +311,7 @@ fn slug_for(template_id: &str, year: i32, week: i32, extra: Option<i32>) -> Stri
 
 fn default_title(template_id: &str, year: i32, week: i32) -> String {
     match template_spec(template_id).map(|t| t.family) {
-        Some("mmwr") => format!("ASEAN Epidemiological Bulletin — EW {week:02}, {year}"),
+        Some("mmwr") => format!("ASEAN Media Monitoring Bulletin — EW {week:02}, {year}"),
         Some("ei") => format!("ASEAN Epidemic Intelligence — EW {week:02}, {year}"),
         Some("focus") => format!("Focus report — EW {week:02}, {year}"),
         _ => format!("ASEAN Situation Report — EW {week:02}, {year}"),
@@ -590,6 +681,63 @@ async fn query_ams_weekly(
         .collect())
 }
 
+async fn query_disease_ams_matrix(
+    client: &deadpool_postgres::Object,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    selected_country: &Option<String>,
+    selected_source: &Option<String>,
+) -> Result<Vec<Value>, (StatusCode, Json<Value>)> {
+    let selected_disease: Option<String> = None;
+    let sql = format!(
+        "{} SELECT COALESCE(NULLIF(TRIM(disease_classification), ''), 'UNKNOWN') AS disease,
+            resolved_country AS country,
+            COALESCE(SUM({cases}), 0)::bigint AS cases,
+            COUNT(*)::bigint AS events
+         FROM valid
+         WHERE {}
+         GROUP BY 1, 2
+         ORDER BY events DESC
+         LIMIT 88",
+        dashboard_valid_cte(),
+        crate::country_scope_sql(),
+        cases = security::SANE_CASES_SQL,
+    );
+    let rows = client
+        .query(
+            &sql,
+            &[
+                &start_date,
+                &end_date,
+                selected_country,
+                &selected_disease,
+                selected_source,
+            ],
+        )
+        .await
+        .map_err(internal_error)?;
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            let disease: String = r.get("disease");
+            if disease.eq_ignore_ascii_case("UNKNOWN") {
+                return None;
+            }
+            let country: String = r.get("country");
+            Some(json!({
+                "disease": disease,
+                "disease_code": disease_code(&disease),
+                "country": country,
+                "display_name": display_ams_name(&country),
+                "iso3": iso3_for_country(&country),
+                "cases": r.get::<_, i64>("cases"),
+                "events": r.get::<_, i64>("events"),
+                "has_data": true,
+            }))
+        })
+        .collect())
+}
+
 async fn query_sources(
     client: &deadpool_postgres::Object,
     start_date: NaiveDate,
@@ -693,22 +841,39 @@ pub async fn build_kpi_package(
     client: &deadpool_postgres::Object,
     epi_year: i32,
     epi_week: u32,
+    epi_week_end: u32,
+    scope: &str,
 ) -> Result<Value, (StatusCode, Json<Value>)> {
-    let (week_start, week_end) = resolve_dashboard_dates(
+    let week_end_n = epi_week_end.max(epi_week);
+    let (range_start, _) = resolve_dashboard_dates(
         epi_year,
         Some(epi_year),
         Some(epi_week),
         Some(epi_year),
         Some(epi_week),
+    );
+    let (_, range_end) = resolve_dashboard_dates(
+        epi_year,
+        Some(epi_year),
+        Some(week_end_n),
+        Some(epi_year),
+        Some(week_end_n),
+    );
+    let (week_start, week_end) = resolve_dashboard_dates(
+        epi_year,
+        Some(epi_year),
+        Some(week_end_n),
+        Some(epi_year),
+        Some(week_end_n),
     );
     let (ytd_start, ytd_end) = resolve_dashboard_dates(
         epi_year,
         Some(epi_year),
         Some(1),
         Some(epi_year),
-        Some(epi_week),
+        Some(week_end_n),
     );
-    let country_key = "asean11".to_string();
+    let country_key = resolve_scope_key(scope);
     let disease_key = "all".to_string();
     let source_key = "all".to_string();
     let sql_country = sql_country_param(&country_key);
@@ -736,8 +901,8 @@ pub async fn build_kpi_package(
 
     let ams_raw = query_ams_with_events(
         client,
-        ytd_start,
-        ytd_end,
+        range_start,
+        range_end,
         &sql_country,
         &sql_disease,
         &sql_source,
@@ -747,8 +912,8 @@ pub async fn build_kpi_package(
 
     let disease_raw = query_shared_by_disease(
         client,
-        ytd_start,
-        ytd_end,
+        range_start,
+        range_end,
         &sql_country,
         &sql_disease,
         &sql_source,
@@ -782,33 +947,36 @@ pub async fn build_kpi_package(
     by_disease.sort_by(|a, b| b["events"].as_i64().cmp(&a["events"].as_i64()));
 
     let series_weekly =
-        query_weekly_series(client, ytd_start, ytd_end, &sql_country, &sql_disease, &sql_source)
+        query_weekly_series(client, range_start, range_end, &sql_country, &sql_disease, &sql_source)
             .await?;
     let series_by_disease =
-        query_weekly_by_disease(client, ytd_start, ytd_end, &sql_country, &sql_source).await?;
-    let ams_weekly = query_ams_weekly(client, ytd_start, ytd_end, &sql_country, &sql_source).await?;
+        query_weekly_by_disease(client, range_start, range_end, &sql_country, &sql_source).await?;
+    let ams_weekly = query_ams_weekly(client, range_start, range_end, &sql_country, &sql_source).await?;
+    let matrix =
+        query_disease_ams_matrix(client, range_start, range_end, &sql_country, &sql_source).await?;
     let sources = query_sources(
         client,
-        ytd_start,
-        ytd_end,
+        range_start,
+        range_end,
         &sql_country,
         &sql_disease,
         &sql_source,
     )
     .await?;
-    let alerts = query_alerts(client, ytd_start, ytd_end, &sql_country, &sql_source).await?;
+    let alerts = query_alerts(client, range_start, range_end, &sql_country, &sql_source).await?;
 
     let ytd = &ytd_snapshot.kpis;
     let week = &week_snapshot.kpis;
 
     Ok(json!({
         "kpi_source": "materialized_kpi_snapshot",
-        "scope": "asean11",
-        "scope_label": "ASEAN 11 jurisdictions",
+        "scope": country_key,
+        "scope_label": scope_label(&country_key),
         "epi_year": epi_year,
         "epi_week": epi_week,
-        "week_start": week_start.to_string(),
-        "week_end": week_end.to_string(),
+        "epi_week_end": week_end_n,
+        "week_start": range_start.to_string(),
+        "week_end": range_end.to_string(),
         "ytd_start": ytd_start.to_string(),
         "ytd_end": ytd_end.to_string(),
         "pulled_at": Utc::now().to_rfc3339(),
@@ -825,6 +993,7 @@ pub async fn build_kpi_package(
         "series_weekly": series_weekly,
         "series_by_disease": series_by_disease,
         "ams_weekly": ams_weekly,
+        "matrix": matrix,
         "sources": sources,
         "alerts": alerts,
         "map": map_meta(),
@@ -930,6 +1099,107 @@ fn data_highlights(package: &Value) -> Vec<String> {
     out
 }
 
+async fn compose_narrative_draft(
+    state: &Arc<AppState>,
+    client: &deadpool_postgres::Object,
+    template_id: &str,
+    package: &Value,
+) -> report_narrative::NarrativeDraft {
+    let payload = report_narrative::truncated_stats_payload(package);
+    let data_hash = report_narrative::payload_hash(&payload);
+    let scope = package
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("asean11")
+        .to_string();
+    let start = package
+        .get("week_start")
+        .and_then(Value::as_str)
+        .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+        .unwrap_or_else(|| Utc::now().date_naive());
+    let end = package
+        .get("week_end")
+        .and_then(Value::as_str)
+        .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+        .unwrap_or(start);
+    let key = report_narrative::cache_key(template_id, &scope, start, end, &data_hash);
+    if let Ok(row) = client
+        .query_opt(
+            "SELECT highlights, narrative, section_notes, llm_used, COALESCE(model, '')
+             FROM report_narrative_cache WHERE cache_key = $1",
+            &[&key],
+        )
+        .await
+    {
+        if let Some(row) = row {
+            let highlights = row
+                .get::<_, Value>(0)
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect();
+            return report_narrative::NarrativeDraft {
+                highlights,
+                narrative: row.get(1),
+                section_notes: row
+                    .get::<_, Value>(2)
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default(),
+                llm_used: row.get(3),
+                cached: true,
+                model: row.get(4),
+            };
+        }
+    }
+
+    match report_narrative::request_deepseek_draft(&state.http, template_id, &payload).await {
+        Ok(draft) => {
+            let highlights_json = json!(draft.highlights);
+            let _ = client
+                .execute(
+                    "INSERT INTO report_narrative_cache
+                        (cache_key, template_id, scope, period_start, period_end, data_hash,
+                         highlights, narrative, section_notes, llm_used, model)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                     ON CONFLICT (cache_key) DO NOTHING",
+                    &[
+                        &key,
+                        &template_id,
+                        &scope,
+                        &start,
+                        &end,
+                        &data_hash,
+                        &highlights_json,
+                        &draft.narrative,
+                        &json!(draft.section_notes),
+                        &draft.llm_used,
+                        &draft.model,
+                    ],
+                )
+                .await;
+            draft
+        }
+        Err(_) => {
+            let mut fallback = report_narrative::NarrativeDraft {
+                highlights: data_highlights(package),
+                narrative: json!({}),
+                section_notes: vec![],
+                llm_used: false,
+                cached: false,
+                model: "template_from_kpis".into(),
+            };
+            if let Some(first) = fallback.highlights.first().cloned() {
+                fallback.narrative = json!({ "editorial": first });
+            }
+            fallback
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     pub status: Option<String>,
@@ -945,8 +1215,11 @@ pub struct ListQuery {
 pub struct CreateIssueRequest {
     pub epi_year: i32,
     pub epi_week: i32,
+    pub epi_week_end: Option<i32>,
     pub title: Option<String>,
     pub template_id: Option<String>,
+    pub scope: Option<String>,
+    pub assist_narrative: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -979,6 +1252,7 @@ pub struct PublishRequest {
 pub struct SuggestNotesRequest {
     #[allow(dead_code)]
     pub kind: Option<String>,
+    pub apply: Option<bool>,
 }
 
 fn public_card(row: &tokio_postgres::Row) -> Value {
@@ -1234,16 +1508,33 @@ pub async fn create_issue(
             Json(json!({"success": false, "error": "epi_week must be 1–53"})),
         ));
     }
+    let week_end = body.epi_week_end.unwrap_or(body.epi_week);
+    if !(1..=53).contains(&week_end) || week_end < body.epi_week {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "epi_week_end must be ≥ epi_week and 1–53"})),
+        ));
+    }
+    let scope = resolve_scope_key(body.scope.as_deref().unwrap_or("asean11"));
     let actor = actor_username(&state, &headers).await;
     let client = state.db.get().await.map_err(internal_error)?;
-    let (period_start, period_end) = resolve_dashboard_dates(
+    let (period_start, _) = resolve_dashboard_dates(
         body.epi_year,
         Some(body.epi_year),
         Some(body.epi_week as u32),
         Some(body.epi_year),
         Some(body.epi_week as u32),
     );
-    let package = build_kpi_package(&client, body.epi_year, body.epi_week as u32).await?;
+    let (_, period_end) = resolve_dashboard_dates(
+        body.epi_year,
+        Some(body.epi_year),
+        Some(week_end as u32),
+        Some(body.epi_year),
+        Some(week_end as u32),
+    );
+    let package =
+        build_kpi_package(&client, body.epi_year, body.epi_week as u32, week_end as u32, &scope)
+            .await?;
     let sections = merge_sections(&package, None);
     let sources = package.get("sources").cloned().unwrap_or(json!([]));
     let template_id = canonicalize_template_id(body.template_id.as_deref().unwrap_or(TEMPLATE_ID))
@@ -1278,9 +1569,29 @@ pub async fn create_issue(
         }
     };
     let map = map_meta();
-    let highlights = json!([]);
+    let mut highlights = json!([]);
     let limitations = DEFAULT_LIMITATIONS.to_string();
-    let narrative = json!({});
+    let mut narrative = json!({});
+    let mut sections = sections;
+    let assist = body.assist_narrative.unwrap_or(true);
+    if assist {
+        let draft = compose_narrative_draft(&state, &client, &template_id, &package).await;
+        highlights = json!(draft.highlights);
+        let mut narr = draft.narrative;
+        if let Some(obj) = narr.as_object_mut() {
+            obj.insert(
+                "_draft".into(),
+                json!({
+                    "llm_used": draft.llm_used,
+                    "cached": draft.cached,
+                    "model": draft.model,
+                    "requires_human_review": true,
+                }),
+            );
+        }
+        narrative = narr;
+        apply_section_notes(&mut sections, &draft.section_notes);
+    }
     let version = spec.version.to_string();
     let row = client
         .query_one(
@@ -1318,7 +1629,7 @@ pub async fn create_issue(
         None,
         "draft",
         &actor,
-        Some("Created from versioned template + KPI pull"),
+        Some("Created from template + automatic KPI/matrix pull"),
     )
     .await?;
     let created = fetch_issue(&client, id).await?;
@@ -1481,7 +1792,18 @@ pub async fn pull_kpi(
     let epi_week: i32 = row.get("epi_week");
     let previous_sections: Value = row.get("sections");
     let previous_package: Option<Value> = row.get("kpi_snapshot");
-    let package = build_kpi_package(&client, epi_year, epi_week as u32).await?;
+    let scope = previous_package
+        .as_ref()
+        .and_then(|p| p.get("scope").and_then(Value::as_str))
+        .unwrap_or("asean11")
+        .to_string();
+    let week_end = previous_package
+        .as_ref()
+        .and_then(|p| p.get("epi_week_end").and_then(Value::as_u64))
+        .unwrap_or(epi_week as u64) as u32;
+    let package =
+        build_kpi_package(&client, epi_year, epi_week as u32, week_end.max(epi_week as u32), &scope)
+            .await?;
     let sections = merge_sections(&package, Some(&previous_sections));
     let sources = package.get("sources").cloned().unwrap_or(json!([]));
     client
@@ -1615,9 +1937,11 @@ pub async fn publish_issue(
 
 pub async fn suggest_notes(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(id): Path<i32>,
-    Json(_body): Json<SuggestNotesRequest>,
+    Json(body): Json<SuggestNotesRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let actor = actor_username(&state, &headers).await;
     let client = state.db.get().await.map_err(internal_error)?;
     let row = fetch_issue(&client, id).await?;
     let package: Option<Value> = row.get("kpi_snapshot");
@@ -1627,15 +1951,60 @@ pub async fn suggest_notes(
             Json(json!({"success": false, "error": "Pull KPIs before requesting draft notes"})),
         ));
     };
-    let bullets = data_highlights(&package);
+    let template_id: String = row.get("template_id");
+    let draft = compose_narrative_draft(&state, &client, &template_id, &package).await;
+    if body.apply.unwrap_or(false) {
+        let status: String = row.get("status");
+        if matches!(status.as_str(), "published" | "superseded" | "archived") {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({"success": false, "error": "Cannot apply drafts to a frozen issue"})),
+            ));
+        }
+        let mut sections: Value = row.get("sections");
+        apply_section_notes(&mut sections, &draft.section_notes);
+        let mut narrative: Value = row.try_get("narrative").unwrap_or_else(|_| json!({}));
+        if let Some(obj) = draft.narrative.as_object() {
+            if let Some(dest) = narrative.as_object_mut() {
+                for (k, v) in obj {
+                    if !k.starts_with('_') {
+                        dest.entry(k.clone()).or_insert(v.clone());
+                    }
+                }
+                dest.insert(
+                    "_draft".into(),
+                    json!({
+                        "llm_used": draft.llm_used,
+                        "cached": draft.cached,
+                        "model": draft.model,
+                        "requires_human_review": true,
+                    }),
+                );
+            }
+        }
+        let highlights = json!(draft.highlights);
+        client
+            .execute(
+                "UPDATE report_issues SET highlights = $2, sections = $3, narrative = $4,
+                        updated_by = $5, updated_at = NOW()
+                 WHERE id = $1",
+                &[&id, &highlights, &sections, &narrative, &actor],
+            )
+            .await
+            .map_err(internal_error)?;
+    }
     Ok(Json(json!({
         "success": true,
         "data": {
-            "kind": "template_from_kpis",
-            "llm_used": false,
+            "kind": if draft.llm_used { "deepseek_draft" } else { "template_from_kpis" },
+            "llm_used": draft.llm_used,
+            "cached": draft.cached,
+            "model": draft.model,
             "requires_human_review": true,
-            "highlights": bullets,
-            "disclaimer": "These bullets are filled from the KPI snapshot by a code template. They are not an AI essay and must be edited by an analyst before review.",
+            "highlights": draft.highlights,
+            "narrative": draft.narrative,
+            "section_notes": draft.section_notes,
+            "disclaimer": "Draft notes only. Charts and tables stay bound to the KPI/matrix pull. Review and edit before publish. Full article text is never sent to the model.",
         }
     })))
 }
@@ -1653,7 +2022,7 @@ pub async fn list_templates() -> Json<Value> {
                 "slug_prefix": t.slug_prefix,
                 "narrative_keys": t.narrative_keys,
                 "outline": t.outline,
-                "llm_role": "optional draft notes only; never the bulletin body"
+                "llm_role": "DeepSeek may draft highlights/notes from truncated KPI stats; never the bulletin body; human review required"
             })
         })
         .collect();
@@ -1736,7 +2105,9 @@ mod tests {
     #[test]
     fn templates_prefer_mmwr_and_sitrep() {
         assert_eq!(canonicalize_template_id("weekly_sitrep_v1"), Some("situation_report_v1"));
-        assert_eq!(canonicalize_template_id("mmwr_bulletin_v1"), Some("mmwr_bulletin_v1"));
+        assert_eq!(canonicalize_template_id("media_monitoring_v1"), Some("mmwr_bulletin_v1"));
+        assert_eq!(resolve_scope_key("IDN"), "Indonesia");
+        assert_eq!(resolve_scope_key("All ASEAN"), "asean11");
         assert!(template_spec("mmwr_bulletin_v1").unwrap().primary);
         assert!(template_spec("situation_report_v1").unwrap().primary);
         assert!(!template_spec("focus_report_v1").unwrap().primary);

@@ -1,4 +1,5 @@
-﻿mod reports_cms;
+﻿mod report_narrative;
+mod reports_cms;
 mod security;
 
 use axum::{
@@ -7857,6 +7858,23 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
             comment TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        CREATE TABLE IF NOT EXISTS report_narrative_cache (
+            cache_key TEXT PRIMARY KEY,
+            template_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            data_hash TEXT NOT NULL,
+            highlights JSONB NOT NULL DEFAULT '[]'::jsonb,
+            narrative JSONB NOT NULL DEFAULT '{}'::jsonb,
+            section_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+            llm_used BOOLEAN NOT NULL DEFAULT FALSE,
+            model TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_narrative_cache_lookup
+            ON report_narrative_cache (template_id, scope, period_start, period_end, data_hash);
 
         ALTER TABLE disease_events ALTER COLUMN case_count DROP DEFAULT;
         ALTER TABLE disease_events ALTER COLUMN case_count SET DEFAULT NULL;

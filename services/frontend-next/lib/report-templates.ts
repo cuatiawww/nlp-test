@@ -27,7 +27,7 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
     id: "mmwr_bulletin_v1",
     family: "mmwr",
     primary: true,
-    label: "Epidemiological bulletin",
+    label: "Media monitoring bulletin",
     short: "Bulletin",
     cadence: "Weekly · MMWR-style",
     version: "1.0.0",
@@ -110,6 +110,7 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
 export function canonicalizeTemplateId(raw?: string | null): ReportTemplate["id"] {
   const id = (raw || "").trim()
   if (id === "weekly_sitrep_v1") return "situation_report_v1"
+  if (id === "media_monitoring_v1" || id === "asean_bulletin") return "mmwr_bulletin_v1"
   const found = REPORT_TEMPLATES.find((t) => t.id === id)
   return found ? found.id : "situation_report_v1"
 }
@@ -208,7 +209,7 @@ export function defaultTitleForTemplate(id: string, year: number, week: number) 
   const ew = String(week).padStart(2, "0")
   switch (tpl.family) {
     case "mmwr":
-      return `ASEAN Epidemiological Bulletin — EW ${ew}, ${year}`
+      return `ASEAN Media Monitoring Bulletin — EW ${ew}, ${year}`
     case "ei":
       return `ASEAN Epidemic Intelligence — EW ${ew}, ${year}`
     case "focus":

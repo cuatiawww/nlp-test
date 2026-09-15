@@ -16,7 +16,8 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
     pathname.startsWith('/reports/executive') ||
     pathname === '/laporan/eksekutif' ||
     pathname.startsWith('/laporan/eksekutif')
-  const isReportsCms = pathname.startsWith('/reports/cms')
+  const isReportsCms =
+    pathname.startsWith('/reports/cms') || pathname.startsWith('/reports/generate')
   const isSitrepPrint = pathname.startsWith('/reports/') && pathname.endsWith('/print')
   const isSitrepPublic =
     !isReportsCms &&
@@ -29,7 +30,8 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
       pathname.startsWith('/reports/methodology') ||
       (pathname.startsWith('/reports/') &&
         !pathname.startsWith('/reports/matrix') &&
-        !pathname.startsWith('/reports/executive')))
+        !pathname.startsWith('/reports/executive') &&
+        !pathname.startsWith('/reports/generate')))
   const isPublicPage =
     pathname === '/tv' ||
     pathname === '/reports/matrix' ||

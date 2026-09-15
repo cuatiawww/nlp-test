@@ -155,17 +155,22 @@ export default function CmsIssueEditorPage() {
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold"
               onClick={async () => {
                 try {
-                  const draft = await suggestReportNotes(id)
-                  setHighlightsText((draft.highlights || []).join('\n'))
-                  toast.message('Template bullets from KPIs — human review required', {
-                    description: draft.disclaimer,
-                  })
+                  const draft = await suggestReportNotes(id, true)
+                  const next = await fetchCmsIssue(id)
+                  setIssue(next)
+                  setHighlightsText((next.highlights || []).join('\n'))
+                  toast.message(
+                    draft.llm_used
+                      ? 'DeepSeek draft applied — human review required'
+                      : 'Template bullets from KPIs — human review required',
+                    { description: draft.disclaimer },
+                  )
                 } catch (err: any) {
                   toast.error(err.message)
                 }
               }}
             >
-              Draft highlight bullets
+              Draft with DeepSeek
             </button>
           </div>
         </div>
@@ -185,7 +190,7 @@ export default function CmsIssueEditorPage() {
                 disabled={!!frozen}
                 rows={4}
                 className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm font-normal"
-                value={issue.narrative?.[key] || ''}
+                value={typeof issue.narrative?.[key] === 'string' ? String(issue.narrative[key]) : ''}
                 onChange={(e) =>
                   setIssue({
                     ...issue,

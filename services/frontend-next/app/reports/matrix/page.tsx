@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import Link from 'next/link'
+import ReportsModeNav from '@/components/reports/ReportsModeNav'
 import {
   Download,
   Filter,
@@ -881,17 +881,10 @@ export default function ReportsPage() {
 
       <div className="w-full px-4 md:px-6 pt-3 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#0060A9]/20 bg-white px-4 py-3 print:hidden">
+          <ReportsModeNav />
           <p className="text-sm text-slate-600">
-            Weekly sitreps now publish from a template + KPI snapshot. This page remains the live event matrix.
+            Live analysis: filters, disease×AMS cross-tabs, and the events ledger. Published bulletins are a separate frozen gallery.
           </p>
-          <div className="flex gap-2">
-            <Link href="/reports" className="rounded-lg bg-[#0060A9] px-3 py-1.5 text-xs font-semibold text-white">
-              Reports gallery
-            </Link>
-            <Link href="/reports/cms" className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700">
-              Sitrep CMS
-            </Link>
-          </div>
         </div>
         <AseanScopeBanner country="ASEAN" />
         {/* ==================== TOP KPI STAT CARDS ==================== */}

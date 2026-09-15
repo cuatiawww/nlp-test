@@ -40,8 +40,11 @@ export function fetchCmsIssue(id: number) {
 export function createReportIssue(body: {
   epi_year: number
   epi_week: number
+  epi_week_end?: number
   title?: string
   template_id?: string
+  scope?: string
+  assist_narrative?: boolean
 }) {
   return postTo<ReportIssue>("/api/v1/report-issues", body)
 }
@@ -62,13 +65,17 @@ export function publishReportIssue(id: number, body?: { slug?: string; visibilit
   return postTo<ReportIssue>(`/api/v1/report-issues/${id}/publish`, body || {})
 }
 
-export function suggestReportNotes(id: number) {
+export function suggestReportNotes(id: number, apply = false) {
   return postTo<{
     highlights: string[]
+    narrative?: Record<string, string>
+    section_notes?: { disease_code: string; note: string }[]
     requires_human_review: boolean
     llm_used: boolean
+    cached?: boolean
+    model?: string
     disclaimer: string
-  }>(`/api/v1/report-issues/${id}/suggest-notes`, { kind: "highlights" })
+  }>(`/api/v1/report-issues/${id}/suggest-notes`, { kind: "highlights", apply })
 }
 
 export function fetchReportTemplates() {

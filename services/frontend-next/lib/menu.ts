@@ -1,4 +1,4 @@
-﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, Settings } from 'lucide-react'
+﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, FileSpreadsheet, Settings } from 'lucide-react'
 
 import { Stethoscope, Globe2 } from 'lucide-react'
 
@@ -33,6 +33,7 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'Manual Crawler', labelKey: 'sidebar.items.manualCrawler', icon: FileText, href: '/manual-crawler' },
       { label: 'Processing', labelKey: 'sidebar.items.processing', icon: Activity, href: '/processing' },
       { label: 'Reports', labelKey: 'sidebar.items.reports', icon: FileText, href: '/reports' },
+      { label: 'Matrix & ledger', labelKey: 'sidebar.items.eventMatrix', icon: FileSpreadsheet, href: '/reports/matrix' },
     ],
   },
   {
@@ -77,6 +78,7 @@ export const consoleMenu: SidebarGroup[] = [
       { label: 'Surveillance Dashboard', icon: Home, href: '/' },
       { label: 'TV Command Center', icon: Activity, href: '/tv' },
       { label: 'Reports', icon: FileText, href: '/reports' },
+      { label: 'Matrix & ledger', icon: FileSpreadsheet, href: '/reports/matrix' },
     ],
   },
 ]

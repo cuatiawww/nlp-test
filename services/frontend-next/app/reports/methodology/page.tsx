@@ -3,10 +3,11 @@ export default function ReportsMethodologyPage() {
     <article className="prose prose-slate max-w-none space-y-4 text-sm text-slate-700">
       <h1 className="text-2xl font-black text-slate-900">Methodology</h1>
       <p>
-        ABVC publications at <code>/nlp/reports</code> are versioned template packages bound to the ASEAN-11
-        materialized KPI snapshot (the same snapshot used by the dashboard, TV wall, and event matrix). Language
-        models are not used to write the body of a bulletin. Optional draft bullets are filled from KPI fields and
-        must be human-reviewed.
+        Phase 2 reports are a hybrid, not fully human-authored ASEAN-PHE PDFs. Analysts generate a draft from
+        system data (scope + epi-week range + report type). KPIs, sources, alerts, and disease×AMS cross-tabs are
+        pulled automatically; charts and tables bind to that pull. DeepSeek may draft highlights and short notes from
+        truncated stats only (cached; never full article text). The public gallery shows frozen published editions.
+        The live matrix and events ledger remain for operational filtering.
       </p>
       <h2 className="text-lg font-extrabold text-slate-900">Publication families</h2>
       <p>
@@ -16,9 +17,9 @@ export default function ReportsMethodologyPage() {
       </p>
       <ul>
         <li>
-          <strong>Epidemiological bulletin</strong> (<code>mmwr_bulletin_v1</code>, primary): cover → publisher /
-          editorial → linked contents → executive summary → disease chapters (tables, Admin-0 maps, line/bar, small
-          multiples) → source notes → print page numbers.
+          <strong>Media monitoring bulletin</strong> (<code>mmwr_bulletin_v1</code>, primary; alias{' '}
+          <code>media_monitoring_v1</code>): cover → publisher / editorial → linked contents → executive summary →
+          disease chapters (tables, Admin-0 maps, line/bar, small multiples) → source notes → print page numbers.
         </li>
         <li>
           <strong>Situation report</strong> (<code>situation_report_v1</code>, primary; legacy alias{' '}

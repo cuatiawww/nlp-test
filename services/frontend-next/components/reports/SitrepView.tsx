@@ -26,6 +26,12 @@ function narrativeOf(issue: ReportIssue, key: string) {
   return typeof raw === 'string' ? raw.trim() : ''
 }
 
+function narrativeDraftMeta(issue: ReportIssue) {
+  const raw = issue.narrative?.['_draft']
+  if (!raw || typeof raw === 'string') return null
+  return raw as { llm_used?: boolean; cached?: boolean; model?: string }
+}
+
 function KpiCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -548,6 +554,9 @@ export default function SitrepView({
       {preview ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 no-print">
           Preview — not a published edition. KPI tables are data-bound; narrative slots require human review.
+          {narrativeDraftMeta(issue)?.llm_used
+            ? ` DeepSeek draft (${narrativeDraftMeta(issue)?.cached ? 'cached' : 'fresh'}) — edit before publish.`
+            : ''}
         </p>
       ) : null}
 

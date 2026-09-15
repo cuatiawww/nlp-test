@@ -46,6 +46,7 @@ export const AMS_HEATMAP_ROWS = [
 export function canonicalizeTemplateId(raw) {
   const id = (raw || '').trim()
   if (!id || id === 'weekly_sitrep_v1') return 'situation_report_v1'
+  if (id === 'media_monitoring_v1' || id === 'asean_bulletin') return 'mmwr_bulletin_v1'
   if (REPORT_TEMPLATES.some((t) => t.id === id)) return id
   return null
 }

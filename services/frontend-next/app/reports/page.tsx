@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { listPublicReportIssues, formatEpiBadge, fetchLatestPublicReport } from '@/lib/sitrep-api'
 import type { ReportIssueCard } from '@/types/sitrep'
 import PublicationCover from '@/components/reports/PublicationCover'
-import { REPORT_TEMPLATES, templateById, type TemplateFamily } from '@/lib/report-templates'
+import ReportsModeNav from '@/components/reports/ReportsModeNav'
+import { templateById, type TemplateFamily } from '@/lib/report-templates'
 
 const FILTERS: Array<{ id: 'all' | TemplateFamily; label: string }> = [
   { id: 'all', label: 'All editions' },
@@ -77,6 +78,7 @@ export default function ReportsGalleryPage() {
 
   return (
     <div className="space-y-5">
+      <ReportsModeNav />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black text-slate-900">Publications</h1>
@@ -126,8 +128,8 @@ export default function ReportsGalleryPage() {
               : `0 published ${FILTERS.find((chip) => chip.id === family)?.label || family} editions`}
           </p>
           <p className="mt-2 text-sm text-slate-600">
-            This gallery lists frozen publications only. Create a Bulletin or SitRep in CMS (Draft → In review →
-            Approved → Published). Primary templates: {REPORT_TEMPLATES.filter((t) => t.primary).map((t) => t.label).join(' and ')}.
+            This gallery lists frozen publications only. Analysts generate a draft from KPIs (Generate draft), review
+            in CMS, then publish. Live filters stay on Matrix &amp; ledger.
           </p>
         </div>
       ) : !error && filtered.length === 0 ? (
@@ -138,9 +140,13 @@ export default function ReportsGalleryPage() {
         <div className="grid gap-4 md:grid-cols-2">{filtered.map((item) => <IssueCard key={item.slug} item={item} />)}</div>
       )}
       <p className="text-[11px] text-slate-500">
-        Live event ledger (not a bulletin):{' '}
+        Operational live view:{' '}
         <Link href="/reports/matrix" className="font-semibold text-slate-600 underline">
-          Event matrix
+          Matrix &amp; ledger
+        </Link>
+        {' · '}
+        <Link href="/reports/generate" className="font-semibold text-slate-600 underline">
+          Generate draft
         </Link>
         .
       </p>

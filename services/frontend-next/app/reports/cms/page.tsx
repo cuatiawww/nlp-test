@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { listCmsIssues, formatEpiBadge } from '@/lib/sitrep-api'
 import type { ReportIssue, ReportIssueStatus } from '@/types/sitrep'
+import ReportsModeNav from '@/components/reports/ReportsModeNav'
 
 const FILTERS: Array<ReportIssueStatus | 'all'> = [
   'all',
@@ -40,16 +41,16 @@ export default function ReportsCmsQueuePage() {
 
   return (
     <div className="space-y-4 px-4 md:px-6">
+      <ReportsModeNav />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">Publication CMS</h1>
           <p className="text-sm text-slate-600">
-            Draft → In review → Changes requested → Approved → Published. Primary templates: bulletin and SitRep.
-            KPI tables are pulled; narrative slots are human.
+            Review drafts generated from KPI/matrix pulls. DeepSeek notes are draft-only. Publish freezes the snapshot.
           </p>
         </div>
-        <Link href="/reports/cms/issues/new" className="rounded-xl bg-[#0060A9] px-4 py-2 text-sm font-bold text-white">
-          New issue from template
+        <Link href="/reports/generate" className="rounded-xl bg-[#0060A9] px-4 py-2 text-sm font-bold text-white">
+          Generate draft
         </Link>
       </div>
       <div className="flex flex-wrap gap-2">

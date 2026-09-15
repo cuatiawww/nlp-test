@@ -55,6 +55,7 @@ test('slug is stable for a week', () => {
 test('publication templates prefer MMWR and SitRep prefixes', () => {
   assert.equal(canonicalizeTemplateId('weekly_sitrep_v1'), 'situation_report_v1')
   assert.equal(canonicalizeTemplateId('mmwr_bulletin_v1'), 'mmwr_bulletin_v1')
+  assert.equal(canonicalizeTemplateId('media_monitoring_v1'), 'mmwr_bulletin_v1')
   assert.equal(canonicalizeTemplateId('not-a-template'), null)
   assert.equal(slugForEdition('mmwr_bulletin_v1', 2026, 7), 'mmwr-2026-w07')
   assert.equal(slugForEdition('situation_report_v1', 2026, 7, 2), 'sitrep-2026-w07-2')

@@ -1,86 +1,78 @@
-# Reports CMS — publication gallery from templates + KPI snapshots
+# Reports CMS — hybrid publications (data pull + draft narrative)
 
-ABVC public reports at `/nlp/reports` are a **publication gallery**, not a live event-matrix mashup and not AI essay pages. Each issue is created from a versioned code template, filled with the same ASEAN-11 materialized KPI snapshot used by the dashboard / TV / event matrix, then edited and published by the report team.
+Phase 2 reports are **not** a copy of fully human-authored ASEAN-PHE PDFs. They are a hybrid:
 
-Section order follows public epidemiological bulletin practice (MMWR-style chapters; operational SitRep glance → map → table → chart). Branding is ABVC’s own. Do not copy third-party logos or cover art.
+1. **Auto-generate first from system data.** The analyst picks scope (All ASEAN or one AMS), an epi-week range, and a report type (for example Media monitoring bulletin). The backend pulls KPIs, events, sources, alerts, and disease×AMS cross-tabs from the same materialized snapshot / event aggregates used by the dashboard and TV wall. Charts, maps, and tables bind to that pull. Numbers are never invented by a language model.
+2. **DeepSeek draft narrative, then humans.** DeepSeek may draft highlights, a short executive summary, and optional disease notes **from the truncated stats JSON only**. The request is cached by `(template, scope, date range, data hash)`, capped in tokens, and **never** includes `original_text` or crawl corpora. Output is draft-only.
+3. **CMS review → cover → publish freeze.** Analysts edit the draft, then Draft → In review → Approved → Published. Public pages read `published_snapshot`.
+4. **Live analysis stays.** The one-screen matrix / cross-tab / events ledger is retained as an operational mode. It is not replaced by the gallery.
+
+## Workspace IA (three modes)
+
+| Mode | Path | Who |
+|------|------|-----|
+| **A. Published bulletins** | `/nlp/reports` | Public gallery of frozen editions |
+| **B. Generate draft** | `/nlp/reports/generate` (auth) | Scope + week range + type → KPI/matrix pull → optional DeepSeek draft → CMS editor |
+| **C. Matrix & ledger** | `/nlp/reports/matrix` | Live filters, cross-tabs, events ledger (Phase 2 operational view) |
+
+Sidebar MONITORING keeps **Reports** and **Matrix & ledger**. CMS queue remains at `/nlp/reports/cms`.
 
 ## Publication families
 
 | Template | Family | Role | Outline (high level) |
 |----------|--------|------|----------------------|
-| `mmwr_bulletin_v1` | Bulletin | **Primary** | Cover → publisher/editorial → TOC (linked) → exec summary → disease chapters (tables, Admin-0 maps, line/bar, small multiples) → source notes → print page # |
-| `situation_report_v1` | SitRep | **Primary** (alias `weekly_sitrep_v1`) | Glance KPIs → health-zone choropleth → AMS cases/deaths/CFR table → weekly chart → country updates → epidemiology → response → recommendations → refs |
-| `epidemic_intelligence_v1` | EI | Secondary | Cover + regional map → editorial → definitions → 2-week event summary → exec summary → disease-signal visual → summary table → refs |
-| `focus_report_v1` | Focus | Secondary | Abstract → methods → results (small multiples + AMS×week heatmap) → discussion → limitations → refs |
+| `mmwr_bulletin_v1` (alias `media_monitoring_v1`) | Bulletin | **Primary** | Cover → publisher/editorial → TOC → exec summary → disease chapters → source notes → print page # |
+| `situation_report_v1` (alias `weekly_sitrep_v1`) | SitRep | **Primary** | Glance KPIs → choropleth → AMS table → weekly chart → country updates → epidemiology → response → recommendations → refs |
+| `epidemic_intelligence_v1` | EI | Secondary | Cover + map → editorial → definitions → 2-week summary → exec summary → disease-signal visual → summary table → refs |
+| `focus_report_v1` | Focus | Secondary | Abstract → methods → results (small multiples + heatmap) → discussion → limitations → refs |
 
-One **published** edition is allowed per `(template_id, epi_year, epi_week)`. A bulletin and a SitRep may both be live for the same week.
+One **published** edition per `(template_id, epi_year, epi_week)`. A bulletin and a SitRep may both be live for the same week. Branding is ABVC’s own.
 
-Human narrative slots (never LLM body): publisher/editorial, response/recommendations/country updates, definitions, abstract/methods/discussion.
+## Generate draft (auth)
 
-## Public information architecture
+`POST /api/v1/report-issues` accepts:
 
-| Path | Purpose |
-|------|---------|
-| `/nlp/reports` | Publication gallery (cover cards, family chips). Empty state is honest: 0 published editions until CMS publish. |
-| `/nlp/reports/latest` | Newest published issue |
-| `/nlp/reports/w/{year}-{week}` | Canonical epi-week lookup |
-| `/nlp/reports/{slug}` | Stable HTML edition (`mmwr-YYYY-wWW`, `sitrep-YYYY-wWW`, …) |
-| `/nlp/reports/{slug}.pdf` | Print/PDF artifact (rewritten to `/reports/{slug}/print`) |
-| `/nlp/reports/disease/{code}` | Filtered archive |
-| `/nlp/reports/country/{iso3}` | Filtered archive by AMS |
-| `/nlp/reports/archive` | Year / week browser |
-| `/nlp/reports/methodology` | Sources, definitions, missing-data policy |
+- `template_id`
+- `epi_year`, `epi_week`, optional `epi_week_end`
+- `scope` (`asean11` / All ASEAN, or an AMS name / ISO3)
+- `assist_narrative` (default `true`)
 
-Public chrome is short (Home / Dashboard / Reports / Sources / About). The live **event matrix** remains at `/nlp/reports/matrix` (Phase 2 ledger) and is linked quietly from the gallery footer — it is not a sidebar MONITORING item. Executive layout remains at `/nlp/reports/executive`.
+The create path pulls the package immediately (KPIs + AMS table + disease series + `matrix` cross-tab + sources + alerts) and, if assist is on, drafts narrative via cache or DeepSeek.
 
-## CMS workflow (auth, `reports` module)
-
-```
-Draft → In review → Changes requested → Approved → Published → (Superseded / Archived)
-```
-
-| Path | Purpose |
-|------|---------|
-| `/nlp/reports/cms` | Issue queue |
-| `/nlp/reports/cms/issues/new` | Create from MMWR or SitRep (primary) or EI/Focus + KPI pull |
-| `/nlp/reports/cms/issues/{id}` | Editor + live preview (narrative slots by template) |
-| `/nlp/reports/cms/issues/{id}/review` | Checklist + comments |
-| `/nlp/reports/cms/templates` | Template versions and outlines |
-| `/nlp/reports/cms/taxonomies` | ASEAN-11 AMS + ISO3 |
-
-**Publish freeze:** `published_snapshot` is an immutable copy of the last KPI pull. Public pages read that JSON. They do not recompute live totals. Editing a published issue is blocked; correct via a new issue or supersede (same template + week only).
+`POST /api/v1/report-issues/:id/suggest-notes` with `{ apply: true }` re-runs that draft into empty human fields only (it does not overwrite notes the analyst already wrote).
 
 ## What is (and is not) AI
 
 | Layer | Source |
 |-------|--------|
-| KPI tables, epi curves, AMS bars, choropleth, small multiples, heatmap | `kpi_snapshots` + ASEAN-11 event aggregates (`kpi_source=materialized_kpi_snapshot`) |
-| Section order / headings / figure slots | Code templates listed above |
-| Highlights, disease notes, narrative slots | Human CMS fields (≤5 bullets; notes and narrative capped) |
-| “Draft highlight bullets” | **Template strings from KPI fields**, not an LLM. Must be human-reviewed. |
+| KPI tables, epi curves, AMS bars, choropleth, small multiples, heatmap, matrix cells | `kpi_snapshots` + ASEAN-11 event aggregates |
+| Section order / figure slots | Code templates |
+| Highlights / exec summary / short section notes | **DeepSeek draft from truncated stats**, or template bullets if no API key — always human-reviewed |
+| Full bulletin body / crawl text | **Never sent to the model. Never LLM-authored as the published body.** |
 
-There is no “write the bulletin with AI” path.
+## Token safety
 
-## Maps and heatmaps
+- Prompt payload is stripped of `original_text`, `content`, `body`, `html`, `raw_text`.
+- Caps: ~4500 input characters, 700 output tokens, 20s timeout.
+- Cache table `report_narrative_cache` keyed by SHA-256 of template + scope + period + stats hash.
+- Schema: `database/init/070_report_narrative_cache.sql`.
 
-- Admin-0 polygons for the 11 jurisdictions, joined on **ISO 3166-1 alpha-3** (`BRN, KHM, IDN, LAO, MYS, MMR, PHL, SGP, THA, VNM, TLS`).
-- Sequential ColorBrewer Blues; quantile classes among AMS **with data**.
-- **No data / Not reported** is gray + hatch. It is never mapped as zero and never uses the lightest sequential class.
-- AMS×week heatmap cells with no matching events are missing, not zero.
-- Publication maps do not use event pins.
+## Maps and missing data
+
+Admin-0 ISO3 choropleth; No data / Not reported is never zero. Heatmap missing cells are hatched, not class 0.
 
 ## API
 
-Public GET (no auth):
+Public GET:
 
-- `GET /api/v1/public/report-issues` (`?template=` optional)
+- `GET /api/v1/public/report-issues`
 - `GET /api/v1/public/report-issues/latest`
 - `GET /api/v1/public/report-issues/:slug`
 
 CMS (session):
 
-- `GET|POST /api/v1/report-issues` (POST accepts `template_id`)
-- `GET|PATCH /api/v1/report-issues/:id` (PATCH accepts `narrative`)
+- `GET|POST /api/v1/report-issues`
+- `GET|PATCH /api/v1/report-issues/:id`
 - `POST /api/v1/report-issues/:id/pull-kpi`
 - `POST /api/v1/report-issues/:id/transition`
 - `POST /api/v1/report-issues/:id/publish`
@@ -88,8 +80,6 @@ CMS (session):
 - `GET /api/v1/report-issues/templates`
 - `GET /api/v1/report-issues/taxonomies`
 
-Schema: `database/init/068_report_issues.sql`, `database/init/069_report_publication_templates.sql`.
-
 ## Preservation
 
-Phase 2 monitoring (dashboard, TV, KPI snapshot semantics, event matrix, localStorage media-upload CMS at `/console/reports-cms`) is unchanged. Reports read the snapshot; they do not invent numbers.
+Dashboard, TV, KPI snapshot semantics, and the matrix/ledger live analysis view are unchanged. Reports read the snapshot; they do not invent numbers. Executive layout remains at `/nlp/reports/executive`.

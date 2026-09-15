@@ -120,7 +120,7 @@ export type ReportIssue = {
   cover_url?: string | null
   highlights: string[]
   sections: ReportSection[]
-  narrative?: Record<string, string>
+  narrative?: Record<string, unknown>
   kpi_snapshot?: SitrepKpiPackage | null
   published_snapshot?: SitrepKpiPackage | null
   map?: {
