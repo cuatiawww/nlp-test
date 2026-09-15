@@ -7,6 +7,7 @@ import { createSource } from '@/lib/api'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { SOURCE_COUNTRY_OPTIONS } from '@/lib/source-country'
 
 const SOURCE_TYPES = [
   { value: 'rss', label: 'RSS Feed' },
@@ -24,6 +25,7 @@ export default function NewSourcePage() {
     name: '',
     source_type: 'rss',
     schedule: '',
+    country: '',
     config_url: '',
     config_title_selector: 'h1',
     config_body_selector: 'article',
@@ -31,6 +33,7 @@ export default function NewSourcePage() {
 
   const buildConfig = () => {
     const config: any = {}
+    if (form.country) config.country = form.country
     if (form.source_type === 'rss' || form.source_type === 'api') {
       config.url = form.config_url
     } else if (form.source_type === 'web') {
@@ -56,6 +59,7 @@ export default function NewSourcePage() {
         name: form.name,
         source_type: form.source_type,
         config: buildConfig(),
+        country: form.country || null,
         schedule: form.schedule || null,
       }
       await createSource(payload)
@@ -96,6 +100,15 @@ export default function NewSourcePage() {
           <input type="url" value={form.config_url} onChange={e => setForm(f => ({ ...f, config_url: e.target.value }))}
             className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
             placeholder={form.source_type === 'rss' ? 'https://www.antaranews.com/rss/terkini.xml' : 'https://...'} />
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colCountry')}</label>
+          <select required value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+            <option value="">Select country or coverage</option>
+            {SOURCE_COUNTRY_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+          </select>
         </div>
 
         {form.source_type === 'web' && (

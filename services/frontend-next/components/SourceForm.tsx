@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { createSource, updateSource } from '@/lib/api'
+import { resolveSourceCountry, SOURCE_COUNTRY_OPTIONS } from '@/lib/source-country'
 
 interface Props {
   source?: any | null
@@ -16,6 +17,7 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
   const [name, setName] = useState('')
   const [sourceType, setSourceType] = useState('rss')
   const [url, setUrl] = useState('')
+  const [country, setCountry] = useState('')
   const [schedule, setSchedule] = useState('')
   const [enabled, setEnabled] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -26,10 +28,12 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
       setSourceType(source.source_type || 'rss')
       const cfg = source.config || {}
       setUrl(cfg.url || cfg.rss_url || cfg.urls?.[0] || JSON.stringify(cfg))
+      const detectedCountry = resolveSourceCountry(source)
+      setCountry(source.country || cfg.country || (detectedCountry.code ? detectedCountry.name : ''))
       setSchedule(source.schedule || '')
       setEnabled(source.enabled !== false)
     } else {
-      setName(''); setSourceType('rss'); setUrl(''); setSchedule(''); setEnabled(true)
+      setName(''); setSourceType('rss'); setUrl(''); setCountry(''); setSchedule(''); setEnabled(true)
     }
   }, [source])
 
@@ -48,10 +52,11 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
       } else {
         config = { url }
       }
+      if (country.trim()) config.country = country.trim()
       if (isEdit) {
-        await updateSource(source.id, { name, source_type: sourceType, config, schedule: schedule || null, enabled })
+        await updateSource(source.id, { name, source_type: sourceType, config, country: country.trim() || null, schedule: schedule || null, enabled })
       } else {
-        await createSource({ name, source_type: sourceType, config, schedule: schedule || null } as any)
+        await createSource({ name, source_type: sourceType, config, country: country.trim() || null, schedule: schedule || null } as any)
       }
       onSaved()
     } finally { setSaving(false) }
@@ -82,6 +87,14 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
         <input value={url} onChange={e => setUrl(e.target.value)}
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono text-xs"
           placeholder={sourceType === 'web' ? 'URL or {"url":"...","title_selector":"h1","body_selector":"article"}' : 'https://...'} />
+      </div>
+      <div>
+        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Country</label>
+        <select value={country} onChange={e => setCountry(e.target.value)} required
+          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+          <option value="">Select country or coverage</option>
+          {SOURCE_COUNTRY_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+        </select>
       </div>
       <div>
         <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colFrequency')}</label>

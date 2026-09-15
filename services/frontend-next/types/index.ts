@@ -3,6 +3,7 @@ export type Source = {
   name: string;
   source_type: string;
   config: Record<string, any> & { url?: string; urls?: string[] };
+  country?: string | null;
   schedule?: string;
   enabled: boolean;
   created_at?: string;

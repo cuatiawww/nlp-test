@@ -5,6 +5,22 @@ export type SourceCountry = {
   code: string | null
 }
 
+export const SOURCE_COUNTRY_OPTIONS = [
+  'Indonesia',
+  'Malaysia',
+  'Singapore',
+  'Thailand',
+  'Philippines',
+  'Vietnam',
+  'Brunei',
+  'Cambodia',
+  'Laos',
+  'Myanmar',
+  'Timor-Leste',
+  'ASEAN / Asia',
+  'International',
+]
+
 const COUNTRIES: Record<string, SourceCountry> = {
   id: { name: 'Indonesia', code: 'ID' },
   indonesia: { name: 'Indonesia', code: 'ID' },
@@ -123,7 +139,10 @@ function countryFromUrl(url: string, sourceName: string): SourceCountry | undefi
   return undefined
 }
 
-export function resolveSourceCountry(source: Pick<Source, 'name' | 'config'>): SourceCountry {
+export function resolveSourceCountry(source: Pick<Source, 'name' | 'config' | 'country'>): SourceCountry {
+  const persisted = countryFromValue(source.country)
+  if (persisted) return persisted
+
   const config = source.config || {}
   const explicit = countryFromValue(config.country)
   if (explicit) return explicit

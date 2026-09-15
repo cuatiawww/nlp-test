@@ -217,6 +217,8 @@ struct CreateSourceRequest {
     #[serde(default)]
     config: Value,
     schedule: Option<String>,
+    #[serde(default)]
+    country: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -226,6 +228,7 @@ struct UpdateSourceRequest {
     config: Option<Value>,
     schedule: Option<String>,
     enabled: Option<bool>,
+    country: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4604,7 +4607,8 @@ async fn list_sources(
                         'started_at', lr.started_at::text,
                         'finished_at', lr.finished_at::text
                     ) AS last_run,
-                    COALESCE(sc.score, 0.50) AS source_credibility
+                    COALESCE(sc.score, 0.50) AS source_credibility,
+                    s.country
              FROM collector_sources s
              LEFT JOIN LATERAL (
                  SELECT status, records_found, records_ingested, started_at, finished_at
@@ -4635,6 +4639,7 @@ async fn list_sources(
                 "name": r.get::<_, String>(1),
                 "source_type": r.get::<_, String>(2),
                 "config": r.get::<_, Value>(3),
+                "country": r.get::<_, Option<String>>(10),
                 "schedule": r.get::<_, Option<String>>(4),
                 "enabled": r.get::<_, bool>(5),
                 "created_at": r.get::<_, Option<String>>(6),
@@ -4671,9 +4676,10 @@ async fn create_source(
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
         .query_one(
-            "INSERT INTO collector_sources (name, source_type, config, schedule)
-             VALUES ($1, $2, $3, $4) RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text",
-            &[&payload.name, &payload.source_type, &payload.config, &payload.schedule],
+            "INSERT INTO collector_sources (name, source_type, config, schedule, country)
+             VALUES ($1, $2, $3, $4, COALESCE($5, NULLIF(BTRIM($3->>'country'), '')))
+             RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text, country",
+            &[&payload.name, &payload.source_type, &payload.config, &payload.schedule, &payload.country],
         )
         .await
         .map_err(internal_error)?;
@@ -4683,6 +4689,7 @@ async fn create_source(
         "name": row.get::<_, String>(1),
         "source_type": row.get::<_, String>(2),
         "config": row.get::<_, Value>(3),
+        "country": row.get::<_, Option<String>>(8),
         "schedule": row.get::<_, Option<String>>(4),
         "enabled": row.get::<_, bool>(5),
         "created_at": row.get::<_, Option<String>>(6),
@@ -4700,7 +4707,7 @@ async fn get_source(
     let row = client
         .query_one(
             "SELECT s.id, s.name, s.source_type, s.config, s.schedule, s.enabled, s.created_at::text, s.updated_at::text,
-                    COALESCE(sc.score, 0.50) AS source_credibility
+                    COALESCE(sc.score, 0.50) AS source_credibility, s.country
              FROM collector_sources s
              LEFT JOIN source_credibility sc ON sc.source_type = s.source_type AND sc.is_active = TRUE
              WHERE s.id = $1",
@@ -4722,6 +4729,7 @@ async fn get_source(
             "name": row.get::<_, String>(1),
             "source_type": row.get::<_, String>(2),
             "config": row.get::<_, Value>(3),
+            "country": row.get::<_, Option<String>>(9),
             "schedule": row.get::<_, Option<String>>(4),
             "enabled": row.get::<_, bool>(5),
             "created_at": row.get::<_, Option<String>>(6),
@@ -4741,7 +4749,7 @@ async fn update_source(
         let client = state.db.get().await.map_err(internal_error)?;
         let row = client
             .query_one(
-                "SELECT id, name, source_type, config, schedule, enabled FROM collector_sources WHERE id = $1",
+                "SELECT id, name, source_type, config, schedule, enabled, country FROM collector_sources WHERE id = $1",
                 &[&id],
             )
             .await
@@ -4757,6 +4765,7 @@ async fn update_source(
             "config": row.get::<_, Value>(3),
             "schedule": row.get::<_, Option<String>>(4),
             "enabled": row.get::<_, bool>(5),
+            "country": row.get::<_, Option<String>>(6),
         });
         e
     };
@@ -4766,13 +4775,14 @@ async fn update_source(
     let config = payload.config.unwrap_or_else(|| existing["config"].clone());
     let schedule = payload.schedule.or_else(|| existing["schedule"].as_str().map(|s| s.to_string()));
     let enabled = payload.enabled.unwrap_or_else(|| existing["enabled"].as_bool().unwrap_or(true));
+    let country = payload.country.or_else(|| existing["country"].as_str().map(|s| s.to_string()));
 
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
         .query_one(
-            "UPDATE collector_sources SET name=$1, source_type=$2, config=$3, schedule=$4, enabled=$5, updated_at=NOW()
-             WHERE id=$6 RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text",
-            &[&name, &source_type, &config, &schedule, &enabled, &id],
+            "UPDATE collector_sources SET name=$1, source_type=$2, config=$3, schedule=$4, enabled=$5, country=$6, updated_at=NOW()
+             WHERE id=$7 RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text, country",
+            &[&name, &source_type, &config, &schedule, &enabled, &country, &id],
         )
         .await
         .map_err(internal_error)?;
@@ -4784,6 +4794,7 @@ async fn update_source(
             "name": row.get::<_, String>(1),
             "source_type": row.get::<_, String>(2),
             "config": row.get::<_, Value>(3),
+            "country": row.get::<_, Option<String>>(8),
             "schedule": row.get::<_, Option<String>>(4),
             "enabled": row.get::<_, bool>(5),
             "created_at": row.get::<_, Option<String>>(6),
