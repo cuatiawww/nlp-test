@@ -1269,7 +1269,7 @@ export default function ReportsPage() {
                       { id: 'tiktok', label: 'TikTok Video Descs' },
                       { id: 'mastodon', label: 'Mastodon Fediverse' },
                       { id: 'who', label: 'WHO Official Bulletins' },
-                      { id: 'kemenkes', label: 'MoH Surveillance Net' },
+                      { id: 'kemenkes', label: 'ABVC Surveillance Net' },
                     ].map((src) => {
                       const isChecked = selectedSources.includes(src.id)
                       return (

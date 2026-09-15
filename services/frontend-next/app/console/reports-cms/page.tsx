@@ -29,6 +29,7 @@ import {
   getStoredReports,
   saveReportToStore,
   deleteReportFromStore,
+  sanitizeReport,
 } from "@/lib/reports-store"
 import { ReportCoverThumbnail } from "@/components/reports/ReportCoverThumbnail"
 
@@ -54,7 +55,7 @@ export default function ConsoleReportsCmsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    setReports(getStoredReports())
+    setReports(getStoredReports().map(sanitizeReport))
   }, [])
 
   const showToast = (msg: string) => {
@@ -63,7 +64,7 @@ export default function ConsoleReportsCmsPage() {
   }
 
   const filteredReports = useMemo(() => {
-    return reports.filter((item) => {
+    return reports.map(sanitizeReport).filter((item) => {
       const q = searchQuery.toLowerCase()
       const matchSearch =
         item.title.toLowerCase().includes(q) ||

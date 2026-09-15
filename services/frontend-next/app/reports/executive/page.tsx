@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react"
 import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
 import { PublishedReportItem, ReportTemplateType } from "@/types/reports"
-import { getStoredReports, saveReportToStore } from "@/lib/reports-store"
+import { getStoredReports, saveReportToStore, sanitizeReport } from "@/lib/reports-store"
 import {
   Printer,
   Download,
@@ -226,8 +226,9 @@ function ExecutiveReportContent() {
 
   useEffect(() => {
     if (reportIdParam) {
-      const stored = getStoredReports().find((r) => r.id === reportIdParam)
-      if (stored) {
+      const rawStored = getStoredReports().find((r) => r.id === reportIdParam)
+      if (rawStored) {
+        const stored = sanitizeReport(rawStored)
         setReportTitle(stored.title)
         setReportAuthor(stored.author)
         setEpiPeriodText(stored.period)
