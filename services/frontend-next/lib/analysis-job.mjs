@@ -20,5 +20,5 @@ export async function waitForAnalysis(initial, poll, {interval = 2000, timeout =
   }
   await new Promise(resolve => setTimeout(resolve, interval));
  }
- throw new Error('Analysis is still queued. Job ID: ' + initial.job_id);
+ throw new Error('URL analysis timed out while still queued. Job ID: ' + initial.job_id);
 }

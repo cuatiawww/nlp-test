@@ -464,26 +464,27 @@ def extract_article(item: dict) -> dict:
 
     response = requests.post(
         COLLECTOR_URL + "/extract-url",
-        json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 15000},
+        json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 15000, "max_retries": 0},
         timeout=(5, 25),
     )
     response.raise_for_status()
     extracted = response.json().get("data") or {}
 
-    # If HTTP returned sparse content (e.g. JavaScript SPA like BRIN), retry with auto
+    # Sparse SPA shells get one more HTTP pass, never stealth/browser. Stealth
+    # ignores cooperative cancellation and is what produced 504s on URL jobs.
     if len(str(extracted.get("content") or "").strip()) < 150:
         try:
             retry_resp = requests.post(
                 COLLECTOR_URL + "/extract-url",
-                json={"url": item["url"], "fetch_mode": "auto", "timeout_ms": 25000},
-                timeout=(5, 35),
+                json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 15000, "max_retries": 0},
+                timeout=(5, 20),
             )
             if retry_resp.status_code == 200:
                 retry_extracted = retry_resp.json().get("data") or {}
                 if len(str(retry_extracted.get("content") or "").strip()) > len(str(extracted.get("content") or "").strip()):
                     extracted = retry_extracted
         except Exception as retry_exc:
-            logger.debug("Auto fetch fallback failed for %s: %s", item["url"], retry_exc)
+            logger.debug("HTTP fetch fallback failed for %s: %s", item["url"], retry_exc)
 
     return {**item, **extracted, "url": item["url"], "source_name": item.get("source_name") or extracted.get("source_name")}
 

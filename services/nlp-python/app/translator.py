@@ -26,7 +26,7 @@ def _remote_post(url: str, headers: dict[str, str], body: dict[str, Any]):
             if time.time() < _remote_translation_cooldown_until:
                 return None
         import requests
-        timeout = min(30, max(1, int(os.getenv("TRANSLATION_STAGE_TIMEOUT_SECONDS", "45"))))
+        timeout = min(30, max(1, config.TRANSLATION_STAGE_TIMEOUT_SECONDS))
         response = requests.post(url, headers=headers, json=body, timeout=timeout)
         if response.status_code == 429:
             with _remote_translation_state_lock:

@@ -158,6 +158,12 @@ def analyze_url_endpoint(payload: AnalyzeRequest):
         return analyze_bounded(bounded_req)
     except HTTPException:
         raise
+    except TimeoutError as exc:
+        logger.warning("URL NLP analysis timed out: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            detail="URL NLP analysis timed out",
+        ) from exc
     except Exception as exc:
         logger.exception("Failed to analyze URL payload: %s", exc)
         raise HTTPException(

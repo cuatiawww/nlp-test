@@ -1,16 +1,16 @@
 """Opt-in endpoint for interactive jobs only; legacy /nlp/analyze is unchanged."""
 import logging
-import os
 import threading
 from fastapi import APIRouter, HTTPException
+from . import config
 from .schemas import AnalyzeRequest
 from .stage_budget import bounded_call
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 slots = threading.BoundedSemaphore(1)
-TRANSLATION_STAGE_TIMEOUT_SECONDS = int(os.getenv("TRANSLATION_STAGE_TIMEOUT_SECONDS", "45"))
-INFERENCE_STAGE_TIMEOUT_SECONDS = int(os.getenv("INFERENCE_STAGE_TIMEOUT_SECONDS", "90"))
+TRANSLATION_STAGE_TIMEOUT_SECONDS = config.TRANSLATION_STAGE_TIMEOUT_SECONDS
+INFERENCE_STAGE_TIMEOUT_SECONDS = config.INFERENCE_STAGE_TIMEOUT_SECONDS
 
 class BoundedRequest(AnalyzeRequest):
     rules_only: bool = False

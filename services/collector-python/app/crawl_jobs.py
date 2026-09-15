@@ -283,7 +283,7 @@ async def _run_job(job_id: str, payload: dict, reprocess: bool = False):
         for item in discovered:
             try:
                 if not reprocess:
-                    collector = WebScraperCollector({"id": "crawl-matrix", "name": item.get("source_name", "News"), "config": {"fetch_mode": "http", "timeout_ms": 12000, "max_pages": 1}})
+                    collector = WebScraperCollector({"id": "crawl-matrix", "name": item.get("source_name", "News"), "config": {"fetch_mode": "http", "timeout_ms": 12000, "max_pages": 1, "max_retries": 0, "skip_stealth": True}})
                     extracted = await asyncio.wait_for(collector.extract_url(item["url"]), timeout=18)
                     article = {**item, **extracted, "url": item["url"], "source_name": item.get("source_name")}
                 else:
