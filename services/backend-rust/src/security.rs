@@ -34,10 +34,12 @@ pub const DASHBOARD_EVENT_PREDICATE: &str = r#"(e.is_health_related = TRUE)
                  AND LOWER(COALESCE(e.source_type, '')) <> 'test'
                  AND LOWER(COALESCE(e.source_type, '')) NOT IN ('skdr', 'skdr_api')"#;
 
+#[allow(dead_code)]
 pub fn dashboard_event_predicate(alias: &str) -> String {
     DASHBOARD_EVENT_PREDICATE.replace("e.", &format!("{alias}."))
 }
 
+#[allow(dead_code)]
 pub fn sane_cases_expr(alias: &str) -> String {
     if alias.is_empty() {
         SANE_CASES_SQL.to_string()
@@ -46,6 +48,7 @@ pub fn sane_cases_expr(alias: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub fn sane_deaths_expr(alias: &str) -> String {
     if alias.is_empty() {
         SANE_DEATHS_SQL.to_string()
