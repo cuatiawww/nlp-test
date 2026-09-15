@@ -18,7 +18,7 @@ export const SOURCE_COUNTRY_OPTIONS = [
   'Myanmar',
   'Timor-Leste',
   'ASEAN / Asia',
-  'International',
+  'Outside ASEAN',
 ]
 
 const COUNTRIES: Record<string, SourceCountry> = {
@@ -84,9 +84,12 @@ const TLD_COUNTRIES: Record<string, SourceCountry> = {
 function countryFromValue(value: unknown): SourceCountry | undefined {
   if (typeof value !== 'string') return undefined
   const normalized = value.trim().toLowerCase()
+  if (normalized.includes('outside asean')) {
+    return { name: 'Outside ASEAN', code: 'GLOBAL' }
+  }
   if (!normalized) return undefined
   if (normalized.includes('global') || normalized.includes('international') || normalized.includes('world')) {
-    return { name: 'International', code: 'GLOBAL' }
+    return { name: 'Outside ASEAN', code: 'GLOBAL' }
   }
   if (normalized.includes('asean') || normalized.includes('regional') || normalized.includes('asia')) {
     return { name: 'ASEAN / Asia', code: 'ASEAN' }
@@ -161,11 +164,11 @@ export function resolveSourceCountry(source: Pick<Source, 'name' | 'config' | 'c
     return name.includes('cdc') ? { name: 'United States', code: 'US' } : COUNTRIES.id
   }
   if (name.includes('who') || name.includes('reliefweb') || name.includes('reddit') || name.includes('mastodon')) {
-    return { name: 'International', code: 'GLOBAL' }
+    return { name: 'Outside ASEAN', code: 'GLOBAL' }
   }
   if (name.includes('google news asia')) return { name: 'ASEAN / Asia', code: 'ASEAN' }
   if (name.includes('google news') || name.includes('outbreak news')) {
-    return { name: 'International', code: 'GLOBAL' }
+    return { name: 'Outside ASEAN', code: 'GLOBAL' }
   }
 
   return { name: 'Unclassified', code: null }

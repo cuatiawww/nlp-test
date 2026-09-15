@@ -8,6 +8,7 @@
   IbsSummary,
   CrawlJobStatus,
   InteroperabilityIntegration,
+  SourceSummary,
 } from "@/types";
 
 // Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
@@ -151,6 +152,7 @@ export async function loginUser(
 // ── Existing named helpers ─────────────────────────
 
 export const fetchSources = () => fetchFrom<Source[]>("/api/v1/sources");
+export const fetchSourceSummary = () => fetchFrom<SourceSummary>("/api/v1/sources/summary");
 export const createSource = (data: Partial<Source>) =>
   postTo<Source>("/api/v1/sources", data);
 export const updateSource = (id: string, data: Partial<Source>) =>

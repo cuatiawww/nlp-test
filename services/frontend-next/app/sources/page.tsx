@@ -1,16 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
-import { Plus, Play, Trash2 } from 'lucide-react'
+import { ChevronDown, Database, Globe2, Plus, Play, ShieldCheck, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Source } from '@/types'
+import type { Source, SourceSummary } from '@/types'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
 import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import SourceForm from '@/components/SourceForm'
-import { triggerCollect, triggerCollectAll, deleteSource } from '@/lib/api'
+import { fetchSourceSummary, triggerCollect, triggerCollectAll, deleteSource } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
 import { resolveSourceCountry } from '@/lib/source-country'
 
@@ -19,11 +19,24 @@ export default function SourcesPage() {
   const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<Source>('/api/v1/sources')
   const [showModal, setShowModal] = useState(false)
   const [editSource, setEditSource] = useState<any | null>(null)
+  const [summary, setSummary] = useState<SourceSummary | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+  const [showCoverage, setShowCoverage] = useState(false)
+
+  const loadSummary = useCallback(async () => {
+    setSummaryLoading(true)
+    try { setSummary(await fetchSourceSummary()) } catch { setSummary(null) }
+    finally { setSummaryLoading(false) }
+  }, [])
+
+  useEffect(() => { loadSummary() }, [loadSummary])
+
+  const refreshSources = () => { reload(); void loadSummary() }
 
   const handleTrigger = async (id: string, name: string) => {
     toast.promise(triggerCollect(id), {
       loading: t('pages.sources.processing', { name }),
-      success: () => { setTimeout(reload, 500); return `${name} ${t('common.done') || 'done'}` },
+      success: () => { setTimeout(refreshSources, 500); return `${name} ${t('common.done') || 'done'}` },
       error: t('common.error'),
     })
   }
@@ -31,7 +44,7 @@ export default function SourcesPage() {
   const handleTriggerAll = () => {
     toast.promise(triggerCollectAll(), {
       loading: t('pages.sources.processingAll'),
-      success: () => { setTimeout(reload, 1000); return t('pages.sources.allDone') },
+      success: () => { setTimeout(refreshSources, 1000); return t('pages.sources.allDone') },
       error: t('common.error'),
     })
   }
@@ -41,7 +54,7 @@ export default function SourcesPage() {
     try {
       await deleteSource(id)
       toast.success(t('common.deletedSuccess'))
-      reload()
+      refreshSources()
     } catch { toast.error(t('common.deleteFailed')) }
   }
 
@@ -89,6 +102,78 @@ export default function SourcesPage() {
           <SearchInput value={search} onChange={setSearch} placeholder={`${t("common.search")}...`} />
         </div>
       </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Source Inventory</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900">{summaryLoading ? '—' : (summary?.total_sources ?? 0).toLocaleString()}</p>
+              <p className="mt-1 text-xs text-slate-500">Total registered sources</p>
+            </div>
+            <span className="rounded-xl bg-blue-50 p-2.5 text-[#0060A9]"><Database className="h-5 w-5" /></span>
+          </div>
+          <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-600">
+            <span className="font-semibold text-[#0060A9]">{summaryLoading ? '—' : (summary?.web_sources ?? 0).toLocaleString()}</span> web endpoints
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Source Credibility</p>
+              <p className="mt-2 text-3xl font-bold text-emerald-600">{summaryLoading ? '—' : (summary?.credible_sources ?? 0).toLocaleString()}</p>
+              <p className="mt-1 text-xs text-slate-500">Credible sources (≥ 70%)</p>
+            </div>
+            <span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600"><ShieldCheck className="h-5 w-5" /></span>
+          </div>
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
+            <span className="text-slate-500">Needs review</span>
+            <span className="font-semibold text-amber-600">{summaryLoading ? '—' : (summary?.needs_review_sources ?? 0).toLocaleString()}</span>
+          </div>
+        </div>
+
+        <button type="button" onClick={() => setShowCoverage(value => !value)} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-[#0060A9]/40 hover:shadow-md">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Geographic Coverage</p>
+              <p className="mt-2 text-3xl font-bold text-[#0060A9]">{summaryLoading ? '—' : (summary?.asean_sources ?? 0).toLocaleString()}</p>
+              <p className="mt-1 text-xs text-slate-500">ASEAN sources</p>
+            </div>
+            <span className="rounded-xl bg-blue-50 p-2.5 text-[#0060A9]"><Globe2 className="h-5 w-5" /></span>
+          </div>
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
+            <span className="text-slate-500">Outside ASEAN</span>
+            <span className="flex items-center gap-1 font-semibold text-slate-700">{summaryLoading ? '—' : (summary?.outside_sources ?? 0).toLocaleString()} <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showCoverage ? 'rotate-180' : ''}`} /></span>
+          </div>
+        </button>
+      </div>
+
+      {showCoverage && summary && (
+        <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-[0.06em] text-slate-800">ASEAN Source Distribution</h2>
+              <p className="mt-1 text-xs text-slate-500">Countries ranked by registered source count.</p>
+            </div>
+            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-[#0060A9]">{summary.asean_sources.toLocaleString()} total</span>
+          </div>
+          <div className="mt-4 grid gap-x-8 gap-y-3 md:grid-cols-2">
+            {summary.asean_by_country.map((item) => {
+              const share = summary.asean_sources ? Math.round((item.source_count / summary.asean_sources) * 100) : 0
+              return (
+                <div key={item.country}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-700">{item.country}</span>
+                    <span className="text-slate-500">{item.source_count.toLocaleString()} · {share}%</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-[#0060A9]" style={{ width: `${Math.max(share, item.source_count > 0 ? 1 : 0)}%` }} /></div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
@@ -155,7 +240,7 @@ export default function SourcesPage() {
       </div>
 
       <Modal open={showModal} title={editSource ? `${t('common.edit')} ${t('pages.sources.title')}` : `${t('common.add')} ${t('pages.sources.title')}`} onClose={() => setShowModal(false)}>
-        <SourceForm source={editSource} onSaved={() => { setShowModal(false); reload() }} onCancel={() => setShowModal(false)} />
+        <SourceForm source={editSource} onSaved={() => { setShowModal(false); refreshSources() }} onCancel={() => setShowModal(false)} />
       </Modal>
     </div>
   )

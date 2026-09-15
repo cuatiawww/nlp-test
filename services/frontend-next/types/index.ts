@@ -18,6 +18,18 @@ export type Source = {
   source_credibility?: number;
 };
 
+export type SourceSummary = {
+  total_sources: number;
+  web_sources: number;
+  credible_sources: number;
+  needs_review_sources: number;
+  average_credibility: number;
+  asean_sources: number;
+  outside_sources: number;
+  credibility_threshold: number;
+  asean_by_country: { country: string; source_count: number }[];
+};
+
 export type Run = {
   id: string;
   source_id: string;

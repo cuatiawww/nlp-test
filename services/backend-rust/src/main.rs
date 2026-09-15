@@ -744,6 +744,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/morbidity-mortality", get(morbidity_mortality_handler))
         .route("/api/v1/skdr-reports", get(list_skdr_reports))
         .route("/api/v1/dashboard/summary", get(dashboard_summary))
+        .route("/api/v1/sources/summary", get(source_summary))
         .route("/api/v1/sources", get(list_sources).post(create_source))
         .route("/api/v1/sources/collect-all", post(trigger_collect_all))
         .route(
@@ -4664,6 +4665,101 @@ async fn list_sources(
 
     Ok(Json(ApiResponse {
         success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+    }))
+}
+
+async fn source_summary(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    // Source credibility is configured per source type. The 0.70 threshold is
+    // explicit so the dashboard classifies every source consistently.
+    let totals = client
+        .query_one(
+            "SELECT COUNT(*)::bigint AS total_sources,
+                    COUNT(*) FILTER (WHERE LOWER(s.source_type) = 'web')::bigint AS web_sources,
+                    COUNT(*) FILTER (WHERE COALESCE(sc.score, 0.50) >= 0.70)::bigint AS credible_sources,
+                    COUNT(*) FILTER (WHERE COALESCE(sc.score, 0.50) < 0.70)::bigint AS needs_review_sources,
+                    COALESCE(AVG(COALESCE(sc.score, 0.50)), 0.0)::double precision AS average_credibility,
+                    COUNT(*) FILTER (WHERE CASE
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) IN ('brunei', 'brunei darussalam') THEN 'brunei'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'cambodia' THEN 'cambodia'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'indonesia' THEN 'indonesia'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'laos' THEN 'laos'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'malaysia' THEN 'malaysia'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'myanmar' THEN 'myanmar'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'philippines' THEN 'philippines'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'singapore' THEN 'singapore'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'thailand' THEN 'thailand'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) IN ('timor-leste', 'timor leste', 'east timor') THEN 'timor-leste'
+                        WHEN LOWER(BTRIM(COALESCE(s.country, ''))) = 'vietnam' THEN 'vietnam'
+                        ELSE NULL
+                    END IS NOT NULL)::bigint AS asean_sources
+             FROM collector_sources s
+             LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = LOWER(s.source_type)
+             WHERE s.id IS NOT NULL",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let total_sources: i64 = totals.get(0);
+    let asean_sources: i64 = totals.get(5);
+    let country_rows = client
+        .query(
+            "WITH normalized AS (
+                 SELECT CASE
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'cambodia' THEN 'Cambodia'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'indonesia' THEN 'Indonesia'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'laos' THEN 'Laos'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'malaysia' THEN 'Malaysia'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'myanmar' THEN 'Myanmar'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'philippines' THEN 'Philippines'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'singapore' THEN 'Singapore'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'thailand' THEN 'Thailand'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) IN ('timor-leste', 'timor leste', 'east timor') THEN 'Timor-Leste'
+                     WHEN LOWER(BTRIM(COALESCE(country, ''))) = 'vietnam' THEN 'Vietnam'
+                     ELSE NULL
+                 END AS country
+                 FROM collector_sources
+             )
+             SELECT country, COUNT(*)::bigint AS source_count
+             FROM normalized
+             WHERE country IS NOT NULL
+             GROUP BY country
+             ORDER BY source_count DESC, country ASC",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let asean_by_country: Vec<Value> = country_rows
+        .into_iter()
+        .map(|row| json!({
+            "country": row.get::<_, String>(0),
+            "source_count": row.get::<_, i64>(1),
+        }))
+        .collect();
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "total_sources": total_sources,
+            "web_sources": totals.get::<_, i64>(1),
+            "credible_sources": totals.get::<_, i64>(2),
+            "needs_review_sources": totals.get::<_, i64>(3),
+            "average_credibility": totals.get::<_, f64>(4),
+            "asean_sources": asean_sources,
+            "outside_sources": total_sources - asean_sources,
+            "asean_by_country": asean_by_country,
+            "credibility_threshold": 0.70,
+        }),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
     }))
 }
 
