@@ -5,6 +5,8 @@ import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
 import { PublishedReportItem, ReportTemplateType } from "@/types/reports"
 import { getStoredReports, saveReportToStore, sanitizeReport } from "@/lib/reports-store"
+import { exportReportToPdf } from "@/lib/pdf-export"
+import { toast } from "sonner"
 import {
   Printer,
   Download,
@@ -77,6 +79,8 @@ function ExecutiveReportContent() {
   // ==========================================
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<string>("summary")
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
+  const [pdfProgress, setPdfProgress] = useState<string | null>(null)
 
   // 1. Template & Cadence
   const searchParams = useSearchParams()
@@ -85,6 +89,7 @@ function ExecutiveReportContent() {
   const reportIdParam = searchParams.get("reportId")
   const autoEditParam = searchParams.get("edit")
   const autoPrintParam = searchParams.get("print")
+  const autoDownloadParam = searchParams.get("download") || searchParams.get("pdf")
 
   // Theme & Author states
   const [reportTheme, setReportTheme] = useState<ReportThemeType>("formal_white")
@@ -121,11 +126,11 @@ function ExecutiveReportContent() {
 
   // 5. Narrative Content (Inline human editable)
   const [executiveSummary, setExecutiveSummary] = useState(
-    "Integrated epidemiological surveillance intelligence records an accumulation of 7,640 confirmed cases across National & ASEAN member states. Integration of the automated ABVC Surveillance NLP pipeline ensures real-time outbreak signal continuity and cluster verification. Field reviews identify 18 active clusters under intensive monitoring alongside 24 cumulative fatalities (regional average CFR: 0.31%). Public health laboratory networks and cross-border quarantine stations continue optimizing points-of-entry screening and targeted response interventions to mitigate cross-border transmission."
+    "Integrated epidemiological surveillance intelligence records an accumulation of 7,640 confirmed cases across National & ASEAN member states. Ongoing cross-border epidemiological surveillance and laboratory verification across ASEAN member states maintain early warning monitoring. Field reviews identify 18 active clusters under intensive monitoring alongside 24 cumulative fatalities (regional average CFR: 0.31%). Public health laboratory networks and cross-border quarantine stations continue optimizing points-of-entry screening and targeted response interventions to mitigate cross-border transmission."
   )
 
   const [tacticalPoints, setTacticalPoints] = useState<string[]>([
-    "NLP Outbreak Signal & Case Aggregation: Surveillance intelligence recapitulation across National and ASEAN territories records 7,640 cases with real-time coordinated laboratory confirmation response.",
+    "Cross-Border Surveillance & Laboratory Confirmation: Integrated intelligence monitoring across ASEAN member states records 7,640 cases with coordinated rapid laboratory verification.",
     "Early Detection & Rapid Response: Strengthening close contact tracing, rapid diagnostic laboratory confirmation (RDT/PCR), and targeted isolation at active local transmission epicenters.",
     "Vector Control Interventions: Scaling up mass larviciding and focused spatial fogging in hotspot corridors (South Sumatra, West Java, and Bangkok) ahead of peak monsoon season.",
     "Public Risk Communication & Health Advisory: Disseminating timely early warnings for populations in active transmission clusters to accelerate early symptom detection without triggering public alarm."
@@ -244,12 +249,12 @@ function ExecutiveReportContent() {
     if (autoEditParam === "true") {
       setIsEditDrawerOpen(true)
     }
-    if (autoPrintParam === "true") {
+    if (autoPrintParam === "true" || autoDownloadParam === "true") {
       setTimeout(() => {
-        window.print()
+        handleDownloadPdf()
       }, 700)
     }
-  }, [autoEditParam, autoPrintParam])
+  }, [autoEditParam, autoPrintParam, autoDownloadParam])
 
   const handlePublishReport = () => {
     const newId = reportIdParam || (template === "asean_bulletin" ? `mm-${Date.now()}` : `sitrep-${Date.now()}`)
@@ -375,6 +380,27 @@ function ExecutiveReportContent() {
     window.print()
   }
 
+  const handleDownloadPdf = async () => {
+    setIsGeneratingPdf(true)
+    setPdfProgress("Initializing PDF...")
+    toast.info("Generating authentic high-resolution A4 PDF...")
+    try {
+      await exportReportToPdf({
+        filename: `ABVC_Weekly_Situation_Report_${epiPeriodText.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`,
+        elementId: "printable-executive-report",
+        onProgress: (step) => setPdfProgress(step),
+      })
+      toast.success("Official PDF report downloaded successfully!")
+    } catch (err) {
+      console.error("Failed to generate PDF:", err)
+      toast.error("PDF generation failed. Opening print dialog as fallback...")
+      window.print()
+    } finally {
+      setIsGeneratingPdf(false)
+      setPdfProgress(null)
+    }
+  }
+
   const handleResetToBaseline = () => {
     setReportTitle("ABVC Infectious Disease Surveillance & Outbreak Intelligence Report")
     setReportSubtitle("Epidemiological Surveillance Intelligence Centre — ASEAN Biological Threats Surveillance Centre (ABVC)")
@@ -388,7 +414,7 @@ function ExecutiveReportContent() {
     setWatermarkEnabled(false)
     setWatermarkText("")
     setExecutiveSummary(
-      "Integrated epidemiological surveillance intelligence records an accumulation of 7,640 confirmed cases across National & ASEAN member states. Integration of the automated ABVC Surveillance NLP pipeline ensures real-time outbreak signal continuity and cluster verification."
+      "Integrated epidemiological surveillance intelligence records an accumulation of 7,640 confirmed cases across National & ASEAN member states. Ongoing cross-border epidemiological surveillance and laboratory verification across ASEAN member states maintain early warning monitoring."
     )
   }
 
@@ -469,14 +495,11 @@ function ExecutiveReportContent() {
           </Link>
           <div className="h-4 w-px bg-white/20" />
           <div className="flex items-center gap-2">
-            <span className="font-extrabold text-xs sm:text-sm tracking-tight">
-              ABVC EOC Centre — Official Situation Report
+            <span className="font-bold text-xs sm:text-sm tracking-wide">
+              ASEAN Biodiaspora Virtual Center — Situation Report (SitRep)
             </span>
-            <span className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] font-bold text-teal-100">
-              AI Token Generated
-            </span>
-            <span className="hidden sm:inline-flex items-center gap-1 rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
-              <CheckCircle2 className="h-3 w-3" /> Human Verified
+            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium text-emerald-200">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Official Publication
             </span>
           </div>
         </div>
@@ -518,15 +541,31 @@ function ExecutiveReportContent() {
             <span>Customize Document</span>
           </button>
 
-          {/* Quick Print */}
+          {/* Download Official PDF */}
+          <button
+            type="button"
+            disabled={isGeneratingPdf}
+            onClick={handleDownloadPdf}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition active:scale-95 cursor-pointer disabled:opacity-50"
+            title="Download Real High-Resolution A4 PDF File"
+          >
+            {isGeneratingPdf ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            <span>{isGeneratingPdf ? (pdfProgress || "Exporting PDF...") : "Download Official PDF"}</span>
+          </button>
+
+          {/* Quick Print (Ctrl+P) */}
           <button
             type="button"
             onClick={handlePrint}
             className="flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/25 transition cursor-pointer"
-            title="Print or Save as PDF"
+            title="Open Browser Print Dialog (Ctrl+P)"
           >
             <Printer className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Print / PDF</span>
+            <span className="hidden sm:inline">Print (Ctrl+P)</span>
           </button>
 
           {/* Publish Button */}
@@ -667,239 +706,281 @@ function ExecutiveReportContent() {
         {/* ==========================================
             CENTRAL PRINT/PDF REPORT CANVAS
         ========================================== */}
-        <main className={`print-area flex-1 rounded-2xl p-6 sm:p-10 transition duration-300 ${getThemeClass()}`}>
+        <main
+          id="printable-executive-report"
+          className="print-area flex-1 max-w-5xl mx-auto space-y-8"
+        >
           {/* -------------------------------------------
               TEMPLATE 1: ABVC EXECUTIVE SITREP
           -------------------------------------------- */}
           {template === "kemenkes_sitrep" && (
             <div className="space-y-8">
-              {/* Report Header Block (Authentic ABVC Situation Report Format) */}
-              <header className="border-b-2 border-slate-900 pb-5">
-                {/* Authentic Running Top Rule Matching Official PDF */}
-                <div className="flex items-center justify-between pb-2.5 mb-4 border-b border-slate-200 text-[11px] font-bold text-slate-600">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-teal-700" />
-                    <span className="font-black tracking-wider uppercase text-slate-900">
-                      ASEAN Biodiaspora Virtual Center (ABVC)
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 font-mono text-[10px] text-slate-500">
-                    <span>Weekly Situation Report</span>
-                    <span>•</span>
-                    <span className="font-bold text-teal-900">{epiPeriodText}</span>
-                    <span>•</span>
-                    <span className="rounded bg-teal-50 px-1.5 py-0.5 font-bold text-teal-800 border border-teal-200">WSR-2026-38</span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-                  <div className="space-y-1.5 max-w-2xl">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-teal-800 px-2.5 py-0.5 text-[10px] font-black tracking-wider text-white uppercase">
-                        ABVC PHEOC
-                      </span>
-                      <span className="text-xs font-bold text-teal-800">
-                        Official Surveillance &amp; Outbreak Intelligence
-                      </span>
+              {/* =========================================================
+                  PAGE 1: COVER & EXECUTIVE OVERVIEW
+              ========================================================= */}
+              <div
+                data-pdf-page="1"
+                className="bg-white p-8 sm:p-12 rounded-xl border border-slate-300 shadow-xs space-y-6 min-h-[960px] flex flex-col justify-between"
+              >
+                <div className="space-y-6">
+                  {/* Authentic Running Header Matching Official PDF */}
+                  <div className="border-b-2 border-[#004b87] pb-2.5 flex items-center justify-between text-xs text-slate-700">
+                    <div>
+                      <p className="font-bold text-slate-900 text-sm tracking-wide">
+                        ASEAN Biodiaspora Virtual Center
+                      </p>
+                      <p className="text-[11px] text-slate-600">
+                        Weekly Situation Report: Infectious &amp; Emerging Diseases, {epiPeriodText} | WSR 2026-38
+                      </p>
                     </div>
-                    <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight leading-tight">
+                    <div className="text-right text-[11px] text-slate-500">
+                      <span className="font-bold text-slate-800">Public Health Emergency Operation Centre (PHEOC)</span>
+                    </div>
+                  </div>
+
+                  {/* Main Document Title */}
+                  <div className="space-y-1.5 pt-1">
+                    <h1 className="text-2xl sm:text-3xl font-bold text-[#004b87] leading-tight tracking-normal">
                       {reportTitle}
                     </h1>
-                    <p className="text-xs sm:text-sm font-semibold text-slate-600">
+                    <p className="text-sm font-medium text-slate-600">
                       {reportSubtitle}
                     </p>
-                  </div>
-
-                  <div className="shrink-0 text-right text-xs space-y-1">
-                    <p className="font-mono font-black text-slate-900 text-sm">{epiPeriodText}</p>
-                    <p className="text-[11px] text-slate-500">{updatedAtText}</p>
-                    <span className="inline-block rounded-full border border-teal-300 bg-teal-50 px-2.5 py-0.5 text-[10px] font-black text-teal-800 uppercase">
-                      CONFIRMED OFFICIAL
-                    </span>
-                  </div>
-                </div>
-              </header>
-
-              {/* Section 1: KPI Indicator Cards (Focused strictly on Confirmed Cases & Fatalities / Deaths) */}
-              {visibility.kpi && (
-                <section id="kpi-cards" className="grid grid-cols-1 sm:grid-cols-2 gap-4 break-inside-avoid">
-                  {/* Card 1: Total Confirmed Cases */}
-                  <div className="rounded-2xl border-2 border-teal-200/80 bg-gradient-to-br from-teal-50/70 via-white to-slate-50 p-5 space-y-2 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="h-2.5 w-2.5 rounded-full bg-teal-600" />
-                        <p className="text-xs font-black uppercase tracking-wider text-teal-900">
-                          Total Confirmed Cases
-                        </p>
-                      </div>
-                      <span className="rounded-md bg-teal-100/80 px-2 py-0.5 text-[10px] font-black text-teal-900 uppercase">
-                        ASEAN Region
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-3">
-                      <p className="text-3xl sm:text-4xl font-black text-slate-950 font-mono tracking-tight">
-                        {metricTotalKasus.toLocaleString()}
-                      </p>
-                      <span className="inline-flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                        +6.2% vs previous week
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 font-medium">
-                      Cumulative confirmed epidemiological cases recorded across all 11 ASEAN member territories.
+                    <p className="text-xs text-slate-500 pt-1">
+                      Reporting Period: <strong className="text-slate-800 font-semibold">{epiPeriodText}</strong> • Published: {updatedAtText}
                     </p>
                   </div>
 
-                  {/* Card 2: Total Fatalities / Deaths */}
-                  <div className="rounded-2xl border-2 border-rose-200/80 bg-gradient-to-br from-rose-50/60 via-white to-slate-50 p-5 space-y-2 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="h-2.5 w-2.5 rounded-full bg-rose-600" />
-                        <p className="text-xs font-black uppercase tracking-wider text-rose-900">
-                          Total Fatalities (Deaths)
+                  {/* Section 1: KPI Summary Boxes (Clean Institutional Design - NO PILL BADGES) */}
+                  {visibility.kpi && (
+                    <section id="kpi-cards" className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Box 1: Total Confirmed Cases */}
+                      <div className="border border-slate-300 bg-slate-50/60 p-4 rounded-lg space-y-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-700">
+                            Total Confirmed Cases (ASEAN Region)
+                          </p>
+                          <span className="text-xs font-semibold text-emerald-700">
+                            +6.2% vs previous week
+                          </span>
+                        </div>
+                        <p className="text-3xl font-bold text-[#004b87] tabular-nums">
+                          {metricTotalKasus.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-slate-600 leading-normal">
+                          Cumulative confirmed cases reported across all 11 monitored ASEAN member territories.
                         </p>
                       </div>
-                      <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-800 font-mono">
-                        CFR: {metricCfr}%
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-3">
-                      <p className="text-3xl sm:text-4xl font-black text-rose-700 font-mono tracking-tight">
-                        {metricKorbanMeninggal.toLocaleString()}
-                      </p>
-                      <span className="inline-flex items-center text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
-                        Case Fatality Rate: {metricCfr}%
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 font-medium">
-                      Accumulated mortality with safe threshold reference &lt; 1.0% established by WHO/ABVC.
-                    </p>
-                  </div>
-                </section>
-              )}
 
-              {/* Running Print Footer Matching Official ABVC SitRep */}
-              <div className="hidden print:flex items-center justify-between pt-4 mt-8 border-t border-slate-300 text-[9px] font-mono text-slate-500">
-                <span>ASEAN Biodiaspora Virtual Center (ABVC) • Confidential Public Health Intelligence</span>
-                <span>WSR-2026-38 • Official Surveillance SitRep</span>
-              </div>
-
-              {/* Section 2: Executive Summary Narrative */}
-              {visibility.summary && (
-                <section id="summary" className="space-y-2 break-inside-avoid">
-                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 border-b border-slate-200 pb-1.5">
-                    Executive Summary: Infectious Disease Situation &amp; Outbreak Signals
-                  </h3>
-                  <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs sm:text-sm leading-relaxed text-slate-800 space-y-2.5">
-                    <p>{executiveSummary}</p>
-                  </div>
-                </section>
-              )}
-
-              {/* Section 3: Tactical Response Points */}
-              {visibility.tactical && (
-                <section id="tactical-recommendations" className="space-y-2 break-inside-avoid">
-                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 border-b border-slate-200 pb-1.5">
-                    Tactical Response Points &amp; Epidemiological Early Action
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {tacticalPoints.map((point, idx) => (
-                      <div
-                        key={idx}
-                        className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-xs text-slate-800 space-y-1"
-                      >
-                        <p className="font-black text-slate-900">Priority #{idx + 1}</p>
-                        <p className="leading-relaxed text-slate-600">{point}</p>
+                      {/* Box 2: Total Fatalities */}
+                      <div className="border border-slate-300 bg-slate-50/60 p-4 rounded-lg space-y-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-700">
+                            Total Fatalities (Cumulative Deaths)
+                          </p>
+                          <span className="text-xs font-semibold text-slate-700">
+                            CFR: {metricCfr}%
+                          </span>
+                        </div>
+                        <p className="text-3xl font-bold text-rose-700 tabular-nums">
+                          {metricKorbanMeninggal.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-slate-600 leading-normal">
+                          Overall Case Fatality Rate: {metricCfr}% (Reference safety threshold &lt; 1.0%).
+                        </p>
                       </div>
-                    ))}
-                  </div>
-                </section>
-              )}
+                    </section>
+                  )}
 
-              <div className="page-break" />
+                  {/* Section 2: Highlights and Situation Overview */}
+                  {visibility.summary && (
+                    <section id="summary" className="space-y-2">
+                      <h2 className="text-base font-bold text-[#004b87] border-b border-slate-300 pb-1">
+                        Highlights and Situation Overview
+                      </h2>
+                      <div className="text-sm leading-relaxed text-slate-800 space-y-2 text-justify">
+                        <p>{executiveSummary}</p>
+                      </div>
+                    </section>
+                  )}
 
-              {/* Section 4: Spatial GIS Hotspots (WGS84 ASEAN Geomap) */}
-              {visibility.map && (
-                <section id="spatial-map" className="space-y-2 break-inside-avoid">
-                  <SpatialHotspotMap hotspots={hotspots} title="Spatial Mapping: Outbreak Hotspots & Disease Transmission Corridors" />
-                </section>
-              )}
-
-              {/* Section 5: Epidemiological Trends & Disease Burden */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                {visibility.trends && (
-                  <section id="trend-visualization" className="break-inside-avoid">
-                    <TrendEpiCurveChart data={trendData} title="Epidemiological Trends & Weekly Surveillance Transmission Curve" />
-                  </section>
-                )}
-
-                {visibility.distribution && (
-                  <section id="disease-distribution" className="break-inside-avoid">
-                    <DiseaseDistributionDonut shares={diseaseShares} title="Disease Burden Distribution & Clinical Severity Classification" />
-                  </section>
-                )}
-              </div>
-
-              {/* Section 6: Regional Multi-Country Matrix */}
-              {visibility.regionalTable && (
-                <section id="regional-matrix" className="space-y-3 break-inside-avoid">
-                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 border-b border-slate-200 pb-1.5">
-                    Regional Multi-Country Surveillance Matrix (ASEAN Region)
-                  </h3>
-                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100 text-slate-700">
-                        <tr>
-                          <th className="px-3 py-2.5 font-black">Territory / Jurisdiction</th>
-                          <th className="px-3 py-2.5 text-right font-black">Total Cases</th>
-                          <th className="px-3 py-2.5 text-right font-black">Cumulative Fatalities</th>
-                          <th className="px-3 py-2.5 text-right font-black">Case Fatality Rate (%)</th>
-                          <th className="px-3 py-2.5 text-center font-black">Early Warning Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {countryBurdens.map((item) => (
-                          <tr key={item.country} className="hover:bg-slate-50/80">
-                            <td className="px-3 py-2 font-bold text-slate-900">{item.country}</td>
-                            <td className="px-3 py-2 text-right font-mono">{item.cases.toLocaleString()}</td>
-                            <td className="px-3 py-2 text-right font-mono text-rose-700 font-bold">{item.deaths}</td>
-                            <td className="px-3 py-2 text-right font-mono">{item.cfr.toFixed(2)}%</td>
-                            <td className="px-3 py-2 text-center">
-                              <span
-                                className={`inline-block rounded px-2 py-0.5 text-[10px] font-black uppercase ${
-                                  item.cfr > 0.3
-                                    ? "bg-rose-100 text-rose-800"
-                                    : "bg-emerald-100 text-emerald-800"
-                                }`}
-                              >
-                                {item.cfr > 0.3 ? "ACTIVE ALERT" : "MONITORED"}
-                              </span>
-                            </td>
-                          </tr>
+                  {/* Section 3: Surveillance & Response Recommendations */}
+                  {visibility.tactical && (
+                    <section id="tactical-recommendations" className="space-y-2">
+                      <h2 className="text-base font-bold text-[#004b87] border-b border-slate-300 pb-1">
+                        Surveillance &amp; Response Recommendations
+                      </h2>
+                      <ul className="space-y-2 text-sm text-slate-800 list-disc pl-5">
+                        {tacticalPoints.map((point, idx) => (
+                          <li key={idx} className="leading-relaxed">
+                            {point}
+                          </li>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              )}
+                      </ul>
+                    </section>
+                  )}
+                </div>
 
-              <div className="page-break" />
+                {/* Running Footer Page 1 */}
+                <div className="border-t border-slate-300 pt-3 mt-6 flex items-center justify-between text-xs text-slate-500">
+                  <span className="text-[11px]">ASEAN Biodiaspora Virtual Center (ABVC) • Public Health Emergency Operation Centre (PHEOC)</span>
+                  <span className="text-[11px] font-semibold text-slate-700">1 | Page</span>
+                </div>
+              </div>
 
-              {/* Section 7: Verification & Sign-off Sheet */}
-              {visibility.signature && (
-                <section id="endorsement" className="pt-6 border-t-2 border-slate-900 text-xs break-inside-avoid">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
+              {/* =========================================================
+                  PAGE 2: REGIONAL SURVEILLANCE MATRIX & TREND CURVE
+              ========================================================= */}
+              <div
+                data-pdf-page="2"
+                className="bg-white p-8 sm:p-12 rounded-xl border border-slate-300 shadow-xs space-y-6 min-h-[960px] flex flex-col justify-between"
+              >
+                <div className="space-y-6">
+                  {/* Running Header Page 2 */}
+                  <div className="border-b-2 border-[#004b87] pb-2.5 flex items-center justify-between text-xs text-slate-700">
                     <div>
-                      <p className="font-bold text-slate-800">ABVC Disease Surveillance &amp; Health Intelligence System</p>
-                      <p className="text-[11px] text-slate-500">Official document issued automatically following epidemiological intelligence verification</p>
+                      <p className="font-bold text-slate-900 text-sm tracking-wide">
+                        ASEAN Biodiaspora Virtual Center
+                      </p>
+                      <p className="text-[11px] text-slate-600">
+                        Weekly Situation Report: Infectious &amp; Emerging Diseases, {epiPeriodText} | WSR 2026-38
+                      </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[11px] text-slate-500">Jakarta, {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
-                      <p className="mt-8 font-black text-slate-900">Public Health Emergency Operation Centre (PHEOC)</p>
-                      <p className="text-[10px] text-slate-500">ASEAN Biological Threats Surveillance Centre (ABVC)</p>
+                    <div className="text-right text-[11px] text-slate-500">
+                      <span className="font-bold text-slate-800">Public Health Emergency Operation Centre (PHEOC)</span>
                     </div>
                   </div>
-                </section>
-              )}
+
+                  {/* Section 6: Regional Multi-Country Matrix */}
+                  {visibility.regionalTable && (
+                    <section id="regional-matrix" className="space-y-3">
+                      <h2 className="text-base font-bold text-[#004b87] border-b border-slate-300 pb-1">
+                        Cases and Deaths in the ASEAN Region
+                      </h2>
+                      <div className="overflow-hidden rounded-lg border border-slate-300 bg-white">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-100 text-slate-900 border-b-2 border-[#004b87]">
+                            <tr>
+                              <th className="px-3.5 py-2.5 font-bold">Country / Member State</th>
+                              <th className="px-3.5 py-2.5 text-right font-bold">Total Cases</th>
+                              <th className="px-3.5 py-2.5 text-right font-bold">Cumulative Fatalities</th>
+                              <th className="px-3.5 py-2.5 text-right font-bold">Case Fatality Rate (CFR)</th>
+                              <th className="px-3.5 py-2.5 text-center font-bold">Surveillance Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {countryBurdens.map((item) => (
+                              <tr key={item.country} className="hover:bg-slate-50/80">
+                                <td className="px-3.5 py-2.5 font-semibold text-slate-900">{item.country}</td>
+                                <td className="px-3.5 py-2.5 text-right tabular-nums">{item.cases.toLocaleString()}</td>
+                                <td className="px-3.5 py-2.5 text-right tabular-nums text-rose-700 font-bold">{item.deaths}</td>
+                                <td className="px-3.5 py-2.5 text-right tabular-nums">{item.cfr.toFixed(2)}%</td>
+                                <td className="px-3.5 py-2.5 text-center font-medium">
+                                  {item.cfr > 0.3 ? (
+                                    <span className="font-semibold text-rose-700">Active Alert</span>
+                                  ) : (
+                                    <span className="text-slate-600">Monitored</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Section 5: Epidemiological Trends */}
+                  {visibility.trends && (
+                    <section id="trend-visualization" className="space-y-2">
+                      <TrendEpiCurveChart data={trendData} title="Epidemiological Trends & Weekly Surveillance Transmission Curve" />
+                    </section>
+                  )}
+                </div>
+
+                {/* Running Footer Page 2 */}
+                <div className="border-t border-slate-300 pt-3 mt-6 flex items-center justify-between text-xs text-slate-500">
+                  <span className="text-[11px]">ASEAN Biodiaspora Virtual Center (ABVC) • Public Health Emergency Operation Centre (PHEOC)</span>
+                  <span className="text-[11px] font-semibold text-slate-700">2 | Page</span>
+                </div>
+              </div>
+
+              {/* =========================================================
+                  PAGE 3: SPATIAL MAP, DISEASE BURDEN & ENDORSEMENT
+              ========================================================= */}
+              <div
+                data-pdf-page="3"
+                className="bg-white p-8 sm:p-12 rounded-xl border border-slate-300 shadow-xs space-y-6 min-h-[960px] flex flex-col justify-between"
+              >
+                <div className="space-y-6">
+                  {/* Running Header Page 3 */}
+                  <div className="border-b-2 border-[#004b87] pb-2.5 flex items-center justify-between text-xs text-slate-700">
+                    <div>
+                      <p className="font-bold text-slate-900 text-sm tracking-wide">
+                        ASEAN Biodiaspora Virtual Center
+                      </p>
+                      <p className="text-[11px] text-slate-600">
+                        Weekly Situation Report: Infectious &amp; Emerging Diseases, {epiPeriodText} | WSR 2026-38
+                      </p>
+                    </div>
+                    <div className="text-right text-[11px] text-slate-500">
+                      <span className="font-bold text-slate-800">Public Health Emergency Operation Centre (PHEOC)</span>
+                    </div>
+                  </div>
+
+                  {/* Section 4: Spatial GIS Hotspots */}
+                  {visibility.map && (
+                    <section id="spatial-map" className="space-y-2">
+                      <SpatialHotspotMap hotspots={hotspots} title="Spatial Distribution of Outbreak Clusters &amp; Transmission Corridors" />
+                    </section>
+                  )}
+
+                  {/* Disease Burden Distribution */}
+                  {visibility.distribution && (
+                    <section id="disease-distribution" className="space-y-2">
+                      <DiseaseDistributionDonut shares={diseaseShares} title="Disease Burden Distribution &amp; Clinical Severity Classification" />
+                    </section>
+                  )}
+
+                  {/* Section 7: Verification & Sign-off Sheet */}
+                  {visibility.signature && (
+                    <section id="endorsement" className="pt-6 border-t-2 border-[#004b87] text-xs">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
+                        <div className="space-y-1">
+                          <p className="font-bold text-[#004b87] text-xs uppercase tracking-wide">
+                            ASEAN Biodiaspora Virtual Center (ABVC)
+                          </p>
+                          <p className="text-slate-600 text-xs">
+                            Public Health Emergency Operation Centre (PHEOC)
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            Official epidemiological surveillance publication verified by technical analysts.
+                          </p>
+                        </div>
+                        <div className="text-left sm:text-right space-y-1">
+                          <p className="text-xs text-slate-600">
+                            Jakarta, {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                          </p>
+                          <div className="pt-6">
+                            <p className="font-bold text-slate-900 text-xs border-t border-slate-400 pt-1 inline-block min-w-[200px]">
+                              PHEOC Surveillance Operations
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              ASEAN Secretariat / ABVC Health Division
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  )}
+                </div>
+
+                {/* Running Footer Page 3 */}
+                <div className="border-t border-slate-300 pt-3 mt-6 flex items-center justify-between text-xs text-slate-500">
+                  <span className="text-[11px]">ASEAN Biodiaspora Virtual Center (ABVC) • Public Health Emergency Operation Centre (PHEOC)</span>
+                  <span className="text-[11px] font-semibold text-slate-700">3 | Page</span>
+                </div>
+              </div>
             </div>
           )}
 

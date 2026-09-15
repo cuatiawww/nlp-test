@@ -109,15 +109,12 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="mb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
-            <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700 border border-emerald-200">
-              Python GIS Geomap Engine (ASEAN Region &amp; Indonesia)
-            </span>
+          <div>
+            <h4 className="text-sm sm:text-base font-bold text-[#004b87]">{title}</h4>
+            <p className="text-[11px] font-medium text-slate-500 mt-0.5">
+              Geographic distribution of reported infectious disease clusters and cross-border transmission corridors across ASEAN member states
+            </p>
           </div>
-          <p className="text-[11px] font-medium text-slate-500 mt-0.5">
-            Koordinat kartografis spasial klaster kejadian terkonfirmasi NLP (Sabang – Merauke &amp; Koridor Regional ASEAN)
-          </p>
         </div>
         <div className="no-print flex items-center gap-2">
           <a
@@ -188,12 +185,12 @@ interface TrendEpiCurveChartProps {
 export const TrendEpiCurveChart: React.FC<TrendEpiCurveChartProps> = ({
   data,
   title = "Epidemiological Curve: Confirmed Cases & Fatalities Trend",
-  subtitle = "Tren distribusi kejadian infeksi lintas waktu berbasis NLP data stream",
+  subtitle = "Temporal trend of confirmed communicable disease cases across the surveillance timeline",
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null)
 
   const handleDownload = () => {
-    exportSvgToPng(svgRef.current, "kurva_epidemiologi_tren_kasus")
+    exportSvgToPng(svgRef.current, "asean_epidemiological_trend_curve")
   }
 
   const maxCases = Math.max(...data.map((d) => d.cases), 10)
@@ -244,7 +241,7 @@ export const TrendEpiCurveChart: React.FC<TrendEpiCurveChartProps> = ({
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
+          <h4 className="text-sm sm:text-base font-bold text-[#004b87]">{title}</h4>
           <p className="text-[11px] font-medium text-slate-500 mt-0.5">{subtitle}</p>
         </div>
         <button
@@ -442,9 +439,9 @@ export const DiseaseDistributionDonut: React.FC<DiseaseDistributionDonutProps> =
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
+          <h4 className="text-sm sm:text-base font-bold text-[#004b87]">{title}</h4>
           <p className="text-[11px] font-medium text-slate-500 mt-0.5">
-            Proporsi beban kasus per kategori diagnosa ICD-11
+            Proportional disease burden breakdown by ICD-11 diagnostic category
           </p>
         </div>
         <button
@@ -550,7 +547,7 @@ export const CountryCfrBarChart: React.FC<CountryCfrBarChartProps> = ({
   const svgRef = useRef<SVGSVGElement | null>(null)
 
   const handleDownload = () => {
-    exportSvgToPng(svgRef.current, "beban_kasus_dan_cfr_negara")
+    exportSvgToPng(svgRef.current, "asean_country_cases_and_cfr")
   }
 
   const topCountries = [...data].sort((a, b) => b.cases - a.cases).slice(0, 6)
@@ -567,9 +564,9 @@ export const CountryCfrBarChart: React.FC<CountryCfrBarChartProps> = ({
     <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
+          <h4 className="text-sm sm:text-base font-bold text-[#004b87]">{title}</h4>
           <p className="text-[11px] font-medium text-slate-500 mt-0.5">
-            Perbandingan mortalitas dan keparahan wabah per negara
+            Comparison of outbreak mortality and disease severity across member states
           </p>
         </div>
         <button
@@ -634,7 +631,7 @@ export const CountryCfrBarChart: React.FC<CountryCfrBarChartProps> = ({
                   fontWeight="700"
                   fill="#334155"
                 >
-                  {c.cases.toLocaleString()} kasus ({c.deaths} tewas)
+                  {c.cases.toLocaleString()} cases ({c.deaths} deaths)
                 </text>
                 <rect
                   x={width - 80}

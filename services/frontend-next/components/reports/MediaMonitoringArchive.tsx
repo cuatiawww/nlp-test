@@ -264,7 +264,7 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
                         type="button"
                         onClick={() =>
                           window.open(
-                            `/reports/executive?template=asean_bulletin&reportId=${item.id}&print=true`,
+                            `/reports/executive?template=asean_bulletin&reportId=${item.id}&download=true`,
                             "_blank"
                           )
                         }

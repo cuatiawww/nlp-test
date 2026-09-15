@@ -174,7 +174,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = () 
                       type="button"
                       onClick={() =>
                         window.open(
-                          `/reports/executive?template=kemenkes_sitrep&reportId=${item.id}&print=true`,
+                          `/reports/executive?template=kemenkes_sitrep&reportId=${item.id}&download=true`,
                           "_blank"
                         )
                       }
