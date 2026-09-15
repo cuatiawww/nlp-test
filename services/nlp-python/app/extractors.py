@@ -290,7 +290,8 @@ def extract_country_hint(text: str) -> Optional[str]:
         return None
     contextual = re.compile(
         r"(?:including|includes|compared with|compared to|higher than|lower than|"
-        r"both|between|across|regional partners|countries in|in contrast to|with\s+[a-z,\s]+and|than that of)",
+        r"both|between|across|regional partners|countries in|in contrast to|"
+        r"neighbouring|neighboring|unlike|versus|vs\.?|rather than|than that of)",
         re.IGNORECASE,
     )
     country_scores: dict[str, float] = {}
@@ -305,7 +306,7 @@ def extract_country_hint(text: str) -> Optional[str]:
         for m in matches:
             pos = m.start()
             if contextual.search(lower_text[max(0, pos - 80):pos]):
-                score -= 3.0
+                score -= 12.0
         # Accumulate score across aliases for the same country (do not clobber)
         country_scores[standard_country] = country_scores.get(standard_country, 0.0) + score
 
@@ -487,7 +488,8 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
     # 4. Penalty if inside comparative phrasing ("in contrast to Singapore", "including Thailand") = -5
     contextual = re.compile(
         r"(?:including|includes|compared with|compared to|higher than|lower than|"
-        r"both|between|across|regional partners|countries in|in contrast to)",
+        r"both|between|across|regional partners|countries in|in contrast to|"
+        r"neighbouring|neighboring|unlike|versus|vs\.?)",
         re.IGNORECASE,
     )
     counts = Counter(loc for loc, _ in hits)
@@ -512,7 +514,7 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
             if loc_country in config.ASEAN_COUNTRIES or loc in config.ASEAN_COUNTRIES:
                 score += 12.0
             if contextual.search(lower_text[max(0, pos - 80):pos]):
-                score -= 5.0
+                score -= 8.0
             scored[loc] = score
 
     if not scored:
@@ -659,12 +661,98 @@ def is_outbreak_content(text: str) -> bool:
     return is_explicit_outbreak_report(text)
 
 
+def title_lede_text(text: str, max_chars: int = 500) -> str:
+    """Title plus opening sentences — disease and country usually live here."""
+    raw = re.sub(r"[ \t]+", " ", (text or "").strip())
+    if not raw:
+        return ""
+    blocks = [part.strip() for part in re.split(r"\n+", raw) if part.strip()]
+    head = " ".join(blocks[:2]) if blocks else raw
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", raw) if part.strip()]
+    lede = " ".join(sentences[:2]) if sentences else head
+    combined = head if head in lede or lede in head else f"{head} {lede}"
+    return combined[:max_chars]
+
+
+def rank_lede_diseases(candidates: list[str], sample: str) -> list[str]:
+    """Prefer diseases named in the title/lede over later body/sidebar mentions."""
+    unique = list(dict.fromkeys(item for item in candidates if item))
+    folded = (sample or "").lower()
+    def _score(name: str):
+        token = name.lower()
+        first = token.split()[0] if token else ""
+        pos = folded.find(token) if token and token in folded else folded.find(first) if first else 999999
+        if pos == -1:
+            pos = 999999
+        avian = 1 if any(part in token for part in ("h5n1", "avian", "bird flu", "flu burung")) else 0
+        return (-avian, pos, -len(token))
+    return sorted(unique, key=_score)
+
+
+def predict_surveillance_facts(text: str, source_country: Optional[str] = None) -> dict:
+    """Deterministic disease/geo/count facts shared by ingest and the gold runner.
+
+    Manual crawler and bulk ingest must call the same pipeline so mapping and
+    case counts cannot drift between those paths.
+    """
+    lede = title_lede_text(text)
+    opening = text[:1200] if text else ""
+    aliases = extract_alias_diseases(lede) or extract_alias_diseases(opening)
+    diseases = extract_diseases(lede) or extract_diseases(opening)
+    ranked = rank_lede_diseases(aliases + diseases, lede or opening)
+    disease = ranked[0] if ranked else None
+    country = extract_country_hint(text) or normalize_country(source_country)
+    mentioned_asean = [
+        name for name in config.ASEAN_COUNTRIES
+        if re.search(rf"\b{re.escape(name)}\b", text[:2000] if text else "", re.I)
+    ]
+    restrict = country if len(mentioned_asean) <= 1 else None
+    location = extract_location(text, country=restrict)
+    if location and not is_usable_place_name(location, text):
+        location = None
+    all_locations = [
+        item for item in extract_all_locations(text, country=restrict)
+        if is_usable_place_name(str(item.get("name") or ""), text)
+    ]
+    asean_hits = [
+        item for item in all_locations
+        if item.get("country") in config.ASEAN_COUNTRIES or item.get("name") in config.ASEAN_COUNTRIES
+    ]
+    if asean_hits and (not country or country not in config.ASEAN_COUNTRIES):
+        location = asean_hits[0]["name"]
+        country = asean_hits[0].get("country") or country
+    if not location:
+        location = country
+    loc_country = config.LOCATION_COUNTRIES.get(location or "")
+    if loc_country and loc_country in config.ASEAN_COUNTRIES:
+        country = loc_country
+    cases = extract_case_count(text, disease=disease)
+    explicit = has_explicit_case_count(text, disease=disease)
+    if not explicit:
+        cases = 0
+    return {
+        "disease": disease,
+        "diseases": ranked,
+        "country": country,
+        "location": location,
+        "locations": all_locations,
+        "case_count": cases,
+        "case_count_unknown": not explicit,
+        "death_count": extract_death_count(text),
+    }
+
+
 def _sentence_window(text: str, start: int, end: int) -> str:
-    left = text.rfind(".", 0, start)
-    right = text.find(".", end)
-    left = 0 if left < 0 else left + 1
-    right = len(text) if right < 0 else right
-    return text[left:right]
+    left = -1
+    for index, char in enumerate(text[:start]):
+        if char in ".!?\n":
+            left = index
+    right = len(text)
+    for index in range(end, len(text)):
+        if text[index] in ".!?\n":
+            right = index
+            break
+    return text[left + 1:right]
 
 
 def _extract_count(text: str, field: str, default: int, disease: Optional[str] = None) -> int:
@@ -680,7 +768,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         } if len(t) > 2]
     localized_patterns = {
         "case_count": [
-            r"\b([0-9][0-9,.]*)(?:\s+[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+){0,3}\s+(?:cases?|infections?|patients?|warga|kasus|pasien|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
+            r"\b([0-9][0-9,.]*)(?:\s+[A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF()-]+){0,4}\s+(?:cases?|infections?|patients?|warga|kasus|pasien|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
             r"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*([0-9][0-9,.]*)\s*\)",
@@ -931,6 +1019,14 @@ DISEASE_ALIASES = {
     "bird flu": "flu burung",
     "swine flu": "flu babi",
     "whooping cough": "pertussis",
+    "covid-19": "COVID-19",
+    "covid": "COVID-19",
+    "coronavirus": "COVID-19",
+    "kolera": "Cholera",
+    "cholera": "Cholera",
+    "rabies": "Rabies",
+    "penyakit anjing gila": "Rabies",
+    "malaria": "Malaria",
 }
 
 

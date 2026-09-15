@@ -82,8 +82,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         "vi": "Vietnam", "km": "Cambodia", "lo": "Laos",
         "my": "Myanmar", "tl": "Philippines", "tet": "Timor-Leste",
     }
+    facts = extractors.predict_surveillance_facts(text, payload.source_country)
     location_country = (
-        extractors.extract_country_hint(text[:1500])
+        facts.get("country")
+        or extractors.extract_country_hint(text[:1500])
         or extractors.normalize_country(payload.source_country)
         or country_by_language.get(language, "")
     )
@@ -101,8 +103,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     relevance = "medium"
     relevance_confidence = 0.0
 
-    location = extractors.extract_location(text, country=restrict_country)
-    all_locations = extractors.extract_all_locations(text, country=restrict_country)
+    location = facts.get("location") or extractors.extract_location(text, country=restrict_country)
+    all_locations = facts.get("locations") or extractors.extract_all_locations(text, country=restrict_country)
     original_location = location
     if not location and translated_text:
         location = extractors.extract_location(translated_text, country=restrict_country)
@@ -137,6 +139,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         and loc.get("country") in config.ASEAN_COUNTRIES
         and extractors.is_usable_place_name(str(loc.get("name") or ""), text)
     ]
+    if facts.get("country"):
+        raw_country = facts["country"]
     if asean_hits and (raw_country not in config.ASEAN_COUNTRIES or not location):
         location = asean_hits[0]["name"]
         raw_country = asean_hits[0].get("country") or raw_country
@@ -147,13 +151,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     country = extractors.country_scope(raw_country)
     symptoms = extractors.extract_terms(analysis_text, config.SYMPTOM_DICT)
     
-    # Prefer explicit diseases in the title/opening section.
+    # Prefer explicit diseases in the title/lede; do not let later body
+    # frequency (related-story measles, Utah farms) steal the primary label.
+    lede = extractors.title_lede_text(text) + " " + extractors.title_lede_text(analysis_text)
     primary_aliases = sorted(set(
-        extractors.extract_alias_diseases(text[:1200])
+        extractors.extract_alias_diseases(lede)
+        + extractors.extract_alias_diseases(text[:1200])
         + extractors.extract_alias_diseases(analysis_text[:1200])
     ))
     keyword_diseases = sorted(set(
-        extractors.extract_diseases(text[:1200])
+        extractors.extract_diseases(lede)
+        + extractors.extract_diseases(text[:1200])
         + extractors.extract_diseases(analysis_text[:1200])
     ))
     who_mentions = extractors.extract_who_disease_mentions(
@@ -182,14 +190,21 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             return (-avian, -title_hit, -specificity, -cnt, pos)
         return sorted(unique, key=_score)
 
-    primary_candidates = primary_aliases + keyword_diseases + who_mentions
-    primary_extracted = _rank_diseases(primary_candidates, text[:2500] + " " + analysis_text[:2500])
+    primary_candidates = (facts.get("diseases") or []) + primary_aliases + keyword_diseases + who_mentions
+    primary_extracted = extractors.rank_lede_diseases(primary_candidates, lede) or _rank_diseases(
+        primary_candidates, text[:2500] + " " + analysis_text[:2500]
+    )
     fallback_extracted = _rank_diseases(extractors.extract_diseases(analysis_text) + who_mentions, analysis_text)
-    extracted = primary_extracted or fallback_extracted
+    extracted = list(dict.fromkeys(primary_extracted or fallback_extracted))
     for value in structured.get("diseases") or []:
         if isinstance(value, str) and value.strip():
             extracted.append(value.strip().upper().replace("-", ""))
-    extracted = _rank_diseases(extracted, text + " " + analysis_text)
+    extras = _rank_diseases(extracted, text + " " + analysis_text)
+    extracted = list(dict.fromkeys([*(facts.get("diseases") or []), *extracted, *extras]))
+    if facts.get("disease"):
+        extracted = [facts["disease"], *[item for item in extracted if item != facts["disease"]]]
+        disease = facts["disease"]
+        confidence = max(confidence, 0.85)
     has_keywords = bool(extracted or symptoms)
     is_health_related = has_keywords
 
@@ -312,9 +327,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if extracted:
         is_health_related = True
 
-    case_count = extractors.extract_case_count(text, disease=disease if disease != "UNKNOWN" else None)
-    death_count = extractors.extract_death_count(text)
-    explicit_case_count = extractors.has_explicit_case_count(text, disease=disease if disease != "UNKNOWN" else None)
+    case_count = facts.get("case_count") if facts.get("disease") else extractors.extract_case_count(
+        text, disease=disease if disease != "UNKNOWN" else None
+    )
+    death_count = facts.get("death_count") if facts.get("disease") else extractors.extract_death_count(text)
+    explicit_case_count = not facts.get("case_count_unknown", True) if facts.get("disease") else extractors.has_explicit_case_count(
+        text, disease=disease if disease != "UNKNOWN" else None
+    )
     if translated_text and not explicit_case_count:
         case_count = extractors.extract_case_count(translated_text, disease=disease if disease != "UNKNOWN" else None)
         explicit_case_count = extractors.has_explicit_case_count(translated_text, disease=disease if disease != "UNKNOWN" else None)
@@ -609,7 +628,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # endpoint may opt into it.
     try:
         from .surveillance_extraction import (
-            GazetteerLinker, aggregate_relation_totals, build_surveillance_output,
+            GazetteerLinker, build_surveillance_output,
             extract_metric_relations,
         )
         strict_output = build_surveillance_output(
@@ -631,44 +650,36 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             is_health_related = is_health_related or strict_output.health_related
             cred_score = strict_output.source_reliability_score
             if relational_events:
-                # Prefer ASEAN human-case relations. Utah farm counts must not
-                # replace a Cambodia H5N1 event, and first-match gazetteer
-                # collisions such as "Were" are already filtered.
+                # Keep title/lede + ASEAN gazetteer as the primary event.
+                # Surveillance relations may add extra locations but must not
+                # replace Cambodia with Utah or invent a farm-count total.
                 usable_relations = [
                     item for item in relational_events
                     if extractors.is_usable_place_name(item.location.name, text)
                 ]
-                asean_relations = [
-                    item for item in usable_relations
-                    if (item.location.country or "") in config.ASEAN_COUNTRIES
-                ]
-                metric_relations = asean_relations or usable_relations
-                if metric_relations:
-                    case_count, death_count = aggregate_relation_totals(metric_relations)
-                    explicit_case_count = case_count > 0
-                first_relation = (asean_relations or usable_relations or relational_events)[0]
-                if extractors.is_usable_place_name(first_relation.location.name, text):
-                    location = first_relation.location.name
-                    country = extractors.country_scope(first_relation.location.country) or first_relation.location.country
-                    lat = first_relation.location.latitude
-                    lon = first_relation.location.longitude
-                all_locations = [
+                extra_locations = [
                     {
                         "name": item.location.name,
                         "latitude": item.location.latitude,
                         "longitude": item.location.longitude,
                         "country": item.location.country,
                     }
-                    for item in usable_relations or relational_events
-                    if extractors.is_usable_place_name(item.location.name, text)
-                ] or all_locations
+                    for item in usable_relations
+                ]
+                if extra_locations:
+                    known = {(str(item.get("name") or ""), str(item.get("country") or "")) for item in all_locations}
+                    for item in extra_locations:
+                        key = (str(item.get("name") or ""), str(item.get("country") or ""))
+                        if key not in known:
+                            all_locations.append(item)
+                            known.add(key)
             if len(relational_events) >= 2:
-                event_disease = strict_output.disease_classification[0] if strict_output.disease_classification else disease
-                disease = event_disease
-                extracted = [event_disease]
-                sub_events = [
+                extra_sub = [
                     SubEvent(
-                        disease=event_disease,
+                        disease=disease if disease != "UNKNOWN" else (
+                            strict_output.disease_classification[0]
+                            if strict_output.disease_classification else disease
+                        ),
                         location_name=item.location.name,
                         country=item.location.country,
                         latitude=item.location.latitude,
@@ -678,7 +689,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         evidence=item.evidence,
                     )
                     for item in relational_events
+                    if extractors.is_usable_place_name(item.location.name, text)
                 ]
+                if extra_sub and not sub_events:
+                    sub_events = extra_sub
     except Exception as exc:
         logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
 

@@ -29,7 +29,7 @@ COLLECTOR_URL = os.getenv("COLLECTOR_URL", "http://disease-collector-python:8002
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000").rstrip("/")
 POLL_SECONDS = max(1.0, float(os.getenv("CRAWL_MATRIX_POLL_SECONDS", "2")))
 STALE_MINUTES = max(5, int(os.getenv("CRAWL_MATRIX_STALE_MINUTES", "15")))
-SURVEILLANCE_PIPELINE = "surveillance-v1"
+SURVEILLANCE_PIPELINE = "analyze-raw-v1"
 
 ASEAN_COUNTRIES = {
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar",
@@ -591,20 +591,74 @@ def prepare_text_for_nlp(article: dict, max_chars: int = 35000) -> str:
 
 
 def analyze_article(article: dict) -> dict:
+    """Run the same NLP contract as bulk ingest (`/nlp/analyze/raw`)."""
     response = requests.post(
-        NLP_SERVICE_URL + "/nlp/analyze/surveillance",
+        NLP_SERVICE_URL + "/nlp/analyze/raw",
         json={
             "text": prepare_text_for_nlp(article),
-            "source_type": "news",
+            "source_type": article.get("source_type") or "news",
             "source_name": article.get("source_name"),
-            "source_country": article.get("source_country"),
+            "source_country": article.get("source_country") or "",
             "published_at": article.get("published_at"),
             "source_url": article.get("url"),
         },
         timeout=(5, 120),
     )
     response.raise_for_status()
-    return response.json()
+    payload = response.json()
+    return pipeline_analysis_to_matrix(payload.get("data") or payload)
+
+
+def pipeline_analysis_to_matrix(analysis: dict) -> dict:
+    """Adapt ingest NLP output into the crawl-matrix persist shape."""
+    out = dict(analysis or {})
+    locations = []
+    seen: set[str] = set()
+
+    def add(country, provinces, cases, deaths, time_frame=""):
+        name = str(country or "").strip()
+        if not name:
+            return
+        key = name.casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        locations.append({
+            "country": name,
+            "provinces": [str(item).strip() for item in (provinces or []) if str(item).strip()],
+            "reported_cases": int(cases or 0),
+            "deaths": int(deaths or 0),
+            "time_frame": time_frame or out.get("event_date") or "",
+        })
+
+    primary_country = out.get("country")
+    if primary_country and str(primary_country).casefold() == "outside asean":
+        primary_country = None
+    primary_place = out.get("location_name") or out.get("province")
+    add(
+        primary_country,
+        [primary_place] if primary_place and str(primary_place).casefold() != str(primary_country or "").casefold() else [],
+        0 if out.get("case_count_unknown") else out.get("case_count"),
+        out.get("death_count"),
+    )
+    for event in out.get("sub_events") or []:
+        if not isinstance(event, dict):
+            continue
+        add(
+            event.get("country"),
+            [event.get("location_name")],
+            event.get("case_count"),
+            event.get("death_count"),
+            event.get("evidence") or "",
+        )
+    for item in out.get("locations") or []:
+        if not isinstance(item, dict):
+            continue
+        add(item.get("country"), [item.get("name")], 0, 0)
+    out["locations"] = locations
+    if "source_reliability_score" not in out:
+        out["source_reliability_score"] = out.get("source_credibility") or 0.65
+    return out
 
 
 def claim_job() -> tuple[str, dict] | None:

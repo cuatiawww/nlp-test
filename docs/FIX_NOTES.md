@@ -187,6 +187,18 @@ Sources page status is crawl state, not the Edit **ACTIVE** checkbox:
 
 analyze-url returns `evidence`, `province`, `case_count_unknown`, `needs_review`. Crawl matrix rejects non-geo province tokens and no longer defaults ASEAN-region articles to Indonesia. Start is disabled until at least one ICD-11 disease is selected. Article URL is optional (dedicated worker when provided). The job is on-demand and does not wait for the continuous pipeline.
 
+Manual crawler NLP is **`POST /nlp/analyze/raw`** — the same ingest contract as the collector worker — then adapted into matrix rows. It no longer calls `/nlp/analyze/surveillance`. Shared facts come from `extractors.predict_surveillance_facts` (title/lede disease, ASEAN gazetteer country, disease-sentence case counts, no invented totals).
+
+### G. Gold fixtures (20-article accuracy bar)
+
+`services/nlp-python/tests/nlp_gold/` scores disease match, country match, exact cases when present, rejected non-geo tokens (`Were`, `Asia`), and ASEAN-primary for multi-country headlines.
+
+Inline `title`+`text` fixtures are ready now. Parent can attach the live 20-URL pack onto the same ids. Done bar: **≥18/20**. Current seed pack: **20/20**.
+
+```
+cd services/nlp-python && python3 -m unittest tests.test_gold_set -v
+```
+
 ### Verify snapshot parity (staging)
 
 Use the **same** query string on all five URLs (or omit params to use the ASEAN default window):
