@@ -1,10 +1,10 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import RegionalIncidentPage from '@/components/incident/RegionalIncidentPage'
+import RegionalDetailPreview from '@/components/incident/RegionalDetailPreview'
 
 export const metadata: Metadata = {
-  title: 'Country Disease Surveillance Profile | Dashboard Surveilans Kemenkes',
-  description: 'Profil negara dengan indikator kasus, perbandingan penyakit, tren surveilans, dan pola musiman dari API surveilans.',
+  title: 'Regional Disease Surveillance Profile',
+  description: 'Regional disease characteristics, environmental context, mapped signals, case trends, and seasonal patterns.',
 }
 
 export default function DetailRegionPage() {
@@ -13,11 +13,11 @@ export default function DetailRegionPage() {
       fallback={
         <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-500">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0060A9] mr-3" />
-          <span>Memuat Dashboard Surveilans Wilayah...</span>
+          <span>Loading regional surveillance profile...</span>
         </div>
       }
     >
-      <RegionalIncidentPage />
+      <RegionalDetailPreview />
     </Suspense>
   )
 }

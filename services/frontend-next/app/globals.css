@@ -76,6 +76,29 @@
   }
 }
 
+.regional-news-track {
+  animation: regionalNewsTicker 36s linear infinite;
+}
+
+.regional-news-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes regionalNewsTicker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .regional-news-track {
+    animation: none;
+  }
+}
+
 @media print {
   @page {
     size: A4 portrait;

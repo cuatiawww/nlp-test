@@ -285,9 +285,13 @@ WHERE LOWER(BTRIM(name)) IN ('singapore', 'singapura')
       OR NOT (latitude BETWEEN 1.15 AND 1.48 AND longitude BETWEEN 103.60 AND 104.10)
   );
 
--- Drop gazetteer coords that sit outside the attributed ASEAN member bbox.
+-- Locations.latitude/longitude are NOT NULL in the original master schema,
+-- and the backend location CRUD reads them as non-null f64 values. Preserve
+-- the existing coordinates for auditability, but deactivate invalid gazetteer
+-- rows so they cannot be used for joins or rendered as active map pins. The
+-- coordinates can be corrected and the row reactivated by an administrator.
 UPDATE locations
-SET latitude = NULL, longitude = NULL
+SET is_active = FALSE, updated_at = NOW()
 WHERE abvc_asean11_source_country(country) IS NOT NULL
   AND latitude IS NOT NULL
   AND LOWER(BTRIM(name)) NOT IN ('singapore', 'singapura')
