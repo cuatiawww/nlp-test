@@ -148,11 +148,16 @@ async def extract_url(payload: ExtractUrlRequest):
 
 @app.post("/discover-urls")
 async def discover_article_urls(payload: DiscoverUrlsRequest):
-    """Discover bounded candidates from Google News and configured sources."""
+    """Discover bounded candidates from Google News and the stored source catalog.
+
+    Manual crawl loads catalog rows even when they are disabled. The scheduler
+    still uses ``fetch_sources(enabled_only=True)`` so ABVC homepage sources
+    stay off the interval crawler until an administrator enables them.
+    """
     import asyncio
     from .discovery import discover_urls
 
-    sources = db.fetch_sources(enabled_only=True)
+    sources = db.fetch_sources(enabled_only=False)
     results, warnings = await asyncio.to_thread(
         discover_urls,
         [name.strip() for name in payload.disease_names if name.strip()],

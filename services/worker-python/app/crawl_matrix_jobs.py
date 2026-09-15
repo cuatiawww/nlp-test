@@ -173,38 +173,109 @@ def normalize_country(value: str | None) -> str:
     return aliases.get(normalized, normalized)
 
 
+DISEASE_SYNONYMS = {
+    "dengue": (
+        "dengue", "dbd", "demam berdarah", "dengue fever",
+        "dengue haemorrhagic fever", "dengue hemorrhagic fever",
+    ),
+    "measles": ("measles", "campak"),
+    "cholera": ("cholera", "kolera"),
+    "malaria": ("malaria",),
+    "mpox": ("mpox", "monkeypox"),
+    "covid-19": ("covid-19", "covid", "coronavirus"),
+    "influenza": ("influenza", "flu"),
+    "avian influenza": ("avian influenza", "h5n1", "bird flu", "flu burung"),
+    "hantavirus infection": ("hantavirus", "hantavirus infection"),
+}
+
+NON_COUNTRY_LOCATION_LABELS = {
+    "asia", "africa", "europe", "oceania", "antarctica",
+    "southeast asia", "south east asia", "east asia", "south asia",
+    "west asia", "central asia", "north america", "south america",
+    "central america", "middle east", "asean", "asean / asia", "international",
+}
+
+
+def expand_disease_terms(names: list[str] | tuple[str, ...] | set[str]) -> list[str]:
+    """Expand ICD-11 names so campak/DBD still match Measles/Dengue filters."""
+    terms: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        folded = str(name or "").strip().casefold()
+        if not folded or folded in seen:
+            continue
+        seen.add(folded)
+        terms.append(folded)
+        extras: list[str] = []
+        for canonical, aliases in DISEASE_SYNONYMS.items():
+            alias_list = list(aliases)
+            if folded == canonical or folded in alias_list:
+                extras.extend([canonical, *alias_list])
+        for extra in extras:
+            if extra not in seen:
+                seen.add(extra)
+                terms.append(extra)
+    return terms
+
+
+def _term_in_text(term: str, haystack: str) -> bool:
+    if not term:
+        return False
+    if len(term) <= 3:
+        return re.search(rf"\b{re.escape(term)}\b", haystack) is not None
+    return term in haystack
+
+
+def usable_location_countries(analysis: dict) -> list[str]:
+    countries = []
+    for item in analysis.get("locations") or []:
+        value = normalize_country(item.get("country") if isinstance(item, dict) else None)
+        if value and value not in NON_COUNTRY_LOCATION_LABELS:
+            countries.append(value)
+    return countries
+
+
 def article_matches(article: dict, analysis: dict, disease_names: list[str], country: str | None) -> bool:
-    found = [value.casefold() for value in disease_labels(analysis)]
+    selected_terms = expand_disease_terms(disease_names)
+    found_terms = expand_disease_terms(disease_labels(analysis))
     matched_disease = any(
-        name.casefold() in value or value in name.casefold()
-        for name in disease_names for value in found
+        selected in found or found in selected
+        for selected in selected_terms for found in found_terms
     )
-    if not matched_disease and disease_names:
-        full_text = f"{article.get('title', '')} {article.get('content', '')[:3000]}".casefold()
-        matched_disease = any(name.casefold() in full_text for name in disease_names)
+    full_text = f"{article.get('title', '')} {article.get('content', '')[:3000]}".casefold()
+    if not matched_disease and selected_terms:
+        matched_disease = any(_term_in_text(term, full_text) for term in selected_terms)
 
     if not matched_disease:
         return False
 
     if country:
         expected_country = normalize_country(country)
-        loc_countries = [
-            normalize_country(item.get("country"))
-            for item in analysis.get("locations") or []
-        ]
+        loc_countries = usable_location_countries(analysis)
         if loc_countries:
             return expected_country in loc_countries or any(expected_country in lc for lc in loc_countries)
-        full_text = f"{article.get('title', '')} {article.get('content', '')[:3000]}".casefold()
+        source_countries = [
+            normalize_country(article.get("source_country")),
+            normalize_country(analysis.get("source_country")),
+        ]
+        if any(value and (expected_country in value or value in expected_country) for value in source_countries if value):
+            return True
         return expected_country in full_text
     return True
 
 
 def selected_concept(labels: list[str], concepts: list[dict]) -> tuple[str, dict | None]:
     for label in labels:
-        label_key = label.casefold()
+        label_terms = expand_disease_terms([label]) or [label.casefold()]
         for concept in concepts:
-            concept_key = str(concept["canonical_name"]).casefold()
-            if label_key == concept_key or label_key in concept_key or concept_key in label_key:
+            concept_terms = expand_disease_terms([concept["canonical_name"]]) or [
+                str(concept["canonical_name"]).casefold()
+            ]
+            if any(
+                label_term == concept_term or label_term in concept_term or concept_term in label_term
+                for label_term in label_terms
+                for concept_term in concept_terms
+            ):
                 return label, concept
     return (labels[0] if labels else ""), None
 
@@ -486,16 +557,32 @@ def extract_article(item: dict) -> dict:
         except Exception as retry_exc:
             logger.debug("HTTP fetch fallback failed for %s: %s", item["url"], retry_exc)
 
-    return {**item, **extracted, "url": item["url"], "source_name": item.get("source_name") or extracted.get("source_name")}
+    source_country = extracted.get("source_country") or item.get("source_country") or ""
+    return {
+        **item,
+        **extracted,
+        "url": item["url"],
+        "source_name": item.get("source_name") or extracted.get("source_name"),
+        "source_country": source_country,
+        "title": extracted.get("title") or item.get("title") or "",
+    }
+
+
+def prepare_text_for_nlp(article: dict, max_chars: int = 35000) -> str:
+    title = str(article.get("title") or "").strip()
+    content = str(article.get("content") or "").strip()
+    combined = f"{title}\n\n{content}".strip() if title else content
+    return combined[:max_chars]
 
 
 def analyze_article(article: dict) -> dict:
     response = requests.post(
         NLP_SERVICE_URL + "/nlp/analyze/surveillance",
         json={
-            "text": article["content"],
+            "text": prepare_text_for_nlp(article),
             "source_type": "news",
             "source_name": article.get("source_name"),
+            "source_country": article.get("source_country"),
             "published_at": article.get("published_at"),
             "source_url": article.get("url"),
         },
