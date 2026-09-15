@@ -20,5 +20,9 @@
       "command": "source .cursor/dev.env && cd services/frontend-next && npm run dev"
     }
   ],
-  "ports": [3010, 8081, 8001]
+  "ports": [
+    { "name": "frontend-next", "port": 3010 },
+    { "name": "backend-rust", "port": 8081 },
+    { "name": "nlp-python", "port": 8001 }
+  ]
 }
