@@ -84,12 +84,15 @@ export default function ReportsPublicShell({ children }: { children: React.React
         </div>
         <nav className="mx-auto flex max-w-6xl flex-wrap gap-1 px-4 py-2 text-sm">
           {NAV.map((item) => {
+            const onMethodology = pathname.startsWith('/reports/methodology')
             const active =
               item.label === 'Reports'
-                ? pathname.startsWith('/reports')
-                : item.label === 'About' || item.label === 'Sources'
-                  ? pathname.startsWith('/reports/methodology')
-                  : pathname === item.href
+                ? pathname.startsWith('/reports') && !onMethodology
+                : item.label === 'Sources'
+                  ? false
+                  : item.label === 'About'
+                    ? onMethodology
+                    : pathname === item.href
             return (
               <Link
                 key={`${item.label}-${item.href}`}

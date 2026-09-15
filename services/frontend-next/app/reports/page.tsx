@@ -105,6 +105,7 @@ export default function ReportsGalleryPage() {
             className={`rounded-full px-3 py-1 text-xs font-bold ${
               family === chip.id ? 'bg-[#0060A9] text-white' : 'border border-slate-200 bg-white text-slate-600'
             }`}
+            aria-pressed={family === chip.id}
           >
             {chip.label}
           </button>
@@ -119,7 +120,11 @@ export default function ReportsGalleryPage() {
       {error ? <p className="text-sm text-rose-600">{error}</p> : null}
       {!error && items.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
-          <p className="text-lg font-black text-slate-900">0 published bulletin / SitRep editions</p>
+          <p className="text-lg font-black text-slate-900">
+            {family === 'all'
+              ? '0 published bulletin / SitRep editions'
+              : `0 published ${FILTERS.find((chip) => chip.id === family)?.label || family} editions`}
+          </p>
           <p className="mt-2 text-sm text-slate-600">
             This gallery lists frozen publications only. Create a Bulletin or SitRep in CMS (Draft → In review →
             Approved → Published). Primary templates: {REPORT_TEMPLATES.filter((t) => t.primary).map((t) => t.label).join(' and ')}.
