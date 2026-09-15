@@ -802,7 +802,7 @@ export default function DashboardPage() {
   const currentEpi = getCurrentEpiWeek();
   const [filters, setFilters] = useState<EpiFilterState>({
     disease: "all",
-    country: "all",
+    country: "ASEAN",
     startYear: currentEpi.year || currentYear,
     startWeek: 1,
     endYear: currentEpi.year || currentYear,

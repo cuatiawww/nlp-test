@@ -35,6 +35,20 @@ ASEAN_COUNTRIES = {
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar",
     "Philippines", "Singapore", "Thailand", "Timor-Leste", "Vietnam",
 }
+NON_GEO_PROVINCE_TOKENS = {
+    "were", "was", "been", "have", "has", "had", "did", "does",
+    "would", "could", "should", "might", "will", "asia",
+}
+
+
+def clean_province_names(provinces) -> list[str]:
+    cleaned = []
+    for item in provinces or []:
+        name = str(item or "").strip()
+        if not name or name.casefold() in NON_GEO_PROVINCE_TOKENS:
+            continue
+        cleaned.append(name)
+    return cleaned
 
 
 def connect():
@@ -420,7 +434,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             continue
         if request.get("date_to") and published and published > request["date_to"]:
             continue
-        provinces = item.get("provinces") or []
+        provinces = clean_province_names(item.get("provinces") or [])
         if request.get("province_city") and not any(
             request["province_city"].casefold() in str(province).casefold()
             for province in provinces
@@ -463,11 +477,12 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 job_id, raw_id, concept["id"] if concept else None, disease,
                 concept.get("ontology_code") if concept else None,
                 "ASEAN" if country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
-                country, ", ".join(provinces), published, item.get("time_frame") or "",
-                int(item.get("reported_cases") or 0), int(item.get("deaths") or 0),
+                country, ", ".join(provinces) or None, published, item.get("time_frame") or "",
+                0 if analysis.get("case_count_unknown") else int(item.get("reported_cases") or 0),
+                int(item.get("deaths") or 0),
                 latitude, longitude, "news", article.get("source_name"), article.get("url"),
                 article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.0),
-                "needs_review" if not evidence else "processed",
+                "needs_review" if (not evidence or analysis.get("case_count_unknown") or analysis.get("needs_review")) else "processed",
             ),
         )
         rows += 1
@@ -482,7 +497,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                     detected_country = c_name
                     break
         if not detected_country and request.get("region", "").casefold() == "asean":
-            detected_country = "Indonesia"
+            detected_country = None
 
         if detected_country:
             latitude, longitude = country_coordinates(conn, detected_country)
@@ -494,7 +509,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 ),
                 article.get("title", "")[:500],
             )
-            cases = int(analysis.get("case_count") or analysis.get("confirmed_cases") or 0)
+            cases = 0 if analysis.get("case_count_unknown") else int(analysis.get("case_count") or analysis.get("confirmed_cases") or 0)
             deaths = int(analysis.get("death_count") or 0)
             conn.execute(
                 """INSERT INTO crawl_matrix_rows
@@ -512,7 +527,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                     cases, deaths,
                     latitude, longitude, "news", article.get("source_name"), article.get("url"),
                     article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.65),
-                    "processed" if evidence else "needs_review",
+                    "needs_review" if (not evidence or analysis.get("case_count_unknown") or analysis.get("needs_review")) else "processed",
                 ),
             )
             rows += 1

@@ -83,10 +83,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         "my": "Myanmar", "tl": "Philippines", "tet": "Timor-Leste",
     }
     location_country = (
-        extractors.normalize_country(payload.source_country)
-        or extractors.extract_country_hint(text)
+        extractors.extract_country_hint(text[:1500])
+        or extractors.normalize_country(payload.source_country)
         or country_by_language.get(language, "")
     )
+    mentioned_countries = [
+        country for country in config.ASEAN_COUNTRIES
+        if re.search(rf"\b{re.escape(country)}\b", text[:2000], re.I)
+    ]
+    restrict_country = location_country if len(mentioned_countries) <= 1 else None
     disease = "UNKNOWN"
     confidence = 0.40
     sentiment = "neutral"
@@ -96,13 +101,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     relevance = "medium"
     relevance_confidence = 0.0
 
-    location = extractors.extract_location(text, country=location_country)
-    all_locations = extractors.extract_all_locations(text, country=location_country)
+    location = extractors.extract_location(text, country=restrict_country)
+    all_locations = extractors.extract_all_locations(text, country=restrict_country)
     original_location = location
     if not location and translated_text:
-        location = extractors.extract_location(translated_text, country=location_country)
+        location = extractors.extract_location(translated_text, country=restrict_country)
         if not all_locations:
-            all_locations = extractors.extract_all_locations(translated_text, country=location_country)
+            all_locations = extractors.extract_all_locations(translated_text, country=restrict_country)
     is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text)))
     if not location and not is_noisy_early and not payload.historical_fast and not payload.interactive:
         try:
@@ -126,6 +131,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         location = extractors.extract_country_hint(text) or None
     lat, lon = config.LOCATION_COORDS.get(location, (None, None))
     raw_country = location_country or (config.LOCATION_COUNTRIES.get(location) if location else None) or None
+    asean_hits = [
+        loc for loc in all_locations
+        if isinstance(loc, dict)
+        and loc.get("country") in config.ASEAN_COUNTRIES
+        and extractors.is_usable_place_name(str(loc.get("name") or ""), text)
+    ]
+    if asean_hits and (raw_country not in config.ASEAN_COUNTRIES or not location):
+        location = asean_hits[0]["name"]
+        raw_country = asean_hits[0].get("country") or raw_country
+        lat = asean_hits[0].get("latitude")
+        lon = asean_hits[0].get("longitude")
+        if lat is None or lon is None:
+            lat, lon = config.LOCATION_COORDS.get(location, (None, None))
     country = extractors.country_scope(raw_country)
     symptoms = extractors.extract_terms(analysis_text, config.SYMPTOM_DICT)
     
@@ -150,11 +168,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     def _rank_diseases(candidates: list[str], sample: str) -> list[str]:
         unique = list(dict.fromkeys([c for c in candidates if c]))
         l_sample = sample.lower()
+        title = (text[:500] + " " + analysis_text[:500]).lower()
         def _score(name: str):
-            token = name.lower().split()[0] if name else ""
-            cnt = l_sample.count(token) if token else 0
-            pos = l_sample.find(token) if token and token in l_sample else 999999
-            return (-cnt, pos)
+            token = name.lower()
+            first = token.split()[0] if name else ""
+            cnt = l_sample.count(first) if first else 0
+            pos = title.find(token) if token and token in title else l_sample.find(first) if first else 999999
+            if pos == -1:
+                pos = 999999
+            title_hit = 1 if token in title or first in title else 0
+            specificity = len(token)
+            avian = 1 if any(part in token for part in ("h5n1", "avian", "bird flu", "flu burung")) else 0
+            return (-avian, -title_hit, -specificity, -cnt, pos)
         return sorted(unique, key=_score)
 
     primary_candidates = primary_aliases + keyword_diseases + who_mentions
@@ -287,17 +312,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if extracted:
         is_health_related = True
 
-    case_count = extractors.extract_case_count(text)
+    case_count = extractors.extract_case_count(text, disease=disease if disease != "UNKNOWN" else None)
     death_count = extractors.extract_death_count(text)
-    explicit_case_count = extractors.has_explicit_case_count(text)
+    explicit_case_count = extractors.has_explicit_case_count(text, disease=disease if disease != "UNKNOWN" else None)
     if translated_text and not explicit_case_count:
-        case_count = extractors.extract_case_count(translated_text)
-        explicit_case_count = extractors.has_explicit_case_count(translated_text)
+        case_count = extractors.extract_case_count(translated_text, disease=disease if disease != "UNKNOWN" else None)
+        explicit_case_count = extractors.has_explicit_case_count(translated_text, disease=disease if disease != "UNKNOWN" else None)
     if translated_text and death_count == 0:
         death_count = extractors.extract_death_count(translated_text)
-    if not explicit_case_count and isinstance(structured.get("case_count"), int):
-        case_count = max(0, structured["case_count"])
-        explicit_case_count = case_count > 0
+    if not explicit_case_count:
+        case_count = 0
+        explicit_case_count = False
     if death_count == 0 and isinstance(structured.get("death_count"), int):
         death_count = max(0, structured["death_count"])
     reference_markers = (
@@ -390,6 +415,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if not explicit_case_count:
             case_count = 0
     needs_review = confidence < config.LOW_CONFIDENCE_THRESHOLD
+    if not explicit_case_count:
+        needs_review = True
+        case_count = 0
 
     source_type = payload.source_type or "web"
     cred_score = source_reliability_score(
@@ -603,19 +631,25 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             is_health_related = is_health_related or strict_output.health_related
             cred_score = strict_output.source_reliability_score
             if relational_events:
-                # The legacy response has one summary count. Use the sum of
-                # explicit country/province relations, never the first number
-                # found (which can be a strain number such as H3N2).
-                case_count, death_count = aggregate_relation_totals(relational_events)
-                explicit_case_count = case_count > 0
+                # Prefer ASEAN human-case relations. Utah farm counts must not
+                # replace a Cambodia H5N1 event, and first-match gazetteer
+                # collisions such as "Were" are already filtered.
                 usable_relations = [
                     item for item in relational_events
                     if extractors.is_usable_place_name(item.location.name, text)
                 ]
-                first_relation = (usable_relations or relational_events)[0]
+                asean_relations = [
+                    item for item in usable_relations
+                    if (item.location.country or "") in config.ASEAN_COUNTRIES
+                ]
+                metric_relations = asean_relations or usable_relations
+                if metric_relations:
+                    case_count, death_count = aggregate_relation_totals(metric_relations)
+                    explicit_case_count = case_count > 0
+                first_relation = (asean_relations or usable_relations or relational_events)[0]
                 if extractors.is_usable_place_name(first_relation.location.name, text):
                     location = first_relation.location.name
-                    country = first_relation.location.country
+                    country = extractors.country_scope(first_relation.location.country) or first_relation.location.country
                     lat = first_relation.location.latitude
                     lon = first_relation.location.longitude
                 all_locations = [
@@ -706,6 +740,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         suspected_cases=typed_counts["suspected_cases"],
         hospitalizations=typed_counts["hospitalizations"],
         evidence=evidence,
+        case_count_unknown=not explicit_case_count,
+        province=(
+            location
+            if location and country and location.casefold() != str(country).casefold()
+            else None
+        ),
         confidence=confidence,
         outbreak_alert=outbreak_alert,
         sentiment=sentiment,

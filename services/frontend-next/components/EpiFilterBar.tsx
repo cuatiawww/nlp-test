@@ -118,7 +118,7 @@ export default function EpiFilterBar({
     const curY = currentEpi.year || 2026;
     const defaultState: EpiFilterState = {
       disease: 'all',
-      country: 'all',
+      country: 'ASEAN',
       startYear: curY,
       startWeek: 1,
       endYear: curY,
@@ -238,8 +238,8 @@ export default function EpiFilterBar({
                 onChange={(e) => setDraft({ ...draft, country: e.target.value })}
                 className="w-full bg-transparent px-3 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer pr-8"
               >
-                <option value="all">ASEAN (All countries)</option>
-                <option value="ASEAN">ASEAN (Member countries)</option>
+                <option value="ASEAN">ASEAN + Timor-Leste</option>
+                <option value="global">Global (include outside ASEAN)</option>
                 {ASEAN_COUNTRIES.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -249,8 +249,10 @@ export default function EpiFilterBar({
               <ChevronDown className="pointer-events-none absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
             </div>
             <p className="text-[10px] text-slate-400 px-1 truncate">
-              {draft.country === 'all' || draft.country === 'ASEAN'
-                ? 'Southeast Asia regional scope'
+              {draft.country === 'global'
+                ? 'Worldwide including outside ASEAN'
+                : draft.country === 'all' || draft.country === 'ASEAN'
+                ? 'ASEAN + Timor-Leste (India/Pakistan excluded)'
                 : `Selected country: ${draft.country}`}
             </p>
           </div>

@@ -83,6 +83,8 @@ class AnalyzeResponse(BaseModel):
     suspected_cases: Optional[int] = None
     hospitalizations: Optional[int] = None
     evidence: list[str] = []
+    case_count_unknown: bool = False
+    province: Optional[str] = None
     confidence: float
     outbreak_alert: bool
     sentiment: str = "neutral"

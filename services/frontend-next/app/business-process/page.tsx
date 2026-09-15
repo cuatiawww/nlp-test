@@ -94,11 +94,7 @@ export default function BusinessProcessPage() {
 
       <section id="surveillance" className="scroll-mt-16 pt-9">
         <h2 className="text-xl font-black text-slate-900">4. SKDR IBS &amp; EBS Data</h2>
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2 text-sky-700"><Table2 className="h-5 w-5" /><h3 className="font-black">IBS — Indicator-Based Surveillance</h3></div><p className="mt-3 text-xs leading-5 text-slate-600">Routine indicator reports are read directly from <code>skdr_reports</code>. Province totals, cases, reports, status, and weekly trends are served by <code>/api/v1/skdr/ibs-summary</code>.</p></div>
-          <div className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2 text-blue-700"><Radio className="h-5 w-5" /><h3 className="font-black">EBS — Event-Based Surveillance</h3></div><p className="mt-3 text-xs leading-5 text-slate-600">Event and rumor reports are aggregated independently from <code>skdr_reports</code> through <code>/api/v1/skdr/ebs-summary</code>. These summaries feed charts without forcing every report through disease_events.</p></div>
-        </div>
-        <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600">Both summary endpoints support year and province filters. Indexes in <code>database/init/041_skdr_summary_indexes.sql</code> accelerate endpoint/year/province queries.</p>
+        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900">SKDR IBS and EBS integrations are <b>detached</b> for now. Backend routes return HTTP 410, collectors do not schedule <code>skdr_api</code>, and the UI no longer calls IBS/EBS summary APIs. Historical <code>skdr_reports</code> rows remain in the database for a later reattach.</p>
       </section>
 
       <section id="dashboard" className="scroll-mt-16 pt-9">

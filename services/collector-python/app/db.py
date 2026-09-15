@@ -3,6 +3,7 @@ import json
 import hashlib
 import logging
 import threading
+from datetime import datetime, timedelta, timezone
 from psycopg.rows import dict_row
 from . import config
 from .crawler_identity import content_fingerprint, normalize_url, url_hash
@@ -180,6 +181,77 @@ def finalize_stale_runs(max_age_minutes: int = 30) -> int:
     if closed:
         logger.warning("Closed %d stale collector runs", closed)
     return closed
+
+
+def source_in_backoff(source_id: str, max_backoff_minutes: int = 360) -> bool:
+    """Skip a source while exponential backoff after consecutive failures is active."""
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT status, finished_at
+           FROM collector_runs
+           WHERE source_id = %s AND status IN ('SUCCESS', 'FAILED')
+           ORDER BY started_at DESC
+           LIMIT 6""",
+        (source_id,),
+    ).fetchall()
+    streak = 0
+    last_failed_at = None
+    for row in rows:
+        if row["status"] != "FAILED":
+            break
+        streak += 1
+        if last_failed_at is None:
+            last_failed_at = row["finished_at"]
+    if streak <= 0 or last_failed_at is None:
+        return False
+    delay_minutes = min(max_backoff_minutes, 15 * (2 ** min(streak - 1, 5)))
+    return last_failed_at + timedelta(minutes=delay_minutes) > datetime.now(timezone.utc)
+
+
+def fetch_due_source_ids(limit: int = 3, default_interval_minutes: int = 60) -> list[str]:
+    """Enabled non-SKDR sources whose last finished run is older than their interval."""
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT s.id::text AS id,
+                  COALESCE(NULLIF(BTRIM(s.schedule), ''), %s) AS schedule,
+                  lr.finished_at,
+                  lr.status
+           FROM collector_sources s
+           LEFT JOIN LATERAL (
+               SELECT status, finished_at
+               FROM collector_runs
+               WHERE source_id = s.id
+               ORDER BY started_at DESC
+               LIMIT 1
+           ) lr ON TRUE
+           WHERE s.enabled = TRUE
+             AND LOWER(COALESCE(s.source_type, '')) <> 'skdr_api'
+             AND LOWER(COALESCE(s.source_type, '')) IN ('rss', 'web', 'csv', 'social_media', 'api')
+             AND NOT EXISTS (
+                 SELECT 1 FROM collector_runs r
+                 WHERE r.source_id = s.id AND r.status = 'RUNNING'
+             )
+           ORDER BY lr.finished_at NULLS FIRST, s.updated_at DESC
+           LIMIT 50""",
+        (f"interval:{max(15, int(default_interval_minutes))}",),
+    ).fetchall()
+    due = []
+    for row in rows:
+        schedule = row["schedule"] or f"interval:{default_interval_minutes}"
+        interval = default_interval_minutes
+        if str(schedule).startswith("interval:"):
+            try:
+                interval = max(15, int(str(schedule).split(":", 1)[1]))
+            except ValueError:
+                interval = default_interval_minutes
+        elif str(schedule).startswith("daily:"):
+            interval = 24 * 60
+        finished = row["finished_at"]
+        if finished is None or finished <= datetime.now(timezone.utc) - timedelta(minutes=interval):
+            due.append(row["id"])
+        if len(due) >= max(1, int(limit)):
+            break
+    return due
 
 
 def upsert_skdr_report(record: dict) -> dict:

@@ -251,12 +251,16 @@ _PUBLISHER_FOLLOWER = re.compile(
 
 
 def is_usable_place_name(name: str, surrounding_text: str = "", start: int = 0) -> bool:
-    """Reject continents and publisher brands such as Asia News Network."""
+    """Reject continents, function words, and publisher brands such as Asia News Network."""
     raw = (name or "").strip()
     if not raw:
         return False
     folded = _fold_location_text(raw)
     if folded in CONTINENT_AND_REGION_LABELS or folded in config.LOCATION_STOPWORDS:
+        return False
+    # One-word English auxiliaries are never provinces, even when capitalized
+    # at the start of a sentence ("Were monitoring the farm outbreaks").
+    if " " not in folded and folded.isascii() and folded in config.LOCATION_STOPWORDS:
         return False
     if surrounding_text:
         after = surrounding_text[start + len(raw): start + len(raw) + 48]
@@ -309,9 +313,13 @@ def extract_country_hint(text: str) -> Optional[str]:
         return None
 
     # ASEAN surveillance platform bonus: prioritize ASEAN member states
+    # in the title/lede so a Utah/USA secondary clause cannot beat Cambodia.
+    opening = lower_text[:800]
     for c in list(country_scores.keys()):
         if c in config.ASEAN_COUNTRIES:
             country_scores[c] += 5.0
+            if any(alias in opening for alias, standard in COUNTRY_ALIASES.items() if standard == c):
+                country_scores[c] += 8.0
 
     return max(country_scores.keys(), key=lambda k: country_scores[k])
 
@@ -500,6 +508,9 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
                 # Publisher abbreviations in a headline are much stronger
                 # evidence than accidental one-word gazetteer matches.
                 score += 20.0
+            loc_country = config.LOCATION_COUNTRIES.get(loc, "")
+            if loc_country in config.ASEAN_COUNTRIES or loc in config.ASEAN_COUNTRIES:
+                score += 12.0
             if contextual.search(lower_text[max(0, pos - 80):pos]):
                 score -= 5.0
             scored[loc] = score
@@ -571,7 +582,15 @@ def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict
     counts = Counter(loc for loc, _ in hits)
     distinct_names = sorted(
         counts.keys(),
-        key=lambda name: (1 if name == primary else 0, counts[name], len(name)),
+        key=lambda name: (
+            1 if name == primary else 0,
+            1 if (
+                config.LOCATION_COUNTRIES.get(name) in config.ASEAN_COUNTRIES
+                or name in config.ASEAN_COUNTRIES
+            ) else 0,
+            counts[name],
+            len(name),
+        ),
         reverse=True
     )
 
@@ -640,11 +659,25 @@ def is_outbreak_content(text: str) -> bool:
     return is_explicit_outbreak_report(text)
 
 
-def _extract_count(text: str, field: str, default: int) -> int:
+def _sentence_window(text: str, start: int, end: int) -> str:
+    left = text.rfind(".", 0, start)
+    right = text.find(".", end)
+    left = 0 if left < 0 else left + 1
+    right = len(text) if right < 0 else right
+    return text[left:right]
+
+
+def _extract_count(text: str, field: str, default: int, disease: Optional[str] = None) -> int:
     search_text = "".join(
         str(unicodedata.digit(char)) if unicodedata.category(char) == "Nd" else char
         for char in text
     )
+    disease_terms: list[str] = []
+    if disease:
+        disease_terms = [t for t in {
+            disease.strip().lower(),
+            *(disease.strip().lower().split()),
+        } if len(t) > 2]
     localized_patterns = {
         "case_count": [
             r"\b([0-9][0-9,.]*)(?:\s+[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+){0,3}\s+(?:cases?|infections?|patients?|warga|kasus|pasien|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
@@ -668,6 +701,7 @@ def _extract_count(text: str, field: str, default: int) -> int:
             r"(?:သေဆုံးသူ|သေဆုံး)\s*([0-9][0-9,.]*)",
         ],
     }
+    candidates: list[tuple[int, int, int]] = []
     for pattern in localized_patterns.get(field, []):
         for match in re.finditer(pattern, search_text, re.IGNORECASE):
             if not (
@@ -676,8 +710,17 @@ def _extract_count(text: str, field: str, default: int) -> int:
             ):
                 try:
                     parsed = _parse_count(match.group(1), match.group(0))
-                    if parsed is not None:
-                        return parsed
+                    if parsed is None:
+                        continue
+                    window = _sentence_window(search_text, match.start(), match.end()).lower()
+                    score = 1
+                    if disease_terms and any(term in window for term in disease_terms):
+                        score += 12
+                    if re.search(r"\b(?:recorded|confirmed|reported|logged|mencatat|melaporkan)\b", window):
+                        score += 3
+                    if re.search(r"\b(?:cumulative|kumulatif|since \d{4}|population)\b", window):
+                        score -= 4
+                    candidates.append((score, match.start(), parsed))
                 except Exception:
                     continue
 
@@ -691,11 +734,23 @@ def _extract_count(text: str, field: str, default: int) -> int:
                 ):
                     try:
                         parsed = _parse_count(match.group(1), match.group(0))
-                        if parsed is not None:
-                            return parsed
+                        if parsed is None:
+                            continue
+                        window = _sentence_window(search_text, match.start(), match.end()).lower()
+                        score = 0
+                        if disease_terms and any(term in window for term in disease_terms):
+                            score += 12
+                        candidates.append((score, match.start(), parsed))
                     except Exception:
                         continue
-    return default
+    if not candidates:
+        return default
+    if disease_terms:
+        scoped = [item for item in candidates if item[0] >= 12]
+        if scoped:
+            candidates = scoped
+    best = max(candidates, key=lambda item: (item[0], -item[1]))
+    return best[2]
 
 
 def _parse_count(value: str, context: str = "") -> Optional[int]:
@@ -734,6 +789,11 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
             if value > max_count:
                 return None
             return max(0, value)
+
+        # Calendar years are not case/death totals. "among 2026 cases" and
+        # "in 2026 so far" must not bind the reporting year as a count.
+        if multiplier == 1 and re.fullmatch(r"(?:19|20)\d{2}", val):
+            return None
 
         # Case 1: Standard thousands separator (e.g. 19,313 or 10.000 or 1,000,000 or 1.000.000)
         if re.fullmatch(r"\d{1,3}(?:[,.]\d{3})+", val):
@@ -775,14 +835,14 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         return None
 
 
-def extract_case_count(text: str) -> int:
+def extract_case_count(text: str, disease: Optional[str] = None) -> int:
     try:
         default = int(os.getenv("DEFAULT_CASE_COUNT", "0"))
     except (ValueError, TypeError):
         default = 0
     default = max(0, default)
     try:
-        parsed = _extract_count(text, "case_count", default)
+        parsed = _extract_count(text, "case_count", default, disease=disease)
         max_count = int(os.getenv("MAX_EVENT_CASE_COUNT", "2000000"))
         if parsed is None or parsed > max_count:
             return default
@@ -791,10 +851,10 @@ def extract_case_count(text: str) -> int:
         return default
 
 
-def has_explicit_case_count(text: str) -> bool:
+def has_explicit_case_count(text: str, disease: Optional[str] = None) -> bool:
     """Whether a case number was actually present, excluding the default."""
     try:
-        return _extract_count(text, "case_count", -1) >= 0
+        return _extract_count(text, "case_count", -1, disease=disease) >= 0
     except Exception:
         return False
 

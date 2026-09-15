@@ -104,7 +104,15 @@ export default function SourcesPage() {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-4">
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Continuous crawl</p>
+          <p className="mt-1 text-sm text-slate-700">
+            Enabled sources: {(summary?.enabled_sources ?? 0).toLocaleString()} · scheduled: {(summary?.scheduled_sources ?? 0).toLocaleString()} · in flight: {(summary?.active_run_count ?? 0).toLocaleString()}
+            {summary?.last_run_at ? ` · last run ${summary.last_run_at}` : ''}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">Due-source dispatcher every 2 minutes (small batches) plus explicit cron/interval jobs. Failures back off; rate limits are preserved. Empty schedules default to interval:60 via the dispatcher.</p>
+        </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
@@ -229,7 +237,7 @@ export default function SourcesPage() {
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-center">{credibilityBadge(s.source_credibility)}</td>
-                  <td className="px-4 py-3 text-slate-700">{s.schedule || '—'}</td>
+                  <td className="px-4 py-3 text-slate-700">{s.schedule || s.effective_schedule || 'interval:60'}</td>
                   <td className="px-4 py-3">{statusBadge(s)}</td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => handleTrigger(s.id, s.name)}

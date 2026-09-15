@@ -11,7 +11,6 @@ from .collectors.web_scraper import WebScraperCollector
 from .collectors.csv_ingest import CSVIngestCollector
 from .collectors.social_media import SocialMediaCollector
 from .collectors.social_csv_ingest import SocialCSVIngestCollector
-from .collectors.skdr_api import SKDRCollector
 
 logger = logging.getLogger(__name__)
 _source_run_semaphore = None
@@ -26,8 +25,12 @@ COLLECTOR_MAP = {
     "csv": CSVIngestCollector,
     "social_media": SocialMediaCollector,
     "api": SocialMediaCollector,
-    # "skdr_api": SKDRCollector,  # SKDR DISABLED
 }
+
+DEFAULT_SOURCE_INTERVAL_MINUTES = 60
+DISPATCHER_INTERVAL_MINUTES = 2
+DISPATCHER_BATCH_SIZE = 5
+MAX_BACKOFF_MINUTES = 360
 
 
 def run_source(source_id: str):
@@ -54,7 +57,11 @@ async def _run_source_bounded(source_id: str):
         return
 
     if source.get("source_type") == "skdr_api":
-        logger.info("SKDR source %s is disabled; skipping run", source_id)
+        logger.info("SKDR source %s is detached; skipping run", source_id)
+        return
+
+    if db.source_in_backoff(source_id):
+        logger.info("Source %s is in failure backoff; skipping", source_id)
         return
 
     collector_cls = COLLECTOR_MAP.get(source["source_type"])
@@ -159,7 +166,24 @@ def register_scheduled_jobs(scheduler: AsyncIOScheduler):
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        run_due_sources,
+        "interval",
+        minutes=DISPATCHER_INTERVAL_MINUTES,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=20),
+        id="job_due_source_dispatcher",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
+    )
     logger.info("Scheduled source registry refresh: every 1 min")
+    logger.info(
+        "Scheduled due-source dispatcher: every %d min (batch=%d, default interval=%d)",
+        DISPATCHER_INTERVAL_MINUTES,
+        DISPATCHER_BATCH_SIZE,
+        DEFAULT_SOURCE_INTERVAL_MINUTES,
+    )
 
 
 def _load_sources():
@@ -186,9 +210,12 @@ def _register_source_jobs(scheduler: AsyncIOScheduler, sources):
         if source.get("source_type") == "skdr_api":
             logger.info("SKDR source %s is disabled; skipping schedule", source.get("name"))
             continue
-        schedule = source.get("schedule")
-        if not schedule:
+        raw_schedule = source.get("schedule")
+        # Empty schedules are worked by the due-source dispatcher so we do not
+        # stampede every enabled feed as its own APScheduler job.
+        if not raw_schedule or not str(raw_schedule).strip():
             continue
+        schedule = str(raw_schedule).strip()
         source_id = str(source["id"])
         job_id = f"source_{source_id}"
         desired_job_ids.add(job_id)
@@ -199,10 +226,7 @@ def _register_source_jobs(scheduler: AsyncIOScheduler, sources):
             scheduler.remove_job(job_id)
         _source_job_signatures[job_id] = signature
         if schedule.startswith("daily:"):
-            schedule_value = schedule
-            if source.get("source_type") == "skdr_api":
-                schedule_value = f"daily:{os.getenv('SKDR_FETCH_TIME', '00:00')}"
-            hour, minute = _parse_daily(schedule_value)
+            hour, minute = _parse_daily(schedule)
             timezone_name = os.getenv("COLLECTOR_TIMEZONE", "Asia/Jakarta")
             try:
                 schedule_timezone = ZoneInfo(timezone_name)
@@ -222,17 +246,6 @@ def _register_source_jobs(scheduler: AsyncIOScheduler, sources):
                 coalesce=True,
             )
             logger.info("Scheduled %s: daily at %02d:%02d %s", source["name"], hour, minute, timezone_name)
-            if source.get("source_type") == "skdr_api" and _env_bool("SKDR_RUN_ON_START", True):
-                startup_delay = max(1, int(os.getenv("SKDR_STARTUP_DELAY_SECONDS", "10")))
-                scheduler.add_job(
-                    run_skdr_startup,
-                    "date",
-                    run_date=datetime.now(schedule_timezone) + timedelta(seconds=startup_delay + idx),
-                    id=f"startup_{source_id}",
-                    args=[source_id],
-                    replace_existing=True,
-                )
-                logger.info("Scheduled startup sync for %s in %ds", source["name"], startup_delay + idx)
             continue
         start_time = datetime.now(timezone.utc) + timedelta(seconds=idx * 2)
         interval_minutes = _parse_interval(schedule)
@@ -257,6 +270,28 @@ def _register_source_jobs(scheduler: AsyncIOScheduler, sources):
         if scheduler.get_job(job_id) is not None:
             scheduler.remove_job(job_id)
         _source_job_signatures.pop(job_id, None)
+
+
+async def run_due_sources():
+    """Keep enabled sources working even when a per-source cron job is idle."""
+    try:
+        due_ids = await asyncio.to_thread(
+            db.fetch_due_source_ids,
+            DISPATCHER_BATCH_SIZE,
+            DEFAULT_SOURCE_INTERVAL_MINUTES,
+        )
+    except Exception as exc:
+        logger.exception("Due-source dispatcher could not load sources: %s", exc)
+        return
+    if not due_ids:
+        return
+    logger.info("Due-source dispatcher running %d source(s)", len(due_ids))
+    for source_id in due_ids:
+        try:
+            await run_source_async(source_id)
+        except Exception:
+            logger.exception("Due-source dispatcher failed for %s", source_id)
+
 
 def _parse_interval(schedule: str) -> int:
     # Seeded feeds use intervals between 60 and 180 minutes. A 10-minute
@@ -283,10 +318,3 @@ def _parse_daily(schedule: str) -> tuple[int, int]:
     except (ValueError, IndexError):
         logger.warning("Invalid daily schedule %r; falling back to 00:00", schedule)
         return 0, 0
-
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.lower() in {"1", "true", "yes", "on"}

@@ -302,6 +302,9 @@ export default function AnalyzePage() {
                   <div>
                     <span className="font-bold text-slate-900">{result.location_name || '-'}</span>
                     {result.country && <span className="ml-1 text-xs font-normal text-slate-400">({result.country})</span>}
+                    {(result as { province?: string | null }).province ? (
+                      <span className="ml-1 text-xs text-slate-500">province/city: {(result as { province?: string }).province}</span>
+                    ) : null}
                   </div>
                   {result.locations && result.locations.length > 0 && (
                     <div className="flex flex-wrap gap-1 pt-1">
@@ -335,7 +338,9 @@ export default function AnalyzePage() {
               label={t("dashboard.labelTotalCases")}
               value={
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl font-extrabold text-slate-900">{result.case_count}</span>
+                  <span className="text-2xl font-extrabold text-slate-900">
+                    {(result as { case_count_unknown?: boolean }).case_count_unknown ? 'unknown' : result.case_count}
+                  </span>
                   <span className="flex items-center gap-1 text-sm font-medium text-red-500">
                     <Skull className="h-3.5 w-3.5" /> {result.death_count}
                   </span>
@@ -387,6 +392,17 @@ export default function AnalyzePage() {
           </div>
 
           <AseanMap result={result} hideLegend />
+
+          {(((result as { evidence?: string[] }).evidence || []).length > 0 || result.needs_review) && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-slate-700">
+              {result.needs_review ? (
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">Needs review</p>
+              ) : null}
+              {((result as { evidence?: string[] }).evidence || []).slice(0, 4).map((span, idx) => (
+                <p key={idx} className="mt-1 text-xs leading-5 text-slate-600">“{span}”</p>
+              ))}
+            </div>
+          )}
 
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">

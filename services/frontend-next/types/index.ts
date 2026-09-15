@@ -8,6 +8,7 @@ export type Source = {
   validity_status?: string | null;
   source_origin?: string | null;
   schedule?: string;
+  effective_schedule?: string;
   enabled: boolean;
   created_at?: string;
   updated_at?: string;
@@ -32,6 +33,11 @@ export type SourceSummary = {
   credibility_threshold: number;
   asean_by_country: { country: string; source_count: number }[];
   by_catalog_type?: { catalog_type: string; source_count: number }[];
+  last_run_at?: string | null;
+  crawler_mode?: string;
+  enabled_sources?: number;
+  scheduled_sources?: number;
+  active_run_count?: number;
 };
 
 export type Run = {
@@ -166,6 +172,11 @@ export type PublicDashboard = {
     active_alerts: number;
     active_locations?: number;
     location_master_count?: number;
+    snapshot_id?: string;
+    snapshot_computed_at?: string;
+    snapshot_filter_key?: string;
+    snapshot_stale?: boolean;
+    kpi_source?: string;
   };
   alerts: OutbreakLocation[];
   locations: OutbreakLocation[];
@@ -223,7 +234,10 @@ export type AnalyzeResponse = {
   disease_extracted: string[];
   disease_classification: string;
   case_count: number;
+  case_count_unknown?: boolean;
   death_count: number;
+  province?: string | null;
+  evidence?: string[];
   confidence: number;
   outbreak_alert: boolean;
   sentiment: string | null;

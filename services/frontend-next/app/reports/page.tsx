@@ -189,6 +189,7 @@ export default function ReportsPage() {
 
   // State: Real Data loading (Strictly ZERO Hardcoded Seed Data)
   const [dataList, setDataList] = useState<SurveillanceReportRow[]>([])
+  const [kpiSnapshot, setKpiSnapshot] = useState<{ cases: number; deaths: number; events: number; snapshot_id?: string; snapshot_computed_at?: string } | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
@@ -261,7 +262,17 @@ export default function ReportsPage() {
       const seenIds = new Set<string>()
 
       // 1. Process OutbreakLocations from Public Dashboard API (Aggregated NLP clusters)
-      if (dashRes.status === 'fulfilled' && dashRes.value && Array.isArray(dashRes.value.locations)) {
+      if (dashRes.status === 'fulfilled' && dashRes.value) {
+        if (dashRes.value.kpis) {
+          setKpiSnapshot({
+            cases: Number(dashRes.value.kpis.cases) || 0,
+            deaths: Number(dashRes.value.kpis.deaths) || 0,
+            events: Number(dashRes.value.kpis.events) || 0,
+            snapshot_id: dashRes.value.kpis.snapshot_id,
+            snapshot_computed_at: dashRes.value.kpis.snapshot_computed_at,
+          })
+        }
+        if (Array.isArray(dashRes.value.locations)) {
         dashRes.value.locations.forEach((loc: OutbreakLocation, idx: number) => {
           const rowId = loc.detail?.event_id || `LOC-CLUSTER-${idx + 1}`
           if (seenIds.has(rowId)) return
@@ -303,6 +314,7 @@ export default function ReportsPage() {
             sourceCredibility: loc.detail?.source_credibility || null,
           })
         })
+        }
       }
 
       setDataList(combined)
@@ -671,9 +683,9 @@ export default function ReportsPage() {
   // Overall KPIs calculated from real database records
   const metrics = useMemo(() => {
     const aseanData = filteredData.filter((row) => row.country !== OUTSIDE_ASEAN_LABEL)
-    const totalReports = aseanData.length
-    const totalCases = aseanData.reduce((acc, curr) => acc + curr.cases, 0)
-    const totalDeaths = aseanData.reduce((acc, curr) => acc + curr.deaths, 0)
+    const totalReports = kpiSnapshot?.events ?? aseanData.length
+    const totalCases = kpiSnapshot?.cases ?? aseanData.reduce((acc, curr) => acc + curr.cases, 0)
+    const totalDeaths = kpiSnapshot?.deaths ?? aseanData.reduce((acc, curr) => acc + curr.deaths, 0)
     const affectedCountries = new Set(aseanData.map((d) => d.country)).size
     const avgCfr = calculateCfr(totalCases, totalDeaths)
 
@@ -684,7 +696,7 @@ export default function ReportsPage() {
       affectedCountries,
       avgCfr,
     }
-  }, [filteredData])
+  }, [filteredData, kpiSnapshot])
 
   // Export to Excel / CSV with UTF-8 BOM
   const handleExportExcel = () => {

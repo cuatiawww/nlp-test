@@ -5,7 +5,6 @@
   DashboardStats,
   PublicDashboard,
   DiseaseEvent,
-  IbsSummary,
   CrawlJobStatus,
   InteroperabilityIntegration,
   SourceSummary,
@@ -403,7 +402,7 @@ export interface PublicDashboardApiParams {
 export const fetchPublicDashboard = (filters?: PublicDashboardApiParams) => {
   const params = new URLSearchParams();
   if (filters?.country && filters.country !== "all")
-    params.set("country", filters.country);
+    params.set("country", filters.country === "ASEAN" ? "ASEAN" : filters.country);
   if (filters?.year) params.set("year", String(filters.year));
   if (filters?.source && filters.source !== "all") params.set("source", filters.source);
   if (filters?.disease && filters.disease !== "all") params.set("disease", filters.disease);
@@ -426,26 +425,12 @@ export const fetchPipelineHealth = () => fetchFrom<{
   collector_failures_24h?: number;
 }>("/api/v1/pipeline-health");
 
-export const fetchIbsSummary = (filters?: { year?: number; province?: string }) => {
-  const params = new URLSearchParams();
-  if (filters?.year) params.set("year", String(filters.year));
-  if (filters?.province && filters.province !== "all")
-    params.set("province", filters.province);
-  const query = params.toString();
-  return fetchFrom<IbsSummary>(
-    `/api/v1/skdr/ibs-summary${query ? `?${query}` : ""}`,
-  );
+export const fetchIbsSummary = async (_filters?: { year?: number; province?: string }) => {
+  throw new Error("SKDR IBS is detached");
 };
 
-export const fetchEbsSummary = (filters?: { year?: number; province?: string }) => {
-  const params = new URLSearchParams();
-  if (filters?.year) params.set("year", String(filters.year));
-  if (filters?.province && filters.province !== "all")
-    params.set("province", filters.province);
-  const query = params.toString();
-  return fetchFrom<IbsSummary>(
-    `/api/v1/skdr/ebs-summary${query ? `?${query}` : ""}`,
-  );
+export const fetchEbsSummary = async (_filters?: { year?: number; province?: string }) => {
+  throw new Error("SKDR EBS is detached");
 };
 
 // ── URL Analyze ──────────────────────────────────
@@ -516,6 +501,11 @@ export interface SpatialHeatmapResponse {
     total_cases: number;
     total_deaths: number;
     total_events: number;
+    snapshot_id?: string;
+    snapshot_computed_at?: string;
+    snapshot_filter_key?: string;
+    snapshot_stale?: boolean;
+    kpi_source?: string;
   };
 }
 
@@ -574,7 +564,14 @@ export interface DiseaseTrendOverviewData {
     top_burden_disease: string;
     top_burden_country: string;
     total_cases_tracked: number;
+    total_deaths?: number;
+    total_events?: number;
     trend_days: number;
+    snapshot_id?: string;
+    snapshot_computed_at?: string;
+    snapshot_filter_key?: string;
+    snapshot_stale?: boolean;
+    kpi_source?: string;
   };
   priority_alerts: PriorityDiseaseAlert[];
   daily_trends: DiseaseDailyTrend[];
@@ -619,6 +616,11 @@ export interface MorbidityMortalityResponse {
     cfr_pct: number;
     selected_disease: string;
     weeks: number;
+    snapshot_id?: string;
+    snapshot_computed_at?: string;
+    snapshot_filter_key?: string;
+    snapshot_stale?: boolean;
+    kpi_source?: string;
   };
   weekly_trends: WeeklyMorbidityMortality[];
   top_diseases: DiseaseMorbidityMortality[];

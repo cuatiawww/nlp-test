@@ -18,7 +18,7 @@ Login is throttled (8 failures / 15 minutes per username).
 
 Shared helpers in `main.rs`:
 
-- `DASHBOARD_EVENT_PREDICATE` (health-related or SKDR, classified, not UNKNOWN/NEGATIVE, confidence ≥ 0.15 or SKDR, `published_at` required, `source_type <> test`)
+- `DASHBOARD_EVENT_PREDICATE` (health-related, classified, not UNKNOWN/NEGATIVE, confidence ≥ 0.15, `published_at` required, `source_type` not `test`/`skdr`/`skdr_api`)
 - URL/raw-report dedupe
 - Per-event caps: cases ≤ 2,000,000; deaths ≤ 200,000
 - Country label `OUTSIDE ASEAN` (heatmap previously used `Other`)
@@ -93,3 +93,96 @@ Expect:
 - Existing DB rows with already-stored ~2e9 case_count are capped at read time; they are not rewritten in this PR (a one-off SQL cleanup can follow after staging review).
 - Authenticated Rust proxy for collector file upload.
 - LLM-authored narrative with citation spans (summary is now explicitly an aggregate of stored NLP results, not a canned ASEAN paragraph).
+
+## Round 2 — KPI snapshot, NLP quality, SKDR detach, continuous crawl
+
+Live retest 2026-09-15 showed the four aggregate endpoints still disagreeing when called **without shared query params** (trend defaulted to last 7 days; heatmap/dashboard used calendar year; `country=all` included India/Pakistan). Map popup Cases vs Recent activity used different caps/windows. CIDRAP H5N1 Cambodia was stored as Indonesia province `"Were"`. Singapore measles bound a noise total instead of **43**.
+
+### A. Materialized KPI snapshot
+
+Table `kpi_snapshots` (`database/init/067_kpi_snapshots.sql`) stores one row per canonical filter:
+
+`filter_key = start_date|end_date|country|disease|source`
+
+**Refresh semantics**
+
+1. Ingest / URL analysis marks existing rows `is_stale = TRUE`.
+2. The next reader takes `pg_advisory_lock(hashtext(filter_key))`, recomputes `query_shared_kpis`, upserts, and clears stale.
+3. Concurrent dashboard, heatmap, trend, morbidity, TV, and reports read **that same row** (`snapshot_id` + `computed_at`). They never invent totals.
+4. Until a refresh completes, the previous snapshot is served with `snapshot_stale=true` and `snapshot_computed_at`.
+
+Default filter (missing query params, same as the homepage):
+
+- country = **ASEAN** (+ Timor-Leste); `global` opts into outside-ASEAN
+- disease = all
+- source = all (SKDR IBS/EBS ignored)
+- dates = ISO week 1 of the current epi year through the current epi week
+
+Public endpoints that expose the snapshot:
+
+- `GET /api/v1/public-dashboard` → `data.kpis.snapshot_id`
+- `GET /api/v1/spatial-heatmap` → `data.summary.snapshot_id`
+- `GET /api/v1/disease-trend-overview` → `data.summary.snapshot_id`
+- `GET /api/v1/morbidity-mortality` → `data.summary.snapshot_id`
+- `GET /api/v1/kpi-snapshot` → same row, for reports/TV verification
+- `/nlp/reports` headline totals bind `kpis.*`, not the 250 location clusters
+
+Map popup `recent_cases` uses the same per-event cap as `cases` and a date (not timestamp) 7-day window. When every cluster event is in that window, `recent_cases = cases`.
+
+### B. Invented counts
+
+- Calendar years `19xx`/`20xx` are never case/death totals (`among 2026 cases` → not 2026 cases)
+- Case regex prefers the sentence that names the disease (`43 cases of measles`)
+- Extraction failure → `case_count=0`, `case_count_unknown=true`, `needs_review=true`
+- `disease_events.case_count` default is NULL, not 1
+
+### C. NLP / CIDRAP fixture
+
+URL: `https://www.cidrap.umn.edu/avian-influenza-bird-flu/cambodia-confirms-human-h5n1-avian-flu-case-h5n1-hits-more-utah-egg-farms`
+
+- Disease from title/lede: Avian influenza / H5N1 (not Measles)
+- Primary ASEAN location: Cambodia (Kampong Thom allowed); Utah is secondary / dropped under ASEAN filter
+- `"Were"` is a location stopword; never Indonesia province Were
+- Multi-country headlines do not hard-filter the gazetteer to the language-default country
+
+Tests: `services/nlp-python/tests/test_cidrap_cambodia.py`
+
+### D. SKDR IBS & EBS detached
+
+- `POST /api/v1/ingest/skdr`, `GET /api/v1/skdr/ibs-summary`, `GET /api/v1/skdr/ebs-summary`, `GET /api/v1/skdr-reports` → **410**
+- Collector does not import or schedule `skdr_api`
+- Frontend `fetchIbsSummary` / `fetchEbsSummary` throw detached
+- RSS/web/catalog sources are unchanged
+- `skdr_reports` table is kept for a later reattach
+
+### E. Continuous source crawl
+
+Enabled sources without a schedule are worked by the due-source dispatcher (every 2 minutes, batch of 5, failure backoff 15m × 2^streak cap 6h) instead of registering one APScheduler job per feed. Explicit `interval:` / `daily:` schedules still get their own jobs. `POST /collect/all` runs one dispatcher batch rather than every source at once. Concurrent runs stay limited by `COLLECTOR_MAX_CONCURRENT_RUNS`. Sources page shows enabled/scheduled/in-flight counts and the effective `interval:60` when the DB schedule is empty.
+
+### F. Manual crawler
+
+analyze-url returns `evidence`, `province`, `case_count_unknown`, `needs_review`. Crawl matrix rejects non-geo province tokens and no longer defaults ASEAN-region articles to Indonesia.
+
+### Verify snapshot parity (staging)
+
+Use the **same** query string on all five URLs (or omit params to use the ASEAN default window):
+
+```
+GET /nlp/api/v1/public-dashboard?country=ASEAN&start_year=2026&start_week=1&end_year=2026&end_week=<current>
+GET /nlp/api/v1/spatial-heatmap?...same...
+GET /nlp/api/v1/disease-trend-overview?...same...
+GET /nlp/api/v1/morbidity-mortality?...same...
+GET /nlp/api/v1/kpi-snapshot?...same...
+```
+
+Expect identical `snapshot_id` and:
+
+`kpis.cases == summary.total_cases == summary.total_cases_tracked == summary.total_morbidity == kpi-snapshot.data.kpis.cases`
+
+Same equality for deaths and events. Reports page Total Cases matches that `snapshot_id`.
+
+CIDRAP fixture:
+
+```
+cd services/nlp-python && python3 -m unittest tests.test_cidrap_cambodia -v
+```
