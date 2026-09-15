@@ -50,6 +50,17 @@ else
   echo "    schema already present; skipping"
 fi
 
+echo "==> [4b/7] Seed a dev webmaster/admin login (idempotent)"
+# The upstream project seeds users via a separate "init" service that is not in
+# this repository. Seed a local admin so the authenticated web UI is usable.
+WEBMASTER_HASH="$(python3 -c "import hashlib,os;print(hashlib.sha256(os.environ.get('WEBMASTER_PASSWORD','webmaster').encode()).hexdigest())")"
+PGPASSWORD=root psql -h 127.0.0.1 -U postgres -d disease_ai -v ON_ERROR_STOP=1 -c \
+  "INSERT INTO users (username, password_hash, display_name, role, permissions)
+   VALUES ('webmaster', '$WEBMASTER_HASH', 'Webmaster', 'admin', '[\"*\"]'::jsonb)
+   ON CONFLICT (username) DO UPDATE SET
+     password_hash = EXCLUDED.password_hash, is_active = TRUE,
+     role = 'admin', permissions = '[\"*\"]'::jsonb;"
+
 echo "==> [5/7] Build Rust backend"
 ( cd "$REPO/services/backend-rust" && cargo build --release )
 
