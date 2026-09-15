@@ -48,6 +48,7 @@ import CaseLocationHeatmap from "@/components/CaseLocationHeatmap";
 import DiseaseTrendOverview from "@/components/DiseaseTrendOverview";
 import MorbidityMortalitySection from "@/components/MorbidityMortalitySection";
 import EpiFilterBar, { EpiFilterState } from "@/components/EpiFilterBar";
+import { getCurrentEpiWeek } from "@/lib/epi-week";
 
 import type { OutbreakLocation, PublicDashboard } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
@@ -237,7 +238,9 @@ function CrawlingInfoModal({
       : "0";
 
   // Build normalized matrix for sources that sums exactly to crawlingStats.total
-  const rawSources = (crawlingStats.by_source_type || []).map((s) => {
+  const rawSources = (crawlingStats.by_source_type || [])
+    .filter((s) => (s.source_type || "").toLowerCase() !== "test")
+    .map((s) => {
     const sourceType = s.source_type || "unknown";
     const sourceTotal = Number(s.total ?? 0) || 0;
     const sourceProcessed = Number(s.processed ?? 0) || 0;
@@ -796,13 +799,14 @@ export default function DashboardPage() {
   const { t, locale, translateDisease, translateSeverity } = useTranslation();
   const numLocale = locale === "en" ? "en-US" : "id-ID";
   const currentYear = new Date().getFullYear();
+  const currentEpi = getCurrentEpiWeek();
   const [filters, setFilters] = useState<EpiFilterState>({
     disease: "all",
     country: "all",
-    startYear: 2026,
+    startYear: currentEpi.year || currentYear,
     startWeek: 1,
-    endYear: 2026,
-    endWeek: 36,
+    endYear: currentEpi.year || currentYear,
+    endWeek: currentEpi.week || 1,
   });
   const [data, setData] = useState<PublicDashboard | null>(null);
   const [selected, setSelected] = useState<OutbreakLocation | null>(null);
@@ -1024,7 +1028,7 @@ export default function DashboardPage() {
         />
         <Kpi
           label={t("dashboard.kpiLocations")}
-          value={data?.trends?.locations.current ?? data?.kpis.locations ?? 0}
+          value={data?.kpis.locations ?? 0}
           icon={<MapPin className="h-5 w-5" />}
           tone="blue"
           trend={data?.trends?.locations}

@@ -114,7 +114,7 @@ export default function EpiFilterBar({
   };
 
   const handleReset = () => {
-    const curW = currentEpi.week || 36;
+    const curW = currentEpi.week || 1;
     const curY = currentEpi.year || 2026;
     const defaultState: EpiFilterState = {
       disease: 'all',
@@ -122,7 +122,7 @@ export default function EpiFilterBar({
       startYear: curY,
       startWeek: 1,
       endYear: curY,
-      endWeek: Math.min(curW, 36),
+      endWeek: curW,
     };
     setDraft(defaultState);
     onChange(defaultState);

@@ -37,8 +37,8 @@ import {
   ArrowLeft,
   Info,
 } from "lucide-react"
-import { fetchPublicDashboard, fetchEvents } from "@/lib/api"
-import type { PublicDashboard, DiseaseEvent } from "@/types"
+import { fetchPublicDashboard } from "@/lib/api"
+import type { PublicDashboard } from "@/types"
 import {
   SpatialHotspotMap,
   TrendEpiCurveChart,
@@ -72,7 +72,6 @@ export type ReportThemeType = "formal_white" | "asean_navy" | "kemenkes_teal" | 
 function ExecutiveReportContent() {
   const [loading, setLoading] = useState(true)
   const [dashboardData, setDashboardData] = useState<PublicDashboard | null>(null)
-  const [events, setEvents] = useState<DiseaseEvent[]>([])
 
   // ==========================================
   // HUMAN CUSTOMIZATION STATE
@@ -118,23 +117,18 @@ function ExecutiveReportContent() {
   const [updatedAtText, setUpdatedAtText] = useState("14 Sep 2026 23:00 UTC+7 | 24/7 Surveillance Operations")
 
   // 4. Key Metric Overrides (Analyst fine tuning)
-  const [metricTotalKasus, setMetricTotalKasus] = useState<number>(7640)
-  const [metricKorbanMeninggal, setMetricKorbanMeninggal] = useState<number>(24)
-  const [metricCfr, setMetricCfr] = useState<number>(0.31)
-  const [metricKlasterAktif, setMetricKlasterAktif] = useState<number>(18)
-  const [metricWilayahTerpantau, setMetricWilayahTerpantau] = useState<number>(11)
+  const [metricTotalKasus, setMetricTotalKasus] = useState<number>(0)
+  const [metricKorbanMeninggal, setMetricKorbanMeninggal] = useState<number>(0)
+  const [metricCfr, setMetricCfr] = useState<number>(0)
+  const [metricKlasterAktif, setMetricKlasterAktif] = useState<number>(0)
+  const [metricWilayahTerpantau, setMetricWilayahTerpantau] = useState<number>(0)
 
   // 5. Narrative Content (Inline human editable)
   const [executiveSummary, setExecutiveSummary] = useState(
-    "Integrated epidemiological surveillance intelligence records an accumulation of 7,640 confirmed cases across National & ASEAN member states. Ongoing cross-border epidemiological surveillance and laboratory verification across ASEAN member states maintain early warning monitoring. Field reviews identify 18 active clusters under intensive monitoring alongside 24 cumulative fatalities (regional average CFR: 0.31%). Public health laboratory networks and cross-border quarantine stations continue optimizing points-of-entry screening and targeted response interventions to mitigate cross-border transmission."
+    "Loading live KPI summary from the surveillance API…"
   )
 
-  const [tacticalPoints, setTacticalPoints] = useState<string[]>([
-    "Cross-Border Surveillance & Laboratory Confirmation: Integrated intelligence monitoring across ASEAN member states records 7,640 cases with coordinated rapid laboratory verification.",
-    "Early Detection & Rapid Response: Strengthening close contact tracing, rapid diagnostic laboratory confirmation (RDT/PCR), and targeted isolation at active local transmission epicenters.",
-    "Vector Control Interventions: Scaling up mass larviciding and focused spatial fogging in hotspot corridors (South Sumatra, West Java, and Bangkok) ahead of peak monsoon season.",
-    "Public Risk Communication & Health Advisory: Disseminating timely early warnings for populations in active transmission clusters to accelerate early symptom detection without triggering public alarm."
-  ])
+  const [tacticalPoints, setTacticalPoints] = useState<string[]>([])
 
   // 6. Section Visibility Switches
   const [visibility, setVisibility] = useState({
@@ -150,69 +144,7 @@ function ExecutiveReportContent() {
   })
 
   // 7. ASEAN Style Disease Highlights
-  const [diseaseHighlights, setDiseaseHighlights] = useState<DiseaseHighlight[]>([
-    {
-      id: "d1",
-      diseaseName: "Dengue",
-      countryHighlights: [
-        {
-          id: "c1",
-          country: "Indonesia",
-          content:
-            "South Sumatra Province reported 2,841 dengue cases and 19 fatalities as of September 9, 2026 (CFR: 0.67%), exceeding the national threshold of <0.4%. Palembang recorded the highest case count (744 cases), while Muara Enim had the highest fatality count (5 deaths). Health authorities are intensifying vector control operations and healthcare facility readiness.",
-          url: "https://sehatnegeriku.kemkes.go.id",
-        },
-        {
-          id: "c2",
-          country: "Thailand",
-          content:
-            "Bangkok recorded 24 cumulative new cases during epi-week 36 with an incidence of 0.44 per 100,000 population. Nationally, 154 cases were recorded with zero new fatalities. Bang Na and Phra Khanong districts registered the highest incidence rates.",
-          url: "https://ddc.moph.go.th",
-        },
-        {
-          id: "c3",
-          country: "Viet Nam",
-          content:
-            "Dak Lak Province reported 6,112 dengue cases and 2 fatalities as of September 2026. Central Highlands General Hospital treated 137 inpatient cases over the past week. Authorities are focusing on targeted insecticide spraying and larval resistance surveillance.",
-          url: "https://moh.gov.vn",
-        },
-      ],
-    },
-    {
-      id: "d2",
-      diseaseName: "Hand, Foot and Mouth Disease (HFMD)",
-      countryHighlights: [
-        {
-          id: "c4",
-          country: "Viet Nam",
-          content:
-            "Ho Chi Minh City reported 754 HFMD cases during epi-week 36 (down 22.8% compared to the prior 4-week average). Cumulatively, 33,022 cases have been documented since the beginning of the year. Primary schools and daycare facilities have reinforced strict hand hygiene protocols.",
-          url: "https://hcdc.vn",
-        },
-        {
-          id: "c5",
-          country: "Malaysia",
-          content:
-            "The Ministry of Health Malaysia reported a decline in preschool HFMD clusters across Selangor and Johor Bahru following targeted hygiene and sanitation interventions in early education centers.",
-          url: "https://moh.gov.my",
-        },
-      ],
-    },
-    {
-      id: "d3",
-      diseaseName: "Mpox (Clade Ib)",
-      countryHighlights: [
-        {
-          id: "c6",
-          country: "Indonesia",
-          content:
-            "International points of entry at Soekarno-Hatta and Ngurah Rai Airports have implemented thermal screening and the SATUSEHAT digital health pass. A cumulative total of 88 cases have been recorded, with all close contacts fully traced and monitored.",
-          url: "https://kemkes.go.id",
-        },
-      ],
-    },
-  ])
-
+  const [diseaseHighlights, setDiseaseHighlights] = useState<DiseaseHighlight[]>([])
   // Initialize from searchParams
   useEffect(() => {
     if (templateParam === "asean_bulletin" || templateParam === "kemenkes_sitrep") {
@@ -305,21 +237,18 @@ function ExecutiveReportContent() {
     async function loadData() {
       try {
         setLoading(true)
-        const [dashRes, eventsRes] = await Promise.all([
-          fetchPublicDashboard().catch(() => null),
-          fetchEvents().catch(() => []),
-        ])
+        const dashRes = await fetchPublicDashboard().catch(() => null)
 
         if (dashRes) {
           setDashboardData(dashRes)
-          if (dashRes.total_events) {
-            setMetricTotalKasus(dashRes.total_events * 45)
-            setMetricKorbanMeninggal(Math.max(1, Math.round(dashRes.total_events * 0.4)))
-            setMetricCfr(Number(((Math.max(1, Math.round(dashRes.total_events * 0.4)) / Math.max(1, dashRes.total_events * 45)) * 100).toFixed(2)))
-          }
-        }
-        if (eventsRes && eventsRes.length > 0) {
-          setEvents(eventsRes)
+          const cases = dashRes.kpis?.cases ?? 0
+          const deaths = dashRes.kpis?.deaths ?? 0
+          setMetricTotalKasus(cases)
+          setMetricKorbanMeninggal(deaths)
+          setMetricCfr(cases > 0 ? Number(((deaths / cases) * 100).toFixed(2)) : 0)
+          setMetricKlasterAktif(dashRes.kpis?.active_alerts ?? 0)
+          setMetricWilayahTerpantau(dashRes.kpis?.active_locations ?? dashRes.kpis?.locations ?? 0)
+          setExecutiveSummary(dashRes.ai_summary?.text || "No stored NLP summary for the current filters.")
         }
       } catch (err) {
         console.warn("Failed to load live report data:", err)
@@ -334,47 +263,62 @@ function ExecutiveReportContent() {
   // CHART DATA COMPILATION
   // ==========================================
   const hotspots: HotspotLocation[] = useMemo(() => {
-    return [
-      { id: "h1", name: "Jakarta", country: "Indonesia", cases: 2840, deaths: 8, cfr: 0.28, x: 270, y: 235, severity: "critical" },
-      { id: "h2", name: "South Sumatra", country: "Indonesia", cases: 1420, deaths: 6, cfr: 0.42, x: 190, y: 190, severity: "high" },
-      { id: "h3", name: "East Java", country: "Indonesia", cases: 1100, deaths: 4, cfr: 0.36, x: 360, y: 245, severity: "high" },
-      { id: "h4", name: "Bangkok", country: "Thailand", cases: 890, deaths: 2, cfr: 0.22, x: 155, y: 55, severity: "medium" },
-      { id: "h5", name: "Ho Chi Minh", country: "Viet Nam", cases: 1350, deaths: 3, cfr: 0.22, x: 220, y: 80, severity: "high" },
-      { id: "h6", name: "Kuala Lumpur", country: "Malaysia", cases: 620, deaths: 1, cfr: 0.16, x: 150, y: 135, severity: "medium" },
-      { id: "h7", name: "Manila", country: "Philippines", cases: 940, deaths: 4, cfr: 0.43, x: 450, y: 70, severity: "high" },
-    ]
-  }, [])
+    const rows = dashboardData?.locations ?? []
+    return rows.slice(0, 12).map((loc, idx) => {
+      const cases = Number(loc.cases) || 0
+      const deaths = Number(loc.deaths) || 0
+      const severity: HotspotLocation["severity"] =
+        cases >= 50000 ? "critical" : cases >= 5000 ? "high" : cases >= 500 ? "medium" : "low"
+      return {
+        id: loc.detail?.event_id || `loc-${idx}`,
+        name: loc.location_name || "Unknown",
+        country: loc.country || "",
+        cases,
+        deaths,
+        cfr: cases > 0 ? Number(((deaths / cases) * 100).toFixed(2)) : 0,
+        x: 80 + (idx % 6) * 70,
+        y: 60 + Math.floor(idx / 6) * 90,
+        severity,
+      }
+    })
+  }, [dashboardData])
 
   const trendData: TrendDataPoint[] = useMemo(() => {
-    return [
-      { label: "W33 (Aug)", cases: 980, deaths: 3 },
-      { label: "W34 (Aug)", cases: 1240, deaths: 4 },
-      { label: "W35 (Aug)", cases: 1490, deaths: 5 },
-      { label: "W36 (Sep)", cases: 1820, deaths: 6 },
-      { label: "W37 (Sep)", cases: 2110, deaths: 6 },
-      { label: "W38 (Sep)", cases: 2480, deaths: 8 },
-    ]
-  }, [])
+    return (dashboardData?.weekly_trend ?? []).map((row) => ({
+      label: row.period || `W${row.week}`,
+      cases: Number(row.cases) || 0,
+      deaths: Number(row.deaths) || 0,
+    }))
+  }, [dashboardData])
 
   const diseaseShares: DiseaseShare[] = useMemo(() => {
-    return [
-      { name: "Dengue Fever", cases: 4120, percentage: 53.9, color: "#0060A9" },
-      { name: "HFMD", cases: 1840, percentage: 24.1, color: "#0d9488" },
-      { name: "Mpox (Clade Ib)", cases: 820, percentage: 10.7, color: "#f59e0b" },
-      { name: "Avian Flu (H5N1)", cases: 480, percentage: 6.3, color: "#e11d48" },
-      { name: "Others / Undifferentiated", cases: 380, percentage: 5.0, color: "#64748b" },
-    ]
-  }, [])
+    const rows = dashboardData?.by_disease ?? []
+    const total = rows.reduce((sum, row) => sum + (Number(row.cases) || 0), 0)
+    const palette = ["#0060A9", "#0d9488", "#f59e0b", "#e11d48", "#64748b", "#6366f1"]
+    return rows.slice(0, 6).map((row, idx) => {
+      const cases = Number(row.cases) || 0
+      return {
+        name: row.name,
+        cases,
+        percentage: total > 0 ? Number(((cases / total) * 100).toFixed(1)) : 0,
+        color: palette[idx % palette.length],
+      }
+    })
+  }, [dashboardData])
 
   const countryBurdens: CountryBurden[] = useMemo(() => {
-    return [
-      { country: "Indonesia", code: "ID", cases: 3950, deaths: 14, cfr: 0.35 },
-      { country: "Viet Nam", code: "VN", cases: 1680, deaths: 4, cfr: 0.24 },
-      { country: "Philippines", code: "PH", cases: 940, deaths: 4, cfr: 0.43 },
-      { country: "Thailand", code: "TH", cases: 620, deaths: 1, cfr: 0.16 },
-      { country: "Malaysia", code: "MY", cases: 450, deaths: 1, cfr: 0.22 },
-    ]
-  }, [])
+    return (dashboardData?.by_country ?? []).slice(0, 8).map((row) => {
+      const cases = Number(row.cases) || 0
+      const deaths = Number(row.deaths) || 0
+      return {
+        country: row.name,
+        code: row.name.slice(0, 2).toUpperCase(),
+        cases,
+        deaths,
+        cfr: cases > 0 ? Number(((deaths / cases) * 100).toFixed(2)) : 0,
+      }
+    })
+  }, [dashboardData])
 
   const handlePrint = () => {
     window.print()
@@ -407,15 +351,17 @@ function ExecutiveReportContent() {
     setEpiPeriodText("Week 38 (14 Sep 2026)")
     setFilterWilayahText("Entire Monitored Scope (National & ASEAN)")
     setFilterLayananText("All Emerging Infectious Disease Categories")
-    setMetricTotalKasus(7640)
-    setMetricKorbanMeninggal(24)
-    setMetricCfr(0.31)
-    setMetricKlasterAktif(18)
+    setMetricTotalKasus(dashboardData?.kpis.cases ?? 0)
+    setMetricKorbanMeninggal(dashboardData?.kpis.deaths ?? 0)
+    setMetricCfr(
+      dashboardData?.kpis.cases
+        ? Number(((dashboardData.kpis.deaths / dashboardData.kpis.cases) * 100).toFixed(2))
+        : 0
+    )
+    setMetricKlasterAktif(dashboardData?.kpis.active_alerts ?? 0)
     setWatermarkEnabled(false)
     setWatermarkText("")
-    setExecutiveSummary(
-      "Integrated epidemiological surveillance intelligence records an accumulation of 7,640 confirmed cases across National & ASEAN member states. Ongoing cross-border epidemiological surveillance and laboratory verification across ASEAN member states maintain early warning monitoring."
-    )
+    setExecutiveSummary(dashboardData?.ai_summary?.text || "No stored NLP summary for the current filters.")
   }
 
   const scrollToSection = (id: string) => {
