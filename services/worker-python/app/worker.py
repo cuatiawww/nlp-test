@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 import requests
 
 from .entity_relations import disease_relation_rows, location_relation_rows
+from .geo import st_makepoint_args
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("worker")
@@ -686,10 +687,7 @@ def callback(ch, method, properties, body):
                         msg.get("text"),
                         nlp["language"],
                         nlp.get("location_name"),
-                        nlp.get("latitude"),
-                        nlp.get("longitude"),
-                        nlp.get("latitude"),
-                        nlp.get("longitude"),
+                        *st_makepoint_args(nlp.get("latitude"), nlp.get("longitude")),
                         json.dumps(nlp.get("disease_extracted", [])),
                         json.dumps(nlp.get("disease_mentions", [])),
                         nlp.get("disease_classification"),
@@ -737,10 +735,7 @@ def callback(ch, method, properties, body):
                     msg.get("text"),
                     nlp["language"],
                     nlp.get("location_name"),
-                    nlp.get("latitude"),
-                    nlp.get("longitude"),
-                    nlp.get("latitude"),
-                    nlp.get("longitude"),
+                    *st_makepoint_args(nlp.get("latitude"), nlp.get("longitude")),
                     json.dumps(nlp.get("symptoms", [])),
                     json.dumps(nlp.get("disease_extracted", [])),
                     json.dumps(nlp.get("disease_mentions", [])),
@@ -804,7 +799,7 @@ def callback(ch, method, properties, body):
                             sub_evidence or msg.get("text", ""),
                             nlp["language"],
                             sub_location,
-                            sub_lat, sub_lon, sub_lat, sub_lon,
+                            *st_makepoint_args(sub_lat, sub_lon),
                             json.dumps(nlp.get("symptoms", [])),
                             json.dumps([sub_disease] if sub_disease else []),
                             json.dumps(nlp.get("disease_mentions", [])),

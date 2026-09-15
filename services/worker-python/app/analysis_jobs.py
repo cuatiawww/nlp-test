@@ -7,6 +7,7 @@ from decimal import Decimal
 from urllib.parse import urlparse
 
 from .entity_relations import disease_relation_rows, location_relation_rows
+from .geo import st_makepoint_args
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,7 @@ def analyze_article(extracted, fallback=False):
             "source_country": extracted.get("source_country"),
             "published_at": extracted.get("published_at"),
             "rules_only": fallback,
+            "interactive": True,
         },
         timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
     )
@@ -188,8 +190,7 @@ def save_completed(conn, job_id, result, raw_report_id=None):
         CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL ELSE ST_SetSRID(ST_MakePoint(%s,%s),4326) END,
         %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (row["id"],result.get("published_at") or None,result.get("content",""),result.get("language"),
-         result.get("location_name"),result.get("longitude"),result.get("latitude"),
-         result.get("longitude"),result.get("latitude"),Jsonb(result.get("symptoms",[])),
+         result.get("location_name"),*st_makepoint_args(result.get("latitude"), result.get("longitude")),Jsonb(result.get("symptoms",[])),
          Jsonb(result.get("disease_extracted",[])),Jsonb(result.get("disease_mentions",[])),
          result.get("disease_classification"),result.get("case_count",0),result.get("death_count",0),
          result.get("event_date"),result.get("confirmed_cases"),result.get("suspected_cases"),
@@ -284,7 +285,7 @@ def save_completed(conn, job_id, result, raw_report_id=None):
                     row["id"], result.get("source_type"), result.get("source_name"),
                     result.get("published_at"), sub_evt.get("evidence", ""),
                     result.get("language", "id"), sub_location,
-                    sub_lat, sub_lon, sub_lat, sub_lon,
+                    *st_makepoint_args(sub_lat, sub_lon),
                     sub_disease, sub_cases, sub_deaths,
                     result.get("confidence", 0.0), result.get("outbreak_alert", False),
                     result.get("sentiment"), result.get("event_type"),

@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.analysis_jobs import analyze_stages, fetch_article, validate_url
+from app.analysis_jobs import analyze_article, analyze_stages, fetch_article, validate_url
 
 class AnalysisJobTests(unittest.TestCase):
     def test_rejects_non_http_urls(self):
@@ -79,3 +79,32 @@ class AnalysisJobTests(unittest.TestCase):
         connect_timeout, read_timeout = post.call_args.kwargs["timeout"]
         self.assertEqual(connect_timeout, 5)
         self.assertLessEqual(read_timeout, 20)
+
+    def test_analyze_article_marks_request_interactive(self):
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {"disease_classification": "Dengue", "case_count": 10}
+        with patch("requests.post", return_value=response) as post:
+            analyze_article(
+                {"title": "DBD", "content": "10 kasus demam berdarah", "source_country": "Indonesia"},
+                fallback=False,
+            )
+        sent = post.call_args.kwargs["json"]
+        self.assertTrue(sent["interactive"])
+        self.assertFalse(sent["rules_only"])
+        self.assertIn("/nlp/analyze/url", post.call_args.args[0])
+
+    def test_analyze_article_fallback_stays_interactive(self):
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {"disease_classification": "Measles"}
+        with patch("requests.post", return_value=response) as post:
+            analyze_article({"content": "Kasus campak di Semarang"}, fallback=True)
+        sent = post.call_args.kwargs["json"]
+        self.assertTrue(sent["interactive"])
+        self.assertTrue(sent["rules_only"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+

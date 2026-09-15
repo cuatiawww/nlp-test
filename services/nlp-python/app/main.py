@@ -150,12 +150,11 @@ def process_skdr_endpoint(payload: AnalyzeRequest):
 @app.post("/nlp/analyze/url")
 def analyze_url_endpoint(payload: AnalyzeRequest):
     """Dedicated endpoint for on-demand interactive URL analysis."""
-    from .bounded_analysis import analyze_bounded, BoundedRequest
+    from .bounded_analysis import analyze_bounded, as_interactive
     try:
         # Keep the URL endpoint isolated from the bulk pipeline while still
         # allowing the worker's bounded rules-only fallback after an NLP error.
-        bounded_req = BoundedRequest(**payload.model_dump(), interactive=True)
-        return analyze_bounded(bounded_req)
+        return analyze_bounded(as_interactive(payload))
     except HTTPException:
         raise
     except TimeoutError as exc:

@@ -15,6 +15,18 @@ INFERENCE_STAGE_TIMEOUT_SECONDS = config.INFERENCE_STAGE_TIMEOUT_SECONDS
 class BoundedRequest(AnalyzeRequest):
     rules_only: bool = False
 
+
+def as_interactive(payload: AnalyzeRequest) -> BoundedRequest:
+    """Build the interactive URL request without duplicating keyword args.
+
+    ``AnalyzeRequest.model_dump()`` always includes ``interactive=False``.
+    Passing ``interactive=True`` as a second keyword after unpacking that
+    dump raises TypeError and aborts NLP for every URL analysis job.
+    """
+    data = payload.model_dump()
+    data["interactive"] = True
+    return BoundedRequest.model_validate(data)
+
 def translate_stage(text):
     from .extractors import detect_language
     from .translator import translate_and_extract
