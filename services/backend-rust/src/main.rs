@@ -4609,7 +4609,10 @@ async fn list_sources(
                         'finished_at', lr.finished_at::text
                     ) AS last_run,
                     COALESCE(sc.score, 0.50) AS source_credibility,
-                    s.country
+                    s.country,
+                    COALESCE(NULLIF(BTRIM(s.config->>'catalog_type'), ''), s.source_type) AS catalog_type,
+                    NULLIF(BTRIM(s.config->>'validity_status'), '') AS validity_status,
+                    NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin
              FROM collector_sources s
              LEFT JOIN LATERAL (
                  SELECT status, records_found, records_ingested, started_at, finished_at
@@ -4617,7 +4620,7 @@ async fn list_sources(
                  WHERE source_id = s.id
                  ORDER BY started_at DESC LIMIT 1
              ) lr ON TRUE
-             LEFT JOIN source_credibility sc ON sc.source_type = s.source_type AND sc.is_active = TRUE
+             LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = abvc_source_credibility_type(s.config, s.source_type) AND sc.is_active = TRUE
              WHERE ($1::text IS NULL OR s.name ILIKE '%'||$1||'%')
              AND ($2::text IS NULL OR s.source_type = $2)
              AND ($3::bool IS NULL OR s.enabled = $3)
@@ -4647,6 +4650,9 @@ async fn list_sources(
                 "updated_at": r.get::<_, Option<String>>(7),
                 "last_run": last_run,
                 "source_credibility": r.get::<_, Option<f64>>(9),
+                "catalog_type": r.get::<_, String>(11),
+                "validity_status": r.get::<_, Option<String>>(12),
+                "source_origin": r.get::<_, Option<String>>(13),
             })
         })
         .collect();
@@ -4697,7 +4703,7 @@ async fn source_summary(
                         ELSE NULL
                     END IS NOT NULL)::bigint AS asean_sources
              FROM collector_sources s
-             LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = LOWER(s.source_type)
+             LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = abvc_source_credibility_type(s.config, s.source_type)
              WHERE s.id IS NOT NULL",
             &[],
         )
@@ -4743,6 +4749,25 @@ async fn source_summary(
         }))
         .collect();
 
+    let catalog_rows = client
+        .query(
+            "SELECT COALESCE(NULLIF(BTRIM(config->>'catalog_type'), ''), source_type) AS catalog_type,
+                    COUNT(*)::bigint AS source_count
+             FROM collector_sources
+             GROUP BY 1
+             ORDER BY source_count DESC, catalog_type ASC",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+    let by_catalog_type: Vec<Value> = catalog_rows
+        .into_iter()
+        .map(|row| json!({
+            "catalog_type": row.get::<_, String>(0),
+            "source_count": row.get::<_, i64>(1),
+        }))
+        .collect();
+
     Ok(Json(ApiResponse {
         success: true,
         data: json!({
@@ -4754,6 +4779,7 @@ async fn source_summary(
             "asean_sources": asean_sources,
             "outside_sources": total_sources - asean_sources,
             "asean_by_country": asean_by_country,
+            "by_catalog_type": by_catalog_type,
             "credibility_threshold": 0.70,
         }),
         total: None,
@@ -4803,9 +4829,12 @@ async fn get_source(
     let row = client
         .query_one(
             "SELECT s.id, s.name, s.source_type, s.config, s.schedule, s.enabled, s.created_at::text, s.updated_at::text,
-                    COALESCE(sc.score, 0.50) AS source_credibility, s.country
+                    COALESCE(sc.score, 0.50) AS source_credibility, s.country,
+                    COALESCE(NULLIF(BTRIM(s.config->>'catalog_type'), ''), s.source_type) AS catalog_type,
+                    NULLIF(BTRIM(s.config->>'validity_status'), '') AS validity_status,
+                    NULLIF(BTRIM(s.config->>'source_origin'), '') AS source_origin
              FROM collector_sources s
-             LEFT JOIN source_credibility sc ON sc.source_type = s.source_type AND sc.is_active = TRUE
+             LEFT JOIN source_credibility sc ON LOWER(sc.source_type) = abvc_source_credibility_type(s.config, s.source_type) AND sc.is_active = TRUE
              WHERE s.id = $1",
             &[&id],
         )
@@ -4831,6 +4860,9 @@ async fn get_source(
             "created_at": row.get::<_, Option<String>>(6),
             "updated_at": row.get::<_, Option<String>>(7),
             "source_credibility": row.get::<_, Option<f64>>(8),
+            "catalog_type": row.get::<_, String>(10),
+            "validity_status": row.get::<_, Option<String>>(11),
+            "source_origin": row.get::<_, Option<String>>(12),
         }),
         total: None, page: None, per_page: None, total_pages: None,
     }))

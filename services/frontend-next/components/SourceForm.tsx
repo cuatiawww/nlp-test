@@ -53,6 +53,11 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
         config = { url }
       }
       if (country.trim()) config.country = country.trim()
+      if (isEdit && source?.config) {
+        for (const key of ['catalog_type', 'catalog_type_id', 'validity_status', 'from_engine', 'source_origin', 'source_catalog', 'source_country_original']) {
+          if (source.config[key] != null && config[key] == null) config[key] = source.config[key]
+        }
+      }
       if (isEdit) {
         await updateSource(source.id, { name, source_type: sourceType, config, country: country.trim() || null, schedule: schedule || null, enabled })
       } else {

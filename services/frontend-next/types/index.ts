@@ -4,6 +4,9 @@ export type Source = {
   source_type: string;
   config: Record<string, any> & { url?: string; urls?: string[] };
   country?: string | null;
+  catalog_type?: string | null;
+  validity_status?: string | null;
+  source_origin?: string | null;
   schedule?: string;
   enabled: boolean;
   created_at?: string;
@@ -28,6 +31,7 @@ export type SourceSummary = {
   outside_sources: number;
   credibility_threshold: number;
   asean_by_country: { country: string; source_count: number }[];
+  by_catalog_type?: { catalog_type: string; source_count: number }[];
 };
 
 export type Run = {
