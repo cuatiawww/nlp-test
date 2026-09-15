@@ -717,24 +717,32 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         ):
             return None
 
-        # Determine multiplier from context
+        # Determine multiplier from context. Billion-scale figures are treated as
+        # population/budget/OCR noise for case and death extraction — never as counts.
         multiplier = 1
         if ctx_lower:
             if re.search(r"\b(?:miliar|milyar|billion|tỷ)\b", ctx_lower) or re.search(r"\d\s*(?:b|mld)\b", ctx_lower):
-                multiplier = 1_000_000_000
+                return None
             elif re.search(r"\b(?:juta|million|triệu|lakh|crore|ล้าน|លាន|သန်း)\b", ctx_lower) or re.search(r"\d\s*m\b", ctx_lower):
                 multiplier = 1_000_000
             elif re.search(r"\b(?:ribu|thousand|nghìn|ngàn|พัน|ពាន់|သိန်း)\b", ctx_lower) or re.search(r"\d\s*k\b", ctx_lower):
                 multiplier = 1_000
 
+        max_count = int(os.getenv("MAX_EVENT_CASE_COUNT", "2000000"))
+
+        def _bounded(value: int):
+            if value > max_count:
+                return None
+            return max(0, value)
+
         # Case 1: Standard thousands separator (e.g. 19,313 or 10.000 or 1,000,000 or 1.000.000)
         if re.fullmatch(r"\d{1,3}(?:[,.]\d{3})+", val):
             clean_int = re.sub(r"[,.]", "", val)
-            return max(0, int(clean_int) * multiplier)
+            return _bounded(int(clean_int) * multiplier)
 
         # Case 2: Pure integer digits
         if re.fullmatch(r"\d+", val):
-            return max(0, int(val) * multiplier)
+            return _bounded(int(val) * multiplier)
 
         # Case 3: Decimal numbers (e.g. '2.1' or '2,1' or '12.5')
         norm_val = val
@@ -746,8 +754,8 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         try:
             num_float = float(norm_val)
             if multiplier > 1:
-                return max(0, int(round(num_float * multiplier)))
-            return max(0, int(round(num_float)))
+                return _bounded(int(round(num_float * multiplier)))
+            return _bounded(int(round(num_float)))
         except (ValueError, OverflowError):
             pass
 
@@ -760,7 +768,7 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
                 clean_fallback = clean_fallback.replace(",", ".")
             clean_fallback = re.sub(r"[^\d.]", "", clean_fallback)
         try:
-            return max(0, int(round(float(clean_fallback) * multiplier)))
+            return _bounded(int(round(float(clean_fallback) * multiplier)))
         except Exception:
             return None
     except Exception:
@@ -769,17 +777,22 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
 
 def extract_case_count(text: str) -> int:
     try:
-        default = int(os.getenv("DEFAULT_CASE_COUNT", "1"))
+        default = int(os.getenv("DEFAULT_CASE_COUNT", "0"))
     except (ValueError, TypeError):
-        default = 1
+        default = 0
+    default = max(0, default)
     try:
-        return _extract_count(text, "case_count", default)
+        parsed = _extract_count(text, "case_count", default)
+        max_count = int(os.getenv("MAX_EVENT_CASE_COUNT", "2000000"))
+        if parsed is None or parsed > max_count:
+            return default
+        return max(0, int(parsed))
     except Exception:
         return default
 
 
 def has_explicit_case_count(text: str) -> bool:
-    """Whether a case number was actually present, excluding the default 1."""
+    """Whether a case number was actually present, excluding the default."""
     try:
         return _extract_count(text, "case_count", -1) >= 0
     except Exception:
@@ -788,7 +801,11 @@ def has_explicit_case_count(text: str) -> bool:
 
 def extract_death_count(text: str) -> int:
     try:
-        return _extract_count(text, "death_count", 0)
+        parsed = _extract_count(text, "death_count", 0)
+        max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
+        if parsed is None or parsed > max_count:
+            return 0
+        return max(0, int(parsed))
     except Exception:
         return 0
 

@@ -114,12 +114,12 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
 
 
     def test_extract_decimal_case_count_with_multiplier_million(self):
-        text = "Ditemukan 2.1 juta kasus terkonfirmasi di wilayah tersebut."
-        self.assertEqual(extractors.extract_case_count(text), 2100000)
+        text = "Ditemukan 1.2 juta kasus terkonfirmasi di wilayah tersebut."
+        self.assertEqual(extractors.extract_case_count(text), 1200000)
 
     def test_extract_decimal_case_count_with_multiplier_english(self):
-        text = "There were 2.1 million cases recorded worldwide."
-        self.assertEqual(extractors.extract_case_count(text), 2100000)
+        text = "There were 1.2 million cases recorded worldwide."
+        self.assertEqual(extractors.extract_case_count(text), 1200000)
 
     def test_extract_decimal_case_count_with_comma_and_multiplier(self):
         text = "Mencatat 1,5 juta kasus demam berdarah selama periode tersebut."
@@ -137,7 +137,7 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
     def test_extract_percentage_ignored_as_case_count(self):
         text = "Kasus demam berdarah naik 2.1 persen pada tahun ini."
         # Percentages must not crash with ValueError and must not be treated as absolute count
-        self.assertEqual(extractors.extract_case_count(text), 1)
+        self.assertEqual(extractors.extract_case_count(text), 0)
 
     def test_extract_thousands_separator_both_formats(self):
         text_dot = "Sebanyak 10.000 kasus baru."
@@ -155,8 +155,13 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
 
     def test_extract_count_never_crashes_on_malformed_inputs(self):
         # Arbitrary messy texts that previously could trigger ValueError in int()
-        self.assertEqual(extractors.extract_case_count("Kasus: .."), 1)
+        self.assertEqual(extractors.extract_case_count("Kasus: .."), 0)
         self.assertEqual(extractors.extract_death_count("Kematian: ..."), 0)
+
+    def test_billion_and_over_cap_are_unknown(self):
+        self.assertEqual(extractors.extract_case_count("Ditemukan 2 miliar kasus."), 0)
+        self.assertEqual(extractors.extract_case_count("There were 2000000000 cases recorded."), 0)
+        self.assertEqual(extractors.extract_case_count("Ditemukan 2.1 juta kasus terkonfirmasi."), 0)
 
 
 if __name__ == "__main__":

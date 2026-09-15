@@ -290,13 +290,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     case_count = extractors.extract_case_count(text)
     death_count = extractors.extract_death_count(text)
     explicit_case_count = extractors.has_explicit_case_count(text)
-    if translated_text and case_count == 1:
+    if translated_text and not explicit_case_count:
         case_count = extractors.extract_case_count(translated_text)
-        explicit_case_count = explicit_case_count or extractors.has_explicit_case_count(translated_text)
+        explicit_case_count = extractors.has_explicit_case_count(translated_text)
     if translated_text and death_count == 0:
         death_count = extractors.extract_death_count(translated_text)
-    if case_count == 1 and isinstance(structured.get("case_count"), int):
+    if not explicit_case_count and isinstance(structured.get("case_count"), int):
         case_count = max(0, structured["case_count"])
+        explicit_case_count = case_count > 0
     if death_count == 0 and isinstance(structured.get("death_count"), int):
         death_count = max(0, structured["death_count"])
     reference_markers = (
@@ -311,13 +312,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         for marker in reference_markers
     ) >= 2
     if is_reference_content:
-        if case_count == 1:
+        if not explicit_case_count:
             case_count = 0
         event_type = "health update"
         event_confidence = max(event_confidence, 0.85)
-    if case_count == 1 and disease == "UNKNOWN" and not extracted:
+    if not explicit_case_count and disease == "UNKNOWN" and not extracted:
         case_count = 0
-    if death_count > 0 and not explicit_case_count and case_count == 1:
+    if death_count > 0 and not explicit_case_count:
         case_count = 0
     if structured.get("is_health_related") is True:
         is_health_related = True
@@ -334,7 +335,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if (
         not explicit_outbreak
         and extractors.is_policy_or_statistical_health_content(analysis_text)
-        and case_count == 1
+        and not explicit_case_count
     ):
         case_count = 0
     outbreak_signal = max(case_count, death_count)
@@ -386,7 +387,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             outbreak_alert = False
             event_type = "unknown"
             event_confidence = 0.0
-        if case_count == 1:
+        if not explicit_case_count:
             case_count = 0
     needs_review = confidence < config.LOW_CONFIDENCE_THRESHOLD
 
