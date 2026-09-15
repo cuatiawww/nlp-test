@@ -111,6 +111,12 @@ def backfill_document_identities(batch_size: int = 500, max_batches: int = 100) 
 
 
 def fetch_sources(source_type=None, enabled_only=True):
+    """Load collector_sources.
+
+    Scheduler and ``/collect/all`` keep ``enabled_only=True`` so ABVC catalog
+    rows stay off the interval crawler. Manual ``/discover-urls`` passes
+    ``enabled_only=False`` to use the stored catalog without flipping enabled.
+    """
     conn = get_conn()
     enabled_clause = "WHERE enabled = TRUE"
     if not enabled_only:

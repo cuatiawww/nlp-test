@@ -29,6 +29,30 @@ MAX_SITEMAP_DEPTH = 2
 MAX_NESTED_SITEMAPS = 10
 MAX_PAGINATION_PAGES = 10
 MAX_RECURSIVE_DEPTH = 2
+MAX_CATALOG_SOURCES_PER_DISCOVERY = 80
+CATALOG_PAGE_TIMEOUT_SECONDS = 8
+
+ASEAN_COUNTRIES = {
+    "brunei", "cambodia", "indonesia", "laos", "malaysia", "myanmar",
+    "philippines", "singapore", "thailand", "timor-leste", "vietnam",
+}
+INTERNATIONAL_COUNTRIES = {
+    "international", "global", "world", "asean", "asean / asia", "asia",
+}
+DISEASE_SYNONYMS = {
+    "dengue": (
+        "dengue", "dbd", "demam berdarah", "dengue fever",
+        "dengue haemorrhagic fever", "dengue hemorrhagic fever",
+    ),
+    "measles": ("measles", "campak"),
+    "cholera": ("cholera", "kolera"),
+    "malaria": ("malaria",),
+    "mpox": ("mpox", "monkeypox"),
+    "covid-19": ("covid-19", "covid", "coronavirus"),
+    "influenza": ("influenza", "flu"),
+    "avian influenza": ("avian influenza", "h5n1", "bird flu", "flu burung"),
+    "hantavirus infection": ("hantavirus", "hantavirus infection"),
+}
 
 
 def _fetch_bytes(url: str, timeout: int = 20) -> tuple[bytes, str, str]:
@@ -150,6 +174,92 @@ def parse_html_links(payload: bytes, page_url: str) -> list[dict]:
     return results
 
 
+def expand_disease_terms(names: list[str] | tuple[str, ...] | set[str]) -> list[str]:
+    """Expand ICD-11 / local aliases so campak matches Measles, DBD matches Dengue."""
+    terms: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        folded = str(name or "").strip().casefold()
+        if not folded or folded in seen:
+            continue
+        seen.add(folded)
+        terms.append(folded)
+        extras: list[str] = []
+        for canonical, aliases in DISEASE_SYNONYMS.items():
+            alias_list = list(aliases) if not isinstance(aliases, str) else [aliases]
+            if folded == canonical or folded in alias_list:
+                extras.extend([canonical, *alias_list])
+        for extra in extras:
+            if extra not in seen:
+                seen.add(extra)
+                terms.append(extra)
+    return terms
+
+
+def _term_in_text(term: str, haystack: str) -> bool:
+    if not term:
+        return False
+    if len(term) <= 3:
+        return re.search(rf"\b{re.escape(term)}\b", haystack) is not None
+    return term in haystack
+
+
+def parse_source_config(source: dict) -> dict:
+    raw_config = source.get("config") or {}
+    if isinstance(raw_config, str):
+        try:
+            raw_config = json.loads(raw_config)
+        except json.JSONDecodeError:
+            return {}
+    return raw_config if isinstance(raw_config, dict) else {}
+
+
+def source_country_value(source: dict) -> str:
+    config = parse_source_config(source)
+    return str(source.get("country") or config.get("country") or "").strip()
+
+
+def source_matches_geography(source: dict, country: str | None, region: str | None) -> bool:
+    """Keep catalog rows that belong to the manual-crawl country/region filter."""
+    source_country = source_country_value(source).casefold()
+    target = (country or "").strip().casefold()
+    if target:
+        if not source_country:
+            return False
+        if target in source_country or source_country in target:
+            return True
+        return source_country in INTERNATIONAL_COUNTRIES
+    if region and region.casefold() == "asean":
+        if not source_country:
+            return False
+        return source_country in ASEAN_COUNTRIES or source_country in INTERNATIONAL_COUNTRIES
+    return True
+
+
+def source_rank(source: dict, country: str | None = None) -> tuple:
+    """Prefer the requested country, then Official / Main catalog rows."""
+    config = parse_source_config(source)
+    validity = str(config.get("validity_status") or "").casefold()
+    origin = str(config.get("source_origin") or "").casefold()
+    from_engine = str(config.get("from_engine") or "").casefold()
+    source_country = source_country_value(source).casefold()
+    target = (country or "").strip().casefold()
+    country_match = 0
+    if target:
+        country_match = 0 if target in source_country or source_country in target else 1
+    official = 0 if validity == "official" else 1
+    main = 0 if origin == "main source" or from_engine == "no" else 1
+    enabled = 0 if source.get("enabled") else 1
+    return (country_match, official, main, enabled, str(source.get("name") or "").casefold())
+
+
+def select_manual_crawl_sources(sources: list[dict], country: str | None, region: str | None) -> list[dict]:
+    """Use the stored catalog for manual crawl, including disabled scheduler rows."""
+    matched = [dict(row) for row in sources if source_matches_geography(row, country, region)]
+    matched.sort(key=lambda row: source_rank(row, country))
+    return matched
+
+
 def pagination_urls(start_url: str, max_pages: int, template: str = "", style: str = "query") -> list[str]:
     """Build bounded common pagination forms without guessing indefinitely."""
     limit = min(MAX_PAGINATION_PAGES, max(1, int(max_pages)))
@@ -177,6 +287,10 @@ class DiscoveryEngine:
     results: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     seen: set[str] = field(default_factory=set)
+    disease_terms: list[str] = field(init=False, default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.disease_terms = expand_disease_terms(self.diseases)
 
     def _matches(self, candidate: dict, trusted_query: bool = False) -> bool:
         published = candidate.get("published_at")
@@ -186,16 +300,31 @@ class DiscoveryEngine:
             return False
         if trusted_query:
             return True
-        haystack = " ".join((candidate.get("title") or "", candidate.get("summary") or "", candidate.get("url") or "")).casefold()
-        disease_match = any(name.casefold() in haystack for name in self.diseases)
+        haystack = " ".join((
+            candidate.get("title") or "",
+            candidate.get("summary") or "",
+            candidate.get("url") or "",
+        )).casefold()
+        disease_match = any(_term_in_text(term, haystack) for term in self.disease_terms)
+        if not disease_match:
+            return False
         geography = (self.country or "").casefold()
-        return disease_match and (not geography or geography in haystack)
+        if not geography:
+            return True
+        if geography in haystack:
+            return True
+        source_country = str(candidate.get("source_country") or "").casefold()
+        return bool(source_country) and (geography in source_country or source_country in geography)
 
-    def add(self, candidate: dict, source: str, trusted_query: bool = False) -> None:
-        if len(self.results) >= self.max_urls or not self._matches(candidate, trusted_query):
+    def add(self, candidate: dict, source: str, trusted_query: bool = False,
+            source_country: str | None = None) -> None:
+        payload = dict(candidate)
+        if source_country and not payload.get("source_country"):
+            payload["source_country"] = source_country
+        if len(self.results) >= self.max_urls or not self._matches(payload, trusted_query):
             return
         try:
-            normalized = normalize_url(candidate.get("url") or "")
+            normalized = normalize_url(payload.get("url") or "")
         except ValueError:
             return
         if normalized in self.seen:
@@ -203,20 +332,21 @@ class DiscoveryEngine:
         self.seen.add(normalized)
         self.results.append({
             "url": normalized,
-            "title": candidate.get("title") or "",
-            "published_at": candidate.get("published_at"),
-            "source_name": candidate.get("source_name") or (urlparse(normalized).hostname or source).removeprefix("www."),
+            "title": payload.get("title") or "",
+            "published_at": payload.get("published_at"),
+            "source_name": payload.get("source_name") or (urlparse(normalized).hostname or source).removeprefix("www."),
             "discovery_source": source,
+            "source_country": payload.get("source_country") or "",
         })
 
     def feed(self, feed_url: str, source: str, trusted_query: bool = False,
-             entry_limit: int | None = None) -> None:
+             entry_limit: int | None = None, source_country: str | None = None) -> None:
         try:
             payload, final_url, _ = _fetch_bytes(feed_url)
             added = 0
             for candidate in parse_feed(payload, final_url):
                 before = len(self.results)
-                self.add(candidate, source, trusted_query=trusted_query)
+                self.add(candidate, source, trusted_query=trusted_query, source_country=source_country)
                 if len(self.results) > before:
                     added += 1
                 if len(self.results) >= self.max_urls or (entry_limit is not None and added >= entry_limit):
@@ -225,7 +355,7 @@ class DiscoveryEngine:
             self.warnings.append(f"{source}: {str(exc)[:180]}")
             logger.warning("Discovery feed failed source=%s url=%s error=%s", source, feed_url, exc)
 
-    def sitemap(self, sitemap_url: str, source: str) -> None:
+    def sitemap(self, sitemap_url: str, source: str, source_country: str | None = None) -> None:
         pending = [(sitemap_url, 0)]
         visited = set()
         while pending and len(visited) < MAX_NESTED_SITEMAPS and len(self.results) < self.max_urls:
@@ -241,14 +371,15 @@ class DiscoveryEngine:
                     pending.extend((urljoin(final_url, item["url"]), depth + 1) for item in entries)
                 elif kind == "urlset":
                     for candidate in entries:
-                        self.add(candidate, source)
+                        self.add(candidate, source, source_country=source_country)
                         if len(self.results) >= self.max_urls:
                             break
             except Exception as exc:
                 self.warnings.append(f"{source} sitemap: {str(exc)[:180]}")
                 logger.warning("Sitemap discovery failed source=%s url=%s error=%s", source, current, exc)
 
-    def pages(self, start_url: str, source: str, source_config: dict) -> None:
+    def pages(self, start_url: str, source: str, source_config: dict,
+              source_country: str | None = None) -> None:
         pagination = source_config.get("pagination") if isinstance(source_config.get("pagination"), dict) else {}
         recursive = source_config.get("recursive") if isinstance(source_config.get("recursive"), dict) else {}
         max_pages = min(MAX_PAGINATION_PAGES, max(1, int(
@@ -270,6 +401,7 @@ class DiscoveryEngine:
             )
         visited_pages = set()
         allowed_host = (urlparse(start_url).hostname or "").lower()
+        timeout = int(source_config.get("discovery_timeout") or CATALOG_PAGE_TIMEOUT_SECONDS)
         while queue and len(visited_pages) < max_pages and len(self.results) < self.max_urls:
             page_url, depth = queue.pop(0)
             try:
@@ -277,12 +409,12 @@ class DiscoveryEngine:
                 if normalized in visited_pages or (urlparse(normalized).hostname or "").lower() != allowed_host:
                     continue
                 visited_pages.add(normalized)
-                payload, final_url, _ = _fetch_bytes(normalized)
+                payload, final_url, _ = _fetch_bytes(normalized, timeout=timeout)
                 links = parse_html_links(payload, final_url)
                 for candidate in links:
                     if (urlparse(candidate["url"]).hostname or "").lower() != allowed_host:
                         continue
-                    self.add(candidate, source)
+                    self.add(candidate, source, source_country=source_country)
                     if depth < max_depth and candidate["url"] not in visited_pages:
                         queue.append((candidate["url"], depth + 1))
             except Exception as exc:
@@ -304,35 +436,40 @@ def discover_urls(diseases: list[str], country: str | None, region: str | None,
     elif region and region.casefold() not in {"asean", "global"}:
         query += f" {region.strip()}"
     google_url = "https://news.google.com/rss/search?q=" + quote_plus(query) + "&hl=en&gl=US&ceid=US:en"
-    # Prioritize Google News results for targeted disease queries
-    google_budget = engine.max_urls
+    catalog_sources = select_manual_crawl_sources(sources, country, region)
+    # Leave room for catalog sites. Google News used to consume max_urls first,
+    # so disabled ABVC homepage sources never ran even when they were loaded.
+    if catalog_sources and engine.max_urls > 1:
+        google_budget = max(1, min(engine.max_urls // 2, engine.max_urls - 1))
+    else:
+        google_budget = engine.max_urls
     engine.feed(google_url, "Google News", trusted_query=True, entry_limit=google_budget)
 
-    target_country = (country or "").strip().lower()
-    for source_row in sources:
+    visited = 0
+    for source in catalog_sources:
         if len(engine.results) >= engine.max_urls:
             break
-        source = dict(source_row)
-        source_country = str(source.get("country") or "").strip().lower()
-        if target_country and source_country and target_country not in source_country and source_country not in target_country:
-            continue
-        raw_config = source.get("config") or {}
-        if isinstance(raw_config, str):
-            try:
-                raw_config = json.loads(raw_config)
-            except json.JSONDecodeError:
-                continue
+        if visited >= MAX_CATALOG_SOURCES_PER_DISCOVERY:
+            remaining = len(catalog_sources) - visited
+            engine.warnings.append(
+                f"Catalog discovery stopped after {visited} matching sources; "
+                f"{remaining} additional catalog rows were not fetched in this job."
+            )
+            break
+        raw_config = parse_source_config(source)
         source_label = str(source.get("name") or source.get("source_type") or "configured source")
         source_type = str(source.get("source_type") or "").lower()
         source_url = str(raw_config.get("rss_url") or raw_config.get("url") or "").strip()
+        source_country = source_country_value(source)
+        visited += 1
         if source_type in {"rss", "social_media"} and source_url:
-            engine.feed(source_url, source_label)
+            engine.feed(source_url, source_label, source_country=source_country)
         sitemap_url = str(raw_config.get("sitemap_url") or "").strip()
         if sitemap_url:
-            engine.sitemap(sitemap_url, source_label)
-        if source_type == "web" and source_url and (
-            raw_config.get("recursive_discovery") or raw_config.get("pagination_template")
-            or raw_config.get("recursive") or raw_config.get("pagination")
-        ):
-            engine.pages(source_url, source_label, raw_config)
+            engine.sitemap(sitemap_url, source_label, source_country=source_country)
+        if source_type == "web" and source_url:
+            page_config = dict(raw_config)
+            page_config.setdefault("max_discovery_pages", 1)
+            page_config.setdefault("recursive_depth", 0)
+            engine.pages(source_url, source_label, page_config, source_country=source_country)
     return engine.results, engine.warnings

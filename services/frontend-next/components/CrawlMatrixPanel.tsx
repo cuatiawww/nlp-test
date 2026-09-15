@@ -192,7 +192,7 @@ export default function CrawlMatrixPanel() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
           <div className="text-xs text-slate-500">
             <div>Job <span className="font-mono text-slate-700">{job.job_id}</span> · {job.discovered_count} discovered · {job.processed_count} processed · {job.row_count} rows</div>
-            <div className="mt-1 text-[11px] text-slate-400">{job.query?.url ? `Direct URL: ${job.query.url}` : 'Sources: Google News, configured RSS feeds, sitemaps, and explicitly enabled website discovery'}</div>
+            <div className="mt-1 text-[11px] text-slate-400">{job.query?.url ? `Direct URL: ${job.query.url}` : 'Sources: Google News plus matching catalog sites (including disabled scheduler rows). Official/Main sources are tried first; the interval crawler stays unchanged.'}</div>
           </div>
           <div className="flex gap-2"><button onClick={() => exportRows('csv')} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Download className="h-3.5 w-3.5" />CSV</button><button onClick={() => exportRows('json')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">JSON</button><button onClick={reprocess} disabled={busy || ['queued', 'processing'].includes(job.status)} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" />Reprocess</button></div>
         </div>
