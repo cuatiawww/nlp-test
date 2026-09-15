@@ -68,6 +68,12 @@ class WebScraperHelpersTest(unittest.TestCase):
             _country_hint_from_url("https://www.smartraveller.gov.au/destinations/asia/laos"),
             "Laos",
         )
+        self.assertEqual(
+            _country_hint_from_url(
+                "https://asianews.network/malaysias-dengue-cases-surge-66-deaths-nearly-double/"
+            ),
+            "Malaysia",
+        )
 
     def test_detects_blocked_statuses(self):
         for status in (403, 429, 503):

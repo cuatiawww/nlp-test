@@ -60,6 +60,32 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         loc = extractors.extract_location(text)
         self.assertEqual(loc, "Selangor")
 
+    def test_asia_news_network_does_not_beat_malaysia(self):
+        config.LOCATION_COORDS = {
+            **config.LOCATION_COORDS,
+            "Asia": (35.0, 105.0),
+            "Malaysia": (4.2105, 101.9758),
+            "Putrajaya": (2.9264, 101.6964),
+        }
+        config.LOCATION_COUNTRIES = {
+            **config.LOCATION_COUNTRIES,
+            "Asia": "Asia",
+            "Malaysia": "Malaysia",
+            "Putrajaya": "Malaysia",
+        }
+        config.build_location_patterns()
+        text = (
+            "Malaysia's dengue cases surge 66%, deaths nearly double – Asia News Network\n"
+            "September 10, 2026 PUTRAJAYA – Dengue cases have surged 66% so far this year, "
+            "with 65,979 infections recorded as of Epidemiological Week 35 compared with 39,616 "
+            "during the same period last year."
+        )
+        self.assertEqual(extractors.extract_country_hint(text), "Malaysia")
+        loc = extractors.extract_location(text)
+        self.assertNotEqual(loc, "Asia")
+        self.assertIn(loc, {"Malaysia", "Putrajaya"})
+        self.assertFalse(extractors.is_usable_place_name("Asia", text, text.index("Asia")))
+
 
     def test_extract_decimal_case_count_with_multiplier_million(self):
         text = "Ditemukan 2.1 juta kasus terkonfirmasi di wilayah tersebut."

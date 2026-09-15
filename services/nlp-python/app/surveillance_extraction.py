@@ -217,6 +217,8 @@ NON_GEOGRAPHIC_TERMS = frozenset({
     "puncak", "sudah", "rekor", "tertinggi", "terendah", "rata-rata",
     "rata rata", "persen", "kasus", "kematian", "pasien", "total",
     "jumlah", "angka", "periode", "minggu", "weekly",
+    "asia", "africa", "europe", "oceania", "antarctica",
+    "southeast asia", "south east asia", "asean",
 })
 
 def _is_subnational_location(name: str, country: str) -> bool:
@@ -320,6 +322,8 @@ class GazetteerLinker:
         folded = extractors._fold_location_text(value.strip())
         if not folded or folded in NON_GEOGRAPHIC_TERMS:
             return None
+        if not extractors.is_usable_place_name(value):
+            return None
         # Countries include aliases such as Singapura/Kamboja.
         for alias, canonical in extractors.COUNTRY_ALIASES.items():
             if folded == extractors._fold_location_text(alias):
@@ -334,6 +338,8 @@ class GazetteerLinker:
     def link(self, value: str, context: str = "", evidence: str = "") -> Optional[LinkedLocation]:
         value = re.sub(r"\s+", " ", (value or "").strip(" ,.;:()[]{}"))
         if not value or len(value) > 80:
+            return None
+        if not extractors.is_usable_place_name(value, f"{value} {context} {evidence}"):
             return None
         canonical = self._canonical_local(value)
         if canonical:

@@ -78,6 +78,10 @@ def _country_hint_from_url(url: str) -> str:
         for token in re.split(r"[^a-z]+", clean):
             if token in aliases:
                 return aliases[token]
+            # Article slugs often use a possessive, e.g. malaysias-dengue-cases.
+            possessive = token[:-1] if token.endswith("s") and len(token) > 4 else ""
+            if possessive in aliases:
+                return aliases[possessive]
 
     # Some country offices use a country subdomain, e.g. laos.embassy.gov.au.
     host_parts = [part for part in (parsed.hostname or "").lower().split(".") if part]

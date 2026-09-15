@@ -122,6 +122,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # present in the local gazetteer. Never fabricate a capital city or
         # coordinates for a national report.
         location = location_country
+    if location and not extractors.is_usable_place_name(location, text):
+        location = extractors.extract_country_hint(text) or None
     lat, lon = config.LOCATION_COORDS.get(location, (None, None))
     raw_country = location_country or (config.LOCATION_COUNTRIES.get(location) if location else None) or None
     country = extractors.country_scope(raw_country)
@@ -605,11 +607,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 # found (which can be a strain number such as H3N2).
                 case_count, death_count = aggregate_relation_totals(relational_events)
                 explicit_case_count = case_count > 0
-                first_relation = relational_events[0]
-                location = first_relation.location.name
-                country = first_relation.location.country
-                lat = first_relation.location.latitude
-                lon = first_relation.location.longitude
+                usable_relations = [
+                    item for item in relational_events
+                    if extractors.is_usable_place_name(item.location.name, text)
+                ]
+                first_relation = (usable_relations or relational_events)[0]
+                if extractors.is_usable_place_name(first_relation.location.name, text):
+                    location = first_relation.location.name
+                    country = first_relation.location.country
+                    lat = first_relation.location.latitude
+                    lon = first_relation.location.longitude
                 all_locations = [
                     {
                         "name": item.location.name,
@@ -617,8 +624,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         "longitude": item.location.longitude,
                         "country": item.location.country,
                     }
-                    for item in relational_events
-                ]
+                    for item in usable_relations or relational_events
+                    if extractors.is_usable_place_name(item.location.name, text)
+                ] or all_locations
             if len(relational_events) >= 2:
                 event_disease = strict_output.disease_classification[0] if strict_output.disease_classification else disease
                 disease = event_disease

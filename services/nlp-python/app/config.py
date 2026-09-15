@@ -132,6 +132,9 @@ LOCATION_STOPWORDS = {
     # They are never accepted as article locations without an explicit curated
     # disambiguation rule.
     "puncak", "sudah", "rekor", "tertinggi", "terendah", "rata-rata",
+    # Continents/regions are not article event places. "Asia News Network"
+    # must not beat a country such as Malaysia.
+    "asia", "africa", "europe", "oceania", "antarctica",
 }
 LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}

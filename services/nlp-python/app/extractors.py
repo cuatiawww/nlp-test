@@ -237,6 +237,36 @@ LOCATION_ALIASES = {
     "thanh pho ho chi minh": "Ho Chi Minh City",
 }
 
+CONTINENT_AND_REGION_LABELS = {
+    "asia", "africa", "europe", "oceania", "antarctica",
+    "southeast asia", "south east asia", "east asia", "south asia",
+    "west asia", "central asia", "north america", "south america",
+    "central america", "middle east", "asean", "asean / asia",
+}
+
+_PUBLISHER_FOLLOWER = re.compile(
+    r"^\s*(?:news(?:\s+network)?|times|post|tribune|herald|daily|network|media|online)\b",
+    re.IGNORECASE,
+)
+
+
+def is_usable_place_name(name: str, surrounding_text: str = "", start: int = 0) -> bool:
+    """Reject continents and publisher brands such as Asia News Network."""
+    raw = (name or "").strip()
+    if not raw:
+        return False
+    folded = _fold_location_text(raw)
+    if folded in CONTINENT_AND_REGION_LABELS or folded in config.LOCATION_STOPWORDS:
+        return False
+    if surrounding_text:
+        after = surrounding_text[start + len(raw): start + len(raw) + 48]
+        if _PUBLISHER_FOLLOWER.match(after):
+            return False
+        window = surrounding_text[max(0, start - 12): start + len(raw) + 28]
+        if folded == "asia" and re.search(r"asianews|asia\s+news", window, re.I):
+            return False
+    return True
+
 
 def normalize_country(value: Optional[str]) -> Optional[str]:
     """Normalize a supplied country hint without confusing organizations with countries."""
@@ -406,6 +436,8 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
         if canonical not in allowed_names:
             continue
         for match in re.finditer(re.escape(alias), compact_text, re.IGNORECASE):
+            if not is_usable_place_name(canonical, compact_text, match.start()):
+                continue
             hits.append((canonical, match.start()))
 
     folded_names = {
@@ -433,6 +465,8 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
                     continue
                 if loc.lower() == "mexico" and raw_position >= 4 and compact_text[raw_position - 4:raw_position].lower() == "new ":
                     continue
+            if not is_usable_place_name(loc, compact_text, raw_position):
+                continue
             hits.append((loc, match.start()))
 
     if not hits:
@@ -501,6 +535,8 @@ def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict
         if canonical not in allowed_names:
             continue
         for match in re.finditer(re.escape(alias), compact_text, re.IGNORECASE):
+            if not is_usable_place_name(canonical, compact_text, match.start()):
+                continue
             hits.append((canonical, match.start()))
 
     folded_names = {
@@ -524,6 +560,8 @@ def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict
                     continue
                 if loc.lower() == "mexico" and raw_position >= 4 and compact_text[raw_position - 4:raw_position].lower() == "new ":
                     continue
+            if not is_usable_place_name(loc, compact_text, raw_position):
+                continue
             hits.append((loc, match.start()))
 
     if not hits:

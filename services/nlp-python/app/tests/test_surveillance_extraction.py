@@ -20,6 +20,8 @@ class SurveillanceExtractionTest(unittest.TestCase):
             "Puncak": (-6.7, 106.9),
             "Sudah": (0.0, 0.0),
             "Rekor": (0.0, 0.0),
+            "Asia": (35.0, 105.0),
+            "Malaysia": (4.2, 101.9),
         }
         self.countries = {
             "Indonesia": "Indonesia",
@@ -30,6 +32,8 @@ class SurveillanceExtractionTest(unittest.TestCase):
             "Puncak": "Indonesia",
             "Sudah": "Indonesia",
             "Rekor": "Indonesia",
+            "Asia": "Asia",
+            "Malaysia": "Malaysia",
         }
         self.coords_patch = patch.object(config, "LOCATION_COORDS", self.coords)
         self.countries_patch = patch.object(config, "LOCATION_COUNTRIES", self.countries)
@@ -76,6 +80,7 @@ class SurveillanceExtractionTest(unittest.TestCase):
         self.assertIsNone(linker.link("Puncak", "puncak kasus tertinggi"))
         self.assertIsNone(linker.link("Sudah", "sudah tercatat 10 kasus"))
         self.assertIsNone(linker.link("Rekor", "rekor 65,880 kasus"))
+        self.assertIsNone(linker.link("Asia", "Malaysia's dengue cases surge – Asia News Network"))
 
     def test_domain_and_brand_scores_are_not_generic_web_defaults(self):
         from app.surveillance_extraction import source_reliability_score
