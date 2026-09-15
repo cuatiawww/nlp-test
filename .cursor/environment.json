@@ -1,0 +1,24 @@
+{
+  "name": "Disease Surveillance AI",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "backend-rust",
+      "command": "source .cursor/dev.env && export INIT_SQL_DIR=\"$PWD/database/init\" && cd services/backend-rust && ./target/release/backend-rust"
+    },
+    {
+      "name": "nlp-python",
+      "command": "source .cursor/dev.env && cd services/nlp-python && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001"
+    },
+    {
+      "name": "worker-python",
+      "command": "source .cursor/dev.env && cd services/worker-python && .venv/bin/python -m app.worker"
+    },
+    {
+      "name": "frontend-next",
+      "command": "source .cursor/dev.env && cd services/frontend-next && npm run dev"
+    }
+  ],
+  "ports": [3010, 8081, 8001]
+}
