@@ -70,13 +70,18 @@ def project_icd11_public_output(
             primary_resolved = name
 
     # If the primary role was not retained, use the first valid WHO-backed
-    # mention only when it is the classifier's selected disease.
-    if primary_resolved is None and primary:
-        primary_norm = primary.strip().casefold()
-        primary_resolved = next(
-            (name for name in resolved if name.casefold() == primary_norm),
-            None,
-        )
+    # mention only when it is the classifier's selected disease. An UNKNOWN
+    # primary with a coded mention still publishes the ICD-11 name so keyword
+    # captures are not wiped after local resolution.
+    if primary_resolved is None and resolved:
+        primary_norm = (primary or "").strip().casefold()
+        if not primary_norm or primary_norm == "unknown":
+            primary_resolved = resolved[0]
+        else:
+            primary_resolved = next(
+                (name for name in resolved if name.casefold() == primary_norm),
+                None,
+            )
 
     return {
         "primary": primary_resolved or "UNKNOWN",
@@ -237,26 +242,185 @@ def who_search(term: str, token: str | None = None) -> dict[str, Any] | None:
         return None
 
 
+def _concept_term_values(concept: dict[str, Any]) -> list[str]:
+    names = [concept.get("canonical_name"), concept.get("english_name")]
+    names.extend(
+        item.get("alias") if isinstance(item, dict) else item
+        for item in (concept.get("aliases") or [])
+    )
+    return [str(name).strip() for name in names if name and str(name).strip()]
+
+
+def _as_local_resolution(concept: dict[str, Any], confidence: float, source: str) -> dict[str, Any] | None:
+    canonical = str(concept.get("canonical_name") or "").strip()
+    code = str(concept.get("ontology_code") or "").strip()
+    if not canonical or not code or canonical.upper() == "UNKNOWN":
+        return None
+    return {
+        "canonical_name": canonical,
+        "english_name": concept.get("english_name") or canonical,
+        "ontology_code": code,
+        "ontology_uri": concept.get("ontology_uri"),
+        "confidence": confidence,
+        "resolution_source": source,
+    }
+
+
+def _local_icd11_fallback_catalog() -> list[dict[str, Any]]:
+    """Curated ICD-11 names/codes for keyword labels when the DB cache is empty.
+
+    Display labels follow migration 059. Codes are the reviewed MMS codes already
+    used by the disease master; this catalog does not invent new ontology links.
+    """
+    return [
+        {"canonical_name": "COVID-19", "ontology_code": "RA01", "aliases": ["covid", "covid-19", "covid19", "coronavirus"]},
+        {"canonical_name": "Cholera", "ontology_code": "1A00", "aliases": ["cholera", "kolera"]},
+        {"canonical_name": "Typhoid fever", "ontology_code": "1A07", "aliases": ["typhoid", "tipoid", "demam tifoid"]},
+        {"canonical_name": "Acute diarrhea", "ontology_code": "1A40.Z&XT5R", "aliases": ["diare akut", "diare", "acute diarrhea", "DIARE_AKUT"]},
+        {"canonical_name": "Tuberculosis", "ontology_code": "1B1Z", "aliases": ["tuberculosis", "tb", "tbc"]},
+        {"canonical_name": "Leprosy", "ontology_code": "1B20", "aliases": ["leprosy", "kusta"]},
+        {"canonical_name": "Leptospirosis", "ontology_code": "1B91", "aliases": ["leptospirosis"]},
+        {"canonical_name": "Plague", "ontology_code": "1B93", "aliases": ["plague", "pes"]},
+        {"canonical_name": "Anthrax", "ontology_code": "1B97", "aliases": ["anthrax", "antraks"]},
+        {"canonical_name": "Tetanus", "ontology_code": "1C10", "aliases": ["tetanus"]},
+        {"canonical_name": "Diphtheria", "ontology_code": "1C11", "aliases": ["diphtheria", "difteri"]},
+        {"canonical_name": "Pertussis", "ontology_code": "1C12", "aliases": ["pertussis", "whooping cough", "batuk rejan"]},
+        {"canonical_name": "Japanese encephalitis", "ontology_code": "1C80", "aliases": ["japanese encephalitis", "radang otak jepang"]},
+        {"canonical_name": "Poliomyelitis", "ontology_code": "1C81", "aliases": ["polio", "poliomyelitis"]},
+        {"canonical_name": "Rabies", "ontology_code": "1C82", "aliases": ["rabies"]},
+        {"canonical_name": "Meningitis", "ontology_code": "1D00", "aliases": ["meningitis"]},
+        {
+            "canonical_name": "Dengue",
+            "ontology_code": "1D2Z",
+            "aliases": ["dengue", "dengue fever", "dbd", "demam berdarah", "demam berdarah dengue"],
+        },
+        {"canonical_name": "Chikungunya", "ontology_code": "1D40", "aliases": ["chikungunya", "cikungunya"]},
+        {"canonical_name": "Ebola disease", "ontology_code": "1D42", "aliases": ["ebola", "ebola virus"]},
+        {"canonical_name": "Marburg disease", "ontology_code": "1D43", "aliases": ["marburg", "marburg virus"]},
+        {"canonical_name": "Lassa fever", "ontology_code": "1D44", "aliases": ["lassa", "lassa fever", "LASSA_FEVER"]},
+        {"canonical_name": "Yellow fever", "ontology_code": "1D47", "aliases": ["yellow fever", "demam kuning", "YELLOW_FEVER"]},
+        {"canonical_name": "Zika virus disease", "ontology_code": "1D48", "aliases": ["zika", "zika virus"]},
+        {
+            "canonical_name": "Hantavirus infection",
+            "ontology_code": "1D62",
+            "aliases": ["hantavirus", "hantavirus infection", "HANTAVIRUS"],
+        },
+        {"canonical_name": "Nipah virus disease", "ontology_code": "1D63", "aliases": ["nipah", "nipah virus"]},
+        {
+            "canonical_name": "Middle East respiratory syndrome",
+            "ontology_code": "1D64",
+            "aliases": ["mers", "mers cov", "middle east respiratory syndrome"],
+        },
+        {
+            "canonical_name": "Hand, foot and mouth disease",
+            "ontology_code": "1D82",
+            "aliases": ["hfmd", "hand foot mouth", "hand foot and mouth disease", "flu singapura"],
+        },
+        {
+            "canonical_name": "Avian influenza",
+            "ontology_code": "1E30",
+            "aliases": [
+                "avian influenza",
+                "avian influenza h5n1",
+                "h5n1",
+                "bird flu",
+                "flu burung",
+                "AVIAN_INFLUENZA",
+            ],
+        },
+        {"canonical_name": "Influenza", "ontology_code": "1E32", "aliases": ["influenza", "flu"]},
+        {"canonical_name": "Smallpox", "ontology_code": "1E70", "aliases": ["smallpox", "cacar"]},
+        {"canonical_name": "Mpox", "ontology_code": "1E71", "aliases": ["mpox", "monkeypox", "cacar monyet"]},
+        {"canonical_name": "Rubella", "ontology_code": "1F02", "aliases": ["rubella", "campak jerman"]},
+        {"canonical_name": "Measles", "ontology_code": "1F03", "aliases": ["measles", "campak", "CAMPAK"]},
+        {"canonical_name": "Malaria", "ontology_code": "1F4Z", "aliases": ["malaria"]},
+        {"canonical_name": "Schistosomiasis", "ontology_code": "1F64", "aliases": ["schistosomiasis"]},
+        {"canonical_name": "Filariasis", "ontology_code": "1F66", "aliases": ["filariasis", "kaki gajah"]},
+        {"canonical_name": "Pneumonia", "ontology_code": "CA40.Z", "aliases": ["pneumonia"]},
+        {"canonical_name": "Stroke", "ontology_code": "8B20", "aliases": ["stroke"]},
+    ]
+
+
+def _match_local_icd11_concept(term: str, catalog: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Score a captured surface form against one ICD-11 catalog. No network."""
+    from .extractors import WHO_STOPWORDS, _normalize_entity_text, normalize_disease_display
+
+    weak_substring_terms = set(WHO_STOPWORDS) | {"influenza", "flu", "viral"}
+    variants: list[str] = []
+    for raw in (term, normalize_disease_display(term or "")):
+        value = str(raw or "").strip()
+        if not value or value.upper() == "UNKNOWN":
+            continue
+        if value not in variants:
+            variants.append(value)
+
+    best: dict[str, Any] | None = None
+    best_score = 0
+    for variant in variants:
+        vnorm = _normalize_entity_text(variant)
+        if not vnorm:
+            continue
+        for concept in catalog:
+            if not str(concept.get("ontology_code") or "").strip():
+                continue
+            for label in _concept_term_values(concept):
+                lnorm = _normalize_entity_text(label)
+                if not lnorm:
+                    continue
+                score = 0
+                if vnorm == lnorm:
+                    score = 1000 + len(lnorm)
+                elif vnorm in weak_substring_terms or lnorm in weak_substring_terms:
+                    continue
+                elif len(vnorm) >= 4 and len(lnorm) >= 4 and (vnorm in lnorm or lnorm in vnorm):
+                    shorter, longer = (vnorm, lnorm) if len(vnorm) <= len(lnorm) else (lnorm, vnorm)
+                    if set(shorter.split()) <= set(longer.split()) or shorter in longer:
+                        score = 100 + len(shorter)
+                if score > best_score:
+                    best = concept
+                    best_score = score
+    return best
+
+
+def resolve_local_icd11_term(term: str) -> dict[str, Any] | None:
+    """Map a captured disease label to a local ICD-11 name and code.
+
+    Interactive URL analysis skips the live WHO API. This path uses the loaded
+    disease master first, then a curated ICD-11 fallback, so keyword captures
+    such as campak/DBD/H5N1 become public ICD-11 names instead of UNKNOWN.
+    """
+    raw = (term or "").strip()
+    if not raw or raw.upper() == "UNKNOWN":
+        return None
+
+    live = _match_local_icd11_concept(raw, config.WHO_DISEASE_CONCEPTS)
+    if live:
+        return _as_local_resolution(live, 0.99, "local WHO concept")
+
+    fallback = _match_local_icd11_concept(raw, _local_icd11_fallback_catalog())
+    if not fallback:
+        return None
+    code = str(fallback.get("ontology_code") or "").strip()
+    for concept in config.WHO_DISEASE_CONCEPTS:
+        if str(concept.get("ontology_code") or "").strip() == code:
+            return _as_local_resolution(concept, 0.95, "local WHO concept")
+    return _as_local_resolution(fallback, 0.93, "ICD-11 local catalog")
+
+
+def _resolve_local_only(term: str) -> dict[str, Any] | None:
+    """Backward-compatible alias used by the interactive URL pipeline."""
+    return resolve_local_icd11_term(term)
+
+
 def resolve_disease_term(term: str, language: str = "", sample_text: str = "") -> dict[str, Any] | None:
     """Resolve one explicit surface term directly against local concepts/WHO."""
-    if not config.WHO_TERM_RESOLUTION_ENABLED or not term or not term.strip():
+    if not term or not term.strip():
         return None
-    normalized = _normalize(term)
-    for concept in config.WHO_DISEASE_CONCEPTS:
-        names = [concept.get("canonical_name"), concept.get("english_name")]
-        names.extend(
-            item.get("alias") if isinstance(item, dict) else item
-            for item in (concept.get("aliases") or [])
-        )
-        if any(_normalize(str(name or "")) == normalized for name in names):
-            return {
-                "canonical_name": concept["canonical_name"],
-                "english_name": concept.get("english_name") or concept["canonical_name"],
-                "ontology_code": concept.get("ontology_code"),
-                "ontology_uri": concept.get("ontology_uri"),
-                "confidence": 0.99,
-                "resolution_source": "local WHO concept",
-            }
+    local = resolve_local_icd11_term(term)
+    if local:
+        return local
+    if not config.WHO_TERM_RESOLUTION_ENABLED:
+        return None
 
     concept = who_search(term)
     if concept:

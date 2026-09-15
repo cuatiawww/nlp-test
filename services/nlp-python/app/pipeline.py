@@ -279,6 +279,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         opening_who = [w for w in who_mentions if w.lower().split()[0] in opening_text.lower()]
         disease = opening_who[0] if opening_who else who_mentions[0]
         confidence = max(confidence, 0.85)
+    if extracted and (not disease or disease.strip().upper() == "UNKNOWN"):
+        disease = extracted[0]
+        confidence = max(confidence, 0.85)
     if extracted:
         is_health_related = True
 
@@ -405,13 +408,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Resolve every explicit mention, including secondary diseases. The agent
     # chooses the primary disease, but WHO validation is applied to the full
     # mention set so related diseases are not lost.
+    from .icd11 import resolve_disease_term, resolve_local_icd11_term
+
     resolved_concept_overrides = {}
     try:
-        from .icd11 import resolve_disease_term
         term_resolutions = {}
-        for candidate in extracted[:12]:
+        resolve_candidates = list(dict.fromkeys([*extracted[:12], disease]))
+        for candidate in resolve_candidates:
+            if not candidate or str(candidate).upper() == "UNKNOWN":
+                continue
             if payload.interactive:
-                term_resolutions[candidate] = _resolve_local_only(candidate)
+                term_resolutions[candidate] = resolve_local_icd11_term(candidate)
             else:
                 term_resolutions[candidate] = resolve_disease_term(
                     candidate, language=language, sample_text=text
@@ -464,6 +471,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 for name in cleaned if name
             ):
                 return concept
+        local_resolved = resolve_local_icd11_term(value)
+        if local_resolved and local_resolved.get("ontology_code"):
+            return {
+                "canonical_name": local_resolved.get("canonical_name") or value,
+                "english_name": local_resolved.get("english_name") or value,
+                "ontology_code": local_resolved.get("ontology_code"),
+                "ontology_uri": local_resolved.get("ontology_uri"),
+                "aliases": [],
+            }
         return None
 
     def _mention_evidence(value: str, concept) -> tuple[str, str]:
@@ -622,6 +638,32 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 ]
     except Exception as exc:
         logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
+
+    for evt in sub_events:
+        resolved_sub = resolve_local_icd11_term(evt.disease)
+        if resolved_sub and resolved_sub.get("ontology_code"):
+            evt.disease = resolved_sub["canonical_name"]
+            evt.disease_icd11_code = resolved_sub["ontology_code"]
+
+    coded_mentions = [
+        mention for mention in disease_mentions
+        if mention.icd11_code
+        and mention.canonical_name
+        and mention.canonical_name.upper() != "UNKNOWN"
+    ]
+    if coded_mentions and (not disease or disease.strip().upper() == "UNKNOWN"):
+        primary_mention = next(
+            (mention for mention in coded_mentions if mention.role == "primary"),
+            coded_mentions[0],
+        )
+        disease = primary_mention.canonical_name
+        extracted = list(dict.fromkeys(
+            [mention.canonical_name for mention in coded_mentions] + list(extracted)
+        ))
+    else:
+        resolved_primary = resolve_local_icd11_term(disease)
+        if resolved_primary and resolved_primary.get("ontology_code"):
+            disease = resolved_primary["canonical_name"]
 
     summary = _build_article_summary(
         text,

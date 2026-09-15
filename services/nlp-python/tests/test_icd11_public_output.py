@@ -48,6 +48,19 @@ class Icd11PublicOutputTests(unittest.TestCase):
         self.assertEqual(result["extracted"], ["Dengue fever"])
         self.assertEqual(result["unresolved_indexes"], [])
 
+    def test_unknown_primary_uses_coded_mention_instead_of_staying_unknown(self):
+        result = project_icd11_public_output(
+            primary="UNKNOWN",
+            extracted=["Measles"],
+            mentions=[
+                {"canonical_name": "Measles", "icd11_code": "1F03", "role": "secondary"},
+            ],
+        )
+
+        self.assertEqual(result["primary"], "Measles")
+        self.assertEqual(result["extracted"], ["Measles"])
+        self.assertEqual(result["unresolved_indexes"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
