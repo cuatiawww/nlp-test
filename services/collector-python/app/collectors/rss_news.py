@@ -78,11 +78,12 @@ class RSSNewsCollector(BaseCollector):
             "id": self.source["id"],
             "name": self.source.get("name", "RSS article"),
             "config": {
-                "fetch_mode": self.config.get("fetch_mode", "auto"),
-                "timeout_ms": min(30_000, max(5_000, int(self.config.get("timeout_ms", 15_000)))),
-                "max_retries": min(3, max(0, int(self.config.get("max_retries", 2)))),
+                "fetch_mode": self.config.get("fetch_mode", "http"),
+                "timeout_ms": min(15_000, max(5_000, int(self.config.get("timeout_ms", 12_000)))),
+                "max_retries": 0,
                 "solve_cloudflare": False,
                 "max_pages": 1,
+                "skip_stealth": True,
             },
         })
         for entry in feed.entries[:max_entries]:

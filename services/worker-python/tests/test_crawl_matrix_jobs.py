@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.crawl_matrix_jobs import article_matches, build_news_query, disease_labels, selected_concept
+from app.crawl_matrix_jobs import article_matches, build_news_query, disease_labels, extract_article, selected_concept
 
 
 class CrawlMatrixWorkerTests(unittest.TestCase):
@@ -34,6 +34,26 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         )
         self.assertEqual(label, "Dengue")
         self.assertEqual(concept["ontology_code"], "1D2Z")
+
+    def test_extract_article_never_uses_stealth_or_auto(self):
+        from unittest.mock import Mock, patch
+
+        sparse = Mock()
+        sparse.json.return_value = {"data": {"content": "short"}}
+        sparse.raise_for_status.return_value = None
+        sparse.status_code = 200
+        richer = Mock()
+        richer.json.return_value = {"data": {"content": "Health officials reported dengue cases across the province this week."}}
+        richer.status_code = 200
+        with patch("app.crawl_matrix_jobs.requests.post", side_effect=[sparse, richer]) as post:
+            extract_article({"url": "https://example.org/news"})
+        self.assertEqual(post.call_count, 2)
+        for call in post.call_args_list:
+            payload = call.kwargs["json"]
+            self.assertEqual(payload["fetch_mode"], "http")
+            self.assertEqual(payload["max_retries"], 0)
+            self.assertLessEqual(payload["timeout_ms"], 15000)
+            self.assertLessEqual(call.kwargs["timeout"][1], 25)
 
 
 if __name__ == "__main__":

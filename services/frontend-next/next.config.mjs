@@ -16,6 +16,12 @@ const cspDirectives = [
 const nextConfig = {
   output: 'standalone',
   basePath: '/nlp',
+  // Keep /api rewrites from waiting past reverse-proxy 504 budgets when the
+  // collector or NLP stage hangs. Interactive URL jobs are async; 60s is only
+  // a safety cap for job creation and status reads.
+  experimental: {
+    proxyTimeout: 60_000,
+  },
   images: {
     unoptimized: true,
   },

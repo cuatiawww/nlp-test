@@ -20,6 +20,9 @@ DEEPSEEK_LOCATION_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_LOCATION_MIN_CONFID
 AGENT_ENABLED = os.getenv("AGENT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 AGENT_PROVIDER_ORDER = os.getenv("AGENT_PROVIDER_ORDER", "deepseek,openai")
 AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", str(DEEPSEEK_TIMEOUT_SECONDS)))
+TRANSLATION_STAGE_TIMEOUT_SECONDS = int(os.getenv("TRANSLATION_STAGE_TIMEOUT_SECONDS", "45"))
+INFERENCE_STAGE_TIMEOUT_SECONDS = int(os.getenv("INFERENCE_STAGE_TIMEOUT_SECONDS", "90"))
+NLP_REQUEST_TIMEOUT_SECONDS = int(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "180"))
 # Keep optional LLM fallbacks bounded.  These defaults reduce burst traffic
 # without disabling the deterministic NLP pipeline or the explicit URL flow.
 AGENT_MAX_CONCURRENT_REQUESTS = max(1, int(os.getenv("AGENT_MAX_CONCURRENT_REQUESTS", "1")))

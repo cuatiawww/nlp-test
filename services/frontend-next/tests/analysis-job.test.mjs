@@ -29,5 +29,5 @@ test('transient polling timeout is retried', async () => {
  assert.equal(attempts, 2);
 });
 test('polling has a finite deadline', async () => {
- await assert.rejects(waitForAnalysis({job_id:'abc'},async()=>({status:'processing'}),{interval:0,timeout:0}),/abc/);
+ await assert.rejects(waitForAnalysis({job_id:'abc'},async()=>({status:'processing'}),{interval:0,timeout:0}),/timed out while still queued.*abc/);
 });
