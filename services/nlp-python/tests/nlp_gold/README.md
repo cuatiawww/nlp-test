@@ -1,39 +1,32 @@
 # NLP gold set (20 articles)
 
-Parent is attaching a 20-URL pack next. Until then, fixtures ship with inline `title` + `text` so scoring is deterministic (no live fetch).
+Official pack: `nlp-gold-20.json` + rubric `nlp-gold-20.md` (ASEAN + Timor-Leste).
+
+Scoring uses **title + evidence_quote** only (no live HTTP). Ingest and the manual crawler both call `extractors.predict_surveillance_facts`.
 
 ## Layout
 
-- `fixtures.json` — 20 rows (`id`, optional `url`, `title`, `text`, `expect`)
-- `runner.py` — scores disease, country, exact cases when present, rejected non-geo tokens, ASEAN-primary
-- `gazetteer.py` — ASEAN place seed used when the locations table is not loaded
+- `nlp-gold-20.json` — 20 fixtures (`id`, `url`, `title`, `evidence_quote`, `expected`)
+- `nlp-gold-20.md` — human rubric and notes (alternates, must_not)
+- `runner.py` — disease, country, cases (exact or notes-allowed alternate), deaths (null = do not invent), garbage province, `must_not_contain`
+- `gazetteer.py` — ASEAN place seed when the locations table is not loaded
 - `FAILURES.md` — rewritten by the test with any remaining misses
 
-## Expect schema
+## Rubric
 
-```json
-{
-  "disease": ["Measles", "campak"],
-  "country": "Singapore",
-  "cases": 43,
-  "reject_locations": ["Were", "Asia"],
-  "asean_primary": true
-}
-```
+PASS if all of: disease (aliases OK), ASEAN-primary country, cases exact or an alternate listed in notes, deaths exact when a number / not invented when null, no `must_not_contain` hit.
 
-`cases: null` means the article has no explicit case total — the extractor must not invent a number (0 / unknown).
+Critical fixtures:
 
-## Attach the parent URL pack
-
-Replace or add `url` plus fetched article `text` on the same `id`. Keep `expect` unless the news itself changed. Do not point the scorer at live HTTP during CI.
+- **asean-001** CIDRAP: H5N1 + Cambodia; cases=1 (focal girl), not Utah / Measles / Indonesia / Were
+- **asean-002** Singapore measles: cases=43 exactly; never 802151 / Americas distractors
 
 ## Run
 
 ```
 cd services/nlp-python
-python3 -m unittest tests.test_gold_set tests.test_cidrap_cambodia tests.test_extraction_counts -v
+python3 -m tests.nlp_gold.runner
+python3 -m unittest tests.test_gold_set tests.test_cidrap_cambodia tests.test_extraction_counts tests.test_rules -v
 ```
 
-Done bar: **≥18/20** ready fixtures must pass before merge.
-
-Ingest and the manual crawler both use `/nlp/analyze/raw` → `pipeline.run` → `extractors.predict_surveillance_facts`.
+Done bar: **≥18/20**.

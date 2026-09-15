@@ -191,13 +191,27 @@ Manual crawler NLP is **`POST /nlp/analyze/raw`** — the same ingest contract a
 
 ### G. Gold fixtures (20-article accuracy bar)
 
-`services/nlp-python/tests/nlp_gold/` scores disease match, country match, exact cases when present, rejected non-geo tokens (`Were`, `Asia`), and ASEAN-primary for multi-country headlines.
+Official pack is `services/nlp-python/tests/nlp_gold/nlp-gold-20.json` + rubric `nlp-gold-20.md` (ASEAN + Timor-Leste). The scorer in `runner.py` uses **title + evidence_quote only** (no live HTTP).
 
-Inline `title`+`text` fixtures are ready now. Parent can attach the live 20-URL pack onto the same ids. Done bar: **≥18/20**. Current seed pack: **20/20**.
+**Score: 20/20 PASS** (bar ≥18/20). Critical fixtures:
+
+| id | result | notes |
+| --- | --- | --- |
+| asean-001 CIDRAP | PASS | H5N1 + Cambodia; `cases=1` (focal girl); not Utah / Measles / Indonesia / `Were`; 2025 19/8 is background |
+| asean-002 Singapore measles | PASS | `cases=43` exactly; not 27/152/802151/Americas |
+
+Other scoped figures that the rubric allows (and that we currently take the preferred value for): asean-004 128634 YTD; asean-008 ~1900; asean-009 cases/deaths null (no vaccine-dose invention); asean-010 headline 2 not 7 YTD; asean-011 3029 not 4712; asean-014 ≥2000 + deaths 17; asean-018 73828/9; asean-019 288/20.
+
+Manual crawler and ingest share `extractors.predict_surveillance_facts` (`POST /nlp/analyze/raw`). Extractor hardening that the pack required: WHO spaced thousands (`3 029`), current-year vs comparator ranking, focal singular human case → 1, `rose N per cent to TOTAL`, vaccine/animal-outbreak skip, sitrep `— Country section` heading.
 
 ```
-cd services/nlp-python && python3 -m unittest tests.test_gold_set -v
+cd services/nlp-python && python3 -m tests.nlp_gold.runner
+cd services/nlp-python && python3 -m unittest tests.test_gold_set tests.test_cidrap_cambodia tests.test_extraction_counts tests.test_rules -v
 ```
+
+`FAILURES.md` is rewritten by the test. Remaining misses: none on this pack. Province is often the country name when the quote is national (allowed: locality only if clearly stated).
+
+Do not deploy from this PR without a staging pass. Stored junk counts (e.g. 802151) stay capped at read until re-analyze after deploy.
 
 ### Verify snapshot parity (staging)
 

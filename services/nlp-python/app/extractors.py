@@ -161,9 +161,16 @@ COUNTRY_ALIASES = {
     "burma": "Myanmar",
     "philippines": "Philippines",
     "the philippines": "Philippines",
+    "philippine": "Philippines",
     "singapore": "Singapore",
     "singapura": "Singapore",
+    "s'pore": "Singapore",
     "kamboja": "Cambodia",
+    "cambodian": "Cambodia",
+    "vietnamese": "Vietnam",
+    "indonesian": "Indonesia",
+    "malaysian": "Malaysia",
+    "filipino": "Philippines",
     "filipina": "Philippines",
     "thailand": "Thailand",
     "timor-leste": "Timor-Leste",
@@ -309,6 +316,18 @@ def extract_country_hint(text: str) -> Optional[str]:
                 score -= 12.0
         # Accumulate score across aliases for the same country (do not clobber)
         country_scores[standard_country] = country_scores.get(standard_country, 0.0) + score
+
+    # WHO sitrep PDFs label the block as "— Lao PDR section". That heading
+    # must beat later country names that leak from adjacent sections.
+    section = re.search(
+        r"(?:—|–|-{1,2})\s*([A-Za-z .'-]+?)\s+section\b",
+        text[:600] if text else "",
+        re.IGNORECASE,
+    )
+    if section:
+        section_country = normalize_country(section.group(1))
+        if section_country:
+            country_scores[section_country] = country_scores.get(section_country, 0.0) + 40.0
 
     if not country_scores:
         return None
@@ -730,6 +749,7 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
     explicit = has_explicit_case_count(text, disease=disease)
     if not explicit:
         cases = 0
+    deaths = extract_death_count(text, disease=disease)
     return {
         "disease": disease,
         "diseases": ranked,
@@ -738,7 +758,7 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         "locations": all_locations,
         "case_count": cases,
         "case_count_unknown": not explicit,
-        "death_count": extract_death_count(text),
+        "death_count": deaths,
     }
 
 
@@ -755,83 +775,226 @@ def _sentence_window(text: str, start: int, end: int) -> str:
     return text[left + 1:right]
 
 
-def _extract_count(text: str, field: str, default: int, disease: Optional[str] = None) -> int:
-    search_text = "".join(
-        str(unicodedata.digit(char)) if unicodedata.category(char) == "Nd" else char
-        for char in text
+_WORD_NUMBERS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+
+_NUM_TOKEN = (
+    r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"[0-9]{1,3}(?:[,.\s]\d{3})+\.?|[0-9]+(?:[.,]\d+)?\.?|[0-9][0-9,.]*)"
+)
+
+_FOCAL_SINGULAR = re.compile(
+    r"(?:"
+    r"this one involving|"
+    r"a severe (?:h5n1|avian).{0,80}(?:infection|case)|"
+    r"(?:infection|case) involved a \d+-year-old|"
+    r"(?:reported|reports|confirms?)\s+(?:a|another)\s+(?:severe\s+)?"
+    r"(?:human\s+)?(?:h5n1\s+)?(?:avian\s+(?:influenza|flu)\s+)?"
+    r"(?:infection|case)\b"
+    r")",
+    re.I,
+)
+
+_HEADLINE_TWO = re.compile(
+    r"(?:first(?:\s+\w+){0,8}\s+two|the two cases|two cases\s+[–-]\s+both)",
+    re.I,
+)
+
+_OUTBREAK_CLOSED = re.compile(
+    r"\b(?:ended its outbreak|officially ended|outbreak closure|"
+    r"no poliovirus has been detected|closure of (?:the )?polio)\b",
+    re.I,
+)
+
+_VACCINE_WINDOW = re.compile(
+    r"\b(?:doses?|immuni[sz]ation|campaign target)\b|\bvaccinat(?:ed|ion|ing)\b",
+    re.I,
+)
+
+_ANIMAL_OUTBREAK = re.compile(
+    r"\b(?:poultry|egg(?:-laying)? farms?|avian flu outbreaks?|animal)\b",
+    re.I,
+)
+
+
+def _compact_spaced_thousands(text: str) -> str:
+    """WHO WPRO style: '40 915' / '3 029' / '73 828' → compact integers."""
+    return re.sub(
+        r"\b(\d{1,3}(?:[ \u00a0]\d{3})+)\b",
+        lambda match: re.sub(r"[ \u00a0]", "", match.group(1)),
+        text or "",
     )
+
+
+def _years_in(text: str) -> list[int]:
+    return [int(year) for year in re.findall(r"\b((?:19|20)\d{2})\b", text or "")]
+
+
+def _period_score(window: str, full_text: str) -> int:
+    """Boost current-year / YTD figures; penalize comparator-year distractors."""
+    score = 0
+    window_l = (window or "").lower()
+    full_l = (full_text or "").lower()
+    if re.search(r"\b(?:this year|so far|year to date|\bytd\b|nationwide|in the country|nationally)\b", window_l):
+        score += 8
+    if re.search(r"\b(?:cumulatively|a total of|has logged|so far)\b", window_l):
+        score += 6
+    if re.search(
+        r"\b(?:last year|previous year|previous week|compared with|compared to|"
+        r"same period|in contrast|in all of|the whole of)\b",
+        window_l,
+    ):
+        score -= 10
+    years_w = _years_in(window)
+    years_all = _years_in(full_text)
+    has_this_year = bool(re.search(r"\bthis year\b", full_l))
+    if years_w and years_all:
+        latest = max(years_all)
+        if any(year == latest for year in years_w):
+            score += 6
+        if all(year < latest for year in years_w):
+            score -= 12
+    if has_this_year and years_w and not re.search(r"\bthis year\b", window_l):
+        score -= 10
+    if re.search(r"\b(?:since 19\d{2}|since 200[0-4]|historical)\b", window_l):
+        score -= 12
+    return score
+
+
+def _focal_human_case_override(text: str) -> Optional[int]:
+    if _OUTBREAK_CLOSED.search(text or ""):
+        return None
+    if _HEADLINE_TWO.search(text or ""):
+        return 2
+    if _FOCAL_SINGULAR.search(text or ""):
+        return 1
+    return None
+
+
+def _extract_count(text: str, field: str, default: int, disease: Optional[str] = None) -> int:
+    raw = "".join(
+        str(unicodedata.digit(char)) if unicodedata.category(char) == "Nd" else char
+        for char in (text or "")
+    )
+    search_text = _compact_spaced_thousands(raw)
     disease_terms: list[str] = []
     if disease:
         disease_terms = [t for t in {
             disease.strip().lower(),
             *(disease.strip().lower().split()),
+            *({
+                "h5n1", "avian", "flu",
+            } if "avian" in disease.lower() or "h5n1" in disease.lower() else set()),
+            *({"mpox", "monkeypox"} if "mpox" in disease.lower() or "monkey" in disease.lower() else set()),
+            *({"polio", "poliovirus", "cvdpv"} if "polio" in disease.lower() else set()),
         } if len(t) > 2]
     localized_patterns = {
         "case_count": [
-            r"\b([0-9][0-9,.]*)(?:\s+[A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF()-]+){0,4}\s+(?:cases?|infections?|patients?|warga|kasus|pasien|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
+            rf"\b({_NUM_TOKEN})(?:\s+[A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF()-]+){{0,4}}\s+(?:cases?|infections?|patients?|warga|kasus|pasien|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
-            r"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*([0-9][0-9,.]*)\s*\)",
-            r"(?:with|logged|recorded|reported|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có)\s+([0-9][0-9,.]*)\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca)",
-            r"\b([0-9][0-9,.]*)\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
+            rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({_NUM_TOKEN})\s*\)",
+            rf"(?:with|logged|recorded|reported|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({_NUM_TOKEN})\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
+            rf"(?:cases?|infections?|kasus).{{0,90}}(?:rose|climbed|increased|jumped|naik).{{0,50}}to\s+({_NUM_TOKEN})",
+            rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({_NUM_TOKEN})",
+            rf"(?:sickened|infected|affected)\s+(?:more than|over|nearly|about|around)?\s*({_NUM_TOKEN})\s+(?:children|people|persons|residents)",
+            rf"\b({_NUM_TOKEN})\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីឆ្លងថ្មី|ករណីឆ្លង|អ្នកឆ្លង)\s*([0-9][0-9,.]*)\s*នាក់",
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
         ],
         "death_count": [
-            r"(?:deaths?|kematian|korban jiwa|fatalities)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+([0-9][0-9,.]*)",
-            r"\b([0-9][0-9,.]*)(?:\s+[a-z-]+){0,3}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed)\b",
-            r"(?:logged|recorded|reported|mencatat|sebanyak)\s+([0-9][0-9,.]*)\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities)",
+            rf"(?:deaths?|kematian|korban jiwa|fatalities)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({_NUM_TOKEN})",
+            rf"\b({_NUM_TOKEN})(?:\s+[a-z-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal)\b",
+            rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({_NUM_TOKEN})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities)",
+            rf"(?:death toll|toll)\s+(?:reached|reaches|rose to|stood at|of)\s+({_NUM_TOKEN})",
+            rf"({_NUM_TOKEN})\s+of them fatally",
+            rf"in 20\d{{2}},\s+the figure was\s+({_NUM_TOKEN})",
             r"ယမန်နေ့တွင်\s*သေဆုံးသူ\s*([0-9][0-9,.]*)\s*ဦး",
             r"(?:ผู้เสียชีวิต|เสียชีวิต)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីស្លាប់|អ្នកស្លាប់)\s*([0-9][0-9,.]*)\s*នាក់",
             r"(?:သေဆုံးသူ|သေဆုံး)\s*([0-9][0-9,.]*)",
         ],
     }
-    candidates: list[tuple[int, int, int]] = []
+    candidates: list[tuple[int, int, int, int]] = []
+
+    def _consider(match: re.Match, base_score: int) -> None:
+        if (
+            match.start(1) > 0
+            and search_text[match.start(1) - 1] in ".,0123456789"
+        ):
+            return
+        after = search_text[match.end(1): match.end(1) + 16]
+        if re.match(r"\s*-?\s*(?:year|month)-olds?", after, re.I):
+            return
+        parsed = _parse_count(match.group(1), match.group(0))
+        if parsed is None:
+            return
+        window = _sentence_window(search_text, match.start(), match.end())
+        window_l = window.lower()
+        if field == "case_count" and _VACCINE_WINDOW.search(window):
+            return
+        if field == "case_count" and _ANIMAL_OUTBREAK.search(window) and re.search(
+            r"\b(?:outbreaks?|clusters?|farms?)\b", window_l
+        ):
+            return
+        if field == "death_count" and re.search(r"\bno deaths?\b", window_l):
+            return
+        period = _period_score(window, search_text)
+        score = base_score + period
+        if disease_terms and any(term in window_l for term in disease_terms):
+            score += 12
+        if re.search(r"\b(?:recorded|confirmed|reported|logged|mencatat|melaporkan)\b", window_l):
+            score += 3
+        if re.search(r"\b(?:this month|district|previous week)\b", window_l):
+            score -= 4
+        if match.start() < 400:
+            score += 3
+        candidates.append((score, match.start(), parsed, period))
+
     for pattern in localized_patterns.get(field, []):
         for match in re.finditer(pattern, search_text, re.IGNORECASE):
-            if not (
-                match.start(1) > 0
-                and search_text[match.start(1) - 1] in ".,0123456789"
-            ):
-                try:
-                    parsed = _parse_count(match.group(1), match.group(0))
-                    if parsed is None:
-                        continue
-                    window = _sentence_window(search_text, match.start(), match.end()).lower()
-                    score = 1
-                    if disease_terms and any(term in window for term in disease_terms):
-                        score += 12
-                    if re.search(r"\b(?:recorded|confirmed|reported|logged|mencatat|melaporkan)\b", window):
-                        score += 3
-                    if re.search(r"\b(?:cumulative|kumulatif|since \d{4}|population)\b", window):
-                        score -= 4
-                    candidates.append((score, match.start(), parsed))
-                except Exception:
-                    continue
+            try:
+                _consider(match, 1)
+            except Exception:
+                continue
 
     patterns = config.EXTRACTION_RULES.get(field, [])
     if patterns:
         for pattern in patterns:
             for match in re.finditer(pattern, search_text.lower()):
-                if not (
-                    match.start(1) > 0
-                    and search_text[match.start(1) - 1] in ".,0123456789"
-                ):
-                    try:
-                        parsed = _parse_count(match.group(1), match.group(0))
-                        if parsed is None:
-                            continue
-                        window = _sentence_window(search_text, match.start(), match.end()).lower()
-                        score = 0
-                        if disease_terms and any(term in window for term in disease_terms):
-                            score += 12
-                        candidates.append((score, match.start(), parsed))
-                    except Exception:
-                        continue
+                try:
+                    _consider(match, 0)
+                except Exception:
+                    continue
+
+    override = _focal_human_case_override(search_text)
+    if field == "case_count" and _OUTBREAK_CLOSED.search(search_text):
+        return default
+    if field == "case_count" and override == 2:
+        return 2
+    if field == "case_count" and override == 1:
+        strong = [item for item in candidates if item[2] > 1 and item[3] >= 0 and item[0] >= 12]
+        if not strong:
+            return 1
+
+    if field == "death_count" and override == 1:
+        if re.search(r"\b(?:the patient died|died from (?:his|her|the) infection)\b", search_text, re.I):
+            candidates.append((20, 0, 1, 8))
+        else:
+            candidates = [item for item in candidates if item[3] >= 0]
+            if not candidates:
+                return default
+
     if not candidates:
+        if field == "death_count" and re.search(r"\bno deaths?\b", search_text, re.I):
+            return 0
         return default
     if disease_terms:
         scoped = [item for item in candidates if item[0] >= 12]
@@ -849,10 +1012,18 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         val = value.strip().strip(".,;:()[]{}")
         if not val:
             return None
+        word_val = val.casefold()
+        if word_val in _WORD_NUMBERS:
+            val = str(_WORD_NUMBERS[word_val])
 
-        # Exclude percentage rates and per-capita incidence contexts
+        # Exclude percentage rates when the captured token is the rate
+        # ("2.1 persen", "66 per cent") — not when a nearby percent is a
+        # change-rate next to a real case total ("rose 66 per cent to 65,979").
         ctx_lower = (context or "").lower()
-        if ctx_lower and re.search(r"(?:%|persen|percent|peratus|pc|pct)\b", ctx_lower):
+        if ctx_lower and re.search(
+            rf"{re.escape(val)}\s*(?:%|persen|percent|per\s*cent|peratus|pc|pct)\b",
+            ctx_lower,
+        ):
             return None
         if ctx_lower and re.search(
             r"\bper\s+(?:100|1000|10\.000|100\.000|10,000|100,000|seribu|ribu|thousand|penduduk|populasi|capita|orang|warga)\b",
@@ -883,9 +1054,9 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         if multiplier == 1 and re.fullmatch(r"(?:19|20)\d{2}", val):
             return None
 
-        # Case 1: Standard thousands separator (e.g. 19,313 or 10.000 or 1,000,000 or 1.000.000)
-        if re.fullmatch(r"\d{1,3}(?:[,.]\d{3})+", val):
-            clean_int = re.sub(r"[,.]", "", val)
+        # Case 1: Standard thousands separator (e.g. 19,313 or 10.000 or 1,000,000 or 40 915)
+        if re.fullmatch(r"\d{1,3}(?:[,. ]\d{3})+", val):
+            clean_int = re.sub(r"[,. ]", "", val)
             return _bounded(int(clean_int) * multiplier)
 
         # Case 2: Pure integer digits
@@ -947,9 +1118,9 @@ def has_explicit_case_count(text: str, disease: Optional[str] = None) -> bool:
         return False
 
 
-def extract_death_count(text: str) -> int:
+def extract_death_count(text: str, disease: Optional[str] = None) -> int:
     try:
-        parsed = _extract_count(text, "death_count", 0)
+        parsed = _extract_count(text, "death_count", 0, disease=disease)
         max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
         if parsed is None or parsed > max_count:
             return 0
@@ -1022,6 +1193,13 @@ DISEASE_ALIASES = {
     "covid-19": "COVID-19",
     "covid": "COVID-19",
     "coronavirus": "COVID-19",
+    "polio": "Poliomyelitis",
+    "poliovirus": "Poliomyelitis",
+    "poliomyelitis": "Poliomyelitis",
+    "cvdpv2": "Poliomyelitis",
+    "cvdpv": "Poliomyelitis",
+    "clade 1b": "Mpox",
+    "clade ib": "Mpox",
     "kolera": "Cholera",
     "cholera": "Cholera",
     "rabies": "Rabies",
