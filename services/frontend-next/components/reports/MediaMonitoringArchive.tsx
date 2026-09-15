@@ -13,7 +13,6 @@ import {
   Play,
   Globe,
   Shield,
-  Video,
 } from "lucide-react"
 import { PublishedReportItem } from "@/types/reports"
 import { getStoredReports } from "@/lib/reports-store"
@@ -62,13 +61,13 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
               Media Monitoring Report
             </h2>
             <p className="text-xs font-medium text-slate-500 mt-1">
-              Publikasi berkala intelijen penyakit infeksi emerging dan deteksi dini wabah kawasan ASEAN
+              Periodic health intelligence publication on emerging infectious diseases and outbreak early detection across the ASEAN region
             </p>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 border border-blue-200 px-3.5 py-1.5 text-xs font-black text-[#0060A9]">
               <Globe className="h-3.5 w-3.5" />
-              <span>Portal Publik Resmi ABVC</span>
+              <span>Official ABVC Public Portal</span>
             </span>
           </div>
         </div>
@@ -79,7 +78,7 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Cari judul buletin, tanggal, atau nama analis..."
+              placeholder="Search bulletin title, date, or analyst name..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-9 pr-4 py-2 text-xs font-semibold placeholder:text-slate-400 focus:bg-white focus:border-blue-400 focus:outline-none"
@@ -87,9 +86,9 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
           </div>
 
           <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-            <span>Menampilkan</span>
+            <span>Showing</span>
             <span className="rounded-lg bg-blue-50 px-2.5 py-1 font-mono font-black text-[#0060A9] border border-blue-100">
-              {filteredReports.length} Edisi Terbit
+              {filteredReports.length} Published Editions
             </span>
           </div>
         </div>
@@ -106,7 +105,7 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
           {/* Navigasi Publikasi */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
             <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-              Navigasi Publikasi
+              Publication Navigation
             </h4>
             <ul className="space-y-1 text-xs font-bold">
               <li>
@@ -167,7 +166,7 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-700 py-2 text-xs font-black text-white shadow-xs transition cursor-pointer"
             >
               <Play className="h-3.5 w-3.5 fill-white" />
-              <span>Buka di YouTube Resmi</span>
+              <span>Watch on Official YouTube</span>
               <ExternalLink className="h-3 w-3 opacity-80" />
             </a>
           </div>
@@ -175,14 +174,14 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
           {/* Stats Summary Widget */}
           <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-blue-50/30 p-4 shadow-xs text-xs space-y-2">
             <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-              Koleksi Buletin Terbit
+              Published Bulletin Repository
             </p>
             <div className="flex items-baseline justify-between">
               <span className="text-2xl font-black text-[#0060A9] font-mono">{reports.length}</span>
-              <span className="text-[11px] font-bold text-slate-500">Edisi Siap Akses</span>
+              <span className="text-[11px] font-bold text-slate-500">Accessible Editions</span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed pt-1 border-t border-slate-200/60">
-              Seluruh edisi telah diverifikasi oleh tim analis epidemiologi ABVC Regional &amp; ASEAN EOC Network.
+              All editions are officially verified by the ABVC Regional &amp; ASEAN EOC Network epidemiological intelligence team.
             </p>
           </div>
         </aside>
@@ -194,8 +193,8 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
           {filteredReports.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-500 space-y-3">
               <FileText className="mx-auto h-12 w-12 text-slate-300" />
-              <p className="text-base font-black text-slate-700">Tidak ada dokumen buletin yang sesuai</p>
-              <p className="text-xs">Coba sesuaikan kata kunci pencarian.</p>
+              <p className="text-base font-black text-slate-700">No matching bulletin documents found</p>
+              <p className="text-xs">Try adjusting your search keywords.</p>
             </div>
           ) : (
             filteredReports.map((item) => (
@@ -259,7 +258,7 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
                       className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3.5 py-2 text-xs font-black text-[#0060A9] hover:bg-blue-100 transition"
                     >
                       <Eye className="h-3.5 w-3.5" />
-                      <span>Buka Buletin Lengkap</span>
+                      <span>Open Full Bulletin</span>
                     </Link>
 
                     <button
@@ -271,7 +270,7 @@ export const MediaMonitoringArchive: React.FC<MediaMonitoringArchiveProps> = () 
                         )
                       }
                       className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 transition shadow-2xs cursor-pointer"
-                      title="Cetak atau Unduh PDF"
+                      title="Print or Download PDF"
                     >
                       <Download className="h-3.5 w-3.5 text-slate-500" />
                       <span>Download PDF</span>

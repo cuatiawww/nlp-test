@@ -76,7 +76,7 @@ function ExecutiveReportContent() {
   // HUMAN CUSTOMIZATION STATE
   // ==========================================
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
-  const [activeSection, setActiveSection] = useState<string>("ringkasan")
+  const [activeSection, setActiveSection] = useState<string>("summary")
 
   // 1. Template & Cadence
   const searchParams = useSearchParams()
@@ -94,25 +94,25 @@ function ExecutiveReportContent() {
 
   const [template, setTemplate] = useState<TemplateType>("kemenkes_sitrep")
   const [cadence, setCadence] = useState<CadenceType>("weekly")
-  const [epiPeriodText, setEpiPeriodText] = useState("14 Sep 2026 (Minggu ke-38)")
+  const [epiPeriodText, setEpiPeriodText] = useState("Week 38 (14 Sep 2026)")
 
-  // 2. Watermark (Disabled by default - No Watermark)
+  // 2. Watermark
   const [watermarkEnabled, setWatermarkEnabled] = useState(false)
   const [watermarkText, setWatermarkText] = useState("")
   const [watermarkOpacity, setWatermarkOpacity] = useState(0.08)
 
   // 3. Document Meta
   const [reportTitle, setReportTitle] = useState(
-    "Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC"
+    "ABVC Infectious Disease Surveillance & Outbreak Intelligence Report"
   )
   const [reportSubtitle, setReportSubtitle] = useState(
-    "Pusat Intelijen Surveilans Epidemiologi — ASEAN Biological Threats Surveillance Centre (ABVC)"
+    "Epidemiological Surveillance Intelligence Centre — ASEAN Biological Threats Surveillance Centre (ABVC)"
   )
-  const [filterWilayahText, setFilterWilayahText] = useState("Seluruh Wilayah (Nasional & ASEAN)")
-  const [filterLayananText, setFilterLayananText] = useState("Semua Kategori Penyakit Infeksi Emerging")
-  const [updatedAtText, setUpdatedAtText] = useState("14 Sep 2026 23:00 WIB | Sistem Surveilans 24 Jam")
+  const [filterWilayahText, setFilterWilayahText] = useState("Entire Monitored Scope (National & ASEAN)")
+  const [filterLayananText, setFilterLayananText] = useState("All Emerging Infectious Disease Categories")
+  const [updatedAtText, setUpdatedAtText] = useState("14 Sep 2026 23:00 UTC+7 | 24/7 Surveillance Operations")
 
-  // 4. Key Metric Overrides (Analyst can fine tune)
+  // 4. Key Metric Overrides (Analyst fine tuning)
   const [metricTotalKasus, setMetricTotalKasus] = useState<number>(7640)
   const [metricKorbanMeninggal, setMetricKorbanMeninggal] = useState<number>(24)
   const [metricCfr, setMetricCfr] = useState<number>(0.31)
@@ -121,14 +121,14 @@ function ExecutiveReportContent() {
 
   // 5. Narrative Content (Inline human editable)
   const [executiveSummary, setExecutiveSummary] = useState(
-    "Analisis intelijen surveilans epidemiologi terpadu mencatat akumulasi 7.640 kasus terkonfirmasi di wilayah Nasional & ASEAN. Integrasi sistem deteksi dini NLP ABVC Surveillance Engine telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time. Telaah lapangan mengidentifikasi 18 klaster aktif yang terus dipantau intensif, serta 24 kasus kematian (CFR rata-rata regional: 0.31%). Jejaring laboratorium kesehatan masyarakat bersama Balai Kekarantinaan Kesehatan terus mengoptimalkan pengawasan pintu masuk dan respon penanganan terarah guna memitigasi penyebaran transmisi lintas batas."
+    "Integrated epidemiological surveillance intelligence records an accumulation of 7,640 confirmed cases across National & ASEAN member states. Integration of the automated ABVC Surveillance NLP pipeline ensures real-time outbreak signal continuity and cluster verification. Field reviews identify 18 active clusters under intensive monitoring alongside 24 cumulative fatalities (regional average CFR: 0.31%). Public health laboratory networks and cross-border quarantine stations continue optimizing points-of-entry screening and targeted response interventions to mitigate cross-border transmission."
   )
 
   const [tacticalPoints, setTacticalPoints] = useState<string[]>([
-    "Agregasi Kasus & Sinyal NLP: Rekapitulasi intelijen surveilans di wilayah Nasional dan ASEAN mencatat 7.640 kasus dengan kecepatan respon konfirmasi laboratorium terkoordinasi real-time.",
-    "Deteksi Dini & Respon Cepat: Penguatan pelacakan kontak erat (contact tracing), konfirmasi diagnostik laboratorium cepat (RDT/PCR), dan isolasi terarah pada sentra transmisi lokal.",
-    "Intervensi Pengendalian Vektor: Penguatan larvasidasi massal dan fogging fokus di wilayah hotspot (Sumatera Selatan, Jawa Barat, dan Bangkok) jelang puncak musim penghujan.",
-    "Komunikasi Publik & Edukasi: Penerbitan peringatan dini bagi masyarakat di sentra transmisi aktif guna mempercepat deteksi gejala dini tanpa memicu kepanikan massal."
+    "NLP Outbreak Signal & Case Aggregation: Surveillance intelligence recapitulation across National and ASEAN territories records 7,640 cases with real-time coordinated laboratory confirmation response.",
+    "Early Detection & Rapid Response: Strengthening close contact tracing, rapid diagnostic laboratory confirmation (RDT/PCR), and targeted isolation at active local transmission epicenters.",
+    "Vector Control Interventions: Scaling up mass larviciding and focused spatial fogging in hotspot corridors (South Sumatra, West Java, and Bangkok) ahead of peak monsoon season.",
+    "Public Risk Communication & Health Advisory: Disseminating timely early warnings for populations in active transmission clusters to accelerate early symptom detection without triggering public alarm."
   ])
 
   // 6. Section Visibility Switches
@@ -144,7 +144,7 @@ function ExecutiveReportContent() {
     signature: true,
   })
 
-  // 7. ASEAN Style Disease Highlights (Image 2 style)
+  // 7. ASEAN Style Disease Highlights
   const [diseaseHighlights, setDiseaseHighlights] = useState<DiseaseHighlight[]>([
     {
       id: "d1",
@@ -154,21 +154,21 @@ function ExecutiveReportContent() {
           id: "c1",
           country: "Indonesia",
           content:
-            "Provinsi Sumatera Selatan melaporkan 2.841 kasus dengue dan 19 kematian per 9 September 2026 (CFR: 0,67%), melampaui target nasional <0,4%. Palembang mencatat kasus tertinggi (744 kasus), disusul Muara Enim dengan fatalitas tertinggi (5 jiwa). Otoritas kesehatan mengintensifkan pengendalian vektor dan kesiapan logistik faskes.",
+            "South Sumatra Province reported 2,841 dengue cases and 19 fatalities as of September 9, 2026 (CFR: 0.67%), exceeding the national threshold of <0.4%. Palembang recorded the highest case count (744 cases), while Muara Enim had the highest fatality count (5 deaths). Health authorities are intensifying vector control operations and healthcare facility readiness.",
           url: "https://sehatnegeriku.kemkes.go.id",
         },
         {
           id: "c2",
           country: "Thailand",
           content:
-            "Bangkok mencatat 24 kasus kumulatif baru pada epi-week 36 dengan insidensi 0,44 per 100.000 populasi. Secara nasional tercatat 154 kasus tanpa kematian tambahan. Distrik Bang Na dan Phra Khanong menunjukkan angka insidensi tertinggi.",
+            "Bangkok recorded 24 cumulative new cases during epi-week 36 with an incidence of 0.44 per 100,000 population. Nationally, 154 cases were recorded with zero new fatalities. Bang Na and Phra Khanong districts registered the highest incidence rates.",
           url: "https://ddc.moph.go.th",
         },
         {
           id: "c3",
           country: "Viet Nam",
           content:
-            "Provinsi Dak Lak melaporkan 6.112 kasus dengue dan 2 kematian per September 2026. Rumah Sakit Umum Dataran Tinggi merawat 137 pasien dalam sepekan terakhir. Otoritas fokus pada penyemprotan insektisida dan monitoring resistensi larva.",
+            "Dak Lak Province reported 6,112 dengue cases and 2 fatalities as of September 2026. Central Highlands General Hospital treated 137 inpatient cases over the past week. Authorities are focusing on targeted insecticide spraying and larval resistance surveillance.",
           url: "https://moh.gov.vn",
         },
       ],
@@ -181,14 +181,14 @@ function ExecutiveReportContent() {
           id: "c4",
           country: "Viet Nam",
           content:
-            "Kota Ho Chi Minh melaporkan 754 kasus HFMD pada epi-week 36 (turun 22,8% dibanding rerata 4 minggu sebelumnya). Secara kumulatif tercatat 33.022 kasus sejak awal tahun. Sekolah dasar dan tempat penitipan anak memperketat protokol cuci tangan.",
+            "Ho Chi Minh City reported 754 HFMD cases during epi-week 36 (down 22.8% compared to the prior 4-week average). Cumulatively, 33,022 cases have been documented since the beginning of the year. Primary schools and daycare facilities have reinforced strict hand hygiene protocols.",
           url: "https://hcdc.vn",
         },
         {
           id: "c5",
           country: "Malaysia",
           content:
-            "Kementerian Kesehatan Malaysia mencatat penurunan klaster HFMD di wilayah Selangor dan Johor Bahru setelah intervensi kebersihan fasilitas pra-sekolah.",
+            "The Ministry of Health Malaysia reported a decline in preschool HFMD clusters across Selangor and Johor Bahru following targeted hygiene and sanitation interventions in early education centers.",
           url: "https://moh.gov.my",
         },
       ],
@@ -201,7 +201,7 @@ function ExecutiveReportContent() {
           id: "c6",
           country: "Indonesia",
           content:
-            "Surveilans pintu masuk negara di Bandara Soekarno-Hatta dan Ngurah Rai menerapkan skrining termal serta SATUSEHAT Health Pass. Tercatat 88 kasus kumulatif dengan seluruh kontak erat telah dipantau secara tuntas.",
+            "International points of entry at Soekarno-Hatta and Ngurah Rai Airports have implemented thermal screening and the SATUSEHAT digital health pass. A cumulative total of 88 cases have been recorded, with all close contacts fully traced and monitored.",
           url: "https://kemkes.go.id",
         },
       ],
@@ -217,8 +217,8 @@ function ExecutiveReportContent() {
         setReportSubtitle("ASEAN Biological Threats Surveillance Centre — Health Intelligence Report")
         setReportAuthor("yusuf")
       } else {
-        setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC")
-        setReportSubtitle("Pusat Intelijen Surveilans Epidemiologi — ASEAN Biological Threats Surveillance Centre (ABVC)")
+        setReportTitle("ABVC Infectious Disease Surveillance & Outbreak Intelligence Report")
+        setReportSubtitle("Epidemiological Surveillance Intelligence Centre — ASEAN Biological Threats Surveillance Centre (ABVC)")
         setReportAuthor("PHEOC ABVC")
       }
     }
@@ -257,7 +257,7 @@ function ExecutiveReportContent() {
       category:
         template === "asean_bulletin"
           ? "Data & Publications Media Monitoring Report"
-          : "Laporan Situasi Resmi ABVC",
+          : "Official Situation Report ABVC",
       title: reportTitle,
       period: epiPeriodText,
       author: reportAuthor || (template === "asean_bulletin" ? "yusuf" : "PHEOC ABVC"),
@@ -330,10 +330,10 @@ function ExecutiveReportContent() {
   const hotspots: HotspotLocation[] = useMemo(() => {
     return [
       { id: "h1", name: "Jakarta", country: "Indonesia", cases: 2840, deaths: 8, cfr: 0.28, x: 270, y: 235, severity: "critical" },
-      { id: "h2", name: "Sumatera Sel.", country: "Indonesia", cases: 1420, deaths: 6, cfr: 0.42, x: 190, y: 190, severity: "high" },
-      { id: "h3", name: "Jawa Timur", country: "Indonesia", cases: 1100, deaths: 4, cfr: 0.36, x: 360, y: 245, severity: "high" },
+      { id: "h2", name: "South Sumatra", country: "Indonesia", cases: 1420, deaths: 6, cfr: 0.42, x: 190, y: 190, severity: "high" },
+      { id: "h3", name: "East Java", country: "Indonesia", cases: 1100, deaths: 4, cfr: 0.36, x: 360, y: 245, severity: "high" },
       { id: "h4", name: "Bangkok", country: "Thailand", cases: 890, deaths: 2, cfr: 0.22, x: 155, y: 55, severity: "medium" },
-      { id: "h5", name: "Ho Chi Minh", country: "Vietnam", cases: 1350, deaths: 3, cfr: 0.22, x: 220, y: 80, severity: "high" },
+      { id: "h5", name: "Ho Chi Minh", country: "Viet Nam", cases: 1350, deaths: 3, cfr: 0.22, x: 220, y: 80, severity: "high" },
       { id: "h6", name: "Kuala Lumpur", country: "Malaysia", cases: 620, deaths: 1, cfr: 0.16, x: 150, y: 135, severity: "medium" },
       { id: "h7", name: "Manila", country: "Philippines", cases: 940, deaths: 4, cfr: 0.43, x: 450, y: 70, severity: "high" },
     ]
@@ -341,9 +341,9 @@ function ExecutiveReportContent() {
 
   const trendData: TrendDataPoint[] = useMemo(() => {
     return [
-      { label: "W33 (Agu)", cases: 980, deaths: 3 },
-      { label: "W34 (Agu)", cases: 1240, deaths: 4 },
-      { label: "W35 (Agu)", cases: 1490, deaths: 5 },
+      { label: "W33 (Aug)", cases: 980, deaths: 3 },
+      { label: "W34 (Aug)", cases: 1240, deaths: 4 },
+      { label: "W35 (Aug)", cases: 1490, deaths: 5 },
       { label: "W36 (Sep)", cases: 1820, deaths: 6 },
       { label: "W37 (Sep)", cases: 2110, deaths: 6 },
       { label: "W38 (Sep)", cases: 2480, deaths: 8 },
@@ -352,70 +352,34 @@ function ExecutiveReportContent() {
 
   const diseaseShares: DiseaseShare[] = useMemo(() => {
     return [
-      { name: "Dengue / DBD", cases: 3850, color: "#0060A9" },
-      { name: "HFMD (Flu Singapura)", cases: 1890, color: "#0d9488" },
-      { name: "Mpox (Clade Ib)", cases: 540, color: "#ea580c" },
-      { name: "Leptospirosis", cases: 480, color: "#e11d48" },
-      { name: "Avian Influenza (H5N1)", cases: 320, color: "#8b5cf6" },
-      { name: "Lainnya (ICD-11)", cases: 560, color: "#64748b" },
+      { name: "Dengue Fever", cases: 4120, percentage: 53.9, color: "#0060A9" },
+      { name: "HFMD", cases: 1840, percentage: 24.1, color: "#0d9488" },
+      { name: "Mpox (Clade Ib)", cases: 820, percentage: 10.7, color: "#f59e0b" },
+      { name: "Avian Flu (H5N1)", cases: 480, percentage: 6.3, color: "#e11d48" },
+      { name: "Others / Undifferentiated", cases: 380, percentage: 5.0, color: "#64748b" },
     ]
   }, [])
 
   const countryBurdens: CountryBurden[] = useMemo(() => {
     return [
-      { country: "Indonesia", cases: 4260, deaths: 14, cfr: 0.33 },
-      { country: "Vietnam", cases: 1650, deaths: 4, cfr: 0.24 },
-      { country: "Thailand", cases: 980, deaths: 2, cfr: 0.20 },
-      { country: "Philippines", cases: 840, deaths: 4, cfr: 0.48 },
-      { country: "Malaysia", cases: 620, deaths: 1, cfr: 0.16 },
-      { country: "Singapore", cases: 340, deaths: 0, cfr: 0.00 },
+      { country: "Indonesia", code: "ID", cases: 3950, deaths: 14, cfr: 0.35 },
+      { country: "Viet Nam", code: "VN", cases: 1680, deaths: 4, cfr: 0.24 },
+      { country: "Philippines", code: "PH", cases: 940, deaths: 4, cfr: 0.43 },
+      { country: "Thailand", code: "TH", cases: 620, deaths: 1, cfr: 0.16 },
+      { country: "Malaysia", code: "MY", cases: 450, deaths: 1, cfr: 0.22 },
     ]
   }, [])
 
-  // ==========================================
-  // DYNAMIC SIDEBAR CONTENTS (ADAPTIF SESUAI TEMPLATE)
-  // ==========================================
-  const navItems = useMemo(() => {
-    if (template === "asean_bulletin") {
-      return [
-        { id: "asean-header", label: "Identitas & Pengantar Buletin" },
-        { id: "asean-overview", label: "Ringkasan Situasi Regional" },
-        ...diseaseHighlights.map((dh) => ({
-          id: `asean-disease-${dh.id}`,
-          label: `Sorotan: ${dh.diseaseName}`,
-        })),
-        { id: "asean-matrix", label: "Matriks Beban Kasus ASEAN" },
-        { id: "asean-spasial", label: "Pemetaan Spasial Hotspot (GIS)" },
-        { id: "asean-preparedness", label: "Kesiapsiagaan Kawasan" },
-        { id: "asean-sources", label: "Sumber Informasi & Kemitraan" },
-      ]
-    }
-    return [
-      { id: "ringkasan", label: "Ringkasan Eksekutif" },
-      { id: "poin-utama", label: "Poin Utama & Respon Cepat" },
-      { id: "kpi-metrik", label: "Indikator Utama (KPI)" },
-      { id: "spasial-hotspot", label: "Pemetaan Spasial Hotspot (GIS)" },
-      { id: "tren-visualisasi", label: "Surveilans Tren Kasus" },
-      { id: "distribusi-penyakit", label: "Distribusi Penyakit (ICD-11)" },
-      { id: "situasi-regional", label: "Situasi Regional ASEAN" },
-      { id: "matriks-wilayah", label: "Matriks Beban Wilayah" },
-      { id: "pengesahan", label: "Pengesahan Dokumen PHEOC" },
-    ]
-  }, [template, diseaseHighlights])
-
-  // ==========================================
-  // ACTIONS
-  // ==========================================
   const handlePrint = () => {
     window.print()
   }
 
   const handleResetToBaseline = () => {
-    setReportTitle("Laporan Pengawasan Surveilans Penyakit Infeksi & Outbreak ABVC")
-    setReportSubtitle("Pusat Intelijen Surveilans Epidemiologi — ASEAN Biological Threats Surveillance Centre (ABVC)")
-    setEpiPeriodText("14 Sep 2026 (Minggu ke-38)")
-    setFilterWilayahText("Seluruh Wilayah (Nasional & ASEAN)")
-    setFilterLayananText("Semua Kategori Penyakit Infeksi Emerging")
+    setReportTitle("ABVC Infectious Disease Surveillance & Outbreak Intelligence Report")
+    setReportSubtitle("Epidemiological Surveillance Intelligence Centre — ASEAN Biological Threats Surveillance Centre (ABVC)")
+    setEpiPeriodText("Week 38 (14 Sep 2026)")
+    setFilterWilayahText("Entire Monitored Scope (National & ASEAN)")
+    setFilterLayananText("All Emerging Infectious Disease Categories")
     setMetricTotalKasus(7640)
     setMetricKorbanMeninggal(24)
     setMetricCfr(0.31)
@@ -423,7 +387,7 @@ function ExecutiveReportContent() {
     setWatermarkEnabled(false)
     setWatermarkText("")
     setExecutiveSummary(
-      "Analisis intelijen operasional surveilans epidemiologi terpadu mencatat eskalasi sebanyak 7.640 kasus terkonfirmasi di wilayah Seluruh Wilayah (Nasional & ASEAN). Integrasi sistem deteksi dini NLP ABVC Surveillance Engine telah menjamin kesinambungan pemantauan sinyal wabah dan verifikasi klaster secara real-time."
+      "Integrated epidemiological surveillance intelligence records an accumulation of 7,640 confirmed cases across National & ASEAN member states. Integration of the automated ABVC Surveillance NLP pipeline ensures real-time outbreak signal continuity and cluster verification."
     )
   }
 
@@ -484,7 +448,7 @@ function ExecutiveReportContent() {
       )}
 
       {/* ==========================================
-          TOP STICKY ACTION BAR (GAYA GAMBAR 1)
+          TOP STICKY ACTION BAR
       ========================================== */}
       <header className="no-print sticky top-0 z-40 flex items-center justify-between border-b border-teal-700/30 bg-[#0060A9] px-4 py-2.5 text-white shadow-md">
         <div className="flex items-center gap-3">
@@ -493,7 +457,7 @@ function ExecutiveReportContent() {
             className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-bold text-teal-100 hover:bg-white/20 transition"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Portal Publik</span>
+            <span>Public Portal</span>
           </Link>
           <Link
             href="/console/reports-cms"
@@ -505,7 +469,7 @@ function ExecutiveReportContent() {
           <div className="h-4 w-px bg-white/20" />
           <div className="flex items-center gap-2">
             <span className="font-extrabold text-xs sm:text-sm tracking-tight">
-              ABVC EOC Centre — Laporan Situasi Resmi
+              ABVC EOC Centre — Official Situation Report
             </span>
             <span className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] font-bold text-teal-100">
               AI Token Generated
@@ -528,7 +492,7 @@ function ExecutiveReportContent() {
                   : "text-blue-100 hover:text-white"
               }`}
             >
-              SitRep ABVC
+              ABVC SitRep
             </button>
             <button
               type="button"
@@ -539,268 +503,334 @@ function ExecutiveReportContent() {
                   : "text-blue-100 hover:text-white"
               }`}
             >
-              Buletin ASEAN
+              ASEAN Bulletin
             </button>
           </div>
 
           {/* Edit Drawer Toggle */}
           <button
             type="button"
-            onClick={() => setIsEditDrawerOpen(!isEditDrawerOpen)}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition shadow-xs cursor-pointer ${
-              isEditDrawerOpen
-                ? "bg-amber-400 text-slate-900"
-                : "bg-white/10 text-white hover:bg-white/20"
-            }`}
+            onClick={() => setIsEditDrawerOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-black text-slate-900 hover:bg-amber-300 shadow-sm transition active:scale-95 cursor-pointer"
           >
-            <Edit3 className="h-3.5 w-3.5" />
-            <span>{isEditDrawerOpen ? "Tutup Editor" : "Kustomisasi Narasi"}</span>
+            <Sliders className="h-3.5 w-3.5" />
+            <span>Customize Document</span>
           </button>
 
-          {/* Publikasikan Laporan */}
-          <button
-            type="button"
-            onClick={handlePublishReport}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 text-xs font-black text-white transition shadow-sm cursor-pointer active:scale-95"
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>Publikasikan</span>
-          </button>
-
-          {/* Print / Download PDF */}
+          {/* Quick Print */}
           <button
             type="button"
             onClick={handlePrint}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-1.5 text-xs font-black text-[#0060A9] hover:bg-blue-50 transition shadow-sm cursor-pointer active:scale-95"
+            className="flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/25 transition cursor-pointer"
+            title="Print or Save as PDF"
           >
-            <Printer className="h-3.5 w-3.5 text-[#0060A9]" />
-            <span>Cetak / Simpan PDF</span>
+            <Printer className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Print / PDF</span>
+          </button>
+
+          {/* Publish Button */}
+          <button
+            type="button"
+            onClick={handlePublishReport}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 text-xs font-black text-white shadow-sm transition active:scale-95 cursor-pointer"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span>Publish Report</span>
           </button>
         </div>
       </header>
 
       {/* ==========================================
-          MAIN CONTAINER WITH SIDEBAR & DOCUMENT
+          MAIN LAYOUT: SIDE NAVIGATION & REPORT CANVAS
       ========================================== */}
-      <div className="relative mx-auto flex max-w-[1440px] gap-6 p-4 sm:p-6">
-        {/* ==========================================
-            LEFT SIDEBAR CONTENTS (GAYA GAMBAR 1)
-        ========================================== */}
-        <aside className="no-print hidden lg:block w-64 shrink-0">
-          <div className="sticky top-16 space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">
-              Contents (Daftar Isi)
-            </h3>
-            <nav className="space-y-1">
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => scrollToSection(item.id)}
-                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-bold transition cursor-pointer ${
-                    activeSection === item.id
-                      ? "bg-blue-50 text-[#0060A9] font-black"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                  }`}
-                >
-                  <span className="truncate">{item.label}</span>
-                  <ChevronRight className="h-3 w-3 opacity-40" />
-                </button>
-              ))}
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 flex flex-col lg:flex-row gap-6 items-start">
+        {/* LEFT STICKY SECTION NAVIGATOR */}
+        <aside className="no-print hidden lg:block w-60 shrink-0 sticky top-20 space-y-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+            <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-400 mb-3">
+              Document Sections
+            </h4>
+            <nav className="space-y-1 text-xs font-bold">
+              {template === "asean_bulletin" ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("asean-overview")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Regional Situation Overview</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("asean-matrix")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>ASEAN Burden Matrix</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("asean-spasial")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Spatial Hotspot Geomap</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("asean-preparedness")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Regional Preparedness</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("asean-sources")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Sources &amp; Partnerships</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("summary")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Executive Summary</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("tactical-recommendations")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Tactical Recommendations</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("spatial-map")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Spatial Hotspot Geomap</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("trend-visualization")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Surveillance Trends Curve</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("disease-distribution")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Disease Distribution (ICD-11)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("regional-matrix")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>Regional Burden Matrix</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("endorsement")}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
+                  >
+                    <span>PHEOC Verification Sheet</span>
+                  </button>
+                </>
+              )}
             </nav>
+          </div>
 
-            <div className="pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 transition shadow-2xs"
-              >
-                <Printer className="h-3.5 w-3.5 text-slate-600" />
-                <span>Cetak Halaman Ini</span>
-              </button>
+          {/* Quick Metadata Box */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs text-xs space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Metadata</p>
+            <div>
+              <span className="text-slate-500">Lead Analyst:</span>
+              <p className="font-bold text-slate-800">{reportAuthor}</p>
+            </div>
+            <div>
+              <span className="text-slate-500">Epi-Week:</span>
+              <p className="font-bold text-slate-800">{epiPeriodText}</p>
+            </div>
+            <div>
+              <span className="text-slate-500">Theme:</span>
+              <p className="font-bold text-[#0060A9] uppercase text-[10px]">{reportTheme.replace("_", " ")}</p>
             </div>
           </div>
         </aside>
 
         {/* ==========================================
-            DOCUMENT CANVAS (PRINT AREA)
+            CENTRAL PRINT/PDF REPORT CANVAS
         ========================================== */}
-        <main className={`print-area relative flex-1 rounded-2xl border p-6 sm:p-10 z-10 transition duration-200 ${getThemeClass()}`}>
-                    {/* -------------------------------------------
-              TEMPLATE 1: KEMENKES EXECUTIVE SITREP (IMAGE 1)
+        <main className={`print-area flex-1 rounded-2xl p-6 sm:p-10 transition duration-300 ${getThemeClass()}`}>
+          {/* -------------------------------------------
+              TEMPLATE 1: ABVC EXECUTIVE SITREP
           -------------------------------------------- */}
           {template === "kemenkes_sitrep" && (
             <div className="space-y-8">
-              {/* Header Kop Resmi */}
-              <div className="border-b border-slate-200 pb-5">
-                <div className="flex items-center gap-3 text-xs font-bold text-slate-600">
-                  <span className="rounded-md bg-teal-50 px-2 py-0.5 text-teal-800 font-extrabold border border-teal-200">
-                    ABVC CENTRE
+              {/* Report Header Block */}
+              <header className="border-b-2 border-slate-900 pb-5">
+                <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-teal-800 px-2 py-0.5 text-[11px] font-black tracking-wider text-white uppercase">
+                        ABVC PHEOC
+                      </span>
+                      <span className="text-xs font-bold text-slate-500">
+                        Official Surveillance Intelligence System
+                      </span>
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight leading-tight">
+                      {reportTitle}
+                    </h1>
+                    <p className="text-xs sm:text-sm font-semibold text-teal-900">
+                      {reportSubtitle}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 text-right text-xs">
+                    <p className="font-mono font-bold text-slate-800">{epiPeriodText}</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">{updatedAtText}</p>
+                    <span className="inline-block mt-2 rounded-full border border-teal-300 bg-teal-50 px-2.5 py-0.5 text-[10px] font-black text-teal-800 uppercase">
+                      CONFIRMED LEVEL
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filter Meta Badges */}
+                <div className="mt-4 flex flex-wrap items-center gap-2 pt-3 border-t border-slate-200 text-xs font-semibold text-slate-600">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1">
+                    <strong>SCOPE:</strong> {filterWilayahText}
                   </span>
-                  <span>Pusat Operasi Kedaruratan Kesehatan Regional (PHEOC ABVC) — 24 Jam</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1">
+                    <strong>DISEASE:</strong> {filterLayananText}
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1">
+                    <strong>LEAD ANALYST:</strong> {reportAuthor}
+                  </span>
                 </div>
-                <h1 className="mt-2 text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-snug">
-                  {reportTitle} : {epiPeriodText}
-                </h1>
-                <p className="mt-1 text-xs text-slate-500 font-medium">
-                  {updatedAtText}
-                </p>
+              </header>
 
-                {/* Scope Badge Box (Sesuai Gambar 1) */}
-                <div className="mt-4 rounded-xl border border-slate-900/80 bg-slate-50/70 p-3 text-xs font-bold text-slate-900">
-                  Berlaku di: <span className="font-black text-[#0060A9]">{filterWilayahText}</span> | Kategori Layanan: <span className="font-black text-slate-800">{filterLayananText}</span>
-                </div>
-              </div>
-
-              {/* KPI 5 Cards Row (Sesuai Gambar 1) */}
+              {/* Section 1: KPI Indicator Cards */}
               {visibility.kpi && (
-                <section id="kpi-metrik" className="break-inside-avoid">
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                    <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-3.5 text-center">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-teal-800">
-                        TOTAL KASUS TERKONFIRMASI
-                      </p>
-                      <p className="mt-1 font-mono text-2xl sm:text-3xl font-black text-teal-900">
-                        {metricTotalKasus.toLocaleString()}
-                      </p>
-                      <p className="text-[9px] font-bold text-teal-700/80 mt-0.5">Surveilans Nasional &amp; ASEAN</p>
-                    </div>
+                <section id="kpi-cards" className="grid grid-cols-2 sm:grid-cols-4 gap-3 break-inside-avoid">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-1">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Total Confirmed</p>
+                    <p className="text-2xl font-black text-slate-900 font-mono">{metricTotalKasus.toLocaleString()}</p>
+                    <p className="text-[10px] text-emerald-700 font-bold">+6.2% vs previous week</p>
+                  </div>
 
-                    <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3.5 text-center">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-rose-800">
-                        FATALITAS / KEMATIAN
-                      </p>
-                      <p className="mt-1 font-mono text-2xl sm:text-3xl font-black text-rose-900">
-                        {metricKorbanMeninggal}{" "}
-                        <span className="text-xs font-semibold">Jiwa</span>
-                      </p>
-                      <p className="text-[9px] font-bold text-rose-700/80 mt-0.5">Kasus Fatal Terverifikasi</p>
-                    </div>
+                  <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3.5 space-y-1">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-rose-800">Total Fatalities</p>
+                    <p className="text-2xl font-black text-rose-700 font-mono">{metricKorbanMeninggal}</p>
+                    <p className="text-[10px] text-rose-700 font-bold">Accumulated fatalities</p>
+                  </div>
 
-                    <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 text-center">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-amber-800">
-                        CASE FATALITY RATE (CFR)
-                      </p>
-                      <p className="mt-1 font-mono text-2xl sm:text-3xl font-black text-amber-900">
-                        {metricCfr}%
-                      </p>
-                      <p className="text-[9px] font-bold text-amber-700/80 mt-0.5">Ambang Batas WHO &lt; 1%</p>
-                    </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 space-y-1">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-amber-800">Case Fatality Rate</p>
+                    <p className="text-2xl font-black text-amber-700 font-mono">{metricCfr}%</p>
+                    <p className="text-[10px] text-slate-500 font-medium">Safe threshold &lt; 1%</p>
+                  </div>
 
-                    <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3.5 text-center">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-blue-800">
-                        KLASTER HOTSPOT AKTIF
-                      </p>
-                      <p className="mt-1 font-mono text-2xl sm:text-3xl font-black text-blue-900">
-                        {metricKlasterAktif}{" "}
-                        <span className="text-xs font-semibold">Titik</span>
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-purple-200 bg-purple-50/50 p-3.5 text-center">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-purple-800">
-                        WILAYAH TERPANTAU
-                      </p>
-                      <p className="mt-1 font-mono text-2xl sm:text-3xl font-black text-purple-900">
-                        {metricWilayahTerpantau}{" "}
-                        <span className="text-xs font-semibold">Negara</span>
-                      </p>
-                    </div>
+                  <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3.5 space-y-1">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-blue-800">Hotspot Clusters</p>
+                    <p className="text-2xl font-black text-[#0060A9] font-mono">{metricKlasterAktif}</p>
+                    <p className="text-[10px] text-blue-700 font-bold">Active local transmission</p>
                   </div>
                 </section>
               )}
 
-              {/* Section 1: Ringkasan Eksekutif */}
+              {/* Section 2: Executive Summary Narrative */}
               {visibility.summary && (
-                <section id="ringkasan" className="space-y-2 break-inside-avoid">
-                  <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                    Ringkasan Eksekutif Situasi Penyakit Infeksi & Sinyal Outbreak
+                <section id="summary" className="space-y-2 break-inside-avoid">
+                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 border-b border-slate-200 pb-1.5">
+                    Executive Summary: Infectious Disease Situation &amp; Outbreak Signals
                   </h3>
-                  <div className="rounded-xl bg-slate-50/80 p-4 border border-slate-200 text-sm leading-relaxed text-slate-700">
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs sm:text-sm leading-relaxed text-slate-800 space-y-2.5">
                     <p>{executiveSummary}</p>
                   </div>
                 </section>
               )}
 
-              {/* Section 2: Poin Utama & Rekomendasi Taktis */}
+              {/* Section 3: Tactical Response Points */}
               {visibility.tactical && (
-                <section id="poin-utama" className="space-y-3 break-inside-avoid">
-                  <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                    Poin Utama & Rekomendasi Taktis Pengendalian
+                <section id="tactical-recommendations" className="space-y-2 break-inside-avoid">
+                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 border-b border-slate-200 pb-1.5">
+                    Tactical Response Points &amp; Epidemiological Early Action
                   </h3>
-                  <ul className="space-y-2.5">
-                    {tacticalPoints.map((pt, idx) => (
-                      <li
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {tacticalPoints.map((point, idx) => (
+                      <div
                         key={idx}
-                        className="flex items-start gap-3 rounded-xl border border-slate-100 bg-white p-3 text-xs sm:text-sm text-slate-700 shadow-2xs"
+                        className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-xs text-slate-800 space-y-1"
                       >
-                        <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#0060A9]" />
-                        <span className="leading-relaxed">{pt}</span>
-                      </li>
+                        <p className="font-black text-slate-900">Priority #{idx + 1}</p>
+                        <p className="leading-relaxed text-slate-600">{point}</p>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </section>
               )}
 
-              {/* Section 3: Pemetaan Spasial Hotspot (Pure Vector SVG) */}
+              {/* Section 4: Spatial GIS Hotspots (WGS84 ASEAN Geomap) */}
               {visibility.map && (
-                <section id="spasial-hotspot" className="break-inside-avoid">
-                  <SpatialHotspotMap hotspots={hotspots} />
+                <section id="spatial-map" className="space-y-2 break-inside-avoid">
+                  <SpatialHotspotMap hotspots={hotspots} title="Spatial Mapping: Outbreak Hotspots & Disease Transmission Corridors" />
                 </section>
               )}
 
-              {/* Section 4: Visualisasi Grafik Tren & Distribusi Penyakit */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 break-inside-avoid">
+              {/* Section 5: Epidemiological Trends & Disease Burden */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                 {visibility.trends && (
-                  <section id="tren-visualisasi">
-                    <TrendEpiCurveChart data={trendData} />
+                  <section id="trend-visualization" className="break-inside-avoid">
+                    <TrendEpiCurveChart data={trendData} title="Epidemiological Trends & Weekly Surveillance Transmission Curve" />
                   </section>
                 )}
+
                 {visibility.distribution && (
-                  <section id="distribusi-penyakit">
-                    <DiseaseDistributionDonut shares={diseaseShares} />
+                  <section id="disease-distribution" className="break-inside-avoid">
+                    <DiseaseDistributionDonut shares={diseaseShares} title="Disease Burden Distribution & Clinical Severity Classification" />
                   </section>
                 )}
               </div>
 
-              {/* Section 5: Matriks Rekapitulasi Wilayah (Beban Kasus & CFR) */}
+              {/* Section 6: Regional Multi-Country Matrix */}
               {visibility.regionalTable && (
-                <section id="matriks-wilayah" className="space-y-4 break-inside-avoid">
-                  <CountryCfrBarChart data={countryBurdens} />
-
-                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                <section id="regional-matrix" className="space-y-3 break-inside-avoid">
+                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 border-b border-slate-200 pb-1.5">
+                    Regional Multi-Country Surveillance Matrix (ASEAN &amp; Indonesia)
+                  </h3>
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-100 text-slate-700">
                         <tr>
-                          <th className="px-4 py-2.5 font-black">Negara / Teritori</th>
-                          <th className="px-4 py-2.5 text-right font-black">Jumlah Kasus</th>
-                          <th className="px-4 py-2.5 text-right font-black">Kematian</th>
-                          <th className="px-4 py-2.5 text-right font-black">CFR (%)</th>
-                          <th className="px-4 py-2.5 font-black">Status Severity</th>
+                          <th className="px-3 py-2.5 font-black">Territory / Jurisdiction</th>
+                          <th className="px-3 py-2.5 text-right font-black">Total Cases</th>
+                          <th className="px-3 py-2.5 text-right font-black">Cumulative Fatalities</th>
+                          <th className="px-3 py-2.5 text-right font-black">Case Fatality Rate (%)</th>
+                          <th className="px-3 py-2.5 text-center font-black">Early Warning Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {countryBurdens.map((b) => (
-                          <tr key={b.country} className="hover:bg-slate-50/50">
-                            <td className="px-4 py-2.5 font-bold text-slate-800">{b.country}</td>
-                            <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-900">
-                              {b.cases.toLocaleString()}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-rose-700 font-bold">
-                              {b.deaths}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono font-black">
+                        {countryBurdens.map((item) => (
+                          <tr key={item.country} className="hover:bg-slate-50/80">
+                            <td className="px-3 py-2 font-bold text-slate-900">{item.country}</td>
+                            <td className="px-3 py-2 text-right font-mono">{item.cases.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right font-mono text-rose-700 font-bold">{item.deaths}</td>
+                            <td className="px-3 py-2 text-right font-mono">{item.cfr.toFixed(2)}%</td>
+                            <td className="px-3 py-2 text-center">
                               <span
-                                className={`rounded px-1.5 py-0.5 ${
-                                  b.cfr > 0.4 ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"
+                                className={`inline-block rounded px-2 py-0.5 text-[10px] font-black uppercase ${
+                                  item.cfr > 0.3
+                                    ? "bg-rose-100 text-rose-800"
+                                    : "bg-emerald-100 text-emerald-800"
                                 }`}
                               >
-                                {b.cfr.toFixed(2)}%
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-700">
-                                {b.cfr > 0.4 ? "WASPADALAH" : "TERKENDALI"}
+                                {item.cfr > 0.3 ? "ACTIVE ALERT" : "MONITORED"}
                               </span>
                             </td>
                           </tr>
@@ -811,18 +841,18 @@ function ExecutiveReportContent() {
                 </section>
               )}
 
-              {/* Section 6: Lembar Pengesahan Resmi */}
+              {/* Section 7: Verification & Sign-off Sheet */}
               {visibility.signature && (
-                <section id="pengesahan" className="border-t border-slate-200 pt-6 text-xs text-slate-600 break-inside-avoid">
+                <section id="endorsement" className="pt-6 border-t-2 border-slate-900 text-xs break-inside-avoid">
                   <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
                     <div>
-                      <p className="font-bold text-slate-800">Sistem Surveilans & Intelijen Penyakit ABVC</p>
-                      <p className="text-[11px] text-slate-500">Dokumen sah diterbitkan otomatis melalui verifikasi tim epidemiolog</p>
+                      <p className="font-bold text-slate-800">ABVC Disease Surveillance &amp; Health Intelligence System</p>
+                      <p className="text-[11px] text-slate-500">Official document issued automatically following epidemiological intelligence verification</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[11px] text-slate-500">Jakarta, {new Date().toLocaleDateString("id-ID", { dateStyle: "long" })}</p>
-                      <p className="mt-8 font-black text-slate-900">Pusat Operasi Kedaruratan Kesehatan Masyarakat (PHEOC)</p>
-                      <p className="text-[10px] text-slate-500">Pusat Operasi EOC ABVC / ASEAN Biological Threats Surveillance Centre</p>
+                      <p className="text-[11px] text-slate-500">Jakarta, {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                      <p className="mt-8 font-black text-slate-900">Public Health Emergency Operation Centre (PHEOC)</p>
+                      <p className="text-[10px] text-slate-500">ASEAN Biological Threats Surveillance Centre (ABVC)</p>
                     </div>
                   </div>
                 </section>
@@ -831,11 +861,11 @@ function ExecutiveReportContent() {
           )}
 
           {/* -------------------------------------------
-              TEMPLATE 2: ASEAN BIO-THREATS MEDIA MONITORING (IMAGE 2)
+              TEMPLATE 2: ASEAN BIO-THREATS MEDIA MONITORING
           -------------------------------------------- */}
           {template === "asean_bulletin" && (
             <div className="space-y-6">
-              {/* ASEAN Header Banner (Persis Gambar 2) */}
+              {/* ASEAN Header Banner */}
               <div className="rounded-xl bg-gradient-to-r from-[#031b4e] via-[#052b7a] to-[#011438] p-6 text-white shadow-sm">
                 <div className="flex items-start justify-between">
                   <div>
@@ -849,13 +879,13 @@ function ExecutiveReportContent() {
                       Infectious and Emerging Diseases
                     </h2>
                     <p className="mt-1 text-xs font-bold uppercase tracking-wider text-cyan-100">
-                      GLOBAL & ASEAN REGION — {epiPeriodText}
+                      GLOBAL &amp; ASEAN REGION — {epiPeriodText}
                     </p>
                   </div>
 
                   <div className="text-right text-[10px] text-cyan-200/80 space-y-1">
                     <p className="font-bold">With Support by:</p>
-                    <p className="font-semibold text-white">Canada / Korea Disease Control & Prevention Agency</p>
+                    <p className="font-semibold text-white">Canada / Korea Disease Control &amp; Prevention Agency</p>
                   </div>
                 </div>
               </div>
@@ -932,25 +962,25 @@ function ExecutiveReportContent() {
 
               {/* Section: Spatial Hotspot Map for ASEAN */}
               <div id="asean-spasial" className="pt-6 border-t border-slate-200 break-inside-avoid">
-                <SpatialHotspotMap hotspots={hotspots} title="Pemetaan Spasial Hotspot & Koridor Epidemiologi Regional ASEAN" />
+                <SpatialHotspotMap hotspots={hotspots} title="Spatial Hotspot & Regional Epidemiological Corridors Mapping (ASEAN)" />
               </div>
 
               {/* Section: Regional Preparedness */}
               <div id="asean-preparedness" className="pt-6 border-t border-slate-200 break-inside-avoid space-y-3">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                  Rekomendasi Kesiapsiagaan Kawasan (Regional Preparedness & Early Action)
+                  Regional Preparedness &amp; Early Action Recommendations
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3.5 space-y-1">
-                    <p className="font-black text-[#0060A9]">1. Pengawasan Pintu Masuk Internasional (PoE)</p>
+                    <p className="font-black text-[#0060A9]">1. International Points of Entry (PoE) Surveillance</p>
                     <p className="text-slate-600 leading-relaxed">
-                      Pemeriksaan termal dan digital health pass di bandara internasional utama (Jakarta, Bangkok, Ho Chi Minh, Manila) guna menyaring penumpang bergejala ruam atau demam tinggi.
+                      Thermal screening and digital health passes at primary international transit airports (Jakarta, Bangkok, Ho Chi Minh, Manila) to identify passengers presenting with febrile rash or high fever.
                     </p>
                   </div>
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5 space-y-1">
-                    <p className="font-black text-emerald-800">2. Pertukaran Data Sinyal IHR & EOC Network</p>
+                    <p className="font-black text-emerald-800">2. IHR Signal Data Exchange &amp; EOC Network</p>
                     <p className="text-slate-600 leading-relaxed">
-                      Pemberitahuan dini antar National Focal Point IHR negara ASEAN terhadap kemunculan varian atau lonjakan transmisi tak biasa dalam waktu 24 jam.
+                      Rapid cross-border notification between ASEAN National IHR Focal Points regarding unexpected transmission surges or variant emergence within 24 hours.
                     </p>
                   </div>
                 </div>
@@ -959,10 +989,10 @@ function ExecutiveReportContent() {
               {/* Section: Sources & Partnership */}
               <div id="asean-sources" className="pt-6 border-t border-slate-200 break-inside-avoid text-xs text-slate-500 space-y-2">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">
-                  Sumber Informasi & Jejaring Kemitraan
+                  Information Sources &amp; Technical Partnerships
                 </h4>
                 <p className="leading-relaxed">
-                  Laporan ini dikompilasi secara otomatis melalui pemantauan media daring berbasis kecerdasan buatan (NLP Pipeline Surveilans ABVC) dan diverifikasi silang dengan kanal resmi: Kementerian Kesehatan RI, Department of Disease Control Thailand, Ministry of Health Malaysia, Ministry of Health Viet Nam, Department of Health Philippines, dan buletin WHO SEARO / WPRO.
+                  This report is automatically compiled through artificial intelligence online media monitoring (ABVC Surveillance NLP Pipeline) and cross-verified with official national channels: Ministry of Health Indonesia, Department of Disease Control Thailand, Ministry of Health Malaysia, Ministry of Health Viet Nam, Department of Health Philippines, and WHO SEARO / WPRO bulletins.
                 </p>
               </div>
             </div>
@@ -979,12 +1009,12 @@ function ExecutiveReportContent() {
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center gap-2 text-slate-900 font-black text-base">
                 <Sliders className="h-5 w-5 text-[#0060A9]" />
-                <span>Kustomisasi Dokumen (Human-in-the-Loop)</span>
+                <span>Document Customization (Human-in-the-Loop)</span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsEditDrawerOpen(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -993,14 +1023,14 @@ function ExecutiveReportContent() {
             {/* Background & Template Theme Styling */}
             <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2.5">
               <label className="block text-[11px] font-black uppercase text-slate-700">
-                Latar Belakang &amp; Gaya Dokumen
+                Document Background &amp; Style Theme
               </label>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { id: "formal_white", label: "Clean White", desc: "Standar formal cetak" },
-                  { id: "asean_navy", label: "ASEAN Navy", desc: "Aksen biru kartografis" },
-                  { id: "kemenkes_teal", label: "ABVC Teal", desc: "Aksen hijau PHEOC ABVC" },
-                  { id: "slate_minimal", label: "Slate Dark", desc: "Minimalis modern" },
+                  { id: "formal_white", label: "Clean White", desc: "Formal print standard" },
+                  { id: "asean_navy", label: "ASEAN Navy", desc: "Cartographic blue accent" },
+                  { id: "kemenkes_teal", label: "ABVC Teal", desc: "PHEOC ABVC teal accent" },
+                  { id: "slate_minimal", label: "Slate Dark", desc: "Modern minimalist" },
                 ].map((th) => (
                   <button
                     key={th.id}
@@ -1019,16 +1049,16 @@ function ExecutiveReportContent() {
               </div>
             </div>
 
-            {/* Author / Penelaah */}
+            {/* Author / Reviewer */}
             <div>
               <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                Penyusun / Penelaah Dokumen
+                Lead Analyst / Document Reviewer
               </label>
               <input
                 type="text"
                 value={reportAuthor}
                 onChange={(e) => setReportAuthor(e.target.value)}
-                placeholder="Contoh: yusuf, Rijal, vira, PHEOC ABVC"
+                placeholder="e.g., yusuf, Rijal, vira, PHEOC ABVC"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-800"
               />
             </div>
@@ -1036,32 +1066,32 @@ function ExecutiveReportContent() {
             {/* Template Selection */}
             <div>
               <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                Pilih Format Template Dokumen
+                Select Document Template Format
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setTemplate("kemenkes_sitrep")}
-                  className={`rounded-xl border p-2.5 text-left text-xs font-bold transition ${
+                  className={`rounded-xl border p-2.5 text-left text-xs font-bold transition cursor-pointer ${
                     template === "kemenkes_sitrep"
                       ? "border-[#0060A9] bg-blue-50/50 text-[#0060A9]"
                       : "border-slate-200 hover:bg-slate-50"
                   }`}
                 >
                   <p className="font-black">EOC SitRep ABVC</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">Format resmi Situasi Regional ABVC</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Official Regional ABVC Situation Report</p>
                 </button>
                 <button
                   type="button"
                   onClick={() => setTemplate("asean_bulletin")}
-                  className={`rounded-xl border p-2.5 text-left text-xs font-bold transition ${
+                  className={`rounded-xl border p-2.5 text-left text-xs font-bold transition cursor-pointer ${
                     template === "asean_bulletin"
                       ? "border-[#0060A9] bg-blue-50/50 text-[#0060A9]"
                       : "border-slate-200 hover:bg-slate-50"
                   }`}
                 >
-                  <p className="font-black">Buletin ASEAN</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">Media monitoring per penyakit (Gambar 2)</p>
+                  <p className="font-black">ASEAN Bulletin</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Disease-specific media monitoring</p>
                 </button>
               </div>
             </div>
@@ -1069,7 +1099,7 @@ function ExecutiveReportContent() {
             {/* Watermark Settings */}
             <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase text-slate-700">Watermark Dokumen</span>
+                <span className="text-xs font-black uppercase text-slate-700">Document Watermark</span>
                 <input
                   type="checkbox"
                   checked={watermarkEnabled}
@@ -1080,7 +1110,7 @@ function ExecutiveReportContent() {
               {watermarkEnabled && (
                 <>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-1">Teks Watermark</label>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-1">Watermark Text</label>
                     <input
                       type="text"
                       value={watermarkText}
@@ -1089,13 +1119,13 @@ function ExecutiveReportContent() {
                     />
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {["DRAFT", "RAHASIA / TERBATAS", "SITREP MINGGUAN", "ASEAN BIO-THREATS"].map(
+                    {["DRAFT", "RESTRICTED / CONFIDENTIAL", "WEEKLY SITREP", "ASEAN BIO-THREATS"].map(
                       (preset) => (
                         <button
                           key={preset}
                           type="button"
                           onClick={() => setWatermarkText(preset)}
-                          className="rounded-md bg-white border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
+                          className="rounded-md bg-white border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
                         >
                           {preset}
                         </button>
@@ -1106,11 +1136,11 @@ function ExecutiveReportContent() {
               )}
             </div>
 
-            {/* Meta Title & Periode */}
+            {/* Meta Title & Period */}
             <div className="space-y-3">
               <div>
                 <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                  Judul Dokumen Laporan
+                  Report Document Title
                 </label>
                 <input
                   type="text"
@@ -1122,7 +1152,7 @@ function ExecutiveReportContent() {
 
               <div>
                 <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                  Periode / Epidemiological Week
+                  Epidemiological Week / Period
                 </label>
                 <input
                   type="text"
@@ -1134,7 +1164,7 @@ function ExecutiveReportContent() {
 
               <div>
                 <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                  Cakupan Wilayah Terfilter
+                  Filtered Region Scope
                 </label>
                 <input
                   type="text"
@@ -1148,7 +1178,7 @@ function ExecutiveReportContent() {
             {/* Editable Executive Narrative */}
             <div>
               <label className="block text-[11px] font-black uppercase text-slate-500 mb-1">
-                Narasi Ringkasan Eksekutif (Bisa diedit bebas)
+                Executive Summary Narrative (Fully Editable)
               </label>
               <textarea
                 rows={5}
@@ -1162,19 +1192,19 @@ function ExecutiveReportContent() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="block text-[11px] font-black uppercase text-slate-500">
-                  Poin Rekomendasi Taktis
+                  Tactical Recommendation Points
                 </label>
                 <button
                   type="button"
                   onClick={() =>
                     setTacticalPoints([
                       ...tacticalPoints,
-                      "Poin rekomendasi baru: tambahkan instruksi kesiapsiagaan di sini.",
+                      "New priority recommendation point: specify epidemiological early action instruction here.",
                     ])
                   }
-                  className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-[#0060A9]"
+                  className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-[#0060A9] cursor-pointer"
                 >
-                  <Plus className="h-3 w-3" /> Tambah Poin
+                  <Plus className="h-3 w-3" /> Add Point
                 </button>
               </div>
 
@@ -1196,7 +1226,7 @@ function ExecutiveReportContent() {
                       onClick={() =>
                         setTacticalPoints(tacticalPoints.filter((_, i) => i !== idx))
                       }
-                      className="p-1 text-slate-400 hover:text-rose-600"
+                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -1208,11 +1238,11 @@ function ExecutiveReportContent() {
             {/* Key Metric Numbers Overrides */}
             <div className="rounded-xl border border-slate-200 p-3.5 space-y-3 bg-slate-50/50">
               <label className="block text-[11px] font-black uppercase text-slate-700">
-                Koreksi Angka Statistik Indikator
+                Key Indicator Statistics Overrides
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Total Kasus</span>
+                  <span className="text-[10px] font-bold text-slate-500">Total Cases</span>
                   <input
                     type="number"
                     value={metricTotalKasus}
@@ -1221,7 +1251,7 @@ function ExecutiveReportContent() {
                   />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Total Kematian (Jiwa)</span>
+                  <span className="text-[10px] font-bold text-slate-500">Total Deaths</span>
                   <input
                     type="number"
                     value={metricKorbanMeninggal}
@@ -1230,7 +1260,7 @@ function ExecutiveReportContent() {
                   />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Rata-rata CFR (%)</span>
+                  <span className="text-[10px] font-bold text-slate-500">Average CFR (%)</span>
                   <input
                     type="number"
                     step="0.01"
@@ -1240,7 +1270,7 @@ function ExecutiveReportContent() {
                   />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Klaster Hotspot</span>
+                  <span className="text-[10px] font-bold text-slate-500">Hotspot Clusters</span>
                   <input
                     type="number"
                     value={metricKlasterAktif}
@@ -1254,18 +1284,18 @@ function ExecutiveReportContent() {
             {/* Section Visibility */}
             <div className="rounded-xl border border-slate-200 p-3.5 space-y-2">
               <label className="block text-[11px] font-black uppercase text-slate-700">
-                Tampilkan / Sembunyikan Seksi
+                Show / Hide Sections
               </label>
               <div className="space-y-1.5 text-xs font-bold text-slate-600">
                 {[
-                  { key: "kpi", label: "Kartu Indikator Utama (KPI)" },
-                  { key: "summary", label: "Ringkasan Eksekutif" },
-                  { key: "tactical", label: "Poin Rekomendasi Taktis" },
-                  { key: "map", label: "Peta Spasial Hotspot" },
-                  { key: "trends", label: "Grafik Tren Epidemiologi" },
-                  { key: "distribution", label: "Donut Distribusi Penyakit" },
-                  { key: "regionalTable", label: "Tabel Matriks Wilayah" },
-                  { key: "signature", label: "Lembar Pengesahan" },
+                  { key: "kpi", label: "Main Indicator Cards (KPI)" },
+                  { key: "summary", label: "Executive Summary" },
+                  { key: "tactical", label: "Tactical Recommendations" },
+                  { key: "map", label: "Spatial Hotspot Map" },
+                  { key: "trends", label: "Epidemiological Trends Chart" },
+                  { key: "distribution", label: "Disease Distribution Donut" },
+                  { key: "regionalTable", label: "Regional Burden Matrix" },
+                  { key: "signature", label: "PHEOC Endorsement Sheet" },
                 ].map((item) => (
                   <label key={item.key} className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -1293,23 +1323,23 @@ function ExecutiveReportContent() {
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 text-xs font-black text-white shadow-xs transition cursor-pointer"
             >
               <CheckCircle2 className="h-4 w-4" />
-              <span>Publikasikan Laporan Ini ke Arsip</span>
+              <span>Publish This Report to Archive</span>
             </button>
             <button
               type="button"
               onClick={handleResetToBaseline}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              <span>Reset ke Baseline AI Otomatis</span>
+              <span>Reset to Automated AI Baseline</span>
             </button>
             <button
               type="button"
               onClick={() => setIsEditDrawerOpen(false)}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0060A9] py-2.5 text-xs font-black text-white hover:bg-blue-800 transition"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0060A9] py-2.5 text-xs font-black text-white hover:bg-blue-800 transition cursor-pointer"
             >
               <CheckCircle2 className="h-4 w-4" />
-              <span>Terapkan & Lihat Dokumen</span>
+              <span>Apply &amp; Preview Document</span>
             </button>
           </div>
         </div>
@@ -1327,29 +1357,29 @@ function ExecutiveReportContent() {
               </div>
               <div>
                 <h3 className="text-lg font-black text-slate-900">
-                  Laporan Berhasil Dipublikasikan!
+                  Report Successfully Published!
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">
-                  Telah disimpan ke Arsip Publikasi dan siap diakses.
+                  Stored into the Public Archive and ready for access.
                 </p>
               </div>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
               <div>
-                <span className="font-bold text-slate-500">Judul Laporan:</span>
+                <span className="font-bold text-slate-500">Report Title:</span>
                 <p className="font-black text-slate-900">{publishSuccessItem.title}</p>
               </div>
               <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
-                <span className="text-slate-500">Kategori:</span>
+                <span className="text-slate-500">Category:</span>
                 <span className="font-bold text-[#0060A9]">{publishSuccessItem.category}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Penelaah / Analis:</span>
+                <span className="text-slate-500">Lead Analyst / Reviewer:</span>
                 <span className="font-bold text-slate-800">{publishSuccessItem.author}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Periode Terbit:</span>
+                <span className="text-slate-500">Publication Period:</span>
                 <span className="font-bold text-slate-800">{publishSuccessItem.period}</span>
               </div>
             </div>
@@ -1358,22 +1388,22 @@ function ExecutiveReportContent() {
               <button
                 type="button"
                 onClick={() => setIsPublishModalOpen(false)}
-                className="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+                className="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
               >
-                Tetap di Sini
+                Stay Here
               </button>
               <button
                 type="button"
                 onClick={handlePrint}
-                className="w-full sm:w-auto rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 transition shadow-2xs"
+                className="w-full sm:w-auto rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 transition shadow-2xs cursor-pointer"
               >
-                Cetak / Unduh PDF
+                Print / Download PDF
               </button>
               <Link
                 href="/console/reports-cms"
-                className="w-full sm:w-auto rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-4 py-2 text-xs font-bold text-slate-800 transition text-center shadow-2xs"
+                className="w-full sm:w-auto rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-4 py-2 text-xs font-bold text-slate-800 transition text-center shadow-2xs cursor-pointer"
               >
-                Ke Console CMS
+                To Console CMS
               </Link>
               <Link
                 href={
@@ -1381,9 +1411,9 @@ function ExecutiveReportContent() {
                     ? "/reports?tab=media_monitoring"
                     : "/reports?tab=sitrep_abvc"
                 }
-                className="w-full sm:w-auto rounded-xl bg-[#0060A9] hover:bg-blue-700 px-4 py-2 text-xs font-black text-white shadow-xs transition text-center"
+                className="w-full sm:w-auto rounded-xl bg-[#0060A9] hover:bg-blue-700 px-4 py-2 text-xs font-black text-white shadow-xs transition text-center cursor-pointer"
               >
-                Lihat di Daftar Arsip (/reports)
+                View in Public Archive (/reports)
               </Link>
             </div>
           </div>
@@ -1399,7 +1429,7 @@ export default function ExecutiveReportPage() {
       fallback={
         <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white space-y-3">
           <div className="h-8 w-8 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-          <p className="text-sm font-bold text-slate-300">Memuat Editor Laporan Eksekutif...</p>
+          <p className="text-sm font-bold text-slate-300">Loading Executive Report Studio...</p>
         </div>
       }
     >

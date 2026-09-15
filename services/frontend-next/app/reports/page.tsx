@@ -931,7 +931,7 @@ export default function ReportsPage() {
               }`}
             >
               <Globe className="h-4 w-4" />
-              <span>Buletin Media Monitoring ASEAN</span>
+              <span>ASEAN Media Monitoring Bulletin</span>
             </button>
 
             <button
@@ -944,7 +944,7 @@ export default function ReportsPage() {
               }`}
             >
               <ShieldAlert className="h-4 w-4" />
-              <span>Laporan Situasi (SitRep ABVC)</span>
+              <span>Situation Report (ABVC SitRep)</span>
             </button>
 
             <button

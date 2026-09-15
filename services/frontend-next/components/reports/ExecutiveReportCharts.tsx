@@ -63,7 +63,7 @@ interface SpatialHotspotMapProps {
 
 export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
   hotspots,
-  title = "Pemetaan Spasial Hotspot Wabah & Klaster Penyakit Infeksi",
+  title = "Spatial Hotspot Mapping & Outbreak Clusters (WGS84 GIS)",
 }) => {
   const [downloading, setDownloading] = React.useState(false)
 
@@ -112,7 +112,7 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
           <div className="flex items-center gap-2 flex-wrap">
             <h4 className="text-sm sm:text-base font-black text-slate-900">{title}</h4>
             <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700 border border-emerald-200">
-              Python GIS Geomap Engine (Kawasan ASEAN &amp; Indonesia)
+              Python GIS Geomap Engine (ASEAN Region &amp; Indonesia)
             </span>
           </div>
           <p className="text-[11px] font-medium text-slate-500 mt-0.5">
@@ -124,20 +124,20 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
             href={`${PUBLIC_BASE_PATH}/generated_charts/spatial_geomap_asean.svg`}
             download="peta_spasial_geomap_asean.svg"
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
-            title="Unduh Format Vektor SVG Asli"
+            title="Download Original Vector SVG"
           >
             <Download className="h-3 w-3 text-slate-500" />
-            <span>Unduh SVG</span>
+            <span>Download SVG</span>
           </a>
           <button
             type="button"
             disabled={downloading}
             onClick={handleDownload}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#0060A9] px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 transition cursor-pointer shadow-xs disabled:opacity-50"
-            title="Unduh Peta sebagai Gambar PNG Resolusi Tinggi (300 DPI)"
+            title="Download Map as High-Resolution PNG Image (300 DPI)"
           >
             <Download className="h-3.5 w-3.5 text-white" />
-            <span>{downloading ? "Memproses..." : "Unduh PNG 300 DPI"}</span>
+            <span>{downloading ? "Processing..." : "Download PNG (300 DPI)"}</span>
           </button>
         </div>
       </div>
@@ -145,7 +145,7 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-[#f8fafc] shadow-2xs">
         <img
           src={`${PUBLIC_BASE_PATH}/generated_charts/spatial_geomap_asean.svg`}
-          alt="Peta Spasial Hotspot GIS Python (Kawasan ASEAN &amp; Indonesia)"
+          alt="Python GIS Spatial Hotspot Map (ASEAN Region &amp; Indonesia)"
           className="w-full h-auto block select-none"
           onError={(e) => {
             const target = e.currentTarget
@@ -163,7 +163,7 @@ export const SpatialHotspotMap: React.FC<SpatialHotspotMapProps> = ({
           <span className="text-slate-300">•</span>
           <span className="font-bold text-slate-700">Datum:</span> WGS84
           <span className="text-slate-300">•</span>
-          <span className="font-bold text-slate-700">Cakupan:</span> 91.5°BT – 142.5°BT | 11.5°LS – 28.5°LU (Kawasan ASEAN)
+          <span className="font-bold text-slate-700">Coverage:</span> 91.5°E – 142.5°E | 11.5°S – 28.5°N (ASEAN Region)
         </div>
         <div className="font-black text-[#0060A9]">
           Terverifikasi Otomatis Pipeline Python GIS
@@ -187,7 +187,7 @@ interface TrendEpiCurveChartProps {
 
 export const TrendEpiCurveChart: React.FC<TrendEpiCurveChartProps> = ({
   data,
-  title = "Kurva Epidemiologi Kasus & Kematian Terkonfirmasi",
+  title = "Epidemiological Curve: Confirmed Cases & Fatalities Trend",
   subtitle = "Tren distribusi kejadian infeksi lintas waktu berbasis NLP data stream",
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null)
@@ -251,10 +251,10 @@ export const TrendEpiCurveChart: React.FC<TrendEpiCurveChartProps> = ({
           type="button"
           onClick={handleDownload}
           className="no-print inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-          title="Unduh Grafik sebagai Gambar PNG"
+          title="Download Chart as PNG Image"
         >
           <Download className="h-3.5 w-3.5 text-slate-500" />
-          <span>Unduh PNG</span>
+          <span>Download PNG</span>
         </button>
       </div>
 
@@ -358,12 +358,12 @@ export const TrendEpiCurveChart: React.FC<TrendEpiCurveChartProps> = ({
           <g transform={`translate(${width - 250}, 16)`}>
             <rect x="0" y="0" width="10" height="10" rx="2" fill="#0060A9" />
             <text x="16" y="8.5" fontSize="7.5" fontWeight="700" fill="#0f172a">
-              Jumlah Kasus Terkonfirmasi
+              Confirmed Cases Count
             </text>
             <line x1="120" y1="5" x2="135" y2="5" stroke="#e11d48" strokeWidth="2" strokeDasharray="4,2" />
             <circle cx="127" cy="5" r="2.5" fill="#e11d48" />
             <text x="142" y="8.5" fontSize="7.5" fontWeight="700" fill="#e11d48">
-              Kematian (Deaths)
+              Cumulative Deaths
             </text>
           </g>
         </svg>
@@ -385,12 +385,12 @@ interface DiseaseDistributionDonutProps {
 
 export const DiseaseDistributionDonut: React.FC<DiseaseDistributionDonutProps> = ({
   shares,
-  title = "Distribusi Penyakit Dominan Terpantau (ICD-11)",
+  title = "Dominant Monitored Diseases Distribution (ICD-11)",
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null)
 
   const handleDownload = () => {
-    exportSvgToPng(svgRef.current, "distribusi_penyakit_dominan")
+    exportSvgToPng(svgRef.current, "dominant_disease_distribution")
   }
 
   const totalCases = shares.reduce((sum, s) => sum + s.cases, 0)
@@ -451,10 +451,10 @@ export const DiseaseDistributionDonut: React.FC<DiseaseDistributionDonutProps> =
           type="button"
           onClick={handleDownload}
           className="no-print inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-          title="Unduh Donut Chart sebagai PNG"
+          title="Download Donut Chart as PNG"
         >
           <Download className="h-3.5 w-3.5 text-slate-500" />
-          <span>Unduh PNG</span>
+          <span>Download PNG</span>
         </button>
       </div>
 
@@ -545,7 +545,7 @@ interface CountryCfrBarChartProps {
 
 export const CountryCfrBarChart: React.FC<CountryCfrBarChartProps> = ({
   data,
-  title = "Rasio Fatalitas Kasus (CFR) & Beban Wilayah",
+  title = "Case Fatality Rate (CFR) & Regional Burden Analysis",
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null)
 
@@ -576,10 +576,10 @@ export const CountryCfrBarChart: React.FC<CountryCfrBarChartProps> = ({
           type="button"
           onClick={handleDownload}
           className="no-print inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-          title="Unduh Grafik Bar sebagai PNG"
+          title="Download Bar Chart as PNG"
         >
           <Download className="h-3.5 w-3.5 text-slate-500" />
-          <span>Unduh PNG</span>
+          <span>Download PNG</span>
         </button>
       </div>
 

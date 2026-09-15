@@ -85,10 +85,10 @@ export default function ConsoleReportsCmsPage() {
   }, [reports])
 
   const handleDelete = (id: string, title: string) => {
-    if (window.confirm(`Hapus publikasi "${title}"? Dokumen ini tidak akan muncul lagi di portal publik.`)) {
+    if (window.confirm(`Delete publication "${title}"? This document will no longer be visible on the public portal.`)) {
       deleteReportFromStore(id)
       setReports((prev) => prev.filter((r) => r.id !== id))
-      showToast("Publikasi berhasil dihapus.")
+      showToast("Publication deleted successfully.")
     }
   }
 
@@ -97,13 +97,13 @@ export default function ConsoleReportsCmsPage() {
     const updated: PublishedReportItem = { ...item, status: updatedStatus }
     saveReportToStore(updated)
     setReports((prev) => prev.map((r) => (r.id === item.id ? updated : r)))
-    showToast(`Status diubah menjadi: ${updatedStatus === "published" ? "Published (Aktif di User)" : "Draft (Disembunyikan dari User)"}`)
+    showToast(`Status changed to: ${updatedStatus === "published" ? "Published (Live on Portal)" : "Draft (Hidden from Public)"}`)
   }
 
   const handleUploadSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!uploadTitle.trim()) {
-      alert("Mohon isi judul dokumen publikasi.")
+      alert("Please enter the publication title.")
       return
     }
 
@@ -112,14 +112,14 @@ export default function ConsoleReportsCmsPage() {
       category:
         uploadType === "asean_bulletin"
           ? "Data & Publications Media Monitoring Report"
-          : "Laporan Situasi Resmi ABVC",
+          : "Official Situation Report ABVC",
       title: uploadTitle.trim(),
       period: uploadPeriod.trim() || "September 2026",
       author: uploadAuthor.trim() || (uploadType === "asean_bulletin" ? "yusuf" : "PHEOC ABVC"),
       publishedAt: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
       type: uploadType,
       status: "published",
-      description: uploadDesc.trim() || "Publikasi intelijen epidemiologi resmi surveilans penyakit infeksi berkala kawasan.",
+      description: uploadDesc.trim() || "Official periodic epidemiological health surveillance intelligence publication for regional communicable diseases.",
       summaryStats: {
         cases: uploadCases,
         deaths: uploadDeaths,
@@ -135,7 +135,7 @@ export default function ConsoleReportsCmsPage() {
     setUploadPeriod("")
     setUploadDesc("")
     setUploadedFile(null)
-    showToast("Dokumen publikasi baru berhasil diterbitkan ke Portal Publik (/reports)!")
+    showToast("New publication successfully published to the Public Portal (/reports)!")
   }
 
   return (
@@ -159,7 +159,7 @@ export default function ConsoleReportsCmsPage() {
             Publication CMS &amp; Surveillance Report Studio
           </h1>
           <p className="text-xs text-slate-500 font-medium mt-1">
-            Kelola publikasi buletin surveilans ASEAN &amp; SitRep ABVC, unggah dokumen eksternal, dan sesuaikan draft laporan sebelum tampil ke pengguna umum.
+            Manage ASEAN surveillance bulletins and ABVC SitRep publications, upload external documents, and review drafts before publishing to the public portal.
           </p>
         </div>
 
@@ -170,7 +170,7 @@ export default function ConsoleReportsCmsPage() {
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer"
           >
             <Eye className="h-4 w-4 text-[#0060A9]" />
-            <span>Lihat Tampilan Portal Publik</span>
+            <span>View Public Portal</span>
             <ExternalLink className="h-3 w-3 text-slate-400" />
           </Link>
 
@@ -179,7 +179,7 @@ export default function ConsoleReportsCmsPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] hover:bg-blue-700 px-4 py-2.5 text-xs font-black text-white shadow-xs transition cursor-pointer"
           >
             <Sparkles className="h-4 w-4 text-amber-300" />
-            <span>+ Buat Draft Laporan Baru (AI Studio)</span>
+            <span>+ Create Report Draft (AI Studio)</span>
           </Link>
         </div>
       </div>
@@ -187,27 +187,27 @@ export default function ConsoleReportsCmsPage() {
       {/* Top Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs space-y-1">
-          <p className="text-[11px] font-black uppercase text-slate-500">Total Publikasi</p>
+          <p className="text-[11px] font-black uppercase text-slate-500">Total Publications</p>
           <p className="text-2xl font-black text-slate-900 font-mono">{stats.total}</p>
-          <p className="text-[10px] font-semibold text-slate-400">Semua edisi di database</p>
+          <p className="text-[10px] font-semibold text-slate-400">All editions in database</p>
         </div>
 
         <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4 shadow-2xs space-y-1">
-          <p className="text-[11px] font-black uppercase text-[#0060A9]">Buletin ASEAN</p>
+          <p className="text-[11px] font-black uppercase text-[#0060A9]">ASEAN Bulletins</p>
           <p className="text-2xl font-black text-[#0060A9] font-mono">{stats.asean}</p>
-          <p className="text-[10px] font-semibold text-blue-600/80">Media Monitoring Kawasan</p>
+          <p className="text-[10px] font-semibold text-blue-600/80">Regional Media Monitoring</p>
         </div>
 
         <div className="rounded-2xl border border-teal-100 bg-teal-50/50 p-4 shadow-2xs space-y-1">
-          <p className="text-[11px] font-black uppercase text-teal-800">SitRep ABVC</p>
+          <p className="text-[11px] font-black uppercase text-teal-800">ABVC SitRep</p>
           <p className="text-2xl font-black text-teal-800 font-mono">{stats.sitrep}</p>
-          <p className="text-[10px] font-semibold text-teal-600/80">Laporan Situasi Resmi</p>
+          <p className="text-[10px] font-semibold text-teal-600/80">Official Situation Reports</p>
         </div>
 
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 shadow-2xs space-y-1">
-          <p className="text-[11px] font-black uppercase text-emerald-800">Status Published</p>
+          <p className="text-[11px] font-black uppercase text-emerald-800">Published Status</p>
           <p className="text-2xl font-black text-emerald-800 font-mono">{stats.published}</p>
-          <p className="text-[10px] font-semibold text-emerald-600/80">Aktif tampil di User</p>
+          <p className="text-[10px] font-semibold text-emerald-600/80">Live on Public Portal</p>
         </div>
       </div>
 
@@ -223,7 +223,7 @@ export default function ConsoleReportsCmsPage() {
           }`}
         >
           <Layers className="h-4 w-4" />
-          <span>Katalog &amp; Manajemen Publikasi ({reports.length})</span>
+          <span>Catalog &amp; Publication Management ({reports.length})</span>
         </button>
 
         <button
@@ -236,7 +236,7 @@ export default function ConsoleReportsCmsPage() {
           }`}
         >
           <FileUp className="h-4 w-4" />
-          <span>Upload Dokumen Publikasi (PDF/Doc)</span>
+          <span>Upload External Document (PDF/Doc)</span>
         </button>
 
         <button
@@ -254,7 +254,7 @@ export default function ConsoleReportsCmsPage() {
       </div>
 
       {/* ====================================================
-          TAB 1: KATALOG & MANAJEMEN PUBLIKASI
+          TAB 1: CATALOG & PUBLICATION MANAGEMENT
       ==================================================== */}
       {activeTab === "catalog" && (
         <div className="space-y-4">
@@ -264,7 +264,7 @@ export default function ConsoleReportsCmsPage() {
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Cari judul, analis, periode laporan..."
+                placeholder="Search title, analyst, report period..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50/60 pl-9 pr-4 py-2 text-xs font-semibold focus:bg-white focus:border-blue-500 focus:outline-none"
@@ -272,15 +272,15 @@ export default function ConsoleReportsCmsPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap text-xs">
-              <span className="font-bold text-slate-500">Tipe:</span>
+              <span className="font-bold text-slate-500">Type:</span>
               <select
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value as any)}
                 className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 font-bold text-slate-700 text-xs focus:outline-none"
               >
-                <option value="all">Semua Tipe</option>
-                <option value="asean_bulletin">Buletin ASEAN</option>
-                <option value="kemenkes_sitrep">SitRep ABVC</option>
+                <option value="all">All Types</option>
+                <option value="asean_bulletin">ASEAN Bulletin</option>
+                <option value="kemenkes_sitrep">ABVC SitRep</option>
               </select>
 
               <span className="font-bold text-slate-500 ml-2">Status:</span>
@@ -289,9 +289,9 @@ export default function ConsoleReportsCmsPage() {
                 onChange={(e) => setFilterStatus(e.target.value as any)}
                 className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 font-bold text-slate-700 text-xs focus:outline-none"
               >
-                <option value="all">Semua Status</option>
-                <option value="published">Published (Tampil di Publik)</option>
-                <option value="draft">Draft (Disembunyikan)</option>
+                <option value="all">All Statuses</option>
+                <option value="published">Published (Live on Portal)</option>
+                <option value="draft">Draft (Hidden from Public)</option>
               </select>
             </div>
           </div>
@@ -303,18 +303,18 @@ export default function ConsoleReportsCmsPage() {
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-700">
                   <tr>
                     <th className="py-3.5 px-4 font-black w-24">Cover</th>
-                    <th className="py-3.5 px-4 font-black">Judul Publikasi &amp; Kategori</th>
-                    <th className="py-3.5 px-4 font-black">Analis / Penelaah</th>
-                    <th className="py-3.5 px-4 font-black">Periode Terbit</th>
-                    <th className="py-3.5 px-4 font-black text-center">Status Portal</th>
-                    <th className="py-3.5 px-4 font-black text-right">Aksi CMS</th>
+                    <th className="py-3.5 px-4 font-black">Publication Title &amp; Category</th>
+                    <th className="py-3.5 px-4 font-black">Lead Analyst / Reviewer</th>
+                    <th className="py-3.5 px-4 font-black">Publication Period</th>
+                    <th className="py-3.5 px-4 font-black text-center">Portal Status</th>
+                    <th className="py-3.5 px-4 font-black text-right">CMS Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredReports.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">
-                        Tidak ada dokumen publikasi yang sesuai filter pencarian.
+                        No matching publication documents found.
                       </td>
                     </tr>
                   ) : (
@@ -337,8 +337,8 @@ export default function ConsoleReportsCmsPage() {
                             }`}
                           >
                             {item.type === "asean_bulletin"
-                              ? "Buletin ASEAN"
-                              : "SitRep ABVC"}
+                              ? "ASEAN Bulletin"
+                              : "ABVC SitRep"}
                           </span>
                           <p className="font-extrabold text-slate-900 leading-snug hover:text-[#0060A9]">
                             {item.title}
@@ -352,13 +352,13 @@ export default function ConsoleReportsCmsPage() {
                         </td>
                         <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                           <p className="font-bold text-slate-800">{item.period}</p>
-                          <p className="text-[10px] text-slate-400">Terbit: {item.publishedAt}</p>
+                          <p className="text-[10px] text-slate-400">Published: {item.publishedAt}</p>
                         </td>
                         <td className="py-3 px-4 text-center whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => handleToggleStatus(item)}
-                            title="Klik untuk ganti status tampil"
+                            title="Click to toggle display status"
                             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black uppercase transition cursor-pointer ${
                               item.status === "published"
                                 ? "bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
@@ -378,7 +378,7 @@ export default function ConsoleReportsCmsPage() {
                             <Link
                               href={`/reports/executive?template=${item.type}&reportId=${item.id}&edit=true`}
                               className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 shadow-2xs transition"
-                              title="Edit Dokumen &amp; Latar Belakang"
+                              title="Edit Document Narrative &amp; Background"
                             >
                               <Edit3 className="h-3.5 w-3.5 text-slate-500" />
                               <span>Edit</span>
@@ -392,8 +392,8 @@ export default function ConsoleReportsCmsPage() {
                                   "_blank"
                                 )
                               }
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 shadow-2xs transition"
-                              title="Cetak / Download PDF"
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer"
+                              title="Print / Download PDF"
                             >
                               <Download className="h-3.5 w-3.5 text-slate-500" />
                             </button>
@@ -402,7 +402,7 @@ export default function ConsoleReportsCmsPage() {
                               type="button"
                               onClick={() => handleDelete(item.id, item.title)}
                               className="rounded-lg border border-rose-200 bg-rose-50/50 hover:bg-rose-100 p-1.5 text-rose-700 transition cursor-pointer"
-                              title="Hapus Publikasi"
+                              title="Delete Publication"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -419,28 +419,28 @@ export default function ConsoleReportsCmsPage() {
       )}
 
       {/* ====================================================
-          TAB 2: UPLOAD DOKUMEN PUBLIKASI EKSTERNAL (PDF/DOC)
+          TAB 2: UPLOAD EXTERNAL PUBLICATION DOCUMENT
       ==================================================== */}
       {activeTab === "upload" && (
         <div className="max-w-3xl mx-auto rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-xs space-y-6">
           <div>
             <div className="flex items-center gap-2 text-xs font-black uppercase text-[#0060A9] mb-1">
               <FileUp className="h-4 w-4" />
-              <span>Formulir Unggah Dokumen Resmi</span>
+              <span>Official Document Upload Form</span>
             </div>
             <h2 className="text-xl font-black text-slate-900 tracking-tight">
-              Upload &amp; Terbitkan Dokumen Publikasi
+              Upload &amp; Publish Official Document
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Unggah laporan surveilans berkala yang telah difinalisasi dalam format PDF atau Word untuk langsung diterbitkan ke arsip publik tanpa tercampur tombol edit.
+              Upload finalized periodic surveillance reports in PDF or Word format to publish directly to the public archive without mixing editing controls into the viewer.
             </p>
           </div>
 
           <form onSubmit={handleUploadSubmit} className="space-y-4 text-xs">
-            {/* Tipe Dokumen */}
+            {/* Publication Type */}
             <div>
               <label className="block font-black uppercase text-slate-700 mb-1.5">
-                Pilih Tipe Publikasi
+                Select Publication Type
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
@@ -458,10 +458,10 @@ export default function ConsoleReportsCmsPage() {
                 >
                   <div className="flex items-center gap-2 text-slate-900 font-black">
                     <Globe className="h-4 w-4 text-[#0060A9]" />
-                    <span>Buletin Media Monitoring ASEAN</span>
+                    <span>ASEAN Media Monitoring Bulletin</span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Publikasi berkala intelijen penyakit menular regional (Image 2 style)
+                    Periodic health intelligence publication on regional communicable diseases
                   </p>
                 </button>
 
@@ -480,26 +480,26 @@ export default function ConsoleReportsCmsPage() {
                 >
                   <div className="flex items-center gap-2 text-slate-900 font-black">
                     <Shield className="h-4 w-4 text-teal-700" />
-                    <span>Laporan Situasi Resmi (SitRep ABVC)</span>
+                    <span>Official Situation Report (ABVC SitRep)</span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Format pengawasan terpadu mingguan Pusat Operasi EOC ABVC
+                    Integrated weekly surveillance format — ABVC EOC Operations Centre
                   </p>
                 </button>
               </div>
             </div>
 
-            {/* Judul */}
+            {/* Publication Title */}
             <div>
               <label className="block font-black uppercase text-slate-700 mb-1">
-                Judul Dokumen Laporan <span className="text-rose-500">*</span>
+                Publication Document Title <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
                 required
                 value={uploadTitle}
                 onChange={(e) => setUploadTitle(e.target.value)}
-                placeholder="Contoh: Media Monitoring for Infectious and Emerging Diseases in ASEAN Region 15 September 2026"
+                placeholder="e.g., Media Monitoring for Infectious and Emerging Diseases in ASEAN Region 15 September 2026"
                 className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-semibold focus:border-blue-500 focus:outline-none"
               />
             </div>
@@ -507,7 +507,7 @@ export default function ConsoleReportsCmsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block font-black uppercase text-slate-700 mb-1">
-                  Nama Analis / Penelaah
+                  Lead Analyst / Reviewer Name
                 </label>
                 <input
                   type="text"
@@ -521,14 +521,14 @@ export default function ConsoleReportsCmsPage() {
 
               <div>
                 <label className="block font-black uppercase text-slate-700 mb-1">
-                  Periode / Epidemiological Week
+                  Epi-Week / Publication Period
                 </label>
                 <input
                   type="text"
                   required
                   value={uploadPeriod}
                   onChange={(e) => setUploadPeriod(e.target.value)}
-                  placeholder="Contoh: Minggu ke-38 (15 Sep 2026)"
+                  placeholder="e.g., Week 38 (15 Sep 2026)"
                   className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-semibold focus:border-blue-500 focus:outline-none"
                 />
               </div>
@@ -537,7 +537,7 @@ export default function ConsoleReportsCmsPage() {
             {/* File Upload Box */}
             <div>
               <label className="block font-black uppercase text-slate-700 mb-1">
-                Berkas Dokumen Publikasi (PDF atau Word)
+                Publication Document File (PDF or Word)
               </label>
               <div
                 onClick={() => fileInputRef.current?.click()}
@@ -545,10 +545,10 @@ export default function ConsoleReportsCmsPage() {
               >
                 <FileUp className="mx-auto h-8 w-8 text-slate-400 mb-2" />
                 <p className="font-bold text-slate-700">
-                  {uploadedFile ? uploadedFile.name : "Klik untuk memilih berkas PDF atau seret ke sini"}
+                  {uploadedFile ? uploadedFile.name : "Click to select a PDF/Word file or drag and drop here"}
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Format yang didukung: .pdf, .docx, .doc (Maks. 50 MB)
+                  Supported formats: .pdf, .docx, .doc (Max. 50 MB)
                 </p>
                 <input
                   ref={fileInputRef}
@@ -564,16 +564,16 @@ export default function ConsoleReportsCmsPage() {
               </div>
             </div>
 
-            {/* Ringkasan */}
+            {/* Executive Summary */}
             <div>
               <label className="block font-black uppercase text-slate-700 mb-1">
-                Ringkasan Eksekutif Dokumen
+                Executive Summary / Abstract
               </label>
               <textarea
                 rows={3}
                 value={uploadDesc}
                 onChange={(e) => setUploadDesc(e.target.value)}
-                placeholder="Tulis ringkasan singkat hasil surveilans atau poin penting dokumen ini..."
+                placeholder="Write a concise executive summary or key surveillance intelligence points..."
                 className="w-full rounded-xl border border-slate-200 p-3 text-xs leading-relaxed focus:border-blue-500 focus:outline-none"
               />
             </div>
@@ -581,11 +581,11 @@ export default function ConsoleReportsCmsPage() {
             {/* Key Metrics Snapshot */}
             <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2.5">
               <span className="block text-[11px] font-black uppercase text-slate-700">
-                Indikator Surveilans (Metadata Snapshot)
+                Surveillance Indicators (Metadata Snapshot)
               </span>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Total Kasus</span>
+                  <span className="text-[10px] font-bold text-slate-500">Total Cases</span>
                   <input
                     type="number"
                     value={uploadCases}
@@ -594,7 +594,7 @@ export default function ConsoleReportsCmsPage() {
                   />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Kematian</span>
+                  <span className="text-[10px] font-bold text-slate-500">Deaths</span>
                   <input
                     type="number"
                     value={uploadDeaths}
@@ -603,7 +603,7 @@ export default function ConsoleReportsCmsPage() {
                   />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Wilayah Terpantau</span>
+                  <span className="text-[10px] font-bold text-slate-500">Jurisdictions</span>
                   <input
                     type="number"
                     value={uploadCountries}
@@ -612,7 +612,7 @@ export default function ConsoleReportsCmsPage() {
                   />
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-slate-500">Top Penyakit</span>
+                  <span className="text-[10px] font-bold text-slate-500">Top Disease</span>
                   <input
                     type="text"
                     value={uploadTopDisease}
@@ -627,16 +627,16 @@ export default function ConsoleReportsCmsPage() {
               <button
                 type="button"
                 onClick={() => setActiveTab("catalog")}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="submit"
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-5 py-2.5 text-xs font-black text-white shadow-xs transition cursor-pointer"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                <span>Simpan &amp; Publikasikan ke Portal User</span>
+                <span>Save &amp; Publish to Public Portal</span>
               </button>
             </div>
           </form>
@@ -654,10 +654,10 @@ export default function ConsoleReportsCmsPage() {
             </div>
             <div className="space-y-1">
               <h3 className="text-base font-black text-slate-900">
-                Generator Draft Otomatis Sistem (AI Surveillance)
+                Automated System Draft Generator (AI Surveillance)
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Sistem secara otomatis merangkum sinyal wabah, klaster terdeteksi, dan tren epidemiologi regional ASEAN dari pipeline NLP secara real-time. Anda dapat meluncurkan studio untuk menganalisis narasi, menyesuaikan angka, memilih tema latar belakang, lalu mempublikasikan ke arsip.
+                The system automatically compiles outbreak signals, detected clusters, and ASEAN regional epidemiological trends from the live NLP pipeline in real-time. Launch the studio to analyze narrative, adjust metrics, select background themes, and publish to the public archive.
               </p>
             </div>
           </div>
@@ -669,7 +669,7 @@ export default function ConsoleReportsCmsPage() {
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-black text-[#0060A9]">
                     <Globe className="h-3 w-3" />
-                    Format ASEAN Bulletin
+                    ASEAN Bulletin Format
                   </span>
                   <span className="text-[10px] font-bold text-slate-400">Regional Multi-Country</span>
                 </div>
@@ -677,7 +677,7 @@ export default function ConsoleReportsCmsPage() {
                   Media Monitoring for Infectious and Emerging Diseases (ASEAN)
                 </h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Sesuai format buletin media monitoring per penyakit (Dengue, HFMD, Mpox), dilengkapi pemetaan spasial WGS84 seluruh 11 negara ASEAN dan matriks epi-week.
+                  Disease-specific surveillance format (Dengue, HFMD, Mpox), equipped with full 11 ASEAN country WGS84 spatial mapping and epi-week matrix.
                 </p>
               </div>
 
@@ -686,7 +686,7 @@ export default function ConsoleReportsCmsPage() {
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0060A9] hover:bg-blue-700 py-2.5 text-xs font-black text-white shadow-xs transition"
               >
                 <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-                <span>Buka Studio Buletin ASEAN &rarr;</span>
+                <span>Open ASEAN Bulletin Studio &rarr;</span>
               </Link>
             </div>
 
@@ -696,15 +696,15 @@ export default function ConsoleReportsCmsPage() {
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-1 rounded-md bg-teal-50 px-2 py-0.5 text-[10px] font-black text-teal-800">
                     <Shield className="h-3 w-3" />
-                    Format SitRep ABVC
+                    ABVC SitRep Format
                   </span>
-                  <span className="text-[10px] font-bold text-slate-400">Pusat Operasi EOC</span>
+                  <span className="text-[10px] font-bold text-slate-400">EOC Operations Centre</span>
                 </div>
                 <h4 className="text-base font-black text-slate-900">
-                  Laporan Situasi Resmi Pengawasan Surveilans (SitRep ABVC)
+                  Official Surveillance Situation Report (ABVC SitRep)
                 </h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Laporan pengawasan resmi mingguan kewaspadaan dini outbreak terpadu ABVC, dilengkapi kurva tren transmisi, donut beban penyakit, dan rekomendasi respon taktis.
+                  Integrated weekly surveillance early warning report from ABVC, featuring transmission trend curves, disease burden donut charts, and tactical response recommendations.
                 </p>
               </div>
 
@@ -713,7 +713,7 @@ export default function ConsoleReportsCmsPage() {
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-700 hover:bg-teal-800 py-2.5 text-xs font-black text-white shadow-xs transition"
               >
                 <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-                <span>Buka Studio SitRep ABVC &rarr;</span>
+                <span>Open ABVC SitRep Studio &rarr;</span>
               </Link>
             </div>
           </div>

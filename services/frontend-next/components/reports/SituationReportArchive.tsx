@@ -46,19 +46,18 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = () 
       <div className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50/70 via-white to-slate-50 p-5 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              Laporan Situasi Resmi (Situation Report / SitRep)
+              Official Situation Report (Situation Report / SitRep)
             </h2>
             <p className="text-xs font-medium text-slate-500 mt-1">
-              Dokumen pengawasan mingguan dan bulanan kewaspadaan dini outbreak penyakit infeksi menular ABVC Regional
+              Weekly and monthly early warning surveillance and outbreak intelligence document for communicable infectious diseases — ABVC Regional EOC
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-xl bg-teal-50 border border-teal-200 px-3.5 py-1.5 text-xs font-black text-teal-800">
               <CheckCircle2 className="h-3.5 w-3.5 text-teal-600" />
-              <span>Dokumen Resmi Terverifikasi</span>
+              <span>Verified Official Document</span>
             </span>
           </div>
         </div>
@@ -69,7 +68,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = () 
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Cari edisi minggu, judul, atau status SitRep..."
+              placeholder="Search epi-week, title, or SitRep status..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-4 py-2 text-xs font-semibold placeholder:text-slate-400 focus:border-teal-500 focus:outline-none"
@@ -77,9 +76,9 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = () 
           </div>
 
           <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-            <span>Menampilkan</span>
+            <span>Showing</span>
             <span className="rounded-lg bg-teal-50 px-2.5 py-1 font-mono font-black text-teal-800 border border-teal-200">
-              {filteredReports.length} Edisi Terbit
+              {filteredReports.length} Published Editions
             </span>
           </div>
         </div>
@@ -90,8 +89,8 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = () 
         {filteredReports.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-slate-500 space-y-3">
             <Shield className="mx-auto h-12 w-12 text-slate-300" />
-            <p className="text-base font-black text-slate-700">Belum ada dokumen SitRep yang sesuai</p>
-            <p className="text-xs">Coba sesuaikan kata kunci pencarian Anda.</p>
+            <p className="text-base font-black text-slate-700">No matching SitRep documents found</p>
+            <p className="text-xs">Try adjusting your search keywords.</p>
           </div>
         ) : (
           filteredReports.map((item) => (
@@ -115,7 +114,6 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = () 
                   <span className="text-[11px] font-black text-teal-800 uppercase tracking-wider">
                     {item.category}
                   </span>
-
                 </div>
 
                 <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-teal-800 transition leading-snug">
@@ -147,7 +145,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = () 
                     className="inline-flex items-center gap-1.5 rounded-xl bg-teal-50 px-3.5 py-2 text-xs font-black text-teal-800 hover:bg-teal-100 transition"
                   >
                     <Eye className="h-3.5 w-3.5" />
-                    <span>Buka SitRep ABVC</span>
+                    <span>Open ABVC SitRep</span>
                   </Link>
 
                   <button
@@ -159,7 +157,7 @@ export const SituationReportArchive: React.FC<SituationReportArchiveProps> = () 
                       )
                     }
                     className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 transition shadow-2xs cursor-pointer"
-                    title="Cetak atau Unduh PDF"
+                    title="Print or Download PDF"
                   >
                     <Download className="h-3.5 w-3.5 text-slate-500" />
                     <span>Download PDF</span>
