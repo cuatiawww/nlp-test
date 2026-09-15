@@ -13,6 +13,7 @@ import SourceForm from '@/components/SourceForm'
 import { fetchSourceSummary, triggerCollect, triggerCollectAll, deleteSource } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
 import { resolveSourceCountry } from '@/lib/source-country'
+import { sourceCatalogType, sourceOrigin, sourceValidityStatus } from '@/lib/source-catalog.mjs'
 
 export default function SourcesPage() {
   const { t } = useTranslation()
@@ -114,7 +115,16 @@ export default function SourcesPage() {
             <span className="rounded-xl bg-blue-50 p-2.5 text-[#0060A9]"><Database className="h-5 w-5" /></span>
           </div>
           <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-600">
-            <span className="font-semibold text-[#0060A9]">{summaryLoading ? '—' : (summary?.web_sources ?? 0).toLocaleString()}</span> web endpoints
+            <span className="font-semibold text-[#0060A9]">{summaryLoading ? '—' : (summary?.web_sources ?? 0).toLocaleString()}</span> crawler web
+            {!summaryLoading && summary?.by_catalog_type?.length ? (
+              <div className="mt-2 space-y-0.5 text-[11px] leading-4 text-slate-500">
+                {summary.by_catalog_type.slice(0, 6).map((item) => (
+                  <div key={item.catalog_type}>
+                    <span className="font-semibold text-slate-700">{item.source_count.toLocaleString()}</span> {item.catalog_type}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -211,7 +221,12 @@ export default function SourcesPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">{s.source_type}</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-600">{sourceCatalogType(s)}</span>
+                    {(sourceValidityStatus(s) || sourceOrigin(s)) ? (
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        {[sourceValidityStatus(s), sourceOrigin(s)].filter(Boolean).join(' · ')}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-center">{credibilityBadge(s.source_credibility)}</td>
                   <td className="px-4 py-3 text-slate-700">{s.schedule || '—'}</td>

@@ -79,7 +79,7 @@ export default function SourceDetailPage() {
       <div className="mt-4 flex items-start justify-between">
         <div>
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{source.name}</h1>
-          <p className="mt-1 text-sm text-slate-500">{t('common.type')}: {source.source_type} | {t('pages.sources.colFrequency')}: {source.schedule || 'manual'}</p>
+          <p className="mt-1 text-sm text-slate-500">{t('common.type')}: {source.catalog_type || source.config?.catalog_type || source.source_type} | {t('pages.sources.colFrequency')}: {source.schedule || 'manual'}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handleTrigger} className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold uppercase text-[#0060A9] transition hover:bg-blue-100">
