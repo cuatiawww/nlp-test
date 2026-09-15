@@ -46,6 +46,8 @@ const SpatialOutbreakMap = dynamic(() => import('@/components/SpatialOutbreakMap
 type DiseaseTrend = { name: string; cases: number; deaths: number; events: number; weekly: number[] }
 type SeriesKey = 'cases' | 'events' | 'deaths' | 'cumulative'
 
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
 const SERIES_META: Array<{ key: SeriesKey; label: string; style: string; stroke: string }> = [
   { key: 'cases', label: 'Reported Cases', style: 'bg-orange-50 text-orange-700 border-orange-300', stroke: '#f97316' },
   { key: 'events', label: 'Reported Events', style: 'bg-teal-50 text-teal-800 border-teal-300', stroke: '#047d78' },
@@ -130,6 +132,13 @@ function diseaseStatus(cases: number, leadCases: number) {
   if (ratio >= 0.5) return 'High activity'
   if (ratio >= 0.15) return 'Elevated'
   return 'Monitoring'
+}
+
+function monthLabel(month: { month_num?: number; month_name?: string }) {
+  const named = (month.month_name || '').trim()
+  if (/[A-Za-z]/.test(named)) return named.slice(0, 3)
+  const index = Number(month.month_num || named) - 1
+  return MONTH_LABELS[index] || named || '—'
 }
 
 function MetricCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) {
@@ -249,18 +258,16 @@ export default function RegionalDetailPreview() {
   const climateOk = context?.climate?.status === 'ok'
   const aqiValue = airOk ? context?.air_quality?.current?.european_aqi ?? null : null
   const pm25 = airOk ? context?.air_quality?.current?.pm2_5 ?? null : null
-  const temperature = weatherOk
-    ? context?.weather?.current?.temperature_c ?? (climateOk ? context?.climate?.averages?.t2m_c : null)
-    : (climateOk ? context?.climate?.averages?.t2m_c ?? null : null)
-  const precip = weatherOk
-    ? context?.weather?.precip_today_mm ?? context?.weather?.current?.precipitation_mm ?? null
-    : (climateOk ? context?.climate?.averages?.precip_mm ?? null : null)
+  const liveTemp = weatherOk ? context?.weather?.current?.temperature_c : null
+  const livePrecip = weatherOk ? (context?.weather?.precip_today_mm ?? context?.weather?.current?.precipitation_mm) : null
+  const temperature = liveTemp != null ? liveTemp : (climateOk ? context?.climate?.averages?.t2m_c ?? null : null)
+  const precip = livePrecip != null ? livePrecip : (climateOk ? context?.climate?.averages?.precip_mm ?? null : null)
 
   const environmentalMetrics: Array<{ label: string; value: string; detail: string; icon: LucideIcon; tone: string }> = [
     {
       label: 'Rainfall / precipitation',
       value: formatMaybe(precip, ' mm'),
-      detail: weatherOk ? 'Open-Meteo daily sum' : (climateOk ? 'NASA POWER 7-day mean' : (context?.weather?.error || 'Open-Meteo unavailable')),
+      detail: livePrecip != null ? 'Open-Meteo daily sum' : (climateOk ? 'NASA POWER 7-day mean' : (context?.weather?.error || 'Open-Meteo unavailable')),
       icon: CloudRain,
       tone: 'border-cyan-200 bg-cyan-50 text-cyan-800',
     },
@@ -281,7 +288,7 @@ export default function RegionalDetailPreview() {
     {
       label: 'Temperature',
       value: formatMaybe(temperature, ' °C'),
-      detail: weatherOk ? `${context?.capital?.name || displayCountry} · Open-Meteo` : (climateOk ? 'NASA POWER 7-day mean' : (context?.weather?.error || 'Open-Meteo unavailable')),
+      detail: liveTemp != null ? `${context?.capital?.name || displayCountry} · Open-Meteo` : (climateOk ? 'NASA POWER 7-day mean' : (context?.weather?.error || 'Open-Meteo unavailable')),
       icon: Thermometer,
       tone: 'border-orange-200 bg-orange-50 text-orange-800',
     },
@@ -289,8 +296,8 @@ export default function RegionalDetailPreview() {
 
   const periodLabel = useMemo(() => {
     if (heatmap?.months?.length && year) {
-      const first = heatmap.months[0]?.month_name?.slice(0, 3)
-      const last = heatmap.months.at(-1)?.month_name?.slice(0, 3)
+      const first = monthLabel(heatmap.months[0])
+      const last = monthLabel(heatmap.months.at(-1) || {})
       if (first && last) return `${first}–${last} ${year}`
     }
     return year ? String(year) : '—'
@@ -302,7 +309,7 @@ export default function RegionalDetailPreview() {
       return heatmap.months.map((month) => {
         running += month.cases
         return {
-          month: `${month.month_name.slice(0, 3)}${year ? ` ${year}` : ''}`,
+          month: `${monthLabel(month)}${year ? ` ${year}` : ''}`,
           cases: month.cases,
           events: month.events,
           deaths: month.deaths,
