@@ -164,6 +164,8 @@ export type PublicDashboard = {
     events: number;
     locations: number;
     active_alerts: number;
+    active_locations?: number;
+    location_master_count?: number;
   };
   alerts: OutbreakLocation[];
   locations: OutbreakLocation[];

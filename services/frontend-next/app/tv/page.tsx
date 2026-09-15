@@ -110,9 +110,9 @@ export default function TvPage() {
 
   const cards=[
     // Keep TV KPI semantics identical to the NLP dashboard: current period.
-    [t('dashboard.kpiDetectedCases'),data?.trends?.cases.current??data?.kpis.cases??0,Bug,'text-[#0060A9]','bg-blue-50 text-[#0060A9] border-blue-200'],
-    [t('dashboard.kpiDeaths'),data?.trends?.deaths.current??data?.kpis.deaths??0,Skull,'text-[#ED2939]','bg-red-50 text-[#ED2939] border-red-200'],
-    [t('dashboard.kpiLocations'),data?.trends?.locations.current??data?.kpis.locations??0,MapPin,'text-sky-600','bg-sky-50 text-sky-600 border-sky-200']
+    [t('dashboard.kpiDetectedCases'),data?.kpis.cases??0,Bug,'text-[#0060A9]','bg-blue-50 text-[#0060A9] border-blue-200'],
+    [t('dashboard.kpiDeaths'),data?.kpis.deaths??0,Skull,'text-[#ED2939]','bg-red-50 text-[#ED2939] border-red-200'],
+    [t('dashboard.kpiLocations'),data?.kpis.locations??0,MapPin,'text-sky-600','bg-sky-50 text-sky-600 border-sky-200']
   ] as const
 
   return (

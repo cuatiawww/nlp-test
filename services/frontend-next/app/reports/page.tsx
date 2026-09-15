@@ -44,8 +44,8 @@ import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { useSettings } from '@/lib/settings-context'
 import CountryFlag from '@/components/CountryFlag'
 import SocialMediaIcon from '@/components/SocialMediaIcon'
-import { fetchPublicDashboard, fetchEvents } from '@/lib/api'
-import type { PublicDashboard, OutbreakLocation, DiseaseEvent } from '@/types'
+import { fetchPublicDashboard } from '@/lib/api'
+import type { PublicDashboard, OutbreakLocation } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
 import { MediaMonitoringArchive } from '@/components/reports/MediaMonitoringArchive'
 import { SituationReportArchive } from '@/components/reports/SituationReportArchive'
@@ -253,9 +253,8 @@ export default function ReportsPage() {
   const loadRealSurveillanceData = async () => {
     setLoading(true)
     try {
-      const [dashRes, eventsRes] = await Promise.allSettled([
+      const [dashRes] = await Promise.allSettled([
         fetchPublicDashboard(),
-        fetchEvents({ per_page: 250 }),
       ])
 
       const combined: SurveillanceReportRow[] = []
@@ -293,60 +292,15 @@ export default function ReportsPage() {
             cases,
             deaths,
             cfr,
-            confidence: loc.confidence || 0.88,
-            sourceType: loc.detail?.source_type || 'news',
-            sourceName: loc.detail?.source_name || 'Health Intelligence Feed',
+            confidence: loc.confidence || 0,
+            sourceType: loc.detail?.source_type || 'unknown',
+            sourceName: loc.detail?.source_name || loc.location_name || 'Unknown source',
             url: loc.detail?.url || null,
             content: loc.detail?.content || null,
             symptoms: loc.detail?.symptoms || [],
             sentiment: loc.detail?.sentiment || null,
             eventConfidence: loc.detail?.event_confidence || null,
-            sourceCredibility: loc.detail?.source_credibility || 0.9,
-          })
-        })
-      }
-
-      // 2. Process Individual DiseaseEvents from Events API (Extracted by NLP Worker)
-      if (eventsRes.status === 'fulfilled' && Array.isArray(eventsRes.value)) {
-        eventsRes.value.forEach((ev: DiseaseEvent, idx: number) => {
-          const rowId = ev.id || `EVT-${idx + 1}`
-          if (seenIds.has(rowId)) return
-          seenIds.add(rowId)
-
-          const dateStr = ev.published_at || ev.created_at || new Date().toISOString()
-          const dObj = new Date(dateStr)
-          const dateFormatted = !isNaN(dObj.getTime())
-            ? dObj.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })
-            : 'Recent'
-
-          const resolved = resolveCountry(ev.country, ev.location_name)
-          const displayCountry = resolved.code === 'GLOBAL' ? OUTSIDE_ASEAN_LABEL : resolved.name
-          const diseaseFormatted = formatDiseaseName(ev.disease_classification)
-          const cases = Number(ev.case_count) || 0
-          const deaths = Number(ev.death_count) || 0
-          const cfr = calculateCfr(cases, deaths)
-
-          combined.push({
-            id: rowId,
-            date: dateStr,
-            dateFormatted,
-            country: displayCountry,
-            countryCode: resolved.code,
-            locationName: ev.location_name || resolved.name,
-            disease: diseaseFormatted,
-            rawDisease: ev.disease_classification || 'Unknown',
-            cases,
-            deaths,
-            cfr,
-            confidence: ev.confidence || 0.85,
-            sourceType: ev.source_type || 'rss',
-            sourceName: ev.source_name || 'Surveillance Wire',
-            url: ev.url || null,
-            content: ev.title || null,
-            symptoms: [],
-            sentiment: ev.sentiment || null,
-            eventConfidence: ev.confidence || null,
-            sourceCredibility: ev.source_credibility || 0.85,
+            sourceCredibility: loc.detail?.source_credibility || null,
           })
         })
       }
