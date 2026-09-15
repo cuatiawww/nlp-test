@@ -1,4 +1,6 @@
-﻿mod report_narrative;
+#![recursion_limit = "512"]
+
+mod report_narrative;
 mod reports_cms;
 mod security;
 
