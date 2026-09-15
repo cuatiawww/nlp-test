@@ -154,7 +154,7 @@ def analyze_url_endpoint(payload: AnalyzeRequest):
     try:
         # Keep the URL endpoint isolated from the bulk pipeline while still
         # allowing the worker's bounded rules-only fallback after an NLP error.
-        bounded_req = BoundedRequest(**payload.model_dump())
+        bounded_req = BoundedRequest(**payload.model_dump(), interactive=True)
         return analyze_bounded(bounded_req)
     except HTTPException:
         raise

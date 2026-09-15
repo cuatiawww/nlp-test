@@ -12,6 +12,7 @@ class AnalyzeRequest(BaseModel):
     source_url: Optional[str] = None
     historical_fast: bool = False
     rules_only: bool = False
+    interactive: bool = False
 
 
 class LocationItem(BaseModel):

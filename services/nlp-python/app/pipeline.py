@@ -104,7 +104,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if not all_locations:
             all_locations = extractors.extract_all_locations(translated_text, country=location_country)
     is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text)))
-    if not location and not is_noisy_early and not payload.historical_fast:
+    if not location and not is_noisy_early and not payload.historical_fast and not payload.interactive:
         try:
             from .deepseek import detect_location
             resolved_location = detect_location(
@@ -233,6 +233,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # allowing alphabetical/global-frequency ordering to decide it.
     should_use_deepseek = (
         not payload.historical_fast
+        and not payload.interactive
         and not is_noisy
         and (
             disease == "UNKNOWN"
@@ -409,9 +410,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         from .icd11 import resolve_disease_term
         term_resolutions = {}
         for candidate in extracted[:12]:
-            term_resolutions[candidate] = resolve_disease_term(
-                candidate, language=language, sample_text=text
-            )
+            if payload.interactive:
+                term_resolutions[candidate] = _resolve_local_only(candidate)
+            else:
+                term_resolutions[candidate] = resolve_disease_term(
+                    candidate, language=language, sample_text=text
+                )
         for candidate, resolved_term in term_resolutions.items():
             if resolved_term and resolved_term.get("canonical_name"):
                 canonical = resolved_term["canonical_name"]
