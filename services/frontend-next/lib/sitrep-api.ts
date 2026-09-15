@@ -1,0 +1,91 @@
+import { fetchFrom, patchTo, postTo } from "@/lib/api"
+import type { ReportIssue, ReportIssueCard, ReportIssueStatus } from "@/types/sitrep"
+
+export function listPublicReportIssues(params?: {
+  disease?: string
+  country?: string
+  q?: string
+  epi_year?: number
+  epi_week?: number
+}) {
+  const sp = new URLSearchParams()
+  if (params?.disease) sp.set("disease", params.disease)
+  if (params?.country) sp.set("country", params.country)
+  if (params?.q) sp.set("q", params.q)
+  if (params?.epi_year) sp.set("epi_year", String(params.epi_year))
+  if (params?.epi_week) sp.set("epi_week", String(params.epi_week))
+  const q = sp.toString()
+  return fetchFrom<ReportIssueCard[]>(`/api/v1/public/report-issues${q ? `?${q}` : ""}`)
+}
+
+export function fetchPublicReportIssue(slug: string) {
+  return fetchFrom<ReportIssue>(`/api/v1/public/report-issues/${encodeURIComponent(slug)}`)
+}
+
+export function fetchLatestPublicReport() {
+  return fetchFrom<ReportIssueCard | null>("/api/v1/public/report-issues/latest")
+}
+
+export function listCmsIssues(status?: string) {
+  const q = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : ""
+  return fetchFrom<ReportIssue[]>(`/api/v1/report-issues${q}`)
+}
+
+export function fetchCmsIssue(id: number) {
+  return fetchFrom<ReportIssue>(`/api/v1/report-issues/${id}`)
+}
+
+export function createReportIssue(body: { epi_year: number; epi_week: number; title?: string }) {
+  return postTo<ReportIssue>("/api/v1/report-issues", body)
+}
+
+export function patchReportIssue(id: number, body: Record<string, unknown>) {
+  return patchTo<ReportIssue>(`/api/v1/report-issues/${id}`, body)
+}
+
+export function pullReportKpis(id: number) {
+  return postTo<ReportIssue>(`/api/v1/report-issues/${id}/pull-kpi`, {})
+}
+
+export function transitionReportIssue(id: number, to_status: ReportIssueStatus, comment?: string) {
+  return postTo<ReportIssue>(`/api/v1/report-issues/${id}/transition`, { to_status, comment })
+}
+
+export function publishReportIssue(id: number, body?: { slug?: string; visibility?: string; comment?: string }) {
+  return postTo<ReportIssue>(`/api/v1/report-issues/${id}/publish`, body || {})
+}
+
+export function suggestReportNotes(id: number) {
+  return postTo<{
+    highlights: string[]
+    requires_human_review: boolean
+    llm_used: boolean
+    disclaimer: string
+  }>(`/api/v1/report-issues/${id}/suggest-notes`, { kind: "highlights" })
+}
+
+export function fetchReportTemplates() {
+  return fetchFrom<Array<{ id: string; version: string; title: string; outline: string[] }>>(
+    "/api/v1/report-issues/templates",
+  )
+}
+
+export function fetchReportTaxonomies() {
+  return fetchFrom<{
+    ams: { country: string; display_name: string; iso3: string }[]
+    statuses: string[]
+    missing_policy: string
+  }>("/api/v1/report-issues/taxonomies")
+}
+
+export function formatEpiBadge(year: number, week: number) {
+  return `EW ${String(week).padStart(2, "0")} / ${year}`
+}
+
+export function snapshotOf(issue: ReportIssue | null | undefined) {
+  if (!issue) return null
+  if (issue.status === "published" || issue.status === "superseded") {
+    return issue.published_snapshot || issue.kpi_snapshot || null
+  }
+  return issue.kpi_snapshot || issue.published_snapshot || null
+}

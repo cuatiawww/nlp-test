@@ -1,4 +1,4 @@
-﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, Settings } from 'lucide-react'
+﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, FileSpreadsheet, Settings } from 'lucide-react'
 
 import { Stethoscope, Globe2 } from 'lucide-react'
 
@@ -32,7 +32,8 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'URL Analysis', labelKey: 'sidebar.items.analyze', icon: Search, href: '/analyze' },
       { label: 'Manual Crawler', labelKey: 'sidebar.items.manualCrawler', icon: FileText, href: '/manual-crawler' },
       { label: 'Processing', labelKey: 'sidebar.items.processing', icon: Activity, href: '/processing' },
-      { label: 'Reports & Matrix', labelKey: 'sidebar.items.reports', icon: FileText, href: '/reports' },
+      { label: 'Reports', labelKey: 'sidebar.items.reports', icon: FileText, href: '/reports' },
+      { label: 'Event matrix', labelKey: 'sidebar.items.eventMatrix', icon: FileSpreadsheet, href: '/reports/matrix' },
     ],
   },
   {
@@ -66,7 +67,7 @@ export const consoleMenu: SidebarGroup[] = [
     title: 'SYSTEM MANAGEMENT',
     items: [
       { label: 'Configuration & Branding', icon: Settings, href: '/console/settings' },
-      { label: 'Publication CMS & Reports', icon: FileText, href: '/console/reports-cms' },
+      { label: 'Publication CMS & Reports', icon: FileText, href: '/reports/cms' },
       { label: 'User Management', icon: Users, href: '/console/users' },
       { label: 'Activity Audit Logs', icon: FileText, href: '/console/settings?tab=audit' },
     ],
@@ -76,7 +77,8 @@ export const consoleMenu: SidebarGroup[] = [
     items: [
       { label: 'Surveillance Dashboard', icon: Home, href: '/' },
       { label: 'TV Command Center', icon: Activity, href: '/tv' },
-      { label: 'Reports & Matrix', icon: FileText, href: '/reports' },
+      { label: 'Reports', icon: FileText, href: '/reports' },
+      { label: 'Event matrix', icon: FileSpreadsheet, href: '/reports/matrix' },
     ],
   },
 ]

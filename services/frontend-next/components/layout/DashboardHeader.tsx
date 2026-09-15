@@ -123,7 +123,7 @@ export default function DashboardHeader({
                   Users
                 </Link>
                 <Link
-                  href="/console/reports-cms"
+                  href="/reports/cms"
                   className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
                     pathname?.startsWith("/console/reports-cms")
                       ? "bg-[#0060A9] text-white hover:bg-[#004b85]"

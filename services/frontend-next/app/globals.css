@@ -123,4 +123,11 @@
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
+
+  .sitrep-document svg {
+    max-width: 100%;
+  }
+  .sitrep-document a[href]::after {
+    content: none !important;
+  }
 }

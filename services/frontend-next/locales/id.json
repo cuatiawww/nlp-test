@@ -90,7 +90,8 @@
       "hardcode1": "Hardcode Audit 1",
       "hardcode2": "Hardcode Audit 2",
       "systemSettings": "Pengaturan Sistem",
-      "reports": "Reports & Matrix"
+      "reports": "Laporan",
+      "eventMatrix": "Matriks kejadian"
     }
   },
   "countries": {

@@ -41,6 +41,10 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: '/reports/:slug.pdf',
+        destination: '/reports/:slug/print',
+      },
+      {
         source: '/api/v1/assets/:path*',
         destination: 'http://disease-collector-python:8002/assets/:path*',
       },
