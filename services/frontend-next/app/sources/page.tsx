@@ -60,11 +60,23 @@ export default function SourcesPage() {
   }
 
   const statusBadge = (s: Source) => {
+    // ACTIVE (enabled) is not the same as an in-flight crawl. Running is only
+    // shown when the latest collector_run is actually RUNNING and unfinished.
     const last = s.last_run
-    if (!last) return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.never')}</span>
-    if (last.status === 'SUCCESS') return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.success')}</span>
-    if (last.status === 'FAILED') return <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">{t('common.failed')}</span>
-    return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-600">{t('common.running')}</span>
+    const status = String(last?.status || '').toUpperCase()
+    const inFlight = typeof s.in_flight === 'boolean'
+      ? s.in_flight
+      : status === 'RUNNING' && !last?.finished_at
+    if (inFlight) {
+      return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-600">{t('common.running')}</span>
+    }
+    if (status === 'SUCCESS') {
+      return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.success')}</span>
+    }
+    if (status === 'FAILED') {
+      return <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">{t('common.failed')}</span>
+    }
+    return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{t('common.never')}</span>
   }
 
   const credibilityBadge = (score?: number) => {
@@ -104,7 +116,15 @@ export default function SourcesPage() {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-4">
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Continuous crawl</p>
+          <p className="mt-1 text-sm text-slate-700">
+            Enabled sources: {(summary?.enabled_sources ?? 0).toLocaleString()} · scheduled: {(summary?.scheduled_sources ?? 0).toLocaleString()} · in flight: {(summary?.active_run_count ?? 0).toLocaleString()}
+            {summary?.last_run_at ? ` · last run ${summary.last_run_at}` : ''}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">Due-source dispatcher every 2 minutes (small batches) plus explicit cron/interval jobs. Failures back off; rate limits are preserved. Empty schedules default to interval:60 via the dispatcher. Status is the last crawl, not the Edit ACTIVE checkbox.</p>
+        </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
@@ -212,7 +232,10 @@ export default function SourcesPage() {
                       <>
                   <td className="px-4 py-3">
                     <span className="font-semibold text-[#0060A9]">{s.name}</span>
-                    <div className="mt-0.5 text-xs text-slate-400">{s.schedule || 'manual'}</div>
+                    <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ${s.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {s.enabled ? 'Active' : 'Off'}
+                    </span>
+                    <div className="mt-0.5 text-xs text-slate-400">{s.effective_schedule || s.schedule || 'interval:60'}</div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 whitespace-nowrap" title={`Detected from ${s.config?.country ? 'source configuration' : 'source URL or name'}`}>
@@ -229,7 +252,7 @@ export default function SourcesPage() {
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-center">{credibilityBadge(s.source_credibility)}</td>
-                  <td className="px-4 py-3 text-slate-700">{s.schedule || '—'}</td>
+                  <td className="px-4 py-3 text-slate-700">{s.schedule || s.effective_schedule || 'interval:60'}</td>
                   <td className="px-4 py-3">{statusBadge(s)}</td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => handleTrigger(s.id, s.name)}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import {
@@ -42,7 +42,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchPublicDashboard, fetchCrawlingStats } from "@/lib/api";
+import { fetchPublicDashboard, fetchKpiSnapshot, fetchCrawlingStats } from "@/lib/api";
+import { scopeDashboardLocations } from "@/lib/asean-scope";
+import AseanScopeBanner from "@/components/AseanScopeBanner";
 import CrawlingEnginePerformance from "@/components/CrawlingEnginePerformance";
 import CaseLocationHeatmap from "@/components/CaseLocationHeatmap";
 import DiseaseTrendOverview from "@/components/DiseaseTrendOverview";
@@ -802,7 +804,7 @@ export default function DashboardPage() {
   const currentEpi = getCurrentEpiWeek();
   const [filters, setFilters] = useState<EpiFilterState>({
     disease: "all",
-    country: "all",
+    country: "ASEAN",
     startYear: currentEpi.year || currentYear,
     startWeek: 1,
     endYear: currentEpi.year || currentYear,
@@ -844,8 +846,7 @@ export default function DashboardPage() {
     const active = customFilters || filters;
     try {
       setError("");
-      const [dashData, crawlData] = await Promise.all([
-        fetchPublicDashboard({
+      const dashboardFilters = {
           country: active.country,
           disease: active.disease,
           start_year: active.startYear,
@@ -853,9 +854,15 @@ export default function DashboardPage() {
           end_year: active.endYear,
           end_week: active.endWeek,
           year: active.endYear,
-        }),
+      }
+      const [dashData, kpiData, crawlData] = await Promise.all([
+        fetchPublicDashboard(dashboardFilters),
+        fetchKpiSnapshot(dashboardFilters).catch(() => null),
         fetchCrawlingStats().catch(() => null),
       ]);
+      if (kpiData?.kpis) {
+        dashData.kpis = { ...dashData.kpis, ...kpiData.kpis }
+      }
       setData(dashData);
       if (crawlData) setCrawlingStats(crawlData);
     } catch {
@@ -884,6 +891,11 @@ export default function DashboardPage() {
       setFilters(prev => ({ ...prev, endYear: available[0], startYear: available[0] }));
     }
   }, [data?.available_years, filters.endYear]);
+
+  const mapLocations = useMemo(
+    () => scopeDashboardLocations(data?.locations, filters.country),
+    [data?.locations, filters.country],
+  );
 
   const countryData = data?.by_country ?? [];
 
@@ -930,6 +942,8 @@ export default function DashboardPage() {
         isLoading={loading}
       />
 
+      <AseanScopeBanner country={filters.country} />
+
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">
           {error}
@@ -952,9 +966,9 @@ export default function DashboardPage() {
                 <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
                   Total Crawled (All-Time)
                 </p>
-                <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide ${crawlingStats?.collector_status === "RUNNING" ? "text-emerald-600" : "text-slate-400"}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${crawlingStats?.collector_status === "RUNNING" ? "animate-pulse bg-emerald-500" : "bg-slate-300"}`} />
-                  {crawlingStats?.collector_status === "RUNNING" ? "Running" : "Idle"}
+                <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide ${Number(crawlingStats?.active_run_count || 0) > 0 ? "text-emerald-600" : "text-slate-400"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${Number(crawlingStats?.active_run_count || 0) > 0 ? "animate-pulse bg-emerald-500" : "bg-slate-300"}`} />
+                  {Number(crawlingStats?.active_run_count || 0) > 0 ? "Running" : "Idle"}
                 </span>
               </div>
               <p className="mt-1 truncate text-[30px] font-bold leading-none text-emerald-600">
@@ -1016,7 +1030,7 @@ export default function DashboardPage() {
               calculation: t("dashboard.kpiInfo.deathsCalculation")
             },
             matrixTitle: t("dashboard.kpiInfo.deathsMatrix"),
-            matrix: (data?.locations ?? [])
+            matrix: mapLocations
               .reduce<{ label: string; value: number }[]>((acc, loc) => {
                 const existing = acc.find((x) => x.label === loc.country);
                 if (existing) { existing.value += loc.deaths; } else { acc.push({ label: loc.country, value: loc.deaths }); }
@@ -1041,7 +1055,7 @@ export default function DashboardPage() {
               calculation: t("dashboard.kpiInfo.locationsCalculation")
             },
             matrixTitle: t("dashboard.kpiInfo.locationsMatrix"),
-            matrix: (data?.locations ?? [])
+            matrix: mapLocations
               .reduce<{ label: string; value: number }[]>((acc, loc) => {
                 const existing = acc.find((x) => x.label === loc.country);
                 if (existing) { existing.value += 1; } else { acc.push({ label: loc.country, value: 1 }); }
@@ -1156,7 +1170,7 @@ export default function DashboardPage() {
             <div className="mt-4 min-h-[460px] w-full flex-1 overflow-hidden rounded-xl">
               <SpatialOutbreakMap
                 countries={countryData}
-                locations={data?.locations ?? []}
+                locations={mapLocations}
               />
             </div>
           </article>
@@ -1257,7 +1271,7 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {data?.locations.slice(0, 20).map((r, i) => (
+              {mapLocations.slice(0, 20).map((r, i) => (
                 <tr
                   key={i}
                   onClick={() => setSelected(r)}

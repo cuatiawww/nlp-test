@@ -219,6 +219,8 @@ NON_GEOGRAPHIC_TERMS = frozenset({
     "jumlah", "angka", "periode", "minggu", "weekly",
     "asia", "africa", "europe", "oceania", "antarctica",
     "southeast asia", "south east asia", "asean",
+    "were", "was", "been", "have", "has", "had", "did", "does",
+    "would", "could", "should", "might", "will", "shall",
 })
 
 def _is_subnational_location(name: str, country: str) -> bool:

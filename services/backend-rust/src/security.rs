@@ -25,13 +25,14 @@ pub const SANE_DEATHS_SQL: &str =
     "GREATEST(LEAST(COALESCE(death_count, 0), 200000), 0)";
 
 /// Shared validity predicate for disease-facing aggregates (alias `e`).
-pub const DASHBOARD_EVENT_PREDICATE: &str = r#"(e.is_health_related = TRUE OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+pub const DASHBOARD_EVENT_PREDICATE: &str = r#"(e.is_health_related = TRUE)
                  AND e.disease_classification IS NOT NULL
                  AND UPPER(e.disease_classification) <> 'UNKNOWN'
                  AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
-                 AND (COALESCE(e.confidence, 0) >= 0.15 OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))
+                 AND COALESCE(e.confidence, 0) >= 0.15
                  AND e.published_at IS NOT NULL
-                 AND LOWER(COALESCE(e.source_type, '')) <> 'test'"#;
+                 AND LOWER(COALESCE(e.source_type, '')) <> 'test'
+                 AND LOWER(COALESCE(e.source_type, '')) NOT IN ('skdr', 'skdr_api')"#;
 
 pub fn dashboard_event_predicate(alias: &str) -> String {
     DASHBOARD_EVENT_PREDICATE.replace("e.", &format!("{alias}."))
@@ -113,12 +114,11 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/spatial-heatmap",
         "/api/v1/disease-trend-overview",
         "/api/v1/morbidity-mortality",
+        "/api/v1/kpi-snapshot",
+        "/api/v1/kpi-events",
         "/api/v1/crawling-stats",
         "/api/v1/events",
         "/api/v1/events/stats",
-        "/api/v1/skdr/ibs-summary",
-        "/api/v1/skdr/ebs-summary",
-        "/api/v1/skdr-reports",
         "/api/v1/console/settings",
         "/api/v1/pipeline-health",
         "/api/v1/nlp-labels",
@@ -328,6 +328,7 @@ mod tests {
     fn public_get_users_is_not_public() {
         assert!(!is_public_route(&Method::GET, "/api/v1/users"));
         assert!(is_admin_route(&Method::GET, "/api/v1/users"));
+        assert!(is_public_route(&Method::GET, "/api/v1/kpi-events"));
         assert!(is_public_route(&Method::GET, "/api/v1/public-dashboard"));
         assert!(is_public_route(&Method::GET, "/api/v1/pipeline-health"));
         assert!(is_service_route("/api/v1/ingest"));

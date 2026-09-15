@@ -163,6 +163,37 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         self.assertEqual(extractors.extract_case_count("There were 2000000000 cases recorded."), 0)
         self.assertEqual(extractors.extract_case_count("Ditemukan 2.1 juta kasus terkonfirmasi."), 0)
 
+    def test_who_spaced_thousands_are_case_totals(self):
+        text = "Cumulatively, a total of 3 029 dengue cases have been reported in 2026."
+        self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 3029)
+
+    def test_percent_change_does_not_hide_following_case_total(self):
+        text = (
+            "The number of dengue fever cases in the country rose 66 per cent "
+            "to 65,979 as of epidemiological week 35 this year, compared with "
+            "39,616 cases recorded during the same period last year."
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 65979)
+
+    def test_focal_h5n1_case_is_one_not_prior_year_total(self):
+        text = (
+            "Cambodia confirms human H5N1 avian flu case as H5N1 hits more Utah egg farms\n"
+            "Earlier this week Cambodian officials announced the country's fifth human "
+            "H5N1 avian flu case this year, this one involving a 9-month-old girl. "
+            "Cambodia reported 19 human cases of H5N1 in 2025, eight of which were fatal."
+        )
+        facts = extractors.predict_surveillance_facts(text)
+        self.assertEqual(facts["country"], "Cambodia")
+        self.assertEqual(facts["case_count"], 1)
+        self.assertEqual(facts["death_count"], 0)
+        self.assertNotEqual((facts.get("location") or "").casefold(), "were")
+
+    def test_philippine_adjective_maps_to_philippines(self):
+        self.assertEqual(
+            extractors.extract_country_hint("Philstar / Philippine DOH notes measles"),
+            "Philippines",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

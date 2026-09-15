@@ -135,6 +135,12 @@ LOCATION_STOPWORDS = {
     # Continents/regions are not article event places. "Asia News Network"
     # must not beat a country such as Malaysia.
     "asia", "africa", "europe", "oceania", "antarctica",
+    # English auxiliaries/function words that collide with short gazetteer rows
+    # (live bug: province="Were" from "Were monitoring…").
+    "were", "was", "been", "be", "being", "am", "is", "are",
+    "have", "has", "had", "having", "do", "did", "does", "done",
+    "would", "could", "should", "might", "must", "shall", "will",
+    "may", "can", "need", "dare", "ought",
 }
 LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}

@@ -1,12 +1,14 @@
 ﻿'use client'
 
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Activity, AlertTriangle, ArrowLeft, Bug, ChevronDown, ChevronUp, Globe2, Layers, MapPin, Maximize, Minimize, Radio, RefreshCw, Settings, Skull, Volume2, VolumeX, X } from 'lucide-react'
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { fetchCrawlingStats, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
+import { fetchCrawlingStats, fetchKpiSnapshot, fetchPublicDashboard, type CrawlingStats } from '@/lib/api'
+import { isAseanCountryName, scopeDashboardLocations } from '@/lib/asean-scope'
+import AseanScopeBanner from '@/components/AseanScopeBanner'
 import type { OutbreakLocation, PublicDashboard } from '@/types'
 import type { CrawlingFeedItem } from '@/lib/crawling-feed'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
@@ -65,10 +67,14 @@ export default function TvPage() {
   }, [kpiHidden, headerExpanded])
   const load=useCallback(async()=>{
     try {
-      const [dashboardData, crawlData] = await Promise.all([
+      const [dashboardData, kpiData, crawlData] = await Promise.all([
         fetchPublicDashboard(),
+        fetchKpiSnapshot().catch(() => null),
         fetchCrawlingStats().catch(() => null),
       ])
+      if (kpiData?.kpis) {
+        dashboardData.kpis = { ...dashboardData.kpis, ...kpiData.kpis }
+      }
       setData(dashboardData)
       if (crawlData) setCrawlingStats(crawlData)
       setCountdown(60)
@@ -105,7 +111,15 @@ export default function TvPage() {
   },[])
 
   const toggleFs=()=>fullscreen?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()
-  const alerts=data?.alerts??[]
+  const mapLocations = useMemo(() => scopeDashboardLocations(data?.locations, 'ASEAN'), [data?.locations])
+  const mapCountries = useMemo(
+    () => (data?.by_country ?? []).filter((row) => isAseanCountryName(row.name)),
+    [data?.by_country],
+  )
+  const mapAlerts = useMemo(
+    () => scopeDashboardLocations(data?.alerts && data.alerts.length > 0 ? data.alerts : mapLocations.filter((l) => (l.cases ?? 0) > 0 || l.has_alert), 'ASEAN'),
+    [data?.alerts, mapLocations],
+  )
   const playSound=()=>{setSound(v=>!v);if(!sound){const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);g.gain.value=.04;o.start();o.stop(c.currentTime+.25)}}
 
   const cards=[
@@ -124,9 +138,9 @@ export default function TvPage() {
           showAdmin={mapMode === 'map' && admin}
           showMarkers={mapMode === 'map' && markers}
           markerLookbackDays={markerLookbackDays}
-          countryData={mapMode === 'map' && choropleth ? data?.by_country : undefined}
-          outbreakLocations={data?.locations}
-          locationsData={data?.locations?.map((l) => ({
+          countryData={mapMode === 'map' && choropleth ? mapCountries : undefined}
+          outbreakLocations={mapLocations}
+          locationsData={mapLocations.map((l) => ({
             name: l.location_name || l.disease || "Kasus Terpantau",
             cases: l.cases || 1,
             country: l.country,
@@ -222,6 +236,11 @@ export default function TvPage() {
               <ChevronUp className="h-3 w-3 text-[#0060A9]" />
             )}
           </button>
+          {!kpiHidden ? (
+            <div className="pointer-events-auto mb-1 w-full max-w-[1680px]">
+              <AseanScopeBanner country="ASEAN" />
+            </div>
+          ) : null}
 
           {/* Smooth Collapsible KPI Cards Container */}
           <div
@@ -241,17 +260,17 @@ export default function TvPage() {
                 </div>
                 <span
                   className={`inline-flex items-center gap-1 text-[8px] font-black uppercase ${
-                    crawlingStats?.collector_status === 'RUNNING' ? 'text-emerald-600' : 'text-slate-400'
+                    crawlingStats?.active_run_count ? 'text-emerald-600' : 'text-slate-400'
                   }`}
                 >
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${
-                      crawlingStats?.collector_status === 'RUNNING'
+                      Number(crawlingStats?.active_run_count || 0) > 0
                         ? 'animate-pulse bg-emerald-500'
                         : 'bg-slate-300'
                     }`}
                   />
-                  {crawlingStats?.collector_status === 'RUNNING' ? 'Running' : 'Idle'}
+                  {Number(crawlingStats?.active_run_count || 0) > 0 ? 'Running' : 'Idle'}
                 </span>
               </div>
               <div className="mt-1 flex items-baseline justify-between">
@@ -263,7 +282,9 @@ export default function TvPage() {
                 <span className="text-[9px] font-bold text-slate-500">All-time total</span>
               </div>
               <p className="mt-1 text-[8px] font-semibold text-slate-400">
-                Cumulative collector total, updated while crawling is live
+                Cumulative collector total
+                {crawlingStats?.last_run_at ? ` · last run ${crawlingStats.last_run_at}` : ''}
+                {crawlingStats?.enabled_sources ? ` · ${crawlingStats.enabled_sources} sources scheduled` : ''}
               </p>
               <div className="mt-1.5 grid grid-cols-3 gap-1.5 border-t border-slate-100 pt-1.5">
                 <div className="rounded-md bg-slate-50 px-1.5 py-1">
@@ -344,12 +365,8 @@ export default function TvPage() {
           collapsed={rightHidden}
           onToggle={() => setRightHidden((v) => !v)}
           byDisease={data?.by_disease}
-          byCountry={data?.by_country}
-          alerts={
-            data?.alerts && data.alerts.length > 0
-              ? data.alerts
-              : data?.locations?.filter((l) => (l.cases ?? 0) > 0 || l.has_alert)
-          }
+          byCountry={mapCountries}
+          alerts={mapAlerts}
           translateDisease={translateDisease}
           numLocale={numLocale}
           onSelectAlert={setSelectedEvent}
@@ -429,7 +446,7 @@ export default function TvPage() {
         </div>
         <div className="overflow-hidden">
           <div className="flex whitespace-nowrap animate-marquee">
-            {[...alerts,...alerts].map((a,i)=>(
+            {[...mapAlerts,...mapAlerts].map((a,i)=>(
               <div key={i} className="mx-6 flex items-center gap-2 text-xs font-bold text-slate-700">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500"/>
                 {translateSeverity(a.severity)}: {translateDisease(a.disease)} {t('tv.inLocation')} {a.location_name} • {a.cases.toLocaleString(numLocale)} {t('dashboard.casesUnit')} <b className="ml-4 text-slate-300">•</b>

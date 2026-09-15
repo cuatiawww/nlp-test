@@ -131,20 +131,13 @@ def analyze_surveillance(payload: AnalyzeRequest):
         )
 
 
-@app.post("/nlp/process/skdr", response_model=AnalyzeResponse)
-def process_skdr_endpoint(payload: AnalyzeRequest):
-    """Dedicated, high-efficiency endpoint for SKDR surveillance reports."""
-    from .skdr_processor import process_skdr
-    try:
-        return process_skdr(payload)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to process SKDR payload: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"SKDR processing failed: {type(exc).__name__}: {str(exc)}",
-        )
+@app.post("/nlp/process/skdr", response_model=None)
+def process_skdr_endpoint(_payload: AnalyzeRequest):
+    """SKDR IBS/EBS processing is detached until a later reattach."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="SKDR IBS and EBS integrations are detached and will be reattached later",
+    )
 
 
 @app.post("/nlp/analyze/url")

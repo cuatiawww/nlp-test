@@ -24,6 +24,10 @@ class ClassificationRulesTest(unittest.TestCase):
         self.assertEqual(extract_country_hint("wabah Ebola di Kongo"), "Democratic Republic of the Congo")
         self.assertEqual(country_scope("Democratic Republic of the Congo"), "OUTSIDE ASEAN")
         self.assertEqual(country_scope("Indonesia"), "Indonesia")
+        self.assertEqual(country_scope("Viet Nam"), "Vietnam")
+        self.assertEqual(country_scope("Lao PDR"), "Laos")
+        self.assertEqual(country_scope("United States"), "OUTSIDE ASEAN")
+        self.assertEqual(country_scope("Utah"), "OUTSIDE ASEAN")
 
     def test_organisation_name_does_not_become_publisher_country(self):
         self.assertEqual(extract_country_hint("CDC in Laos works with the Lao Ministry of Health"), "Laos")

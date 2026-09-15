@@ -67,6 +67,21 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn("Dengue surge", text)
         self.assertIn("Officials reported cases.", text)
 
+    def test_pipeline_analysis_to_matrix_keeps_primary_country(self):
+        from app.crawl_matrix_jobs import pipeline_analysis_to_matrix
+        adapted = pipeline_analysis_to_matrix({
+            "disease_classification": "Dengue",
+            "country": "Malaysia",
+            "location_name": "Selangor",
+            "case_count": 19313,
+            "death_count": 21,
+            "case_count_unknown": False,
+            "locations": [{"name": "Singapore", "country": "Singapore"}],
+            "sub_events": [],
+        })
+        self.assertEqual(adapted["locations"][0]["country"], "Malaysia")
+        self.assertEqual(adapted["locations"][0]["reported_cases"], 19313)
+
     def test_analyze_article_passes_title_and_source_country(self):
         from unittest.mock import Mock, patch
         response = Mock()
@@ -81,6 +96,7 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
                 "url": "https://www.thestar.com.my/news/nation/dengue",
             })
         payload = post.call_args.kwargs["json"]
+        self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
         self.assertIn("Sharp dengue surge", payload["text"])
         self.assertEqual(payload["source_country"], "Malaysia")
 

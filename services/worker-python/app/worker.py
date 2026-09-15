@@ -216,8 +216,7 @@ def mark_message_processing(msg: dict) -> None:
     """
     raw_id = msg.get("raw_report_id")
     url = msg.get("url")
-    skdr_report_id = msg.get("skdr_report_id")
-    if not raw_id and not url and not skdr_report_id:
+    if not raw_id and not url:
         return
 
     with get_db() as conn:
@@ -281,33 +280,6 @@ def mark_message_processing(msg: dict) -> None:
                         msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
                     ),
                 )
-        else:
-            skdr_row = conn.execute(
-                "SELECT raw_report_id FROM skdr_reports WHERE id=%s FOR UPDATE",
-                (skdr_report_id,),
-            ).fetchone()
-            if skdr_row and skdr_row["raw_report_id"]:
-                conn.execute(
-                    "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
-                    (skdr_row["raw_report_id"],),
-                )
-            elif skdr_row:
-                raw_row = conn.execute(
-                    """INSERT INTO raw_reports
-                       (source_type, source_name, published_at, original_text, url, object_path, processing_status)
-                       VALUES (%s, %s, %s, %s, NULL, NULL, 'PROCESSING')
-                       RETURNING id""",
-                    (
-                        msg.get("source_type"),
-                        msg.get("source_name"),
-                        parse_date(msg.get("published_at")),
-                        msg.get("text", ""),
-                    ),
-                ).fetchone()
-                conn.execute(
-                    "UPDATE skdr_reports SET raw_report_id=%s, updated_at=NOW() WHERE id=%s",
-                    (raw_row["id"], skdr_report_id),
-                )
         conn.commit()
 
 
@@ -315,8 +287,7 @@ def mark_message_failed(msg: dict) -> None:
     """Remove a permanently failed message from the in-flight NLP count."""
     raw_id = msg.get("raw_report_id")
     url = msg.get("url")
-    skdr_report_id = msg.get("skdr_report_id")
-    if not raw_id and not url and not skdr_report_id:
+    if not raw_id and not url:
         return
 
     try:
@@ -331,12 +302,6 @@ def mark_message_failed(msg: dict) -> None:
                     """UPDATE raw_reports SET processing_status='FAILED'
                        WHERE id=(SELECT id FROM raw_reports WHERE url=%s ORDER BY created_at DESC LIMIT 1)""",
                     (url,),
-                )
-            else:
-                conn.execute(
-                    """UPDATE raw_reports SET processing_status='FAILED'
-                       WHERE id=(SELECT raw_report_id FROM skdr_reports WHERE id=%s)""",
-                    (skdr_report_id,),
                 )
             conn.commit()
     except Exception:
@@ -390,11 +355,7 @@ def fast_non_health_result(msg: dict) -> dict | None:
 
 def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
              source_language: str = "", source_country: str = "") -> dict:
-    if source_type == "skdr_api":
-        endpoint = "/nlp/process/skdr"
-    else:
-        endpoint = "/nlp/analyze/raw"
-    url = f"{NLP_SERVICE_URL}{endpoint}"
+    url = f"{NLP_SERVICE_URL}/nlp/analyze/raw"
     payload = {
         "text": text,
         "source_type": source_type,
@@ -506,48 +467,7 @@ def callback(ch, method, properties, body):
         with get_db() as conn:
             # Handle both pre-inserted raw_report_id (Rust backend) and collector messages
             raw_id = msg.get("raw_report_id")
-            if source_type == "skdr_api" and msg.get("skdr_report_id"):
-                # SKDR records have no URL and can be replayed after retries.
-                # Resolve the single raw_report row through skdr_reports and
-                # replace its event instead of inserting a duplicate.
-                skdr_row = conn.execute(
-                    """SELECT raw_report_id FROM skdr_reports
-                       WHERE id=%s FOR UPDATE""",
-                    (msg.get("skdr_report_id"),),
-                ).fetchone()
-                if not skdr_row:
-                    raise RuntimeError("SKDR report reference not found")
-                raw_id = skdr_row["raw_report_id"]
-                if raw_id:
-                    conn.execute("DELETE FROM disease_events WHERE raw_report_id=%s", (raw_id,))
-                    conn.execute(
-                        """UPDATE raw_reports
-                           SET source_type=%s, source_name=%s,
-                               published_at=%s, original_text=%s,
-                               processing_status='PROCESSED'
-                           WHERE id=%s""",
-                        (
-                            msg.get("source_type"), msg.get("source_name"),
-                            parse_date(msg.get("published_at")), msg.get("text"), raw_id,
-                        ),
-                    )
-                else:
-                    cur = conn.execute(
-                        """INSERT INTO raw_reports
-                           (source_type, source_name, published_at, original_text, url, object_path, processing_status)
-                           VALUES (%s, %s, %s, %s, NULL, NULL, 'PROCESSED')
-                           RETURNING id""",
-                        (
-                            msg.get("source_type"), msg.get("source_name"),
-                            parse_date(msg.get("published_at")), msg.get("text"),
-                        ),
-                    )
-                    raw_id = cur.fetchone()["id"]
-                    conn.execute(
-                        "UPDATE skdr_reports SET raw_report_id=%s, updated_at=NOW() WHERE id=%s",
-                        (raw_id, msg.get("skdr_report_id")),
-                    )
-            elif raw_id:
+            if raw_id:
                 # Rust backend already inserted raw_reports — update status
                 conn.execute(
                     """UPDATE raw_reports SET processing_status='PROCESSED',

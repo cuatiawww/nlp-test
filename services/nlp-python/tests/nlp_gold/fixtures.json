@@ -1,0 +1,269 @@
+[
+  {
+    "id": "g01-cidrap-cambodia-h5n1",
+    "url": "https://www.cidrap.umn.edu/avian-influenza-bird-flu/cambodia-confirms-human-h5n1-avian-flu-case-h5n1-hits-more-utah-egg-farms",
+    "status": "ready",
+    "title": "Cambodia confirms human H5N1 avian flu case; H5N1 hits more Utah egg farms",
+    "text": "The Cambodian Ministry of Health yesterday reported another human H5N1 avian influenza infection, involving a 15-year-old boy from Kampong Thom province who had been exposed to dead poultry. Officials said the patient is in intensive care. Separately, the US Department of Agriculture reported that H5N1 avian flu struck more egg-laying farms in Utah. Were monitoring the farm outbreaks in the United States.",
+    "expect": {
+      "disease": ["Avian influenza", "H5N1", "flu burung"],
+      "country": "Cambodia",
+      "cases": null,
+      "reject_locations": ["Were"],
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g02-singapore-measles-43",
+    "url": "https://www.straitstimes.com/singapore/health/spore-sees-highest-number-of-measles-cases",
+    "status": "ready",
+    "title": "S'pore sees highest number of measles cases in 6 years, vaccinated individuals among 2026 cases",
+    "text": "Singapore has recorded 43 cases of measles in 2026 so far, its highest number of cases since 2020. This is according to the Communicable Diseases Agency (CDA) Weekly Infectious Diseases Bulletin published on 30 July. In contrast, 27 cases were recorded in 2025.",
+    "expect": {
+      "disease": ["Measles", "campak"],
+      "country": "Singapore",
+      "cases": 43,
+      "reject_locations": ["Were"],
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g03-malaysia-dengue-putrajaya",
+    "url": "https://www.nst.com.my/news/nation/2026/09/malaysia-dengue-cases-surge",
+    "status": "ready",
+    "title": "Malaysia's dengue cases surge 66%, deaths nearly double – Asia News Network",
+    "text": "September 10, 2026 PUTRAJAYA – Dengue cases have surged 66% so far this year, with 65,979 infections recorded as of Epidemiological Week 35 compared with 39,616 during the same period last year. The Ministry of Health said the outbreak remains under control.",
+    "expect": {
+      "disease": ["Dengue", "DBD"],
+      "country": "Malaysia",
+      "cases": 65979,
+      "reject_locations": ["Asia"],
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g04-selangor-dengue-19313",
+    "url": "https://www.thestar.com.my/news/nation/selangor-dengue",
+    "status": "ready",
+    "title": "Selangor still accounts for the most dengue cases",
+    "text": "KUALA LUMPUR — Selangor still accounts for the most dengue cases, with 19,313 infections from January to July 9. The state also logged 21 dengue-related deaths, up from five fatalities during 2025. In contrast to regional trends observed in Singapore, Malaysia remains the focus of this report.",
+    "expect": {
+      "disease": ["Dengue"],
+      "country": "Malaysia",
+      "cases": 19313,
+      "reject_locations": ["Asia"],
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g05-jakarta-dengue",
+    "url": "https://www.antaranews.com/berita/dbd-jakarta",
+    "status": "ready",
+    "title": "Kasus demam berdarah di Jakarta meningkat",
+    "text": "JAKARTA — Dinas Kesehatan DKI Jakarta mencatat 1,204 kasus demam berdarah dengue (DBD) selama Januari hingga Maret. Petugas meminta warga memberantas jentik nyamuk di rumah.",
+    "expect": {
+      "disease": ["Dengue", "DBD", "demam berdarah"],
+      "country": "Indonesia",
+      "cases": 1204,
+      "reject_locations": ["Were"],
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g06-philippines-measles",
+    "url": "https://www.rappler.com/philippines-measles-outbreak",
+    "status": "ready",
+    "title": "Philippines reports measles outbreak in Manila",
+    "text": "MANILA — The Department of Health reported 87 cases of measles in Metro Manila this month. Health workers are conducting house-to-house vaccination. Officials said the Philippines is intensifying surveillance.",
+    "expect": {
+      "disease": ["Measles"],
+      "country": "Philippines",
+      "cases": 87,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g07-thailand-dengue-bangkok",
+    "url": "https://www.bangkokpost.com/thailand/dengue",
+    "status": "ready",
+    "title": "Bangkok dengue cases climb as rains continue",
+    "text": "BANGKOK — Thailand's Ministry of Public Health said Bangkok recorded 2,450 dengue cases in the past four weeks. Hospitals have opened extra wards. Neighbouring Laos was mentioned only as a regional comparison.",
+    "expect": {
+      "disease": ["Dengue"],
+      "country": "Thailand",
+      "cases": 2450,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g08-vietnam-hfmd",
+    "url": "https://vnexpress.net/suc-khoe/tay-chan-mieng",
+    "status": "ready",
+    "title": "Hanoi reports hand, foot and mouth disease cluster",
+    "text": "HANOI — Vietnam's Ministry of Health confirmed 156 cases of hand, foot and mouth disease (HFMD) among children in Hanoi this week. Schools were advised to increase screening.",
+    "expect": {
+      "disease": ["HFMD", "hand foot and mouth"],
+      "country": "Vietnam",
+      "cases": 156,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g09-myanmar-malaria",
+    "url": "https://www.mohs.gov.mm/malaria-update",
+    "status": "ready",
+    "title": "Myanmar reports malaria cases in Yangon region",
+    "text": "YANGON — Health authorities in Myanmar reported 64 malaria cases in Yangon Region after increased testing. The ministry said treatment supplies are adequate.",
+    "expect": {
+      "disease": ["Malaria"],
+      "country": "Myanmar",
+      "cases": 64,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g10-laos-dengue",
+    "url": "https://www.who.int/laos/dengue",
+    "status": "ready",
+    "title": "Dengue outbreak in Vientiane, Laos",
+    "text": "VIENTIANE — Laos has recorded 310 dengue cases in Vientiane Capital so far this rainy season. The Ministry of Health urged residents to eliminate mosquito breeding sites.",
+    "expect": {
+      "disease": ["Dengue"],
+      "country": "Laos",
+      "cases": 310,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g11-brunei-covid",
+    "url": "https://www.moh.gov.bn/covid-update",
+    "status": "ready",
+    "title": "Brunei records new COVID-19 infections",
+    "text": "BANDAR SERI BEGAWAN — The Ministry of Health Brunei Darussalam reported 12 COVID-19 cases in the latest 24-hour update. All patients are isolating in Bandar Seri Begawan.",
+    "expect": {
+      "disease": ["COVID-19", "covid"],
+      "country": "Brunei",
+      "cases": 12,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g12-timor-leste-dengue",
+    "url": "https://www.who.int/timor-leste/dengue",
+    "status": "ready",
+    "title": "Dengue cases rise in Dili, Timor-Leste",
+    "text": "DILI — Timor-Leste health officials said Dili recorded 95 dengue cases this month. WHO is supporting vector control in the capital.",
+    "expect": {
+      "disease": ["Dengue"],
+      "country": "Timor-Leste",
+      "cases": 95,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g13-multi-country-asean-over-us",
+    "url": "https://www.who.int/news/asean-h5n1-and-us-farms",
+    "status": "ready",
+    "title": "Cambodia confirms human H5N1 while Utah reports farm outbreaks",
+    "text": "Cambodia confirmed a human H5N1 avian influenza case in Kampong Thom. The same week, egg farms in Utah in the United States reported H5N1 in poultry. ASEAN health ministers are monitoring the Cambodian human case.",
+    "expect": {
+      "disease": ["Avian influenza", "H5N1"],
+      "country": "Cambodia",
+      "cases": null,
+      "reject_locations": ["Were"],
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g14-year-is-not-cases",
+    "url": "https://www.channelnewsasia.com/singapore/measles-2026",
+    "status": "ready",
+    "title": "Measles in Singapore during 2026",
+    "text": "Among 2026 cases under review, Singapore confirmed measles in a small cluster. Officials later clarified there were 9 cases of measles this week, not a four-digit total.",
+    "expect": {
+      "disease": ["Measles"],
+      "country": "Singapore",
+      "cases": 9,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g15-reject-were-indonesia",
+    "url": "https://www.cidrap.umn.edu/avian-influenza-bird-flu/were-monitoring",
+    "status": "ready",
+    "title": "Were monitoring avian flu farms after Cambodia case",
+    "text": "Were monitoring additional poultry farms after Cambodia confirmed a human H5N1 avian influenza case. No Indonesia province named Were is involved.",
+    "expect": {
+      "disease": ["Avian influenza", "H5N1"],
+      "country": "Cambodia",
+      "cases": null,
+      "reject_locations": ["Were"],
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g16-malaysia-vs-singapore-comparison",
+    "url": "https://www.thestar.com.my/news/nation/dengue-malaysia-vs-singapore",
+    "status": "ready",
+    "title": "Dengue cases in Malaysia rise nearly 30pc in H1 2026, MoH says outbreak remains under control",
+    "text": "KUALA LUMPUR, July 6 — Dengue-related deaths in Malaysia have risen. Dengue cases in Malaysia reached 8,200 infections this half. In contrast to regional trends observed in Singapore, Malaysia remains steady.",
+    "expect": {
+      "disease": ["Dengue"],
+      "country": "Malaysia",
+      "cases": 8200,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g17-no-invented-count",
+    "url": "https://www.who.int/news/item/rabies-advisory-philippines",
+    "status": "ready",
+    "title": "Philippines issues rabies vaccination advisory",
+    "text": "MANILA — The Department of Health in the Philippines issued a rabies vaccination advisory after a bite incident. The article does not state how many rabies cases occurred.",
+    "expect": {
+      "disease": ["Rabies"],
+      "country": "Philippines",
+      "cases": null,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g18-indonesia-cholera",
+    "url": "https://www.kemkes.go.id/cholera-semarang",
+    "status": "ready",
+    "title": "Kemenkes laporkan kasus kolera di Semarang",
+    "text": "SEMARANG — Kementerian Kesehatan Indonesia melaporkan 22 kasus kolera di Semarang. Petugas menyiapkan air bersih dan oralit.",
+    "expect": {
+      "disease": ["Cholera", "kolera"],
+      "country": "Indonesia",
+      "cases": 22,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g19-cambodia-measles-not-sidebar-dengue",
+    "url": "https://www.khmertimeskh.com/measles-kampong-thom",
+    "status": "ready",
+    "title": "Measles outbreak confirmed in Kampong Thom, Cambodia",
+    "text": "PHNOM PENH — Cambodia confirmed 18 cases of measles in Kampong Thom province. A related-stories box later mentions dengue season in neighbouring Thailand.",
+    "expect": {
+      "disease": ["Measles"],
+      "country": "Cambodia",
+      "cases": 18,
+      "asean_primary": true
+    }
+  },
+  {
+    "id": "g20-mpox-singapore",
+    "url": "https://www.moh.gov.sg/mpox-update",
+    "status": "ready",
+    "title": "Singapore confirms mpox infections",
+    "text": "SINGAPORE — The Ministry of Health confirmed 4 mpox (monkeypox) cases this week. All patients are isolating and contacts have been traced.",
+    "expect": {
+      "disease": ["Mpox", "mpox", "monkeypox"],
+      "country": "Singapore",
+      "cases": 4,
+      "asean_primary": true
+    }
+  }
+]

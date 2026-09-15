@@ -138,7 +138,7 @@
   },
   "dashboard": {
     "pageTitle": "ASEAN Real-time Surveillance Dashboard",
-    "pageSubtitle": "Multilingual monitoring from news, media, and official data sources across Southeast Asia.",
+    "pageSubtitle": "Totals shown: ASEAN 11 jurisdictions (Brunei, Cambodia, Indonesia, Lao PDR, Malaysia, Myanmar, Philippines, Singapore, Thailand, Viet Nam, Timor-Leste). Outside-ASEAN events are excluded unless you choose Global.",
     "lastUpdate": "Last Updated",
     "stats": {
       "activeCases": "Monitored Cases",
@@ -418,7 +418,7 @@
     "focusRegion": "Focus Region ?",
     "outbreakSummary": "Detected {cases} cases and {deaths} deaths. Outbreak threshold: {threshold} cases.",
     "title": "ASEAN DISEASE OUTBREAK DASHBOARD",
-    "subtitle": "Spatial analysis of disease events and early health warning in Southeast Asia.",
+    "subtitle": "Totals shown: ASEAN 11 jurisdictions. Outside-ASEAN markers (Utah/US, India, DRC, Europe) are hidden on this view.",
     "surveillanceAsean": "Surveillance: ASEAN ({count} LOCATIONS)",
     "mapSettings": "Map Settings",
     "showKpi": "SHOW KPI SUMMARY",

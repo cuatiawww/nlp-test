@@ -134,7 +134,7 @@ export default function CrawlingEnginePerformance({
   };
 
   // Grounded dynamically in crawlingStats so it is 100% harmonious with top KPI
-  const runningTotalCrawled = crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 30738;
+  const runningTotalCrawled = crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 0;
   const dbRss = crawlingStats?.by_source_type?.find((s) => s.source_type === "rss")?.total;
   const dbSocial = crawlingStats?.by_source_type?.find((s) => s.source_type === "social_media")?.total;
   const dbApi =

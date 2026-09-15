@@ -3,9 +3,11 @@ import json
 import hashlib
 import logging
 import threading
+from datetime import datetime, timedelta, timezone
 from psycopg.rows import dict_row
 from . import config
 from .crawler_identity import content_fingerprint, normalize_url, url_hash
+from .schedule_interval import source_interval_minutes
 
 _connection_state = threading.local()
 logger = logging.getLogger(__name__)
@@ -180,6 +182,78 @@ def finalize_stale_runs(max_age_minutes: int = 30) -> int:
     if closed:
         logger.warning("Closed %d stale collector runs", closed)
     return closed
+
+
+def source_in_backoff(source_id: str, max_backoff_minutes: int = 360) -> bool:
+    """Skip a source while exponential backoff after consecutive failures is active."""
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT status, finished_at
+           FROM collector_runs
+           WHERE source_id = %s AND status IN ('SUCCESS', 'FAILED')
+           ORDER BY started_at DESC
+           LIMIT 6""",
+        (source_id,),
+    ).fetchall()
+    streak = 0
+    last_failed_at = None
+    for row in rows:
+        if row["status"] != "FAILED":
+            break
+        streak += 1
+        if last_failed_at is None:
+            last_failed_at = row["finished_at"]
+    if streak <= 0 or last_failed_at is None:
+        return False
+    delay_minutes = min(max_backoff_minutes, 15 * (2 ** min(streak - 1, 5)))
+    return last_failed_at + timedelta(minutes=delay_minutes) > datetime.now(timezone.utc)
+
+
+def fetch_due_source_ids(limit: int = 3, default_interval_minutes: int = 60) -> list[str]:
+    """Enabled non-SKDR sources whose last finished run is older than their interval.
+
+    Covers every ACTIVE ``rss``/``web``/``csv``/``social_media``/``api`` row,
+    including explicit ``interval:120`` schedules. APScheduler still fires those
+    jobs; this dispatcher is the backup so missed ticks do not stall the catalog.
+    Stale RUNNING rows must be closed first (see ``finalize_stale_runs``).
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT s.id::text AS id,
+                  s.schedule,
+                  lr.finished_at,
+                  lr.status
+           FROM collector_sources s
+           LEFT JOIN LATERAL (
+               SELECT status, finished_at
+               FROM collector_runs
+               WHERE source_id = s.id
+               ORDER BY started_at DESC
+               LIMIT 1
+           ) lr ON TRUE
+           WHERE s.enabled = TRUE
+             AND LOWER(COALESCE(s.source_type, '')) <> 'skdr_api'
+             AND LOWER(COALESCE(s.source_type, '')) IN ('rss', 'web', 'csv', 'social_media', 'api')
+             AND NOT EXISTS (
+                 SELECT 1 FROM collector_runs r
+                 WHERE r.source_id = s.id
+                   AND r.status = 'RUNNING'
+                   AND r.finished_at IS NULL
+                   AND r.started_at >= NOW() - INTERVAL '30 minutes'
+             )
+           ORDER BY lr.finished_at NULLS FIRST, s.updated_at DESC
+           LIMIT 200""",
+        (),
+    ).fetchall()
+    due = []
+    for row in rows:
+        interval = source_interval_minutes(row["schedule"], default_interval_minutes)
+        finished = row["finished_at"]
+        if finished is None or finished <= datetime.now(timezone.utc) - timedelta(minutes=interval):
+            due.append(row["id"])
+        if len(due) >= max(1, int(limit)):
+            break
+    return due
 
 
 def upsert_skdr_report(record: dict) -> dict:

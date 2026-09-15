@@ -33,7 +33,7 @@ export const ASEAN_COUNTRIES: CountryMeta[] = [
   { code: "VN", name: "Vietnam", flag: "🇻🇳", aliases: ["vietnam", "viet nam", "vn"] },
   { code: "BN", name: "Brunei", flag: "🇧🇳", aliases: ["brunei", "brunei darussalam", "bn"] },
   { code: "KH", name: "Cambodia", flag: "🇰🇭", aliases: ["cambodia", "kampuchea", "kh"] },
-  { code: "LA", name: "Laos", flag: "🇱🇦", aliases: ["laos", "lao", "la"] },
+  { code: "LA", name: "Laos", flag: "🇱🇦", aliases: ["laos", "lao", "lao pdr", "la"] },
   { code: "MM", name: "Myanmar", flag: "🇲🇲", aliases: ["myanmar", "burma", "mm"] },
   { code: "TL", name: "Timor-Leste", flag: "🇹🇱", aliases: ["timor-leste", "timor lest", "timor", "tl"] },
 ];

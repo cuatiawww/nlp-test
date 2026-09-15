@@ -1,11 +1,12 @@
-﻿import type {
+﻿import { getCurrentEpiWeek } from "@/lib/epi-week";
+import { ASEAN11_SCOPE, isAseanDefaultScope } from "@/lib/asean-scope";
+import type {
   Source,
   Run,
   SummaryRow,
   DashboardStats,
   PublicDashboard,
   DiseaseEvent,
-  IbsSummary,
   CrawlJobStatus,
   InteroperabilityIntegration,
   SourceSummary,
@@ -313,6 +314,9 @@ export interface CrawlingStats {
   active_since: string | null;
   collector_status: "RUNNING" | "IDLE" | string;
   last_report_at: string | null;
+  last_run_at?: string | null;
+  enabled_sources?: number;
+  crawler_mode?: string;
   by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
 }
 
@@ -391,6 +395,7 @@ export const fetchDashboardStats = () =>
   fetchFrom<DashboardStats>("/api/v1/events/stats");
 export interface PublicDashboardApiParams {
   country?: string;
+  scope?: string;
   year?: number;
   source?: "ibs" | "ebs" | "skdr" | string;
   disease?: string;
@@ -400,21 +405,84 @@ export interface PublicDashboardApiParams {
   end_week?: number;
 }
 
-export const fetchPublicDashboard = (filters?: PublicDashboardApiParams) => {
+/** ASEAN week-1→current-epi-week window shared by dashboard, TV, and reports. */
+export function withDefaultDashboardParams(
+  filters?: PublicDashboardApiParams,
+): PublicDashboardApiParams {
+  const epi = getCurrentEpiWeek();
+  const country = !filters?.country || filters.country === "all" ? "ASEAN" : filters.country;
+  const scope =
+    filters?.scope ||
+    (isAseanDefaultScope(country) ? ASEAN11_SCOPE : country === "global" ? "global" : undefined);
+  return {
+    country,
+    scope,
+    disease: filters?.disease && filters.disease !== "" ? filters.disease : "all",
+    start_year: filters?.start_year ?? epi.year,
+    start_week: filters?.start_week ?? 1,
+    end_year: filters?.end_year ?? epi.year,
+    end_week: filters?.end_week ?? epi.week,
+    year: filters?.year ?? filters?.end_year ?? epi.year,
+    source: filters?.source,
+  };
+}
+
+function applyDashboardParams(filters?: PublicDashboardApiParams) {
+  const merged = withDefaultDashboardParams(filters);
   const params = new URLSearchParams();
-  if (filters?.country && filters.country !== "all")
-    params.set("country", filters.country);
-  if (filters?.year) params.set("year", String(filters.year));
-  if (filters?.source && filters.source !== "all") params.set("source", filters.source);
-  if (filters?.disease && filters.disease !== "all") params.set("disease", filters.disease);
-  if (filters?.start_year) params.set("start_year", String(filters.start_year));
-  if (filters?.start_week) params.set("start_week", String(filters.start_week));
-  if (filters?.end_year) params.set("end_year", String(filters.end_year));
-  if (filters?.end_week) params.set("end_week", String(filters.end_week));
-  const query = params.toString();
-  return fetchFrom<PublicDashboard>(
-    `/api/v1/public-dashboard${query ? `?${query}` : ""}`,
-  );
+  params.set("country", merged.country || "ASEAN");
+  if (merged.scope) params.set("scope", merged.scope);
+  if (merged.year) params.set("year", String(merged.year));
+  if (merged.source && merged.source !== "all") params.set("source", merged.source);
+  if (merged.disease && merged.disease !== "all") params.set("disease", merged.disease);
+  if (merged.start_year) params.set("start_year", String(merged.start_year));
+  params.set("start_week", String(merged.start_week ?? 1));
+  if (merged.end_year) params.set("end_year", String(merged.end_year));
+  if (merged.end_week) params.set("end_week", String(merged.end_week));
+  return params;
+}
+
+export const fetchPublicDashboard = (filters?: PublicDashboardApiParams) => {
+  const query = applyDashboardParams(filters).toString();
+  return fetchFrom<PublicDashboard>(`/api/v1/public-dashboard?${query}`);
+};
+
+export const fetchKpiSnapshot = (filters?: PublicDashboardApiParams) => {
+  const query = applyDashboardParams(filters).toString();
+  return fetchFrom<{
+    kpis: PublicDashboard["kpis"];
+    snapshot?: {
+      id?: string;
+      computed_at?: string;
+      filter_key?: string;
+      stale?: boolean;
+    };
+  }>(`/api/v1/kpi-snapshot?${query}`);
+};
+
+export interface KpiEventRow {
+  id: string;
+  location_name: string;
+  country: string;
+  disease_classification: string;
+  case_count: number;
+  death_count: number;
+  confidence: number;
+  outbreak_alert: boolean;
+  needs_review: boolean;
+  source_name: string;
+  source_type: string;
+  url: string;
+  published_at: string;
+}
+
+export const fetchKpiEvents = (
+  filters?: PublicDashboardApiParams & { page?: number; per_page?: number },
+) => {
+  const params = applyDashboardParams(filters);
+  if (filters?.page) params.set("page", String(filters.page));
+  if (filters?.per_page) params.set("per_page", String(filters.per_page));
+  return fetchPaginated<KpiEventRow>(`/api/v1/kpi-events?${params.toString()}`);
 };
 
 export const fetchPipelineHealth = () => fetchFrom<{
@@ -426,26 +494,12 @@ export const fetchPipelineHealth = () => fetchFrom<{
   collector_failures_24h?: number;
 }>("/api/v1/pipeline-health");
 
-export const fetchIbsSummary = (filters?: { year?: number; province?: string }) => {
-  const params = new URLSearchParams();
-  if (filters?.year) params.set("year", String(filters.year));
-  if (filters?.province && filters.province !== "all")
-    params.set("province", filters.province);
-  const query = params.toString();
-  return fetchFrom<IbsSummary>(
-    `/api/v1/skdr/ibs-summary${query ? `?${query}` : ""}`,
-  );
+export const fetchIbsSummary = async (_filters?: { year?: number; province?: string }) => {
+  throw new Error("SKDR IBS is detached");
 };
 
-export const fetchEbsSummary = (filters?: { year?: number; province?: string }) => {
-  const params = new URLSearchParams();
-  if (filters?.year) params.set("year", String(filters.year));
-  if (filters?.province && filters.province !== "all")
-    params.set("province", filters.province);
-  const query = params.toString();
-  return fetchFrom<IbsSummary>(
-    `/api/v1/skdr/ebs-summary${query ? `?${query}` : ""}`,
-  );
+export const fetchEbsSummary = async (_filters?: { year?: number; province?: string }) => {
+  throw new Error("SKDR EBS is detached");
 };
 
 // ── URL Analyze ──────────────────────────────────
@@ -516,20 +570,17 @@ export interface SpatialHeatmapResponse {
     total_cases: number;
     total_deaths: number;
     total_events: number;
+    snapshot_id?: string;
+    snapshot_computed_at?: string;
+    snapshot_filter_key?: string;
+    snapshot_stale?: boolean;
+    kpi_source?: string;
   };
 }
 
 export const fetchSpatialHeatmap = (filters?: PublicDashboardApiParams) => {
-  const params = new URLSearchParams();
-  if (filters?.year) params.set('year', String(filters.year));
-  if (filters?.country && filters.country !== 'all') params.set('country', filters.country);
-  if (filters?.disease && filters.disease !== 'all') params.set('disease', filters.disease);
-  if (filters?.start_year) params.set('start_year', String(filters.start_year));
-  if (filters?.start_week) params.set('start_week', String(filters.start_week));
-  if (filters?.end_year) params.set('end_year', String(filters.end_year));
-  if (filters?.end_week) params.set('end_week', String(filters.end_week));
-  const query = params.toString();
-  return fetchFrom<SpatialHeatmapResponse>(`/api/v1/spatial-heatmap${query ? `?${query}` : ''}`);
+  const query = applyDashboardParams(filters).toString();
+  return fetchFrom<SpatialHeatmapResponse>(`/api/v1/spatial-heatmap?${query}`);
 };
 
 // ?? Disease Trend Overview ????????????????????????
@@ -574,23 +625,23 @@ export interface DiseaseTrendOverviewData {
     top_burden_disease: string;
     top_burden_country: string;
     total_cases_tracked: number;
+    total_deaths?: number;
+    total_events?: number;
     trend_days: number;
+    snapshot_id?: string;
+    snapshot_computed_at?: string;
+    snapshot_filter_key?: string;
+    snapshot_stale?: boolean;
+    kpi_source?: string;
   };
   priority_alerts: PriorityDiseaseAlert[];
   daily_trends: DiseaseDailyTrend[];
 }
 
 export const fetchDiseaseTrendOverview = (filters?: PublicDashboardApiParams & { days?: number }) => {
-  const params = new URLSearchParams();
+  const params = applyDashboardParams(filters);
   if (filters?.days) params.set('days', String(filters.days));
-  if (filters?.country && filters.country !== 'all') params.set('country', filters.country);
-  if (filters?.disease && filters.disease !== 'all') params.set('disease', filters.disease);
-  if (filters?.start_year) params.set('start_year', String(filters.start_year));
-  if (filters?.start_week) params.set('start_week', String(filters.start_week));
-  if (filters?.end_year) params.set('end_year', String(filters.end_year));
-  if (filters?.end_week) params.set('end_week', String(filters.end_week));
-  const query = params.toString() ? `?${params.toString()}` : '';
-  return fetchFrom<DiseaseTrendOverviewData>(`/api/v1/disease-trend-overview${query}`);
+  return fetchFrom<DiseaseTrendOverviewData>(`/api/v1/disease-trend-overview?${params.toString()}`);
 };
 
 // ?? Morbidity & Mortality ?????????????????????????
@@ -619,20 +670,18 @@ export interface MorbidityMortalityResponse {
     cfr_pct: number;
     selected_disease: string;
     weeks: number;
+    snapshot_id?: string;
+    snapshot_computed_at?: string;
+    snapshot_filter_key?: string;
+    snapshot_stale?: boolean;
+    kpi_source?: string;
   };
   weekly_trends: WeeklyMorbidityMortality[];
   top_diseases: DiseaseMorbidityMortality[];
 }
 
 export const fetchMorbidityMortality = (params?: PublicDashboardApiParams & { weeks?: number }) => {
-  const q = new URLSearchParams();
-  if (params?.disease && params.disease !== 'all') q.set('disease', params.disease);
+  const q = applyDashboardParams(params);
   if (params?.weeks) q.set('weeks', String(params.weeks));
-  if (params?.country && params.country !== 'all') q.set('country', params.country);
-  if (params?.start_year) q.set('start_year', String(params.start_year));
-  if (params?.start_week) q.set('start_week', String(params.start_week));
-  if (params?.end_year) q.set('end_year', String(params.end_year));
-  if (params?.end_week) q.set('end_week', String(params.end_week));
-  const queryStr = q.toString();
-  return fetchFrom<MorbidityMortalityResponse>(`/api/v1/morbidity-mortality${queryStr ? `?${queryStr}` : ''}`);
+  return fetchFrom<MorbidityMortalityResponse>(`/api/v1/morbidity-mortality?${q.toString()}`);
 };
