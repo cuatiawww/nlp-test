@@ -626,9 +626,12 @@ export const analyzeUrl = async (url: string, options?: {
     return json.data;
   }, {
     timeout: 600000,
-    requireFullNlp: true,
     onProgress: options?.onProgress,
     signal: options?.signal,
+  } as {
+    timeout?: number;
+    onProgress?: (job: { status?: string; stage?: string; job_id?: string }) => void;
+    signal?: AbortSignal;
   });
 };
 
