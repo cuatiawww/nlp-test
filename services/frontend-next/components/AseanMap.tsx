@@ -22,7 +22,7 @@ import type { FeatureLike } from "ol/Feature";
 import { fromLonLat } from "ol/proj";
 import { unByKey } from "ol/Observable";
 import { defaults as defaultControls } from "ol/control";
-import { X, MapPin, RotateCcw, Navigation, Activity, Skull, ChevronRight, Bug, Plane, Flame, Building2, Newspaper, Users, ExternalLink, Globe } from "lucide-react";
+import { X, MapPin, RotateCcw, Navigation, Activity, Skull, ChevronRight, Bug, Plane, Flame, Building2, Newspaper, Users, ExternalLink, Globe, CloudSun } from "lucide-react";
 import type {
   AnalyzeResponse,
   OutbreakLocation,
@@ -34,6 +34,8 @@ import type {
   HealthFacility,
   DiseaseNewsArticle,
   WorldPopMeta,
+  MapLayerStatus,
+  EnvironmentMarker,
 } from "@/types";
 import {
   fetchVectorSightings,
@@ -42,6 +44,7 @@ import {
   fetchHealthFacilities,
   fetchDiseaseNews,
   fetchWorldPopMeta,
+  fetchMapEnvironment,
 } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 import CountryFlag from "@/components/CountryFlag";
@@ -59,6 +62,7 @@ export type HazardEvent = {
   magnitude?: number | null;
   alert_level?: string | null;
   when?: string | number | null;
+  url?: string | null;
 };
 
 type Props = {
@@ -89,6 +93,7 @@ type Props = {
   showHazards?: boolean;
   gibsLayers?: NasaGibsLayers;
   intelLayers?: ExternalIntelLayers;
+  onLayerStatus?: (key: string, status: MapLayerStatus) => void;
 };
 
 type RegionMetric = {
@@ -152,6 +157,51 @@ function isWithinRecentWindowForDays(value: string | null | undefined, days: 7 |
   return timestamp >= Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
+function fieldOrNone(value: unknown): string {
+  if (value == null) return "No data";
+  if (typeof value === "string" && !value.trim()) return "No data";
+  if (typeof value === "number" && !Number.isFinite(value)) return "No data";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function formatUnixSeconds(ts?: number | null): string {
+  if (ts == null || !Number.isFinite(ts)) return "No data";
+  const ms = ts > 1e12 ? ts : ts * 1000;
+  const date = new Date(ms);
+  return Number.isNaN(date.getTime()) ? "No data" : date.toLocaleString();
+}
+
+function formatSpeedMs(ms?: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return "No data";
+  return `${Math.round(ms)} m/s (${Math.round(ms * 3.6)} km/h)`;
+}
+
+function formatAltitudeM(m?: number | null): string {
+  if (m == null || !Number.isFinite(m)) return "No data";
+  return `${Math.round(m).toLocaleString()} m`;
+}
+
+function formatHeading(deg?: number | null): string {
+  if (deg == null || !Number.isFinite(deg)) return "No data";
+  return `${Math.round(deg)}°`;
+}
+
+function layerOutcome(count: number, source?: string, error?: string | null): MapLayerStatus {
+  if (error) {
+    return {
+      state: count > 0 ? "ok" : "error",
+      count,
+      source,
+      message: error,
+    };
+  }
+  if (count > 0) {
+    return { state: "ok", count, source, message: `${count.toLocaleString()} loaded` };
+  }
+  return { state: "empty", count: 0, source, message: "No data in the ASEAN window" };
+}
+
 export default function AseanMap({
 
   result,
@@ -174,6 +224,7 @@ export default function AseanMap({
   intelLayers,
   hazardEvents,
   showHazards = true,
+  onLayerStatus,
 }: Props) {
   const { t, locale, translateDisease } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
@@ -190,15 +241,26 @@ export default function AseanMap({
   const flightsRef = useRef<VectorLayer<VectorSource> | null>(null);
   const firesRef = useRef<VectorLayer<VectorSource> | null>(null);
   const facilitiesRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const environmentRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const statusCbRef = useRef(onLayerStatus);
+  useEffect(() => {
+    statusCbRef.current = onLayerStatus;
+  }, [onLayerStatus]);
+  const reportStatus = (key: string, status: MapLayerStatus) => {
+    statusCbRef.current?.(key, status);
+  };
 
   const [selectedIntel, setSelectedIntel] = useState<
     | { type: "vector_sighting"; data: VectorSighting }
     | { type: "live_flight"; data: LiveFlight }
     | { type: "fire_hotspot"; data: FireHotspot }
     | { type: "health_facility"; data: HealthFacility }
+    | { type: "hazard_event"; data: HazardEvent }
+    | { type: "environment"; data: EnvironmentMarker }
     | null
   >(null);
   const [diseaseNews, setDiseaseNews] = useState<DiseaseNewsArticle[]>([]);
+  const [newsMeta, setNewsMeta] = useState<{ source?: string; error?: string | null }>({});
   const [newsOpen, setNewsOpen] = useState(true);
   const [worldPopMeta, setWorldPopMeta] = useState<WorldPopMeta | null>(null);
   const radiusRef = useRef<VectorLayer<VectorSource> | null>(null);
@@ -451,6 +513,20 @@ export default function AseanMap({
     });
     facilitiesRef.current = facilitiesLayer;
 
+    const environmentLayer = new VectorLayer({
+      source: new VectorSource(),
+      zIndex: 22,
+      style: () =>
+        new Style({
+          image: new CircleStyle({
+            radius: 7,
+            fill: new Fill({ color: "rgba(14, 165, 233, 0.92)" }),
+            stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+          }),
+        }),
+    });
+    environmentRef.current = environmentLayer;
+
     // ── NASA GIBS WMTS Overlays ──────────────────────────────
     const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
     const makeGibs = (key: string, url: string, maxZoom: number, opacity = 0.65, zIndex = 6) => {
@@ -477,7 +553,7 @@ export default function AseanMap({
       ),
       makeGibs(
         "aerosol",
-        `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/OMPS_Aerosol_Index_NM_Pyramid/default/${yesterday}/GoogleMapsCompatible_Level6/{z}/{y}/{x}.png`,
+        `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/OMPS_Aerosol_Index/default/${yesterday}/GoogleMapsCompatible_Level6/{z}/{y}/{x}.png`,
         6, 0.6, 7
       ),
       makeGibs(
@@ -494,6 +570,11 @@ export default function AseanMap({
         "landSurfaceTemp",
         `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_Land_Surface_Temp_Day/default/${yesterday}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`,
         7, 0.6, 7
+      ),
+      makeGibs(
+        "populationDensity",
+        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GPW_Population_Density_2020/default/2020-01-01/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png",
+        7, 0.55, 7
       ),
     ];
 
@@ -553,6 +634,7 @@ export default function AseanMap({
         flightsLayer,
         firesLayer,
         facilitiesLayer,
+        environmentLayer,
       ],
       view: new View({
         center: fromLonLat([110, 2]),
@@ -564,7 +646,6 @@ export default function AseanMap({
     });
 
     const clickKey = map.on("singleclick", (evt) => {
-      // Check click on external intelligence features first
       const intelHits: FeatureLike[] = [];
       map.forEachFeatureAtPixel(
         evt.pixel,
@@ -578,7 +659,9 @@ export default function AseanMap({
             l === vectorSightingsLayer ||
             l === flightsLayer ||
             l === firesLayer ||
-            l === facilitiesLayer,
+            l === facilitiesLayer ||
+            l === environmentLayer ||
+            l === hazardLayer,
         },
       );
 
@@ -586,11 +669,19 @@ export default function AseanMap({
         const f = intelHits[0];
         const intelType = f.get("intelType");
         const intelData = f.get("intelData");
+        const hazard = f.get("hazard") as HazardEvent | undefined;
         if (intelType && intelData) {
           setSelected(null);
           setSelectedRegion(null);
           setSelectedLocation(null);
           setSelectedIntel({ type: intelType, data: intelData });
+          return;
+        }
+        if (hazard) {
+          setSelected(null);
+          setSelectedRegion(null);
+          setSelectedLocation(null);
+          setSelectedIntel({ type: "hazard_event", data: hazard });
           return;
         }
       }
@@ -632,6 +723,7 @@ export default function AseanMap({
         };
         setSelected(null);
         setSelectedLocation(null);
+        setSelectedIntel(null);
         setSelectedRegion({
           name: String(feature.get("regionName") || "Region"),
           country: String(feature.get("regionCountry") || ""),
@@ -656,6 +748,7 @@ export default function AseanMap({
         setSelected(null);
         setSelectedRegion(null);
         setSelectedLocation(null);
+        setSelectedIntel(null);
         return;
       }
 
@@ -685,6 +778,7 @@ export default function AseanMap({
       });
       setSelectedRegion(null);
       setSelectedLocation(null);
+      setSelectedIntel(null);
 
       const geom = (hits[0] as Feature<Geometry>).getGeometry();
       if (geom) {
@@ -700,7 +794,16 @@ export default function AseanMap({
       if (evt.dragging) return;
       const hit = map.hasFeatureAtPixel(evt.pixel, {
         hitTolerance: 8,
-        layerFilter: (l) => l === vectorLayer || l === regionLayer || l === markerLayer,
+        layerFilter: (l) =>
+          l === vectorLayer ||
+          l === regionLayer ||
+          l === markerLayer ||
+          l === vectorSightingsLayer ||
+          l === flightsLayer ||
+          l === firesLayer ||
+          l === facilitiesLayer ||
+          l === environmentLayer ||
+          l === hazardLayer,
       });
       (map.getTargetElement() as HTMLElement).style.cursor = hit
         ? "pointer"
@@ -820,11 +923,15 @@ export default function AseanMap({
 
   // NASA GIBS WMTS Tile Layer Toggles
   useEffect(() => {
-    if (!gibsLayers) return;
     Object.entries(gibsRef.current).forEach(([key, layer]) => {
-      if (layer) layer.setVisible(Boolean(gibsLayers[key as keyof NasaGibsLayers]));
+      if (!layer) return;
+      if (key === "populationDensity") {
+        layer.setVisible(Boolean(intelLayers?.population));
+        return;
+      }
+      layer.setVisible(Boolean(gibsLayers?.[key as keyof NasaGibsLayers]));
     });
-  }, [gibsLayers]);
+  }, [gibsLayers, intelLayers?.population]);
 
   // iNaturalist Aedes Vector Sightings
   useEffect(() => {
@@ -832,23 +939,37 @@ export default function AseanMap({
     if (!layer) return;
     const visible = Boolean(intelLayers?.vectors);
     layer.setVisible(visible);
-    if (!visible) return;
-    const src = layer.getSource();
-    if (src && src.getFeatures().length === 0) {
-      fetchVectorSightings().then((res) => {
-        if (res?.sightings) {
-          const features = res.sightings.map((s) => {
-            const f = new Feature({
-              geometry: new Point(fromLonLat([s.longitude, s.latitude])),
-            });
-            f.set("intelType", "vector_sighting");
-            f.set("intelData", s);
-            return f;
-          });
-          src.addFeatures(features);
-        }
-      }).catch(() => {});
+    if (!visible) {
+      return;
     }
+    const src = layer.getSource();
+    if (!src) return;
+    if (src.getFeatures().length > 0) {
+      reportStatus("vectors", layerOutcome(src.getFeatures().length, "iNaturalist"));
+      return;
+    }
+    let cancelled = false;
+    reportStatus("vectors", { state: "loading", message: "Loading iNaturalist observations…" });
+    fetchVectorSightings()
+      .then((res) => {
+        if (cancelled) return;
+        const features = (res?.sightings || []).map((s) => {
+          const f = new Feature({
+            geometry: new Point(fromLonLat([s.longitude, s.latitude])),
+          });
+          f.set("intelType", "vector_sighting");
+          f.set("intelData", s);
+          return f;
+        });
+        src.addFeatures(features);
+        reportStatus("vectors", layerOutcome(features.length, res?.source, res?.error));
+      })
+      .catch((err) => {
+        if (!cancelled) reportStatus("vectors", { state: "error", message: err?.message || "Failed to load vector sightings" });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [intelLayers?.vectors]);
 
   // OpenSky Live Flights
@@ -857,23 +978,37 @@ export default function AseanMap({
     if (!layer) return;
     const visible = Boolean(intelLayers?.flights);
     layer.setVisible(visible);
-    if (!visible) return;
-    const src = layer.getSource();
-    if (src && src.getFeatures().length === 0) {
-      fetchLiveFlights().then((res) => {
-        if (res?.flights) {
-          const features = res.flights.map((flight) => {
-            const f = new Feature({
-              geometry: new Point(fromLonLat([flight.longitude, flight.latitude])),
-            });
-            f.set("intelType", "live_flight");
-            f.set("intelData", flight);
-            return f;
-          });
-          src.addFeatures(features);
-        }
-      }).catch(() => {});
+    if (!visible) {
+      return;
     }
+    const src = layer.getSource();
+    if (!src) return;
+    if (src.getFeatures().length > 0) {
+      reportStatus("flights", layerOutcome(src.getFeatures().length, "OpenSky Network"));
+      return;
+    }
+    let cancelled = false;
+    reportStatus("flights", { state: "loading", message: "Loading OpenSky traffic…" });
+    fetchLiveFlights()
+      .then((res) => {
+        if (cancelled) return;
+        const features = (res?.flights || []).map((flight) => {
+          const f = new Feature({
+            geometry: new Point(fromLonLat([flight.longitude, flight.latitude])),
+          });
+          f.set("intelType", "live_flight");
+          f.set("intelData", flight);
+          return f;
+        });
+        src.addFeatures(features);
+        reportStatus("flights", layerOutcome(features.length, res?.source, res?.error));
+      })
+      .catch((err) => {
+        if (!cancelled) reportStatus("flights", { state: "error", message: err?.message || "Failed to load live flights" });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [intelLayers?.flights]);
 
   // NASA FIRMS Active Fire Hotspots
@@ -882,67 +1017,106 @@ export default function AseanMap({
     if (!layer) return;
     const visible = Boolean(intelLayers?.fires);
     layer.setVisible(visible);
-    if (!visible) return;
-    const src = layer.getSource();
-    if (src && src.getFeatures().length === 0) {
-      fetchFireHotspots().then((res) => {
-        if (res?.hotspots) {
-          const features = res.hotspots.map((h) => {
-            const f = new Feature({
-              geometry: new Point(fromLonLat([h.longitude, h.latitude])),
-            });
-            f.set("intelType", "fire_hotspot");
-            f.set("intelData", h);
-            return f;
-          });
-          src.addFeatures(features);
-        }
-      }).catch(() => {});
+    if (!visible) {
+      return;
     }
+    const src = layer.getSource();
+    if (!src) return;
+    if (src.getFeatures().length > 0) {
+      reportStatus("fires", layerOutcome(src.getFeatures().length, "NASA FIRMS"));
+      return;
+    }
+    let cancelled = false;
+    reportStatus("fires", { state: "loading", message: "Loading NASA FIRMS hotspots…" });
+    fetchFireHotspots()
+      .then((res) => {
+        if (cancelled) return;
+        const features = (res?.hotspots || []).map((h) => {
+          const f = new Feature({
+            geometry: new Point(fromLonLat([h.longitude, h.latitude])),
+          });
+          f.set("intelType", "fire_hotspot");
+          f.set("intelData", h);
+          return f;
+        });
+        src.addFeatures(features);
+        reportStatus("fires", layerOutcome(features.length, res?.source, res?.error));
+      })
+      .catch((err) => {
+        if (!cancelled) reportStatus("fires", { state: "error", message: err?.message || "Failed to load fire hotspots" });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [intelLayers?.fires]);
 
-  // Healthsites.io Healthcare Facilities
+  // Healthcare facilities (Healthsites or OSM Overpass)
   useEffect(() => {
     const layer = facilitiesRef.current;
     if (!layer) return;
     const visible = Boolean(intelLayers?.facilities);
     layer.setVisible(visible);
-    if (!visible) return;
+    if (!visible) {
+      return;
+    }
     const targetCountry = selected?.name || highlightCountry || "Indonesia";
     const src = layer.getSource();
-    if (src) {
-      src.clear();
-      fetchHealthFacilities(targetCountry).then((res) => {
-        if (res?.facilities) {
-          const features = res.facilities.map((fac) => {
-            const f = new Feature({
-              geometry: new Point(fromLonLat([fac.longitude, fac.latitude])),
-            });
-            f.set("intelType", "health_facility");
-            f.set("intelData", fac);
-            return f;
+    if (!src) return;
+    src.clear();
+    let cancelled = false;
+    reportStatus("facilities", { state: "loading", message: `Loading facilities in ${targetCountry}…` });
+    fetchHealthFacilities(targetCountry)
+      .then((res) => {
+        if (cancelled) return;
+        const features = (res?.facilities || []).map((fac) => {
+          const f = new Feature({
+            geometry: new Point(fromLonLat([fac.longitude, fac.latitude])),
           });
-          src.addFeatures(features);
-        }
-      }).catch(() => {});
-    }
+          f.set("intelType", "health_facility");
+          f.set("intelData", fac);
+          return f;
+        });
+        src.addFeatures(features);
+        reportStatus("facilities", layerOutcome(features.length, res?.source, res?.error));
+      })
+      .catch((err) => {
+        if (!cancelled) reportStatus("facilities", { state: "error", message: err?.message || "Failed to load health facilities" });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [intelLayers?.facilities, selected?.name, highlightCountry]);
 
-  // GDELT Disease News
+  // GDELT / ReliefWeb disease news
   useEffect(() => {
     if (!intelLayers?.news) {
       setDiseaseNews([]);
+      setNewsMeta({});
       return;
     }
-    fetchDiseaseNews().then((res) => {
-      if (res?.articles) {
-        setDiseaseNews(res.articles);
+    let cancelled = false;
+    reportStatus("news", { state: "loading", message: "Loading disease media…" });
+    fetchDiseaseNews()
+      .then((res) => {
+        if (cancelled) return;
+        const articles = res?.articles || [];
+        setDiseaseNews(articles);
+        setNewsMeta({ source: res?.source, error: res?.error });
         setNewsOpen(true);
-      }
-    }).catch(() => {});
+        reportStatus("news", layerOutcome(articles.length, res?.source, res?.error));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDiseaseNews([]);
+        setNewsMeta({ error: err?.message || "Failed to load news" });
+        reportStatus("news", { state: "error", message: err?.message || "Failed to load news" });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [intelLayers?.news]);
 
-  // WorldPop Population Denominators
+  // WorldPop metadata + GPW density overlay
   useEffect(() => {
     if (!intelLayers?.population) {
       setWorldPopMeta(null);
@@ -950,12 +1124,83 @@ export default function AseanMap({
     }
     const country = normalizedCountry(selected?.name || highlightCountry || "indonesia");
     const iso3 = COUNTRY_ISO3[country] || "IDN";
-    fetchWorldPopMeta(iso3).then((res) => {
-      if (res && (res.tif_url || res.iso3)) {
-        setWorldPopMeta(res);
-      }
-    }).catch(() => {});
+    let cancelled = false;
+    reportStatus("population", { state: "loading", message: `Loading WorldPop metadata for ${iso3}…` });
+    fetchWorldPopMeta(iso3)
+      .then((res) => {
+        if (cancelled) return;
+        if (res && res.status === "ok") {
+          setWorldPopMeta(res);
+          reportStatus("population", {
+            state: "ok",
+            source: res.source,
+            message: `${res.country || iso3} ${res.year || ""}`.trim(),
+          });
+        } else {
+          setWorldPopMeta(res || null);
+          reportStatus("population", {
+            state: "error",
+            source: res?.source,
+            message: res?.error || "WorldPop metadata unavailable",
+          });
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setWorldPopMeta(null);
+        reportStatus("population", { state: "error", message: err?.message || "Failed to load WorldPop metadata" });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [intelLayers?.population, selected?.name, highlightCountry]);
+
+  // Open-Meteo weather / AQI capital markers
+  useEffect(() => {
+    const layer = environmentRef.current;
+    if (!layer) return;
+    const visible = Boolean(intelLayers?.weather || intelLayers?.airQuality);
+    layer.setVisible(visible);
+    if (!visible) {
+      return;
+    }
+    const src = layer.getSource();
+    if (!src) return;
+    if (src.getFeatures().length > 0) {
+      const count = src.getFeatures().length;
+      reportStatus("weather", layerOutcome(count, "Open-Meteo"));
+      reportStatus("airQuality", layerOutcome(count, "Open-Meteo Air Quality"));
+      return;
+    }
+    let cancelled = false;
+    reportStatus("weather", { state: "loading", message: "Loading capital weather…" });
+    reportStatus("airQuality", { state: "loading", message: "Loading capital AQI…" });
+    fetchMapEnvironment()
+      .then((res) => {
+        if (cancelled) return;
+        const features = (res?.markers || []).map((marker) => {
+          const f = new Feature({
+            geometry: new Point(fromLonLat([marker.longitude, marker.latitude])),
+          });
+          f.set("intelType", "environment");
+          f.set("intelData", marker);
+          return f;
+        });
+        src.addFeatures(features);
+        const status = layerOutcome(features.length, res?.source, res?.error);
+        reportStatus("weather", status);
+        reportStatus("airQuality", status);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const status = { state: "error" as const, message: err?.message || "Failed to load weather / AQI" };
+        reportStatus("weather", status);
+        reportStatus("airQuality", status);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [intelLayers?.weather, intelLayers?.airQuality]);
 
   useEffect(() => {
     const source = radiusRef.current?.getSource();
@@ -1390,6 +1635,83 @@ export default function AseanMap({
         }
       />
 
+      {selectedIntel && (
+        <IntelPopup
+          selected={selectedIntel}
+          className={popupPositionClass}
+          onClose={() => setSelectedIntel(null)}
+          showWeather={Boolean(intelLayers?.weather)}
+          showAir={Boolean(intelLayers?.airQuality)}
+        />
+      )}
+
+      {intelLayers?.news && newsOpen && (
+        <div className="absolute left-4 top-16 z-30 w-[min(340px,calc(100%-32px))] overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md">
+          <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+            <div className="flex items-center gap-1.5">
+              <Newspaper className="h-3.5 w-3.5 text-[#0060A9]" />
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-800">Disease media</p>
+            </div>
+            <button type="button" onClick={() => setNewsOpen(false)} className="rounded p-0.5 text-slate-400 hover:text-slate-700" aria-label="Close">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <p className="px-3 pt-2 text-[10px] font-semibold text-slate-500">
+            {newsMeta.source || "GDELT / WHO News"}
+            {newsMeta.error ? ` — ${newsMeta.error}` : ""}
+          </p>
+          <div className="max-h-56 space-y-1.5 overflow-y-auto p-3 pt-2">
+            {diseaseNews.length === 0 ? (
+              <p className="text-[11px] font-semibold text-slate-500">
+                {newsMeta.error || "No articles returned for the current query."}
+              </p>
+            ) : (
+              diseaseNews.slice(0, 12).map((article, index) => (
+                <a
+                  key={`${article.url}-${index}`}
+                  href={article.url || undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2 hover:border-blue-200 hover:bg-blue-50"
+                >
+                  <p className="line-clamp-2 text-[11px] font-bold text-slate-800">{fieldOrNone(article.title)}</p>
+                  <p className="mt-0.5 truncate text-[9px] font-semibold text-slate-400">
+                    {[article.domain, article.source_country, article.seen_date].filter(Boolean).join(" · ") || "No data"}
+                  </p>
+                </a>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {intelLayers?.population && worldPopMeta && (
+        <div className="absolute left-4 bottom-28 z-30 w-[min(320px,calc(100%-32px))] rounded-2xl border border-indigo-200/90 bg-white/95 p-3 shadow-[0_12px_30px_rgba(0,96,169,0.14)] backdrop-blur-md">
+          <div className="flex items-center gap-1.5">
+            <Users className="h-3.5 w-3.5 text-indigo-600" />
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-800">Population denominators</p>
+          </div>
+          <p className="mt-1 text-[11px] font-bold text-slate-800">
+            {fieldOrNone(worldPopMeta.country || worldPopMeta.iso3)} · {fieldOrNone(worldPopMeta.year)}
+          </p>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+            {worldPopMeta.status === "ok"
+              ? fieldOrNone(worldPopMeta.title)
+              : fieldOrNone(worldPopMeta.error)}
+          </p>
+          <p className="mt-1 text-[9px] font-semibold text-slate-400">
+            Density overlay: NASA SEDAC GPWv4 2020. WorldPop GeoTIFF is linked when the provider returns a file URL.
+          </p>
+          {worldPopMeta.tif_url ? (
+            <a href={worldPopMeta.tif_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-[#0060A9] hover:underline">
+              Open GeoTIFF <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : (
+            <p className="mt-1 text-[10px] font-semibold text-slate-400">GeoTIFF URL: No data</p>
+          )}
+        </div>
+      )}
+
       {selectedRegion && (
         <div
           className={`absolute ${popupPositionClass} z-30 w-[min(360px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5`}
@@ -1734,7 +2056,176 @@ export default function AseanMap({
           from { opacity:0; transform:translateY(-6px); }
           to   { opacity:1; transform:translateY(0); }
         }
+        @keyframes fadeSlideUp {
+          from { opacity:0; transform:translateY(8px); }
+          to   { opacity:1; transform:translateY(0); }
+        }
       `}</style>
+    </div>
+  );
+}
+
+function IntelRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3 text-[11px]">
+      <span className="shrink-0 font-semibold text-slate-500">{label}</span>
+      <span className={`text-right font-bold ${value === "No data" ? "text-slate-400" : "text-slate-800"}`}>{value}</span>
+    </div>
+  );
+}
+
+function IntelPopup({
+  selected,
+  className,
+  onClose,
+  showWeather,
+  showAir,
+}: {
+  selected:
+    | { type: "vector_sighting"; data: VectorSighting }
+    | { type: "live_flight"; data: LiveFlight }
+    | { type: "fire_hotspot"; data: FireHotspot }
+    | { type: "health_facility"; data: HealthFacility }
+    | { type: "hazard_event"; data: HazardEvent }
+    | { type: "environment"; data: EnvironmentMarker };
+  className: string;
+  onClose: () => void;
+  showWeather: boolean;
+  showAir: boolean;
+}) {
+  const icon =
+    selected.type === "live_flight" ? <Plane className="h-4 w-4" /> :
+    selected.type === "vector_sighting" ? <Bug className="h-4 w-4" /> :
+    selected.type === "fire_hotspot" ? <Flame className="h-4 w-4" /> :
+    selected.type === "health_facility" ? <Building2 className="h-4 w-4" /> :
+    selected.type === "environment" ? <CloudSun className="h-4 w-4" /> :
+    <Globe className="h-4 w-4" />;
+
+  const title =
+    selected.type === "live_flight" ? (selected.data.callsign || selected.data.icao24 || "Aircraft") :
+    selected.type === "vector_sighting" ? (selected.data.species || "Aedes sighting") :
+    selected.type === "fire_hotspot" ? "Active fire hotspot" :
+    selected.type === "health_facility" ? (selected.data.name || "Health facility") :
+    selected.type === "hazard_event" ? (selected.data.title || selected.data.kind || "Hazard") :
+    `${selected.data.capital}, ${selected.data.display_name}`;
+
+  const kicker =
+    selected.type === "live_flight" ? "Live air traffic · OpenSky" :
+    selected.type === "vector_sighting" ? "Vector sighting · iNaturalist" :
+    selected.type === "fire_hotspot" ? "Thermal anomaly · NASA FIRMS" :
+    selected.type === "health_facility" ? "Healthcare facility" :
+    selected.type === "hazard_event" ? `${fieldOrNone(selected.data.source).toUpperCase()} ${fieldOrNone(selected.data.kind)}` :
+    "Capital environment · Open-Meteo";
+
+  return (
+    <div
+      className={`absolute ${className} z-40 w-[min(380px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5`}
+      style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-3.5 top-3.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+        aria-label="Close"
+      >
+        <X className="h-4 w-4" />
+      </button>
+      <div className="flex items-start gap-2.5 pr-8">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-[#0060A9] ring-1 ring-blue-200/80">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-wider text-[#0060A9]">{kicker}</p>
+          <h3 className="mt-0.5 truncate text-base font-black text-slate-900">{fieldOrNone(title)}</h3>
+        </div>
+      </div>
+      <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
+        {selected.type === "live_flight" && (
+          <>
+            <IntelRow label="Callsign" value={fieldOrNone(selected.data.callsign)} />
+            <IntelRow label="ICAO24 hex" value={fieldOrNone(selected.data.icao24)} />
+            <IntelRow label="Origin country" value={fieldOrNone(selected.data.origin_country)} />
+            <IntelRow label="Altitude" value={formatAltitudeM(selected.data.altitude_m)} />
+            <IntelRow label="Ground speed" value={formatSpeedMs(selected.data.velocity_ms)} />
+            <IntelRow label="Heading" value={formatHeading(selected.data.heading)} />
+            <IntelRow label="On ground" value={fieldOrNone(selected.data.on_ground)} />
+            <IntelRow label="Squawk" value={fieldOrNone(selected.data.squawk)} />
+            <IntelRow label="Last contact" value={formatUnixSeconds(selected.data.last_contact)} />
+            <IntelRow label="Origin / destination" value="No data" />
+            <p className="pt-1 text-[9px] font-semibold leading-relaxed text-slate-400">
+              OpenSky state vectors do not include origin or destination airports. Missing fields are shown as No data.
+            </p>
+          </>
+        )}
+        {selected.type === "vector_sighting" && (
+          <>
+            <IntelRow label="Species" value={fieldOrNone(selected.data.species)} />
+            <IntelRow label="Place" value={fieldOrNone(selected.data.place)} />
+            <IntelRow label="Observed" value={fieldOrNone(selected.data.observed_on)} />
+            {selected.data.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={selected.data.photo_url} alt="" className="mt-2 h-24 w-full rounded-xl object-cover" />
+            ) : (
+              <IntelRow label="Photo" value="No data" />
+            )}
+          </>
+        )}
+        {selected.type === "fire_hotspot" && (
+          <>
+            <IntelRow label="Brightness" value={fieldOrNone(selected.data.brightness)} />
+            <IntelRow label="Confidence" value={fieldOrNone(selected.data.confidence)} />
+            <IntelRow label="Acquired" value={fieldOrNone([selected.data.acq_date, selected.data.acq_time].filter(Boolean).join(" "))} />
+            <IntelRow label="Satellite" value={fieldOrNone(selected.data.satellite)} />
+            <IntelRow label="FRP" value={fieldOrNone(selected.data.frp)} />
+          </>
+        )}
+        {selected.type === "health_facility" && (
+          <>
+            <IntelRow label="Name" value={fieldOrNone(selected.data.name)} />
+            <IntelRow label="Type" value={fieldOrNone(selected.data.amenity_type)} />
+            <IntelRow label="OSM id" value={fieldOrNone(selected.data.osm_id)} />
+          </>
+        )}
+        {selected.type === "hazard_event" && (
+          <>
+            <IntelRow label="Source" value={fieldOrNone(selected.data.source)} />
+            <IntelRow label="Kind" value={fieldOrNone(selected.data.kind)} />
+            <IntelRow label="Magnitude" value={fieldOrNone(selected.data.magnitude)} />
+            <IntelRow label="Alert" value={fieldOrNone(selected.data.alert_level)} />
+            <IntelRow label="When" value={typeof selected.data.when === "number" ? formatUnixSeconds(selected.data.when > 1e12 ? selected.data.when / 1000 : selected.data.when) : fieldOrNone(selected.data.when)} />
+            {"url" in selected.data && (selected.data as { url?: string }).url ? (
+              <a href={(selected.data as { url?: string }).url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0060A9] hover:underline">
+                Open source <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : (
+              <IntelRow label="Source URL" value="No data" />
+            )}
+          </>
+        )}
+        {selected.type === "environment" && (
+          <>
+            {(showWeather || !showAir) && (
+              <>
+                <IntelRow label="Temperature" value={selected.data.temperature_c == null ? "No data" : `${selected.data.temperature_c} °C`} />
+                <IntelRow label="Humidity" value={selected.data.relative_humidity_pct == null ? "No data" : `${selected.data.relative_humidity_pct}%`} />
+                <IntelRow label="Precipitation" value={selected.data.precipitation_mm == null ? "No data" : `${selected.data.precipitation_mm} mm`} />
+                <IntelRow label="Wind" value={selected.data.wind_speed_kmh == null ? "No data" : `${selected.data.wind_speed_kmh} km/h`} />
+                <IntelRow label="Weather observed" value={fieldOrNone(selected.data.weather_observed_at)} />
+              </>
+            )}
+            {(showAir || !showWeather) && (
+              <>
+                <IntelRow label="European AQI" value={fieldOrNone(selected.data.european_aqi)} />
+                <IntelRow label="AQI band" value={fieldOrNone(selected.data.aqi_label)} />
+                <IntelRow label="PM2.5" value={selected.data.pm2_5 == null ? "No data" : `${selected.data.pm2_5} µg/m³`} />
+                <IntelRow label="PM10" value={selected.data.pm10 == null ? "No data" : `${selected.data.pm10} µg/m³`} />
+                <IntelRow label="SO2" value={selected.data.so2 == null ? "No data" : `${selected.data.so2} µg/m³`} />
+                <IntelRow label="Air observed" value={fieldOrNone(selected.data.air_observed_at)} />
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,11 +1,12 @@
 'use client'
 
-import { Layers, MapPin, Settings, Wind, X, Bug, Plane, Flame, Building2, Newspaper, Users, Globe, Sun, CloudRain } from "lucide-react";
-import type { NasaGibsLayers, ExternalIntelLayers } from "@/types";
-import { useState } from "react";
+import { Layers, MapPin, Settings, Wind, X, Bug, Plane, Flame, Building2, Newspaper, Users, Globe, Sun, CloudRain, CloudSun, Droplets } from "lucide-react";
+import type { NasaGibsLayers, ExternalIntelLayers, MapLayerStatus } from "@/types";
+import { useEffect, useState } from "react";
 import AseanMap, { type HazardEvent } from "./AseanMap";
 import type { OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
+import { fetchMapHazards } from "@/lib/api";
 
 type Base = "osm" | "terrain" | "satellite" | "light" | "dark";
 type MarkerLookbackDays = 7 | 14 | 30 | 90;
@@ -75,7 +76,11 @@ export default function SpatialOutbreakMap({
       facilities: false,
       news: false,
       population: false,
+      weather: false,
+      airQuality: false,
     });
+  const [layerStatus, setLayerStatus] = useState<Record<string, MapLayerStatus>>({});
+  const [fetchedHazards, setFetchedHazards] = useState<HazardEvent[]>([]);
 
   const reset = () => {
     setBase("osm");
@@ -110,8 +115,82 @@ export default function SpatialOutbreakMap({
       facilities: false,
       news: false,
       population: false,
+      weather: false,
+      airQuality: false,
     });
   };
+
+  useEffect(() => {
+    if (!(usgs || gdacs)) {
+      setFetchedHazards([]);
+      setLayerStatus((prev) => ({
+        ...prev,
+        usgs: { state: "idle" },
+        gdacs: { state: "idle" },
+      }));
+      return;
+    }
+    if (hazardEvents.length > 0) {
+      const usgsCount = hazardEvents.filter((item) => (item.source || "").toLowerCase() === "usgs").length;
+      const gdacsCount = hazardEvents.filter((item) => (item.source || "").toLowerCase() === "gdacs").length;
+      setLayerStatus((prev) => ({
+        ...prev,
+        usgs: { state: usgsCount ? "ok" : "empty", count: usgsCount, message: usgsCount ? `${usgsCount} events` : "No USGS events for this country" },
+        gdacs: { state: gdacsCount ? "ok" : "empty", count: gdacsCount, message: gdacsCount ? `${gdacsCount} alerts` : "No GDACS alerts for this country" },
+      }));
+      return;
+    }
+    let cancelled = false;
+    setLayerStatus((prev) => ({
+      ...prev,
+      usgs: { state: "loading", message: "Loading USGS earthquakes…" },
+      gdacs: { state: "loading", message: "Loading GDACS alerts…" },
+    }));
+    fetchMapHazards()
+      .then((res) => {
+        if (cancelled) return;
+        const events = (res?.events || []) as HazardEvent[];
+        setFetchedHazards(events);
+        const usgsCount = events.filter((item) => (item.source || "").toLowerCase() === "usgs").length;
+        const gdacsCount = events.filter((item) => (item.source || "").toLowerCase() === "gdacs").length;
+        const err = res?.error || undefined;
+        setLayerStatus((prev) => ({
+          ...prev,
+          usgs: {
+            state: err && usgsCount === 0 ? "error" : usgsCount ? "ok" : "empty",
+            count: usgsCount,
+            source: "USGS",
+            message: usgsCount ? `${usgsCount} earthquakes` : err || "No M4.5+ quakes in the ASEAN window",
+          },
+          gdacs: {
+            state: err && gdacsCount === 0 ? "error" : gdacsCount ? "ok" : "empty",
+            count: gdacsCount,
+            source: "GDACS",
+            message: gdacsCount ? `${gdacsCount} alerts` : err || "No GDACS alerts in the ASEAN window",
+          },
+        }));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setFetchedHazards([]);
+        const message = err?.message || "Failed to load hazard feeds";
+        setLayerStatus((prev) => ({
+          ...prev,
+          usgs: { state: "error", message },
+          gdacs: { state: "error", message },
+        }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [usgs, gdacs, hazardEvents]);
+
+  const mergedHazards = (hazardEvents.length > 0 ? hazardEvents : fetchedHazards).filter((item) => {
+    const source = (item.source || "").toLowerCase();
+    if (source === "usgs") return usgs;
+    if (source === "gdacs") return gdacs;
+    return usgs || gdacs;
+  });
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-xl">
@@ -126,15 +205,13 @@ export default function SpatialOutbreakMap({
         bnpbLayers={bnpb}
         showWind={wind}
         highlightCountry={highlightCountry}
-        hazardEvents={hazardEvents.filter((item) => {
-          const source = (item.source || "").toLowerCase();
-          if (source === "usgs") return usgs;
-          if (source === "gdacs") return gdacs;
-          return usgs || gdacs;
-        })}
+        hazardEvents={mergedHazards}
         showHazards={usgs || gdacs}
         gibsLayers={gibs}
         intelLayers={intel}
+        onLayerStatus={(key, status) =>
+          setLayerStatus((prev) => (prev[key]?.state === status.state && prev[key]?.message === status.message ? prev : { ...prev, [key]: status }))
+        }
       />
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         <button
@@ -257,9 +334,10 @@ export default function SpatialOutbreakMap({
                 <Row
                   icon={<Layers className="h-4 w-4" />}
                   title="USGS earthquakes"
-                  sub="M4.5+ in the country window"
+                  sub="M4.5+ in the ASEAN window"
                   value={usgs}
                   set={setUsgs}
+                  status={layerStatus.usgs}
                 />
                 <Row
                   icon={<Layers className="h-4 w-4" />}
@@ -267,6 +345,7 @@ export default function SpatialOutbreakMap({
                   sub="EQ / flood / cyclone / volcano"
                   value={gdacs}
                   set={setGdacs}
+                  status={layerStatus.gdacs}
                 />
               </Group>
 
@@ -294,41 +373,63 @@ export default function SpatialOutbreakMap({
                   sub="iNaturalist community vector observations"
                   value={Boolean(intel.vectors)}
                   set={(v) => setIntel((p) => ({ ...p, vectors: v }))}
+                  status={layerStatus.vectors}
                 />
                 <Row
                   icon={<Plane className="h-4 w-4 text-cyan-600" />}
                   title="Live Air Traffic"
-                  sub="OpenSky Network ASEAN airspace connectivity"
+                  sub="OpenSky Network ASEAN airspace — click a point for flight info"
                   value={Boolean(intel.flights)}
                   set={(v) => setIntel((p) => ({ ...p, flights: v }))}
+                  status={layerStatus.flights}
                 />
                 <Row
                   icon={<Flame className="h-4 w-4 text-rose-600" />}
                   title="Active Fire Hotspots"
-                  sub="NASA FIRMS thermal anomalies & peat fire"
+                  sub="NASA FIRMS VIIRS 24h (public SE Asia CSV if no MAP_KEY)"
                   value={Boolean(intel.fires)}
                   set={(v) => setIntel((p) => ({ ...p, fires: v }))}
+                  status={layerStatus.fires}
                 />
                 <Row
                   icon={<Building2 className="h-4 w-4 text-emerald-600" />}
                   title="Healthcare Facilities"
-                  sub="Healthsites.io OSM healthcare access points"
+                  sub="OSM Overpass hospitals/clinics (Healthsites when keyed)"
                   value={Boolean(intel.facilities)}
                   set={(v) => setIntel((p) => ({ ...p, facilities: v }))}
+                  status={layerStatus.facilities}
                 />
                 <Row
                   icon={<Newspaper className="h-4 w-4 text-blue-600" />}
                   title="Global Disease Media"
-                  sub="GDELT Doc 2.0 live news intelligence"
+                  sub="GDELT Doc 2.0 with WHO News RSS fallback"
                   value={Boolean(intel.news)}
                   set={(v) => setIntel((p) => ({ ...p, news: v }))}
+                  status={layerStatus.news}
                 />
                 <Row
                   icon={<Users className="h-4 w-4 text-indigo-600" />}
                   title="Population Denominators"
-                  sub="WorldPop density metadata & GeoTIFF"
+                  sub="WorldPop metadata + GPWv4 2020 density overlay"
                   value={Boolean(intel.population)}
                   set={(v) => setIntel((p) => ({ ...p, population: v }))}
+                  status={layerStatus.population}
+                />
+                <Row
+                  icon={<CloudSun className="h-4 w-4 text-sky-600" />}
+                  title="Capital Weather"
+                  sub="Open-Meteo current conditions at ASEAN capitals"
+                  value={Boolean(intel.weather)}
+                  set={(v) => setIntel((p) => ({ ...p, weather: v }))}
+                  status={layerStatus.weather}
+                />
+                <Row
+                  icon={<Droplets className="h-4 w-4 text-emerald-700" />}
+                  title="Capital Air Quality"
+                  sub="Open-Meteo / CAMS AQI, PM2.5, PM10"
+                  value={Boolean(intel.airQuality)}
+                  set={(v) => setIntel((p) => ({ ...p, airQuality: v }))}
+                  status={layerStatus.airQuality}
                 />
               </Group>
 
@@ -350,8 +451,8 @@ export default function SpatialOutbreakMap({
                 />
                 <Row
                   icon={<CloudRain className="h-4 w-4 text-amber-500" />}
-                  title="Aerosol Optical Depth"
-                  sub="OMPS smoke/haze & air quality index"
+                  title="Aerosol Index"
+                  sub="OMPS smoke/haze aerosol index overlay"
                   value={Boolean(gibs.aerosol)}
                   set={(v) => setGibs((p) => ({ ...p, aerosol: v }))}
                 />
@@ -393,7 +494,7 @@ export default function SpatialOutbreakMap({
                     key={k}
                     icon={<Layers className="h-4 w-4" />}
                     title={l}
-                    sub={t("map.gisBnpb")}
+                    sub="Indonesia extent · gis.bnpb.go.id"
                     value={bnpb[k]}
                     set={(v) => setBnpb((p) => ({ ...p, [k]: v }))}
                   />
@@ -439,13 +540,31 @@ function Row({
   sub,
   value,
   set,
+  status,
 }: {
   icon: React.ReactNode;
   title: string;
   sub: string;
   value: boolean;
   set: (v: boolean) => void;
+  status?: MapLayerStatus;
 }) {
+  const statusText =
+    !value || !status || status.state === "idle"
+      ? null
+      : status.state === "loading"
+        ? status.message || "Loading…"
+        : status.state === "error"
+          ? status.message || "Layer failed"
+          : status.message;
+  const statusClass =
+    status?.state === "error"
+      ? "text-rose-600"
+      : status?.state === "empty"
+        ? "text-amber-600"
+        : status?.state === "loading"
+          ? "text-[#0060A9]"
+          : "text-emerald-700";
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
@@ -455,6 +574,9 @@ function Row({
         <div>
           <p className="text-xs font-bold text-slate-800">{title}</p>
           <p className="text-[10px] text-slate-400">{sub}</p>
+          {statusText && (
+            <p className={`mt-0.5 text-[10px] font-semibold ${statusClass}`}>{statusText}</p>
+          )}
         </div>
       </div>
       <Toggle value={value} set={set} />
