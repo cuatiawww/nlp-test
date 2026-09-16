@@ -383,9 +383,6 @@ export default function AnalyticsSituationPanel({
                 className="flex items-center justify-between rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50/40 p-2 text-left transition hover:border-amber-300 hover:shadow-xs cursor-pointer shrink-0"
               >
                 <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500 text-white shadow-xs">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                  </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-wider text-amber-950">
                       Location-based Surveillance Signals
@@ -481,7 +478,6 @@ export default function AnalyticsSituationPanel({
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <h4 className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wide text-slate-900">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
                     <span className="truncate">Location-based Surveillance Signals</span>
                   </h4>
                   <p className="text-[9.5px] font-semibold text-slate-500 mt-0.5">

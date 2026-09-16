@@ -11,8 +11,6 @@ import {
   CalendarDays,
   CloudRain,
   MapPin,
-  Newspaper,
-  ShieldCheck,
   Thermometer,
   Wind,
 } from 'lucide-react'
@@ -250,8 +248,6 @@ export default function RegionalDetailPreview() {
   const diseaseRows = snapshot?.by_disease || []
   const topDisease = diseaseRows[0]
   const leadCases = Math.max(...diseaseRows.map((item) => item.cases), 0)
-  const kpiSource = snapshot?.kpis.kpi_source
-  const isLive = Boolean(snapshot) && !error
   const availableYears = snapshot?.available_years || []
   const weatherOk = context?.weather?.status === 'ok'
   const airOk = context?.air_quality?.status === 'ok'
@@ -427,15 +423,6 @@ export default function RegionalDetailPreview() {
                   <CalendarDays className="h-4 w-4 text-[#0060A9]" /> {periodLabel}
                 </span>
               )}
-              {isLive ? (
-                <span className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">
-                  <ShieldCheck className="h-4 w-4" /> Live{kpiSource ? ` · ${kpiSource}` : ''}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <ShieldCheck className="h-4 w-4" /> {loading ? 'Loading snapshot' : 'Snapshot unavailable'}
-                </span>
-              )}
             </div>
           </div>
         </header>
@@ -457,11 +444,6 @@ export default function RegionalDetailPreview() {
               <h2 className="mt-1 text-xl font-black">Regional Characteristics</h2>
               <p className="mt-1 max-w-3xl text-sm font-medium leading-relaxed text-slate-500">A contextual view of why particular diseases may be observed in this region, supported by environmental and population indicators.</p>
             </div>
-            {isLive && (
-              <span className="inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
-                <ShieldCheck className="h-4 w-4" /> Context from live APIs
-              </span>
-            )}
           </div>
           <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
             <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-5">
@@ -525,14 +507,10 @@ export default function RegionalDetailPreview() {
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4 sm:px-7">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#047D78] text-white"><Newspaper className="h-4 w-4" /></span>
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#0060A9]">Regional media watch</p>
               <h2 className="mt-0.5 text-lg font-black">Hot News in {displayCountry}</h2>
             </div>
-            {isLive && (
-              <span className="ml-auto rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">Live events</span>
-            )}
           </div>
           {tickerNews.length > 0 ? (
             <div className="regional-news-track flex w-max gap-3 px-5 py-4 sm:px-7">
@@ -568,11 +546,6 @@ export default function RegionalDetailPreview() {
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#0060A9]">Spatial surveillance</p>
               <h2 className="mt-1 text-xl font-black">Integrated Regional Surveillance Map</h2>
               <p className="mt-1 text-sm font-medium text-slate-500">Province choropleth, disease locations, and environmental layers for {displayCountry}.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">Disease signals</span>
-              <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">USGS / GDACS</span>
-              <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">InaRISK{storageCountry === 'Indonesia' ? '' : ' (ID only)'}</span>
             </div>
           </div>
           <div className="mt-5">
