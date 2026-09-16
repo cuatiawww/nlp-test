@@ -60,7 +60,7 @@ def get_conn():
         # operate without the source registry connection.
         separator = "&" if "?" in config.DATABASE_URL else "?"
         conninfo = f"{config.DATABASE_URL}{separator}connect_timeout=5"
-        conn = psycopg.connect(conninfo, row_factory=dict_row)
+        conn = psycopg.connect(conninfo, row_factory=dict_row, autocommit=True)
         _connection_state.conn = conn
     return conn
 

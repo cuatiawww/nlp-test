@@ -10,6 +10,12 @@ import type {
   CrawlJobStatus,
   InteroperabilityIntegration,
   SourceSummary,
+  VectorSightingsResponse,
+  LiveFlightsResponse,
+  FireHotspotsResponse,
+  HealthFacilitiesResponse,
+  DiseaseNewsResponse,
+  WorldPopMeta,
 } from "@/types";
 
 // Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
@@ -770,4 +776,29 @@ export const fetchMorbidityMortality = (params?: PublicDashboardApiParams & { we
   const q = applyDashboardParams(params);
   if (params?.weeks) q.set('weeks', String(params.weeks));
   return fetchFrom<MorbidityMortalityResponse>(`/api/v1/morbidity-mortality?${q.toString()}`);
+};
+// ── External Map Layers API ───────────────────────────────────────────
+
+export const fetchVectorSightings = () =>
+  fetchFrom<VectorSightingsResponse>("/api/v1/map-layers/vectors");
+
+export const fetchLiveFlights = () =>
+  fetchFrom<LiveFlightsResponse>("/api/v1/map-layers/flights");
+
+export const fetchFireHotspots = () =>
+  fetchFrom<FireHotspotsResponse>("/api/v1/map-layers/fires");
+
+export const fetchHealthFacilities = (country?: string) => {
+  const q = country ? `?country=${encodeURIComponent(country)}` : "";
+  return fetchFrom<HealthFacilitiesResponse>(`/api/v1/map-layers/facilities${q}`);
+};
+
+export const fetchDiseaseNews = (disease?: string) => {
+  const q = disease ? `?disease=${encodeURIComponent(disease)}` : "";
+  return fetchFrom<DiseaseNewsResponse>(`/api/v1/map-layers/news${q}`);
+};
+
+export const fetchWorldPopMeta = (iso3?: string) => {
+  const q = iso3 ? `?iso3=${encodeURIComponent(iso3)}` : "";
+  return fetchFrom<WorldPopMeta>(`/api/v1/map-layers/population${q}`);
 };

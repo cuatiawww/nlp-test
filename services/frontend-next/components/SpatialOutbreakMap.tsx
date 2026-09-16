@@ -1,6 +1,7 @@
 'use client'
 
-import { Layers, MapPin, Settings, Wind, X } from "lucide-react";
+import { Layers, MapPin, Settings, Wind, X, Bug, Plane, Flame, Building2, Newspaper, Users, Globe, Sun, CloudRain } from "lucide-react";
+import type { NasaGibsLayers, ExternalIntelLayers } from "@/types";
 import { useState } from "react";
 import AseanMap, { type HazardEvent } from "./AseanMap";
 import type { OutbreakLocation } from "@/types";
@@ -58,6 +59,22 @@ export default function SpatialOutbreakMap({
       forestFire: false,
       hillshade: false,
       population: false,
+    }),
+    [gibs, setGibs] = useState<NasaGibsLayers>({
+      viirsTrueColor: false,
+      modisTrueColor: false,
+      aerosol: false,
+      ndvi: false,
+      nightLights: false,
+      landSurfaceTemp: false,
+    }),
+    [intel, setIntel] = useState<ExternalIntelLayers>({
+      vectors: false,
+      flights: false,
+      fires: false,
+      facilities: false,
+      news: false,
+      population: false,
     });
 
   const reset = () => {
@@ -76,6 +93,22 @@ export default function SpatialOutbreakMap({
       landslide: false,
       forestFire: false,
       hillshade: false,
+      population: false,
+    });
+    setGibs({
+      viirsTrueColor: false,
+      modisTrueColor: false,
+      aerosol: false,
+      ndvi: false,
+      nightLights: false,
+      landSurfaceTemp: false,
+    });
+    setIntel({
+      vectors: false,
+      flights: false,
+      fires: false,
+      facilities: false,
+      news: false,
       population: false,
     });
   };
@@ -100,6 +133,8 @@ export default function SpatialOutbreakMap({
           return usgs || gdacs;
         })}
         showHazards={usgs || gdacs}
+        gibsLayers={gibs}
+        intelLayers={intel}
       />
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         <button
@@ -249,6 +284,98 @@ export default function SpatialOutbreakMap({
                     </button>
                   ))}
                 </div>
+              </Group>
+
+              {/* ── Surveillance & Vector Intelligence ── */}
+              <Group title="Surveillance & Vector Intelligence">
+                <Row
+                  icon={<Bug className="h-4 w-4 text-amber-600" />}
+                  title="Aedes Mosquito Sightings"
+                  sub="iNaturalist community vector observations"
+                  value={Boolean(intel.vectors)}
+                  set={(v) => setIntel((p) => ({ ...p, vectors: v }))}
+                />
+                <Row
+                  icon={<Plane className="h-4 w-4 text-cyan-600" />}
+                  title="Live Air Traffic"
+                  sub="OpenSky Network ASEAN airspace connectivity"
+                  value={Boolean(intel.flights)}
+                  set={(v) => setIntel((p) => ({ ...p, flights: v }))}
+                />
+                <Row
+                  icon={<Flame className="h-4 w-4 text-rose-600" />}
+                  title="Active Fire Hotspots"
+                  sub="NASA FIRMS thermal anomalies & peat fire"
+                  value={Boolean(intel.fires)}
+                  set={(v) => setIntel((p) => ({ ...p, fires: v }))}
+                />
+                <Row
+                  icon={<Building2 className="h-4 w-4 text-emerald-600" />}
+                  title="Healthcare Facilities"
+                  sub="Healthsites.io OSM healthcare access points"
+                  value={Boolean(intel.facilities)}
+                  set={(v) => setIntel((p) => ({ ...p, facilities: v }))}
+                />
+                <Row
+                  icon={<Newspaper className="h-4 w-4 text-blue-600" />}
+                  title="Global Disease Media"
+                  sub="GDELT Doc 2.0 live news intelligence"
+                  value={Boolean(intel.news)}
+                  set={(v) => setIntel((p) => ({ ...p, news: v }))}
+                />
+                <Row
+                  icon={<Users className="h-4 w-4 text-indigo-600" />}
+                  title="Population Denominators"
+                  sub="WorldPop density metadata & GeoTIFF"
+                  value={Boolean(intel.population)}
+                  set={(v) => setIntel((p) => ({ ...p, population: v }))}
+                />
+              </Group>
+
+              {/* ── NASA GIBS Satellite Imagery ── */}
+              <Group title="Satellite Earth Observation (NASA GIBS)">
+                <Row
+                  icon={<Globe className="h-4 w-4 text-blue-500" />}
+                  title="VIIRS True Color"
+                  sub="SNPP satellite imagery overlay"
+                  value={Boolean(gibs.viirsTrueColor)}
+                  set={(v) => setGibs((p) => ({ ...p, viirsTrueColor: v }))}
+                />
+                <Row
+                  icon={<Globe className="h-4 w-4 text-teal-500" />}
+                  title="MODIS Terra True Color"
+                  sub="Daily Terra satellite true color overlay"
+                  value={Boolean(gibs.modisTrueColor)}
+                  set={(v) => setGibs((p) => ({ ...p, modisTrueColor: v }))}
+                />
+                <Row
+                  icon={<CloudRain className="h-4 w-4 text-amber-500" />}
+                  title="Aerosol Optical Depth"
+                  sub="OMPS smoke/haze & air quality index"
+                  value={Boolean(gibs.aerosol)}
+                  set={(v) => setGibs((p) => ({ ...p, aerosol: v }))}
+                />
+                <Row
+                  icon={<Layers className="h-4 w-4 text-emerald-500" />}
+                  title="NDVI Vegetation Index"
+                  sub="MODIS 8-day vegetation greenness"
+                  value={Boolean(gibs.ndvi)}
+                  set={(v) => setGibs((p) => ({ ...p, ndvi: v }))}
+                />
+                <Row
+                  icon={<Sun className="h-4 w-4 text-yellow-500" />}
+                  title="Nighttime Lights"
+                  sub="VIIRS Black Marble urban illumination"
+                  value={Boolean(gibs.nightLights)}
+                  set={(v) => setGibs((p) => ({ ...p, nightLights: v }))}
+                />
+                <Row
+                  icon={<Flame className="h-4 w-4 text-orange-500" />}
+                  title="Land Surface Temp"
+                  sub="MODIS daytime thermal climate"
+                  value={Boolean(gibs.landSurfaceTemp)}
+                  set={(v) => setGibs((p) => ({ ...p, landSurfaceTemp: v }))}
+                />
               </Group>
 
               <Group title={t("map.bnpbInarisk")}>

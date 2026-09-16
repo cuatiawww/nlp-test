@@ -8070,11 +8070,19 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
             applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
+        SET lock_timeout = '5s';
+
         DO $$
         BEGIN
-            ALTER TABLE collector_sources DROP CONSTRAINT IF EXISTS collector_sources_source_type_check;
-            ALTER TABLE collector_sources ADD CONSTRAINT collector_sources_source_type_check
-                CHECK (source_type IN ('rss','web','csv','social_media','api','skdr_api'));
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'collector_sources_source_type_check'
+                  AND pg_get_constraintdef(oid) LIKE '%skdr_api%'
+            ) THEN
+                ALTER TABLE collector_sources DROP CONSTRAINT IF EXISTS collector_sources_source_type_check;
+                ALTER TABLE collector_sources ADD CONSTRAINT collector_sources_source_type_check
+                    CHECK (source_type IN ('rss','web','csv','social_media','api','skdr_api'));
+            END IF;
         EXCEPTION WHEN OTHERS THEN
             NULL;
         END $$;
@@ -8198,8 +8206,18 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_report_narrative_cache_lookup
             ON report_narrative_cache (template_id, scope, period_start, period_end, data_hash);
 
-        ALTER TABLE disease_events ALTER COLUMN case_count DROP DEFAULT;
-        ALTER TABLE disease_events ALTER COLUMN case_count SET DEFAULT NULL;
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'disease_events' AND column_name = 'case_count' AND column_default IS NOT NULL
+            ) THEN
+                ALTER TABLE disease_events ALTER COLUMN case_count DROP DEFAULT;
+                ALTER TABLE disease_events ALTER COLUMN case_count SET DEFAULT NULL;
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            NULL;
+        END $$;
 
         CREATE INDEX IF NOT EXISTS idx_disease_events_dashboard_published_valid
             ON disease_events (published_at DESC, raw_report_id, confidence DESC, created_at DESC)

@@ -1,7 +1,5 @@
 -- Register external map layer APIs used by the Spatial Outbreak Map.
 -- Status describes application integration, not a live provider health check.
-BEGIN;
-
 INSERT INTO interoperability_integrations
     (name, integration_type, provider, source_url, endpoint, status, integrated_in, description, enabled)
 SELECT * FROM (VALUES
@@ -94,4 +92,3 @@ WHERE NOT EXISTS (
     SELECT 1 FROM interoperability_integrations existing WHERE existing.name = seed.name
 );
 
-COMMIT;

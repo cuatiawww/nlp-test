@@ -17,12 +17,32 @@ import { Style, Fill, Stroke, Circle as CircleStyle } from "ol/style";
 import Feature from "ol/Feature";
 import type Geometry from "ol/geom/Geometry";
 import CircleGeom from "ol/geom/Circle";
+import Point from "ol/geom/Point";
 import type { FeatureLike } from "ol/Feature";
 import { fromLonLat } from "ol/proj";
 import { unByKey } from "ol/Observable";
 import { defaults as defaultControls } from "ol/control";
-import { X, MapPin, RotateCcw, Navigation, Activity, Skull, ChevronRight } from "lucide-react";
-import type { AnalyzeResponse, OutbreakLocation } from "@/types";
+import { X, MapPin, RotateCcw, Navigation, Activity, Skull, ChevronRight, Bug, Plane, Flame, Building2, Newspaper, Users, ExternalLink, Globe } from "lucide-react";
+import type {
+  AnalyzeResponse,
+  OutbreakLocation,
+  NasaGibsLayers,
+  ExternalIntelLayers,
+  VectorSighting,
+  LiveFlight,
+  FireHotspot,
+  HealthFacility,
+  DiseaseNewsArticle,
+  WorldPopMeta,
+} from "@/types";
+import {
+  fetchVectorSightings,
+  fetchLiveFlights,
+  fetchFireHotspots,
+  fetchHealthFacilities,
+  fetchDiseaseNews,
+  fetchWorldPopMeta,
+} from "@/lib/api";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 import CountryFlag from "@/components/CountryFlag";
 
@@ -67,6 +87,8 @@ type Props = {
   highlightCountry?: string;
   hazardEvents?: HazardEvent[];
   showHazards?: boolean;
+  gibsLayers?: NasaGibsLayers;
+  intelLayers?: ExternalIntelLayers;
 };
 
 type RegionMetric = {
@@ -148,6 +170,8 @@ export default function AseanMap({
   embedded,
   highlightCountry,
   hideLegend = false,
+  gibsLayers,
+  intelLayers,
   hazardEvents,
   showHazards = true,
 }: Props) {
@@ -161,6 +185,22 @@ export default function AseanMap({
   const currentCountryBoundaryRef = useRef<VectorLayer<VectorSource> | null>(null);
   const tileRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const bnpbRef = useRef<Record<string, TileLayer<TileArcGISRest>>>({});
+  const gibsRef = useRef<Record<string, TileLayer<XYZ>>>({});
+  const vectorSightingsRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const flightsRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const firesRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const facilitiesRef = useRef<VectorLayer<VectorSource> | null>(null);
+
+  const [selectedIntel, setSelectedIntel] = useState<
+    | { type: "vector_sighting"; data: VectorSighting }
+    | { type: "live_flight"; data: LiveFlight }
+    | { type: "fire_hotspot"; data: FireHotspot }
+    | { type: "health_facility"; data: HealthFacility }
+    | null
+  >(null);
+  const [diseaseNews, setDiseaseNews] = useState<DiseaseNewsArticle[]>([]);
+  const [newsOpen, setNewsOpen] = useState(true);
+  const [worldPopMeta, setWorldPopMeta] = useState<WorldPopMeta | null>(null);
   const radiusRef = useRef<VectorLayer<VectorSource> | null>(null);
   const windRef = useRef<any>(null);
 
@@ -354,6 +394,109 @@ export default function AseanMap({
       opacity: fullBleed ? 1 : 0.35,
     });
     tileRef.current = tileLayer;
+    // ── External Intel Vector Layers ─────────────────────────
+    const vectorSightingsLayer = new VectorLayer({
+      source: new VectorSource(),
+      zIndex: 22,
+      style: () =>
+        new Style({
+          image: new CircleStyle({
+            radius: 6,
+            fill: new Fill({ color: "rgba(245, 158, 11, 0.9)" }),
+            stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+          }),
+        }),
+    });
+    vectorSightingsRef.current = vectorSightingsLayer;
+
+    const flightsLayer = new VectorLayer({
+      source: new VectorSource(),
+      zIndex: 23,
+      style: () =>
+        new Style({
+          image: new CircleStyle({
+            radius: 5.5,
+            fill: new Fill({ color: "rgba(6, 182, 212, 0.9)" }),
+            stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+          }),
+        }),
+    });
+    flightsRef.current = flightsLayer;
+
+    const firesLayer = new VectorLayer({
+      source: new VectorSource(),
+      zIndex: 24,
+      style: () =>
+        new Style({
+          image: new CircleStyle({
+            radius: 5.5,
+            fill: new Fill({ color: "rgba(239, 68, 68, 0.9)" }),
+            stroke: new Stroke({ color: "#fef08a", width: 1.5 }),
+          }),
+        }),
+    });
+    firesRef.current = firesLayer;
+
+    const facilitiesLayer = new VectorLayer({
+      source: new VectorSource(),
+      zIndex: 22,
+      style: () =>
+        new Style({
+          image: new CircleStyle({
+            radius: 5,
+            fill: new Fill({ color: "rgba(16, 185, 129, 0.9)" }),
+            stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+          }),
+        }),
+    });
+    facilitiesRef.current = facilitiesLayer;
+
+    // ── NASA GIBS WMTS Overlays ──────────────────────────────
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+    const makeGibs = (key: string, url: string, maxZoom: number, opacity = 0.65, zIndex = 6) => {
+      const layer = new TileLayer({
+        source: new XYZ({ url, maxZoom, crossOrigin: "anonymous" }),
+        visible: false,
+        opacity,
+        zIndex,
+      });
+      gibsRef.current[key] = layer;
+      return layer;
+    };
+
+    const gibsLayersList = [
+      makeGibs(
+        "viirsTrueColor",
+        `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${yesterday}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
+        9, 0.7, 6
+      ),
+      makeGibs(
+        "modisTrueColor",
+        `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/${yesterday}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
+        9, 0.7, 6
+      ),
+      makeGibs(
+        "aerosol",
+        `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/OMPS_Aerosol_Index_NM_Pyramid/default/${yesterday}/GoogleMapsCompatible_Level6/{z}/{y}/{x}.png`,
+        6, 0.6, 7
+      ),
+      makeGibs(
+        "ndvi",
+        `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/${yesterday}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png`,
+        9, 0.6, 7
+      ),
+      makeGibs(
+        "nightLights",
+        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png",
+        8, 0.7, 6
+      ),
+      makeGibs(
+        "landSurfaceTemp",
+        `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_Land_Surface_Temp_Day/default/${yesterday}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`,
+        7, 0.6, 7
+      ),
+    ];
+
     const makeBnpb = (key: string, url: string, opacity = 0.58) => {
       const layer = new TileLayer({
         source: new TileArcGISRest({ url }),
@@ -399,12 +542,17 @@ export default function AseanMap({
       layers: [
         tileLayer,
         ...externalLayers,
+        ...gibsLayersList,
         vectorLayer,
         currentCountryBoundaryLayer,
         regionLayer,
         radiusLayer,
         markerLayer,
         hazardLayer,
+        vectorSightingsLayer,
+        flightsLayer,
+        firesLayer,
+        facilitiesLayer,
       ],
       view: new View({
         center: fromLonLat([110, 2]),
@@ -416,6 +564,37 @@ export default function AseanMap({
     });
 
     const clickKey = map.on("singleclick", (evt) => {
+      // Check click on external intelligence features first
+      const intelHits: FeatureLike[] = [];
+      map.forEachFeatureAtPixel(
+        evt.pixel,
+        (f) => {
+          intelHits.push(f);
+          return true;
+        },
+        {
+          hitTolerance: 10,
+          layerFilter: (l) =>
+            l === vectorSightingsLayer ||
+            l === flightsLayer ||
+            l === firesLayer ||
+            l === facilitiesLayer,
+        },
+      );
+
+      if (intelHits.length > 0) {
+        const f = intelHits[0];
+        const intelType = f.get("intelType");
+        const intelData = f.get("intelData");
+        if (intelType && intelData) {
+          setSelected(null);
+          setSelectedRegion(null);
+          setSelectedLocation(null);
+          setSelectedIntel({ type: intelType, data: intelData });
+          return;
+        }
+      }
+
       const markerHits: FeatureLike[] = [];
       map.forEachFeatureAtPixel(
         evt.pixel,
@@ -430,6 +609,7 @@ export default function AseanMap({
       if (clickedLocation) {
         setSelected(null);
         setSelectedRegion(null);
+        setSelectedIntel(null);
         setSelectedLocation(clickedLocation);
         return;
       }
@@ -637,6 +817,145 @@ export default function AseanMap({
       layer.setVisible(Boolean(bnpbLayers?.[key as keyof typeof bnpbLayers])),
     );
   }, [bnpbLayers]);
+
+  // NASA GIBS WMTS Tile Layer Toggles
+  useEffect(() => {
+    if (!gibsLayers) return;
+    Object.entries(gibsRef.current).forEach(([key, layer]) => {
+      if (layer) layer.setVisible(Boolean(gibsLayers[key as keyof NasaGibsLayers]));
+    });
+  }, [gibsLayers]);
+
+  // iNaturalist Aedes Vector Sightings
+  useEffect(() => {
+    const layer = vectorSightingsRef.current;
+    if (!layer) return;
+    const visible = Boolean(intelLayers?.vectors);
+    layer.setVisible(visible);
+    if (!visible) return;
+    const src = layer.getSource();
+    if (src && src.getFeatures().length === 0) {
+      fetchVectorSightings().then((res) => {
+        if (res?.sightings) {
+          const features = res.sightings.map((s) => {
+            const f = new Feature({
+              geometry: new Point(fromLonLat([s.longitude, s.latitude])),
+            });
+            f.set("intelType", "vector_sighting");
+            f.set("intelData", s);
+            return f;
+          });
+          src.addFeatures(features);
+        }
+      }).catch(() => {});
+    }
+  }, [intelLayers?.vectors]);
+
+  // OpenSky Live Flights
+  useEffect(() => {
+    const layer = flightsRef.current;
+    if (!layer) return;
+    const visible = Boolean(intelLayers?.flights);
+    layer.setVisible(visible);
+    if (!visible) return;
+    const src = layer.getSource();
+    if (src && src.getFeatures().length === 0) {
+      fetchLiveFlights().then((res) => {
+        if (res?.flights) {
+          const features = res.flights.map((flight) => {
+            const f = new Feature({
+              geometry: new Point(fromLonLat([flight.longitude, flight.latitude])),
+            });
+            f.set("intelType", "live_flight");
+            f.set("intelData", flight);
+            return f;
+          });
+          src.addFeatures(features);
+        }
+      }).catch(() => {});
+    }
+  }, [intelLayers?.flights]);
+
+  // NASA FIRMS Active Fire Hotspots
+  useEffect(() => {
+    const layer = firesRef.current;
+    if (!layer) return;
+    const visible = Boolean(intelLayers?.fires);
+    layer.setVisible(visible);
+    if (!visible) return;
+    const src = layer.getSource();
+    if (src && src.getFeatures().length === 0) {
+      fetchFireHotspots().then((res) => {
+        if (res?.hotspots) {
+          const features = res.hotspots.map((h) => {
+            const f = new Feature({
+              geometry: new Point(fromLonLat([h.longitude, h.latitude])),
+            });
+            f.set("intelType", "fire_hotspot");
+            f.set("intelData", h);
+            return f;
+          });
+          src.addFeatures(features);
+        }
+      }).catch(() => {});
+    }
+  }, [intelLayers?.fires]);
+
+  // Healthsites.io Healthcare Facilities
+  useEffect(() => {
+    const layer = facilitiesRef.current;
+    if (!layer) return;
+    const visible = Boolean(intelLayers?.facilities);
+    layer.setVisible(visible);
+    if (!visible) return;
+    const targetCountry = selected?.name || highlightCountry || "Indonesia";
+    const src = layer.getSource();
+    if (src) {
+      src.clear();
+      fetchHealthFacilities(targetCountry).then((res) => {
+        if (res?.facilities) {
+          const features = res.facilities.map((fac) => {
+            const f = new Feature({
+              geometry: new Point(fromLonLat([fac.longitude, fac.latitude])),
+            });
+            f.set("intelType", "health_facility");
+            f.set("intelData", fac);
+            return f;
+          });
+          src.addFeatures(features);
+        }
+      }).catch(() => {});
+    }
+  }, [intelLayers?.facilities, selected?.name, highlightCountry]);
+
+  // GDELT Disease News
+  useEffect(() => {
+    if (!intelLayers?.news) {
+      setDiseaseNews([]);
+      return;
+    }
+    fetchDiseaseNews().then((res) => {
+      if (res?.articles) {
+        setDiseaseNews(res.articles);
+        setNewsOpen(true);
+      }
+    }).catch(() => {});
+  }, [intelLayers?.news]);
+
+  // WorldPop Population Denominators
+  useEffect(() => {
+    if (!intelLayers?.population) {
+      setWorldPopMeta(null);
+      return;
+    }
+    const country = normalizedCountry(selected?.name || highlightCountry || "indonesia");
+    const iso3 = COUNTRY_ISO3[country] || "IDN";
+    fetchWorldPopMeta(iso3).then((res) => {
+      if (res && (res.tif_url || res.iso3)) {
+        setWorldPopMeta(res);
+      }
+    }).catch(() => {});
+  }, [intelLayers?.population, selected?.name, highlightCountry]);
 
   useEffect(() => {
     const source = radiusRef.current?.getSource();
@@ -975,6 +1294,7 @@ export default function AseanMap({
     setSelected(null);
     setSelectedRegion(null);
     setSelectedLocation(null);
+    setSelectedIntel(null);
     mapRef.current
       ?.getView()
       .animate({ center: fromLonLat([110, 2]), zoom: 4, duration: 450 });

@@ -375,3 +375,118 @@ export type CrawlJobStatus = {
   updated_at?: string;
   rows: CrawlMatrixRow[];
 };
+// ── External Map Layer Types ──────────────────────────────────────────
+
+export type VectorSighting = {
+  latitude: number;
+  longitude: number;
+  species: string;
+  observed_on: string;
+  photo_url?: string;
+  place?: string;
+};
+
+export type VectorSightingsResponse = {
+  status: string;
+  source: string;
+  total?: number;
+  sightings: VectorSighting[];
+  error?: string;
+};
+
+export type LiveFlight = {
+  callsign: string;
+  origin_country: string;
+  latitude: number;
+  longitude: number;
+  altitude_m?: number | null;
+  velocity_ms?: number | null;
+  heading?: number | null;
+};
+
+export type LiveFlightsResponse = {
+  status: string;
+  source: string;
+  total: number;
+  flights: LiveFlight[];
+  error?: string;
+};
+
+export type FireHotspot = {
+  latitude: number;
+  longitude: number;
+  brightness?: number | null;
+  confidence?: string | null;
+  acq_date?: string | null;
+};
+
+export type FireHotspotsResponse = {
+  status: string;
+  source: string;
+  total?: number;
+  hotspots: FireHotspot[];
+  error?: string;
+};
+
+export type HealthFacility = {
+  name: string;
+  latitude: number;
+  longitude: number;
+  amenity_type: string;
+  osm_id?: number | string | null;
+};
+
+export type HealthFacilitiesResponse = {
+  status: string;
+  source: string;
+  total?: number;
+  facilities: HealthFacility[];
+  error?: string;
+};
+
+export type DiseaseNewsArticle = {
+  title: string;
+  url: string;
+  domain: string;
+  source_country: string;
+  language: string;
+  seen_date: string;
+};
+
+export type DiseaseNewsResponse = {
+  status: string;
+  source: string;
+  total?: number;
+  articles: DiseaseNewsArticle[];
+  error?: string;
+};
+
+export type WorldPopMeta = {
+  status: string;
+  source: string;
+  iso3: string;
+  country?: string;
+  year?: string;
+  title?: string;
+  tif_url?: string;
+  summary_url?: string;
+  error?: string;
+};
+
+export type NasaGibsLayers = {
+  viirsTrueColor?: boolean;
+  modisTrueColor?: boolean;
+  aerosol?: boolean;
+  ndvi?: boolean;
+  nightLights?: boolean;
+  landSurfaceTemp?: boolean;
+};
+
+export type ExternalIntelLayers = {
+  vectors?: boolean;
+  flights?: boolean;
+  fires?: boolean;
+  facilities?: boolean;
+  news?: boolean;
+  population?: boolean;
+};
