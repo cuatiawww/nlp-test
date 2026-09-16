@@ -34,7 +34,7 @@ export function EpiCurveChart({
     <figure className="break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
-        <p className="text-xs text-slate-500">{epiLabel ? `${epiLabel} · ` : ''}Unit: extracted cases and events · Source: materialized KPI snapshot</p>
+        <p className="text-xs text-slate-500">{epiLabel ? `${epiLabel} · ` : ''}Unit: extracted cases and deaths · Source: materialized KPI snapshot</p>
       </figcaption>
       <div className="h-64">
         {data.length ? (
@@ -46,7 +46,7 @@ export function EpiCurveChart({
               <Tooltip />
               <Legend />
               <Bar dataKey="cases" name="Cases" fill="#3182bd" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="events" name="Events" fill="#08519c" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="deaths" name="Deaths" fill="#9b2c2c" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
@@ -59,7 +59,7 @@ export function EpiCurveChart({
 
 export function AmsBarChart({
   rows,
-  indicator = 'events',
+  indicator = 'cases',
   title = 'AMS comparison',
   epiLabel,
 }: {
@@ -122,7 +122,7 @@ export function WeeklyLineChart({
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">
-          {epiLabel ? `${epiLabel} · ` : ''}Line = extracted cases; bars in companion figures use events. Missing AMS are omitted, not zero-filled.
+          {epiLabel ? `${epiLabel} · ` : ''}Line = extracted cases and deaths. Missing AMS are omitted, not zero-filled.
         </p>
       </figcaption>
       <div className="h-64">
@@ -135,7 +135,7 @@ export function WeeklyLineChart({
               <Tooltip />
               <Legend />
               <Line type="monotone" dataKey="cases" name="Cases" stroke="#3182bd" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="events" name="Events" stroke="#08519c" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="deaths" name="Deaths" stroke="#9b2c2c" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         ) : (
@@ -158,7 +158,7 @@ export function DiseaseSmallMultiples({
     <figure className="rounded-2xl border border-slate-200 bg-white p-4">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
-        <p className="text-xs text-slate-500">Top diseases by event count. Empty panes mean no matching events for that disease-week, not a plotted zero series.</p>
+        <p className="text-xs text-slate-500">Selected diseases by extracted cases. Empty panes mean no matching extracts for that disease-week, not a plotted zero series.</p>
       </figcaption>
       {items.length ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -172,7 +172,7 @@ export function DiseaseSmallMultiples({
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                         <XAxis dataKey="label" tick={{ fontSize: 8 }} interval="preserveStartEnd" />
-                        <Bar dataKey="events" fill="#3182bd" />
+                        <Bar dataKey="cases" fill="#3182bd" />
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
@@ -200,7 +200,7 @@ function cellFill(value: number | null, max: number) {
 export function AmsWeekHeatmap({
   rows,
   fallbackWeeks,
-  title = 'AMS × week heatmap (events)',
+  title = 'AMS × week heatmap (cases)',
 }: {
   rows?: AmsWeekPoint[]
   fallbackWeeks?: { year: number; week: number }[]

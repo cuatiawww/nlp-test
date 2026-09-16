@@ -95,7 +95,7 @@ export function buildAmsWeekHeatmap(rows, weeks) {
     cells: weeks.map((week) => {
       const hit = lookup.get(`${ams.iso3}|${week.year}|${week.week}`)
       if (!hit || hit.has_data === false) return heatmapCell(null, false)
-      return heatmapCell(hit.events ?? hit.cases ?? 0, true)
+      return heatmapCell(hit.cases ?? hit.events ?? 0, true)
     }),
   }))
 }

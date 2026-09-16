@@ -11,11 +11,13 @@ const CHECKS = [
   'CFR only shown when cases > 0',
   'Map legend includes No data / Not reported',
   'ISO3 join used; no name-only matching',
-  'Highlights ≤ 5 and human-edited',
-  'KPI snapshot pulled for the correct epi week',
+  'Highlights edited by a human',
+  'KPI snapshot pulled for the correct epi week and selected diseases',
   'Sources and limitations present',
   'No LLM essay pasted as the body',
-  'Template section order matches bulletin or SitRep outline',
+  'Charts/maps show cases, deaths, or CFR — never crawler/scrape volume',
+  'Each selected disease has a chapter (empty chapters are No data, not dummy counts)',
+  'Cover uploaded or default cover accepted; section order reviewed',
   'Heatmap / map missing cells are No data, not zero',
 ]
 

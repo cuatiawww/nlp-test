@@ -69,7 +69,7 @@ function iso3Of(feature: Feature) {
 
 export default function AseanChoropleth({
   rows,
-  indicator = 'events',
+  indicator = 'cases',
   epiLabel,
   title = 'ASEAN-11 choropleth (Admin-0)',
 }: {

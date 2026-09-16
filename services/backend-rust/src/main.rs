@@ -2,6 +2,7 @@
 
 mod region_context;
 mod report_narrative;
+mod report_package;
 mod reports_cms;
 mod security;
 
@@ -1756,6 +1757,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/report-issues/:id/transition", post(reports_cms::transition_issue))
         .route("/api/v1/report-issues/:id/publish", post(reports_cms::publish_issue))
         .route("/api/v1/report-issues/:id/suggest-notes", post(reports_cms::suggest_notes))
+        .route("/api/v1/report-issues/:id/assets", post(reports_cms::upsert_asset))
         .route("/api/v1/skdr/ibs-summary", get(skdr_detached))
         .route("/api/v1/skdr/ebs-summary", get(skdr_detached))
         .route("/api/v1/spatial-heatmap", get(spatial_heatmap))
@@ -8079,6 +8081,12 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
         );
         ALTER TABLE report_issues
             ADD COLUMN IF NOT EXISTS narrative JSONB NOT NULL DEFAULT '{}'::jsonb;
+        ALTER TABLE report_issues
+            ADD COLUMN IF NOT EXISTS selected_diseases JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE report_issues
+            ADD COLUMN IF NOT EXISTS section_order JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE report_issues
+            ADD COLUMN IF NOT EXISTS assets JSONB NOT NULL DEFAULT '{}'::jsonb;
         ALTER TABLE report_issues
             ALTER COLUMN template_id SET DEFAULT 'situation_report_v1';
         UPDATE report_issues

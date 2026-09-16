@@ -86,7 +86,7 @@ fn compact_diseases(rows: Option<&Vec<Value>>) -> Vec<Value> {
     rows.cloned()
         .unwrap_or_default()
         .into_iter()
-        .take(8)
+        .take(24)
         .map(|row| {
             json!({
                 "disease_code": row.get("disease_code"),
@@ -168,6 +168,7 @@ pub fn truncated_stats_payload(package: &Value) -> Value {
         },
         "by_ams": compact_ams(by_ams),
         "by_disease": compact_diseases(by_disease),
+        "selected_diseases": clean.get("selected_diseases"),
         "matrix": matrix,
         "sources": sources,
         "alerts": alerts,
@@ -217,7 +218,7 @@ fn cap_highlights(raw: &[Value]) -> Vec<String> {
             }
         })
         .filter(|s| !s.is_empty())
-        .take(5)
+        .take(crate::report_package::MAX_HIGHLIGHTS)
         .collect()
 }
 
@@ -279,10 +280,10 @@ pub fn draft_from_model_json(parsed: &Value, template_id: &str) -> NarrativeDraf
             }
             Some(json!({
                 "disease_code": code,
-                "note": note.chars().take(1200).collect::<String>(),
+                "note": note.chars().take(8000).collect::<String>(),
             }))
         })
-        .take(8)
+        .take(24)
         .collect();
     NarrativeDraft {
         highlights,
@@ -377,7 +378,7 @@ mod tests {
             "section_notes": [{ "disease_code": "dengue", "note": "Rising events." }]
         });
         let draft = draft_from_model_json(&parsed, "mmwr_bulletin_v1");
-        assert_eq!(draft.highlights.len(), 5);
+        assert_eq!(draft.highlights.len(), 6);
         assert_eq!(draft.narrative["editorial"], json!("Week summary."));
         assert_eq!(draft.section_notes.len(), 1);
     }

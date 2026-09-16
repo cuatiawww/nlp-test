@@ -34,11 +34,14 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
     slugPrefix: "mmwr",
     narrativeKeys: ["publisher", "editorial"],
     outline: [
-      "Cover",
+      "Cover (uploadable)",
       "Publisher / editorial board",
-      "Table of contents (linked)",
+      "Table of contents (per selected disease)",
       "Executive summary",
-      "Disease chapters (tables, maps, line/bar, small multiples)",
+      "Situation at a Glance (cases / deaths / CFR)",
+      "Disease × Country matrix",
+      "ASEAN polygon choropleth",
+      "Per-disease chapters (highlights, tables, epi curves, maps)",
       "Source notes",
       "Page numbers (print)",
     ],
@@ -54,14 +57,15 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
     slugPrefix: "sitrep",
     narrativeKeys: ["response", "recommendations", "country_updates"],
     outline: [
-      "Glance KPIs",
-      "Health-zone choropleth (Admin-0)",
-      "AMS cases / deaths / CFR table",
-      "Weekly chart",
+      "Cover (uploadable)",
+      "Table of contents (per selected disease)",
+      "Situation at a Glance (cases / deaths / CFR)",
+      "ASEAN polygon choropleth",
+      "Disease × Country matrix",
+      "Weekly cases and deaths",
+      "Per-disease chapters (highlights, tables, epi curves, maps)",
       "Country updates",
-      "Epidemiology",
-      "Response",
-      "Recommendations",
+      "Epidemiology / response / recommendations",
       "References",
     ],
   },
@@ -199,7 +203,7 @@ export function buildAmsWeekHeatmap(
     cells: weeks.map((week) => {
       const hit = lookup.get(`${ams.iso3}|${week.year}|${week.week}`)
       if (!hit || hit.has_data === false) return heatmapCell(null, false)
-      return heatmapCell(hit.events ?? hit.cases ?? 0, true)
+      return heatmapCell(hit.cases ?? hit.events ?? 0, true)
     }),
   }))
 }

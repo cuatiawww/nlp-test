@@ -44,7 +44,7 @@ function IssueCard({ item }: { item: ReportIssueCard }) {
           {item.diseases?.length ? ` · ${item.diseases.slice(0, 3).join(', ')}` : ''}
         </p>
         <p className="mt-2 text-xs font-semibold text-slate-600">
-          Events {item.kpis?.events ?? '—'} · Cases {item.kpis?.cases ?? '—'} · Deaths {item.kpis?.deaths ?? '—'}
+          Cases {item.kpis?.cases ?? '—'} · Deaths {item.kpis?.deaths ?? '—'}
         </p>
       </div>
     </Link>

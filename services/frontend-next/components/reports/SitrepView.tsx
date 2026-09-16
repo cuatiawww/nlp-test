@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Download, Printer } from 'lucide-react'
 import AseanChoropleth from '@/components/reports/AseanChoropleth'
 import PublicationCover from '@/components/reports/PublicationCover'
+import BulletinSections from '@/components/reports/BulletinSections'
 import {
   AmsBarChart,
   AmsWeekHeatmap,
@@ -591,14 +592,14 @@ export default function SitrepView({
         </div>
       </header>
 
-      {tpl.family === 'mmwr' ? (
-        <MmwrBody issue={issue} snap={snap} indicator={indicator} epi={epi} highlights={highlights} />
+      {tpl.family === 'mmwr' || tpl.family === 'sitrep' ? (
+        <BulletinSections issue={issue} snap={snap} epi={epi} highlights={highlights} />
       ) : tpl.family === 'ei' ? (
-        <EiBody issue={issue} snap={snap} indicator={indicator} epi={epi} highlights={highlights} />
+        <EiBody issue={issue} snap={snap} indicator={indicator === 'events' ? 'cases' : indicator} epi={epi} highlights={highlights} />
       ) : tpl.family === 'focus' ? (
         <FocusBody issue={issue} snap={snap} />
       ) : (
-        <SitrepBody issue={issue} snap={snap} indicator={indicator} epi={epi} highlights={highlights} />
+        <BulletinSections issue={issue} snap={snap} epi={epi} highlights={highlights} />
       )}
     </article>
   )
