@@ -620,8 +620,17 @@ export default function IndonesiaDetailMapClient({
     })
   }
 
+  useEffect(() => {
+    if (!settingsOpen) return
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSettingsOpen(false)
+    }
+    document.addEventListener('keydown', onEsc)
+    return () => document.removeEventListener('keydown', onEsc)
+  }, [settingsOpen])
+
   return (
-    <div className="relative h-full w-full overflow-hidden select-none bg-slate-100">
+    <div className="relative isolate z-0 h-full w-full overflow-hidden select-none bg-slate-100">
       {/* OpenLayers Map Canvas */}
       <div ref={containerRef} className="h-full w-full" />
 
@@ -698,7 +707,7 @@ export default function IndonesiaDetailMapClient({
       </div>
 
       {/* Top Right: Spatial Controls Settings Button */}
-      <div className="absolute right-3 top-3 z-20 flex items-center gap-2">
+      <div className="absolute right-3 top-3 z-50 flex items-center gap-2 pointer-events-auto">
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}

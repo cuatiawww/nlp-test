@@ -100,7 +100,7 @@ export default function AppShell({
           type="button"
           aria-label={t("common.closeSidebar")}
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-30 bg-slate-900/35 backdrop-blur-[1px]"
+          className="fixed inset-0 z-40 bg-slate-900/35 backdrop-blur-[1px]"
         />
       )}
       <div className="print:hidden">
@@ -110,14 +110,14 @@ export default function AppShell({
           onClose={() => setSidebarOpen(false)}
         />
       </div>
-      <div className="print:hidden">
+      <div className="relative z-50 print:hidden pointer-events-auto">
         <DashboardHeader
           authenticated={authenticated}
           consoleMode={consoleMode}
           onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         />
       </div>
-      <div className={`w-full flex-1 ${isDirectoryPage ? 'py-0' : 'py-3 md:py-5'}`}>{children}</div>
+      <div className={`relative z-0 w-full flex-1 ${isDirectoryPage ? 'py-0' : 'py-3 md:py-5'}`}>{children}</div>
       <div className="print:hidden">
         <Footer />
       </div>

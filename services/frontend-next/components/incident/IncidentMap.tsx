@@ -524,6 +524,15 @@ export default function IncidentMap({
   const [showEocRoute, setShowEocRoute] = useState(true)
   const [pulseRadius, setPulseRadius] = useState<number>(1) // Default 1 km
 
+  useEffect(() => {
+    if (!showSettings) return
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowSettings(false)
+    }
+    document.addEventListener('keydown', onEsc)
+    return () => document.removeEventListener('keydown', onEsc)
+  }, [showSettings])
+
   // ── Faskes Sub-Category Checkbox Filters ──
   const [faskesTypeFilters, setFaskesTypeFilters] = useState<{
     rs: boolean
@@ -2597,7 +2606,7 @@ export default function IncidentMap({
   return (
     <div
       ref={mapContainerRef}
-      className="relative h-full w-full overflow-hidden rounded-2xl border border-slate-200 bg-[#f1fcfc]"
+      className="relative isolate z-0 h-full w-full overflow-hidden rounded-2xl border border-slate-200 bg-[#f1fcfc]"
     >
       {/* Floating EOC Route details card on the left side of the map (Hanya tampil saat rute aktif/diklik) */}
       {isFloodEocMode && showEocRoute && selectedRouteTarget && (
@@ -2788,7 +2797,7 @@ export default function IncidentMap({
       )}
 
       {/* ── Top-Right Map Controls Toolbar ── */}
-      <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+      <div className="absolute right-4 top-4 z-50 flex items-center gap-2 pointer-events-auto">
         {/* Reset Zoom / Center to Disaster Button */}
         <button
           onClick={handleResetCenter}

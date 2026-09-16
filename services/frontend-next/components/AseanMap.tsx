@@ -1350,10 +1350,10 @@ export default function AseanMap({
     <div
       className={
         fullBleed
-          ? "relative h-full w-full overflow-hidden bg-white"
+          ? "relative isolate z-0 h-full w-full overflow-hidden bg-white"
           : embedded
-            ? "relative h-full w-full overflow-hidden rounded-xl bg-white"
-            : "relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+            ? "relative isolate z-0 h-full w-full overflow-hidden rounded-xl bg-white"
+            : "relative isolate z-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
       }
     >
       {!fullBleed && !embedded && (
@@ -1381,7 +1381,7 @@ export default function AseanMap({
         ref={el}
         className={
           fullBleed
-            ? "h-full min-h-screen w-full"
+            ? "absolute inset-0 h-full w-full"
             : embedded
               ? "h-full min-h-[300px] w-full"
               : compact
@@ -1701,7 +1701,7 @@ export default function AseanMap({
         </div>
       )}
 
-      <div className="absolute bottom-3 right-3 flex flex-col gap-1">
+      <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-1 pointer-events-auto">
         <button
           type="button"
           onClick={() => zoom(0.8)}

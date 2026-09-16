@@ -41,8 +41,9 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 h-screen w-[280px] border-r border-slate-100 bg-white text-slate-800 shadow-[2px_0_12px_rgba(0,0,0,0.03)] transition-transform duration-300 ${
-        open ? "translate-x-0" : "-translate-x-full"
+      aria-hidden={!open}
+      className={`fixed left-0 top-0 z-50 h-screen w-[280px] border-r border-slate-100 bg-white text-slate-800 shadow-[2px_0_12px_rgba(0,0,0,0.03)] transition-transform duration-300 ${
+        open ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none"
       }`}
     >
       <div className="h-[4px] bg-[#0060A9]" />

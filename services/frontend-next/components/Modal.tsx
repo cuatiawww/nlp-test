@@ -33,6 +33,15 @@ export default function Modal({
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onEsc)
+    return () => document.removeEventListener('keydown', onEsc)
+  }, [open, onClose])
+
   if (!open || !mounted) return null
 
   return createPortal(

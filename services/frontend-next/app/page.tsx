@@ -214,6 +214,14 @@ function CrawlingInfoModal({
   useEffect(() => {
     setMounted(true);
   }, []);
+  useEffect(() => {
+    if (!open) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [open]);
   const { t } = useTranslation();
   if (!crawlingStats) return null;
 
@@ -464,6 +472,15 @@ function KpiInfoModal({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [open, onClose]);
 
   if (!open || !mounted) return null;
 
@@ -836,6 +853,15 @@ export default function DashboardPage() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [selected]);
 
   const refreshCrawlingStats = useCallback(async () => {
     const crawlData = await fetchCrawlingStats().catch(() => null);

@@ -1,6 +1,7 @@
 'use client'
 
 import { ExternalLink, X } from 'lucide-react'
+import { useEffect } from 'react'
 import type { OutbreakLocation } from '@/types'
 
 type Props = {
@@ -27,6 +28,15 @@ export default function SurveillanceDetailModal({
   translateDisease,
   numLocale = 'en-US',
 }: Props) {
+  useEffect(() => {
+    if (!event) return
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onEsc)
+    return () => document.removeEventListener('keydown', onEsc)
+  }, [event, onClose])
+
   if (!event) return null
 
   const detail = event.detail

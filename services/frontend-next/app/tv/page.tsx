@@ -110,6 +110,15 @@ export default function TvPage() {
     return()=>document.removeEventListener('fullscreenchange',onFs)
   },[])
 
+  useEffect(() => {
+    if (!drawer) return
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawer(false)
+    }
+    document.addEventListener('keydown', onEsc)
+    return () => document.removeEventListener('keydown', onEsc)
+  }, [drawer])
+
   const toggleFs=()=>fullscreen?document.exitFullscreen?.():document.documentElement.requestFullscreen?.()
   const mapLocations = useMemo(() => scopeDashboardLocations(data?.locations, 'ASEAN'), [data?.locations])
   const mapCountries = useMemo(
@@ -131,7 +140,7 @@ export default function TvPage() {
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-[#f8fafc] text-slate-800 select-none">
-      <div className="absolute inset-0">
+      <div className="absolute inset-0 z-0 isolate overflow-hidden">
         <AseanMap
           fullBleed
           baseMap={baseMap}
@@ -152,7 +161,7 @@ export default function TvPage() {
         <CrawlModeOverlay active={mapMode === 'crawl'} items={crawlItems} locale={numLocale} />
       </div>
 
-      <header className="pointer-events-none fixed left-2 right-2 top-2 z-40 flex items-center justify-between gap-3 sm:left-3 sm:right-3 sm:top-3">
+      <header className="pointer-events-none fixed left-2 right-2 top-2 z-50 flex items-center justify-between gap-3 sm:left-3 sm:right-3 sm:top-3">
         <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-[#cfe0f1] bg-white/95 p-1.5 text-slate-800 shadow-[0_8px_24px_rgba(0,96,169,.09)] backdrop-blur-xl transition-all">
           <Link href="/" className="grid h-8 w-8 place-items-center rounded-xl border border-blue-200 bg-blue-50 text-[#0060A9] transition hover:bg-blue-100" title="Kembali ke Beranda">
             <ArrowLeft className="h-4 w-4"/>
@@ -222,7 +231,7 @@ export default function TvPage() {
       {/* Floating Top KPI Bar with Dynamic Measurement & Auto-Layouting */}
       <div
         ref={topSectionRef}
-        className="pointer-events-none fixed left-2 right-2 top-[58px] z-35 sm:left-3 sm:right-3 transition-all duration-300"
+        className="pointer-events-none fixed left-2 right-2 top-[58px] z-40 sm:left-3 sm:right-3 transition-all duration-300"
       >
         <div className="mx-auto flex max-w-[1680px] flex-col items-center">
           <button
@@ -341,7 +350,7 @@ export default function TvPage() {
       {/* Floating Left Panel: Crawling Feed (Dynamic Auto-Layout & Hover Elevation) */}
       <div
         style={{ top: `${panelTopOffset}px` }}
-        className={`pointer-events-none fixed bottom-12 left-3 z-30 transition-all duration-350 ease-in-out hover:z-45 focus-within:z-45 ${
+        className={`pointer-events-none fixed bottom-12 left-3 z-30 transition-all duration-350 ease-in-out hover:z-50 focus-within:z-50 ${
           leftHidden ? 'w-12' : 'w-[360px] 2xl:w-[420px]'
         }`}
       >
@@ -357,7 +366,7 @@ export default function TvPage() {
       {/* Floating Right Panel: Analytics & Situation with Surveillance Signals (Dynamic Auto-Layout & Hover Elevation) */}
       <div
         style={{ top: `${panelTopOffset}px` }}
-        className={`pointer-events-none fixed bottom-12 right-3 z-30 transition-all duration-350 ease-in-out hover:z-45 focus-within:z-45 ${
+        className={`pointer-events-none fixed bottom-12 right-3 z-30 transition-all duration-350 ease-in-out hover:z-50 focus-within:z-50 ${
           rightHidden ? 'w-11' : 'w-80 2xl:w-96'
         }`}
       >
@@ -376,7 +385,14 @@ export default function TvPage() {
 
 
       {drawer && (
-        <div className="fixed inset-y-0 right-0 z-50 flex w-80 flex-col border-l border-slate-200 bg-white/95 shadow-2xl backdrop-blur-xl">
+        <>
+          <button
+            type="button"
+            aria-label={t('common.close')}
+            onClick={() => setDrawer(false)}
+            className="fixed inset-0 z-40 bg-slate-900/25"
+          />
+          <div className="fixed inset-y-0 right-0 z-50 flex w-80 flex-col border-l border-slate-200 bg-white/95 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center justify-between bg-[#0060A9] p-4 text-white">
             <div className="flex items-center gap-2">
               <Settings className="h-5 w-5"/>
@@ -427,6 +443,7 @@ export default function TvPage() {
             </button>
           </div>
         </div>
+        </>
       )}
 
       <SurveillanceDetailModal
@@ -436,7 +453,7 @@ export default function TvPage() {
         numLocale={numLocale}
       />
 
-      <footer className="fixed bottom-2 left-2 right-2 z-40 flex h-9 items-center overflow-hidden rounded-xl border border-[#cfe0f1] bg-white/95 shadow-[0_-4px_16px_rgba(0,96,169,.08)] backdrop-blur-xl">
+      <footer className="fixed bottom-2 left-2 right-2 z-50 flex h-9 items-center overflow-hidden rounded-xl border border-[#cfe0f1] bg-white/95 shadow-[0_-4px_16px_rgba(0,96,169,.08)] backdrop-blur-xl">
         <div className="flex h-full shrink-0 items-center gap-2 bg-gradient-to-r from-[#0060A9] to-[#0284c7] px-4 text-[10px] font-black tracking-widest text-white">
           <span className="relative flex h-2 w-2">
             <span className="absolute h-full w-full animate-ping rounded-full bg-white opacity-75"/>

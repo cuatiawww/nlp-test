@@ -2,6 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* OpenLayers canvases use the layer zIndex as a CSS z-index. Without a
+   stacking context they can paint above page chrome and steal clicks.
+   Keep the viewport clipped to the map box so a canvas cannot cover the header. */
+.ol-viewport {
+  position: relative !important;
+  overflow: hidden !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+}
+.ol-viewport canvas,
+.ol-layer,
+.ol-overlaycontainer,
+.ol-overlaycontainer-stopevent {
+  max-width: 100% !important;
+  max-height: 100% !important;
+}
+.ol-viewport canvas {
+  position: absolute !important;
+}
+
 /* Keep the reports matrix typography consistent with the main dashboard.
    The page still uses utility classes such as font-sans/font-mono for layout
    semantics, but both resolve to the application Roboto family here. */

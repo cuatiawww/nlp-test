@@ -91,6 +91,17 @@ export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProp
     loadData(filters);
   }, [filters]);
 
+  useEffect(() => {
+    if (!selectedCountry && !showScaleInfo) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setSelectedCountry(null);
+      setShowScaleInfo(false);
+    };
+    document.addEventListener('keydown', onEsc);
+    return () => document.removeEventListener('keydown', onEsc);
+  }, [selectedCountry, showScaleInfo]);
+
   const selectedYear = data?.year ?? filters.endYear;
 
   // Calculate maximum values for relative coloring
@@ -536,8 +547,14 @@ export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProp
 
       {/* Modal Breakdown for Selected Country */}
       {mounted && selectedCountry && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs transition-all duration-300 animate-in fade-in">
-          <div className="relative w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl transition-all duration-300 animate-in zoom-in-95">
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs transition-all duration-300 animate-in fade-in"
+          onClick={() => setSelectedCountry(null)}
+        >
+          <div
+            className="relative w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl transition-all duration-300 animate-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal Header */}
             <div className="flex items-start justify-between border-b border-slate-200 pb-4">
               <div className="flex items-center gap-3">

@@ -2,7 +2,7 @@
 
 import { Layers, MapPin, Settings, Wind, X, Bug, Plane, Flame, Building2, Newspaper, Users, Globe, Sun, CloudRain } from "lucide-react";
 import type { NasaGibsLayers, ExternalIntelLayers } from "@/types";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AseanMap, { type HazardEvent } from "./AseanMap";
 import type { OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
@@ -77,6 +77,15 @@ export default function SpatialOutbreakMap({
       population: false,
     });
 
+  useEffect(() => {
+    if (!settings) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSettings(false);
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [settings]);
+
   const reset = () => {
     setBase("osm");
     setMarkers(true);
@@ -114,7 +123,7 @@ export default function SpatialOutbreakMap({
   };
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-xl">
+    <div className="relative isolate z-0 h-full w-full overflow-hidden rounded-xl">
       <AseanMap
         embedded
         baseMap={base}
@@ -136,7 +145,7 @@ export default function SpatialOutbreakMap({
         gibsLayers={gibs}
         intelLayers={intel}
       />
-      <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+      <div className="absolute right-4 top-4 z-50 flex items-center gap-2 pointer-events-auto">
         <button
           onClick={() => setSettings(true)}
           className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white/95 px-3 py-2 text-slate-700 shadow-md transition hover:border-blue-300 hover:bg-blue-50 hover:text-[#0060A9]"
@@ -182,11 +191,12 @@ export default function SpatialOutbreakMap({
       {settings && (
         <>
           <button
+            type="button"
             onClick={() => setSettings(false)}
-            className="absolute inset-0 z-20 bg-black/10"
+            className="absolute inset-0 z-40 bg-black/10"
             aria-label={t("common.close")}
           />
-          <aside className="absolute right-0 top-0 z-30 flex h-full w-72 flex-col border-l border-slate-200 bg-white/95 shadow-[-8px_0_40px_rgba(0,0,0,.08)] backdrop-blur-md">
+          <aside className="absolute right-0 top-0 z-50 flex h-full w-72 flex-col border-l border-slate-200 bg-white/95 shadow-[-8px_0_40px_rgba(0,0,0,.08)] backdrop-blur-md">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div className="flex items-center gap-2">
                 <Settings className="h-4 w-4 text-[#0060A9]" />

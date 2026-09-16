@@ -1,6 +1,7 @@
 'use client'
 
 import { X } from 'lucide-react'
+import { useEffect } from 'react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 
 type DataRow = { label: string; value: string | number; extra?: string }
@@ -14,6 +15,16 @@ type Props = {
 
 export default function DataModal({ open, onClose, title, rows }: Props) {
   const { t } = useTranslation()
+
+  useEffect(() => {
+    if (!open) return
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onEsc)
+    return () => document.removeEventListener('keydown', onEsc)
+  }, [open, onClose])
+
   if (!open) return null
 
   return (

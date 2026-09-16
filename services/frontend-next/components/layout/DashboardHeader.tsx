@@ -48,14 +48,14 @@ export default function DashboardHeader({
     : (settings.app_tagline || "Real-time multilingual data monitoring");
 
   return (
-    <header className="w-full border-b border-white/20 bg-[#102f78]">
-      <div className="relative flex min-h-[118px] items-stretch overflow-visible bg-[#102f78]">
+    <header className="sticky top-0 z-50 w-full border-b border-white/20 bg-[#102f78] pointer-events-auto">
+      <div className="relative z-10 flex min-h-[118px] items-stretch overflow-visible bg-[#102f78]">
         <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-100"
+          className="pointer-events-none absolute inset-0 bg-cover bg-center bg-no-repeat opacity-100"
           style={{ backgroundImage: `url('${PUBLIC_BASE_PATH}/bg%20header_abvc%20nlp.webp')` }}
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#061b50]/25 via-transparent to-black/10" />
-        <div className="relative grid w-full gap-5 px-4 py-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#061b50]/25 via-transparent to-black/10" />
+        <div className="relative z-10 grid w-full gap-5 px-4 py-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
           <div className="flex min-w-0 items-center gap-4">
             <button
               onClick={onToggleSidebar}
