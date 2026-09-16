@@ -956,9 +956,12 @@ fn default_analyze_async() -> bool {
 }
 
 fn parse_nlp_http_timeout_secs(raw: Option<&str>) -> u64 {
+    // Code floor: existing .env NLP_REQUEST_TIMEOUT_SECONDS=180 must not
+    // shrink the sync gateway below a Full NLP pass. Env may only raise it.
+    const FLOOR_SECS: u64 = 270;
     raw.and_then(|value| value.parse::<u64>().ok())
-        .filter(|&secs| secs >= 30)
-        .unwrap_or(270)
+        .unwrap_or(FLOOR_SECS)
+        .max(FLOOR_SECS)
 }
 
 fn nlp_http_timeout() -> std::time::Duration {
@@ -1005,6 +1008,7 @@ mod analysis_contract_tests {
     fn nlp_http_timeout_defaults_cover_full_inference_budget() {
         assert_eq!(parse_nlp_http_timeout_secs(None), 270);
         assert_eq!(parse_nlp_http_timeout_secs(Some("15")), 270);
+        assert_eq!(parse_nlp_http_timeout_secs(Some("180")), 270);
         assert_eq!(parse_nlp_http_timeout_secs(Some("300")), 300);
     }
 

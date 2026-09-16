@@ -25,6 +25,10 @@ Root causes addressed
 
 Default behaviour now
 ---------------------
+Floors are **in the Python/Rust code**. Deploy does **not** need `.env` or
+compose edits. An existing production `.env` with `INFERENCE_STAGE_TIMEOUT_SECONDS=90`
+or `NLP_REQUEST_TIMEOUT_SECONDS=180` is clamped up; env may only raise the budget.
+
 - Stages run **in-process** (`NLP_STAGE_ISOLATION=inprocess`) against warmed
   models. `fork` remains available as an opt-in kill switch.
 - Interactive URL jobs skip auxiliary zero-shot heads. Disease, geo, and
@@ -35,30 +39,22 @@ Default behaviour now
 - The UI polls the async job until `completed` or a real failure, and does
   not accept 408/rules-only as success.
 
-Environment knobs
------------------
-| Variable | Default | Where | Meaning |
+Code floors (optional env may raise, not lower)
+-----------------------------------------------
+| Variable | Code floor | Where | Meaning |
 | --- | --- | --- | --- |
 | `TRANSLATION_STAGE_TIMEOUT_SECONDS` | `60` | nlp-python | Cap for the translation stage |
 | `INFERENCE_STAGE_TIMEOUT_SECONDS` | `180` | nlp-python | Floor for the inference stage |
-| `NLP_REQUEST_TIMEOUT_SECONDS` | `270` | nlp-python, worker, backend | Outer HTTP budget. Must be ≥ translation + inference + `NLP_STAGE_OVERHEAD_SECONDS` |
+| `NLP_REQUEST_TIMEOUT_SECONDS` | `270` | nlp-python, worker, backend | Outer HTTP budget |
 | `NLP_STAGE_OVERHEAD_SECONDS` | `15` | nlp-python | Transport margin subtracted from remaining inference budget |
 | `NLP_STAGE_ISOLATION` | `inprocess` | nlp-python | `inprocess` (default) or `fork` |
 | `ANALYZE_URL_NLP_RETRIES` | `1` | worker | Extra Full NLP attempts on retryable errors after text is in hand |
 | `ANALYZE_URL_RULES_ONLY_FALLBACK` | `false` | worker | Set `true` only if operators explicitly want rules-only after Full NLP fails |
-| `ANALYZE_URL_ASYNC_ENABLED` | `true` | backend | Keep the async job path the UI polls |
-| `ANALYZE_URL_USE_CACHE` | `true` | backend | Cache hits skip events whose latest job warned `Full NLP unavailable` |
-| `TOKENIZERS_PARALLELISM` | `false` | nlp-python image | Required before importing transformers |
 
-Deploy
-------
-Set the knobs in `.env` (see `.env.example`) and recreate:
+Do not edit `docker-compose.yml` or production `.env` for this fix. Recreate
+the NLP service, analysis-job-worker, and backend so they pick up the new
+code (existing `.env` 90s/180s values are ignored when below the floor).
 
-    docker compose up -d --build --force-recreate \
-      disease-nlp-python analysis-job-worker disease-backend-rust
-
-Do not lower `NLP_REQUEST_TIMEOUT_SECONDS` below
-`TRANSLATION_STAGE_TIMEOUT_SECONDS + INFERENCE_STAGE_TIMEOUT_SECONDS`.
 Reverse proxies in front of the **async job POST** can stay short (job
 creation is fast). The browser polls `GET /api/v1/analysis-jobs/:id`.
 

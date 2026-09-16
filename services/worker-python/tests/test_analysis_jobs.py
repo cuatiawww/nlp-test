@@ -157,6 +157,13 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertTrue(is_retryable_nlp_error(RuntimeError("NLP HTTP 408: exceeded budget (180s)")))
         self.assertFalse(is_retryable_nlp_error(RuntimeError("NLP HTTP 400: bad url")))
 
+    def test_legacy_env_timeout_is_clamped_up_in_code(self):
+        from app.analysis_jobs import _seconds_at_least
+        with patch.dict("os.environ", {"NLP_REQUEST_TIMEOUT_SECONDS": "180"}):
+            self.assertEqual(_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270), 270)
+        with patch.dict("os.environ", {"NLP_REQUEST_TIMEOUT_SECONDS": "400"}):
+            self.assertEqual(_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270), 400)
+
 
 if __name__ == "__main__":
     unittest.main()

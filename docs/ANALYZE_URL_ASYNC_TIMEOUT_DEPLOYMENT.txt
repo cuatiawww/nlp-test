@@ -5,12 +5,9 @@ SERVER EDIT ONLY — ASYNC ANALYZE URL
 --------------------------------------------------
 
 ANALYZE_URL_ASYNC_ENABLED=true
-TRANSLATION_STAGE_TIMEOUT_SECONDS=60
-INFERENCE_STAGE_TIMEOUT_SECONDS=180
-NLP_REQUEST_TIMEOUT_SECONDS=270
-NLP_STAGE_ISOLATION=inprocess
-ANALYZE_URL_NLP_RETRIES=1
-ANALYZE_URL_RULES_ONLY_FALLBACK=false
+TRANSLATION_STAGE_TIMEOUT_SECONDS=45
+INFERENCE_STAGE_TIMEOUT_SECONDS=90
+NLP_REQUEST_TIMEOUT_SECONDS=180
 
 
 2. Edit docker-compose.yml
@@ -37,7 +34,7 @@ services:
       NLP_SERVICE_URL: http://disease-nlp-python:8000
       COLLECTOR_URL: http://disease-collector-python:8002
       RABBITMQ_URL: ${RABBITMQ_URL_DISEASE:-amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@disease-rabbitmq:5672/%2f}
-      NLP_REQUEST_TIMEOUT_SECONDS: ${NLP_REQUEST_TIMEOUT_SECONDS:-270}
+      NLP_REQUEST_TIMEOUT_SECONDS: ${NLP_REQUEST_TIMEOUT_SECONDS:-180}
     volumes:
       - ./services/worker-python/app:/app/app:ro
     depends_on:
@@ -107,6 +104,3 @@ docker compose \
 
 Jangan gunakan --profile analysis setelah service dipindahkan ke overlay.
 Jangan menaruh credential production di file ini.
-
-Timeout knobs, Full NLP retry behaviour, and the ASEAN URL harness are
-documented in docs/ANALYZE_URL_TIMEOUT.md.

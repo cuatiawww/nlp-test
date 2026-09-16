@@ -22,7 +22,19 @@ def _json_safe(value):
         return [_json_safe(item) for item in value]
     return value
 QUEUE = os.getenv("RABBITMQ_ANALYSIS_URL_QUEUE", "disease.analysis-url")
-NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "270"))
+
+
+def _seconds_at_least(name, default):
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = float(default)
+    return max(float(default), value)
+
+
+# Floors live in code. An existing production .env of 180 must not shrink the
+# worker HTTP wait below a Full NLP pass. Env may only raise the budget.
+NLP_REQUEST_TIMEOUT_SECONDS = _seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270)
 ANALYZE_URL_NLP_RETRIES = max(0, int(os.getenv("ANALYZE_URL_NLP_RETRIES", "1")))
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
