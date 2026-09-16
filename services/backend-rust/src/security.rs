@@ -119,6 +119,7 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/morbidity-mortality",
         "/api/v1/kpi-snapshot",
         "/api/v1/kpi-events",
+        "/api/v1/region-context",
         "/api/v1/crawling-stats",
         "/api/v1/events",
         "/api/v1/events/stats",
@@ -335,6 +336,7 @@ mod tests {
         assert!(!is_public_route(&Method::GET, "/api/v1/users"));
         assert!(is_admin_route(&Method::GET, "/api/v1/users"));
         assert!(is_public_route(&Method::GET, "/api/v1/kpi-events"));
+        assert!(is_public_route(&Method::GET, "/api/v1/region-context"));
         assert!(is_public_route(&Method::GET, "/api/v1/public-dashboard"));
         assert!(is_public_route(&Method::GET, "/api/v1/pipeline-health"));
         assert!(is_public_route(&Method::GET, "/api/v1/public/report-issues"));

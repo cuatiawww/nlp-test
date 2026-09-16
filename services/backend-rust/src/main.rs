@@ -1,5 +1,6 @@
 #![recursion_limit = "512"]
 
+mod region_context;
 mod report_narrative;
 mod reports_cms;
 mod security;
@@ -1743,6 +1744,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/public-dashboard", get(public_dashboard))
         .route("/api/v1/kpi-snapshot", get(kpi_snapshot))
         .route("/api/v1/kpi-events", get(kpi_events))
+        .route("/api/v1/region-context", get(get_region_context))
         .route("/api/v1/public/report-issues", get(reports_cms::list_public_issues))
         .route("/api/v1/public/report-issues/latest", get(reports_cms::get_public_latest))
         .route("/api/v1/public/report-issues/:slug", get(reports_cms::get_public_issue))
@@ -1843,6 +1845,30 @@ async fn main() -> anyhow::Result<()> {
 
 async fn health() -> Json<Value> {
     Json(json!({ "status": "ok", "service": "backend-rust" }))
+}
+
+async fn get_region_context(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let country = query
+        .get("country")
+        .cloned()
+        .unwrap_or_else(|| "Indonesia".to_string());
+    match region_context::build_region_context(&state.http, &country).await {
+        Ok(data) => Ok(Json(ApiResponse {
+            success: true,
+            data,
+            total: None,
+            page: None,
+            per_page: None,
+            total_pages: None,
+        })),
+        Err(error) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": error })),
+        )),
+    }
 }
 
 async fn pipeline_health(
