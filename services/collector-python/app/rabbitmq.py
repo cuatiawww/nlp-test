@@ -8,18 +8,26 @@ _channel = None
 _publish_lock = threading.Lock()
 
 
+def _ensure_queue(channel, queue: str):
+    channel.queue_declare(queue=queue, durable=True)
+
+
 def _get_channel():
     global _connection, _channel
     if _connection is None or _connection.is_closed:
         params = pika.URLParameters(config.RABBITMQ_URL)
         _connection = pika.BlockingConnection(params)
         _channel = _connection.channel()
-        _channel.queue_declare(queue=config.RABBITMQ_QUEUE, durable=True)
-        _channel.queue_declare(queue=config.RABBITMQ_SOCIAL_QUEUE, durable=True)
+        _ensure_queue(_channel, config.RABBITMQ_QUEUE)
+        _ensure_queue(_channel, config.RABBITMQ_SOCIAL_QUEUE)
+        _ensure_queue(_channel, config.RABBITMQ_ANALYSIS_URL_QUEUE)
+        _ensure_queue(_channel, config.RABBITMQ_CRAWL_MATRIX_QUEUE)
     elif _channel is None or _channel.is_closed:
         _channel = _connection.channel()
-        _channel.queue_declare(queue=config.RABBITMQ_QUEUE, durable=True)
-        _channel.queue_declare(queue=config.RABBITMQ_SOCIAL_QUEUE, durable=True)
+        _ensure_queue(_channel, config.RABBITMQ_QUEUE)
+        _ensure_queue(_channel, config.RABBITMQ_SOCIAL_QUEUE)
+        _ensure_queue(_channel, config.RABBITMQ_ANALYSIS_URL_QUEUE)
+        _ensure_queue(_channel, config.RABBITMQ_CRAWL_MATRIX_QUEUE)
     return _channel
 
 
@@ -57,3 +65,33 @@ def publish(message: dict):
                 _channel = None
                 if attempt == 1:
                     raise
+
+
+def publish_to_queue(queue: str, message: dict) -> bool:
+    """Best-effort publish to an isolated work queue. Never mix with disease.raw."""
+    global _connection, _channel
+    if not queue:
+        return False
+    with _publish_lock:
+        for attempt in range(2):
+            try:
+                channel = _get_channel()
+                _ensure_queue(channel, queue)
+                channel.basic_publish(
+                    exchange="",
+                    routing_key=queue,
+                    body=json.dumps(message, default=str),
+                    properties=pika.BasicProperties(delivery_mode=2, content_type="application/json"),
+                )
+                return True
+            except Exception:
+                try:
+                    if _connection is not None and not _connection.is_closed:
+                        _connection.close()
+                except Exception:
+                    pass
+                _connection = None
+                _channel = None
+                if attempt == 1:
+                    return False
+    return False

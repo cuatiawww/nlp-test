@@ -951,10 +951,14 @@ struct IngestRequest {
     url: Option<String>,
 }
 
+fn default_analyze_async() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize)]
 struct AnalyzeUrlRequest {
     url: String,
-    #[serde(default, rename = "async")]
+    #[serde(default = "default_analyze_async", rename = "async")]
     asynchronous: bool,
     #[serde(default)]
     force_refresh: bool,
@@ -964,9 +968,9 @@ struct AnalyzeUrlRequest {
 mod analysis_contract_tests {
     use super::*;
     #[test]
-    fn old_request_remains_synchronous() {
+    fn old_request_uses_async_by_default() {
         let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org"})).unwrap();
-        assert!(!request.asynchronous);
+        assert!(request.asynchronous);
         assert!(!request.force_refresh);
     }
     #[test]
@@ -978,6 +982,11 @@ mod analysis_contract_tests {
     fn async_is_explicit_opt_in() {
         let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org","async":true})).unwrap();
         assert!(request.asynchronous);
+    }
+    #[test]
+    fn async_false_is_explicit_opt_out() {
+        let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org","async":false})).unwrap();
+        assert!(!request.asynchronous);
     }
 
     #[test]

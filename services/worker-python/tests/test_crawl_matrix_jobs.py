@@ -67,6 +67,34 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn("Dengue surge", text)
         self.assertIn("Officials reported cases.", text)
 
+    def test_article_workers_stay_bounded(self):
+        from app import crawl_matrix_jobs as jobs
+        self.assertGreaterEqual(jobs.ARTICLE_WORKERS, 1)
+        self.assertLessEqual(jobs.ARTICLE_WORKERS, 6)
+        self.assertEqual(jobs.CRAWL_QUEUE, "disease.crawl-matrix")
+        self.assertNotEqual(jobs.CRAWL_QUEUE, "disease.analysis-url")
+        self.assertNotEqual(jobs.CRAWL_QUEUE, "disease.raw")
+
+    def test_amqp_and_poll_share_an_exclusive_job_lock(self):
+        from app import crawl_matrix_jobs as jobs
+        self.assertTrue(jobs._job_lock.acquire(blocking=False))
+        jobs._job_lock.release()
+        self.assertIs(jobs._run_claimed_exclusive(None), False)
+
+    def test_amqp_wakeup_queues_job_id_without_running_nlp(self):
+        import queue
+        from app import crawl_matrix_jobs as jobs
+        while True:
+            try:
+                jobs._pending_job_ids.get_nowait()
+            except queue.Empty:
+                break
+        jobs._wake.clear()
+        jobs._pending_job_ids.put("11111111-1111-1111-1111-111111111111")
+        jobs._wake.set()
+        self.assertTrue(jobs._wake.is_set())
+        self.assertEqual(jobs._pending_job_ids.get_nowait(), "11111111-1111-1111-1111-111111111111")
+
     def test_pipeline_analysis_to_matrix_keeps_primary_country(self):
         from app.crawl_matrix_jobs import pipeline_analysis_to_matrix
         adapted = pipeline_analysis_to_matrix({

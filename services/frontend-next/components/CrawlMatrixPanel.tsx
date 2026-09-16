@@ -67,7 +67,7 @@ export default function CrawlMatrixPanel() {
         if (active) toast.error(error?.message || 'Crawler status could not be loaded')
       }
     }
-    const timer = window.setInterval(poll, 2500)
+    const timer = window.setInterval(poll, 1200)
     void poll()
     return () => { active = false; window.clearInterval(timer) }
   }, [job?.job_id, job?.status])

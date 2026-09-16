@@ -51,7 +51,19 @@ def submit(payload: SubmitJob):
                 (url, normalized_url, url_digest, payload.force_refresh),
             ).fetchone()
     # The table is also an outbox: the worker dispatches queued rows to RabbitMQ.
-    # DB commit before queue publication means jobs survive broker downtime.
+    # Publish immediately so the dedicated analysis-url consumer wakes without
+    # waiting for the outbox poll. Broker downtime is not fatal; the worker retries.
+    try:
+        from .rabbitmq import publish_to_queue
+        from . import config as collector_config
+        published = publish_to_queue(
+            collector_config.RABBITMQ_ANALYSIS_URL_QUEUE,
+            {"job_id": str(row["id"])},
+        )
+        if not published:
+            logger.warning("RabbitMQ publish skipped for analysis job %s; outbox will retry", row["id"])
+    except Exception:
+        logger.warning("RabbitMQ publish skipped for analysis job %s; outbox will retry", row["id"])
     return {"success": True, "data": {"job_id": str(row["id"]), "status": row["status"]}}
 
 @router.get("/analysis-jobs/{job_id}")
