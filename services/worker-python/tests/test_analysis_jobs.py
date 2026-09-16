@@ -1,4 +1,5 @@
 import sys
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -103,6 +104,16 @@ class AnalysisJobTests(unittest.TestCase):
         sent = post.call_args.kwargs["json"]
         self.assertTrue(sent["interactive"])
         self.assertTrue(sent["rules_only"])
+
+    def test_url_worker_spawns_manual_crawler_in_the_existing_service(self):
+        from app.analysis_jobs import spawn_matrix_worker_enabled, analysis_prefetch, QUEUE
+        with patch.dict("os.environ", {"ANALYSIS_WORKER_SPAWN_MATRIX": ""}, clear=False):
+            os.environ.pop("ANALYSIS_WORKER_SPAWN_MATRIX", None)
+            self.assertTrue(spawn_matrix_worker_enabled())
+        self.assertEqual(analysis_prefetch(), 1)
+        self.assertEqual(QUEUE, "disease.analysis-url")
+        self.assertNotEqual(QUEUE, "disease.raw")
+        self.assertNotEqual(QUEUE, "disease.crawl-matrix")
 
 
 if __name__ == "__main__":

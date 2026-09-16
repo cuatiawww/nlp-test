@@ -8,15 +8,16 @@ tidak termasuk commit direktif.
 
 ## 1. Async analyze URL
 
-- API lama tetap sinkron; request opsional `async: true` hanya aktif ketika
-  backend memakai `ANALYZE_URL_ASYNC_ENABLED=true`.
-- Respons opt-in berisi `data.job_id` dan `data.status`. GET
-  `/api/v1/analysis-jobs/{id}` mengembalikan status dan hasil.
-- Tabel `analysis_jobs` adalah penyimpanan job sekaligus outbox: worker
-  menerbitkan job ke RabbitMQ `disease.analysis-url` setelah transaksi DB.
-  Broker offline tidak menghilangkan submission.
-- Worker terpisah tidak membaca queue ingest massal. Advisory lock dan status
-  terminal mencegah replay job membuat event berulang.
+- API lama tetap sinkron hanya jika klien mengirim `async: false` atau
+  `ANALYZE_URL_ASYNC_ENABLED=false`. Default request adalah **async**:
+  `data.job_id` + poll `GET /api/v1/analysis-jobs/{id}`.
+- Tabel `analysis_jobs` adalah penyimpanan job sekaligus outbox. Collector
+  langsung publish ke RabbitMQ `disease.analysis-url`; worker juga
+  menerbitkan ulang job stale. Broker offline tidak menghilangkan submission.
+- `python -m app.analysis_jobs` (service Compose yang sudah ada) tetap
+  menjalankan Manual Crawler sebagai child process. Mereka memakai queue
+  terpisah `disease.analysis-url` dan `disease.crawl-matrix`, prefetch 1,
+  dan tidak acknowledge pesan satu sama lain. Tidak perlu service Compose baru.
 - Fetch maksimal 18 detik per panggilan dengan satu HTTP fallback; NLP HTTP
   maksimal 25 detik per panggilan. Endpoint NLP baru memisahkan translasi
   (6 detik) dan inference (14 detik) dalam subprocess yang dihentikan saat
@@ -34,8 +35,8 @@ tidak termasuk commit direktif.
    `042_asean_disease_aliases.sql`, `043_disease_event_locations.sql`, dan
    `044_disease_event_diseases.sql`.
 2. Siapkan image/source backend, collector, NLP, dan worker hasil perubahan.
-3. Build worker dan aktifkan profile `analysis` pada `docker-compose.yml`:
-   `docker compose --profile analysis up -d --build analysis-job-worker`.
+3. Recreate worker/collector/backend yang sudah ada (tanpa edit Compose):
+   `docker compose up -d --build --force-recreate analysis-job-worker disease-collector-python disease-backend-rust`.
 4. Aktifkan flag backend dan relation storage di lingkungan staging:
    `ANALYZE_URL_ASYNC_ENABLED=true`,
    `ENTITY_LOCATION_STORAGE_ENABLED=true`, dan

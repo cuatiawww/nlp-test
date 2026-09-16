@@ -1,9 +1,9 @@
 """Durable worker for filtered crawling matrix jobs.
 
-This worker runs in the dedicated ``manual-crawler-worker`` container. It uses
-the same database-backed job table but never consumes the URL-analysis queue,
-so manual crawling and URL analysis cannot acknowledge each other's messages
-or compete for the same worker process.
+This worker can run as a child of ``python -m app.analysis_jobs`` (the existing
+analysis-job-worker compose service) or standalone. It never consumes the
+URL-analysis or bulk ingest queues, so the two jobs cannot ack each other's
+messages.
 """
 
 from __future__ import annotations
@@ -11,9 +11,12 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import html
+import json
 import logging
 import os
+import queue
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
 from urllib.parse import quote_plus, urlparse
@@ -21,15 +24,21 @@ from urllib.parse import quote_plus, urlparse
 import psycopg
 import requests
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from .geo import coords_in_country_bbox, country_centroid
 
 logger = logging.getLogger("crawl-matrix-worker")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 COLLECTOR_URL = os.getenv("COLLECTOR_URL", "http://disease-collector-python:8002").rstrip("/")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000").rstrip("/")
-POLL_SECONDS = max(1.0, float(os.getenv("CRAWL_MATRIX_POLL_SECONDS", "2")))
+POLL_SECONDS = max(1.0, float(os.getenv("CRAWL_MATRIX_POLL_SECONDS", "5")))
 STALE_MINUTES = max(5, int(os.getenv("CRAWL_MATRIX_STALE_MINUTES", "15")))
+CRAWL_QUEUE = os.getenv("CRAWL_MATRIX_QUEUE", "disease.crawl-matrix")
+ARTICLE_WORKERS = max(1, min(int(os.getenv("CRAWL_MATRIX_ARTICLE_WORKERS", "3")), 6))
 SURVEILLANCE_PIPELINE = "analyze-raw-v1"
+_job_lock = threading.Lock()
+_pending_job_ids: queue.SimpleQueue[str] = queue.SimpleQueue()
+_wake = threading.Event()
 
 ASEAN_COUNTRIES = {
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar",
@@ -710,6 +719,69 @@ def claim_job() -> tuple[str, dict] | None:
         return str(row["id"]), dict(row["query"] or {})
 
 
+def claim_job_by_id(job_id: str) -> tuple[str, dict] | None:
+    with connect() as conn:
+        row = conn.execute(
+            """UPDATE crawl_matrix_jobs
+               SET status='processing', error=NULL, updated_at=NOW()
+               WHERE id=%s::uuid AND (
+                    status='queued'
+                    OR (status='processing' AND updated_at < NOW() - (%s * INTERVAL '1 minute'))
+               )
+               RETURNING id, query""",
+            (job_id, STALE_MINUTES),
+        ).fetchone()
+        conn.commit()
+        if not row:
+            return None
+        return str(row["id"]), dict(row["query"] or {})
+
+
+def _prepare_matrix_article(item: dict, reprocess: bool = False):
+    """Fetch or reuse one article and run NLP. Persistence stays serial."""
+    try:
+        article = item if reprocess else extract_article(item)
+        if not (article.get("content") or "").strip():
+            raise ValueError("Article has no extractable content")
+        identity_hash = article_identity_hash(article)
+        identity_lock = connect()
+        identity_lock.autocommit = True
+        identity_lock.execute(
+            "SELECT pg_advisory_lock(hashtext(%s))",
+            (f"manual-crawl:{identity_hash}",),
+        )
+        try:
+            cached = None if reprocess else load_cached_analysis(identity_lock, identity_hash)
+            if cached:
+                analysis = dict(cached["result"] or {})
+                raw_id = cached.get("raw_report_id")
+                logger.info("NLP cache hit: pipeline=%s identity=%s", SURVEILLANCE_PIPELINE, identity_hash)
+            else:
+                with connect() as conn:
+                    raw_id = ensure_raw_report(conn, article)
+                    conn.commit()
+                logger.info("NLP started: pipeline=%s url=%s", SURVEILLANCE_PIPELINE, article.get("url"))
+                analysis = analyze_article(article)
+                with connect() as conn:
+                    store_cached_analysis(conn, identity_hash, raw_id, analysis)
+                    conn.commit()
+                logger.info("NLP success: pipeline=%s url=%s", SURVEILLANCE_PIPELINE, article.get("url"))
+            if not raw_id:
+                with connect() as conn:
+                    raw_id = ensure_raw_report(conn, article)
+                    conn.commit()
+        finally:
+            identity_lock.execute(
+                "SELECT pg_advisory_unlock(hashtext(%s))",
+                (f"manual-crawl:{identity_hash}",),
+            )
+            identity_lock.close()
+        return item, article, analysis, raw_id, None
+    except Exception as exc:
+        logger.warning("Matrix article prepare failed: %s", exc)
+        return item, None, {}, None, f"{item.get('url', 'article')}: {str(exc)[:180]}"
+
+
 def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
     warnings: list[str] = []
     direct_url_mode = bool(str(payload.get("url") or "").strip())
@@ -758,46 +830,23 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
 
         processed = 0
         row_count = 0
-        for item in discovered:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def prepare(item):
+            return _prepare_matrix_article(item, reprocess=reprocess)
+
+        workers = 1 if reprocess else ARTICLE_WORKERS
+        prepared = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(prepare, item) for item in discovered]
+            for future in as_completed(futures):
+                prepared.append(future.result())
+
+        for item, article, analysis, raw_id, item_warning in prepared:
+            if item_warning and article is None:
+                warnings.append(item_warning)
+                continue
             try:
-                article = item if reprocess else extract_article(item)
-                if not (article.get("content") or "").strip():
-                    raise ValueError("Article has no extractable content")
-                identity_hash = article_identity_hash(article)
-                identity_lock = connect()
-                identity_lock.autocommit = True
-                identity_lock.execute(
-                    "SELECT pg_advisory_lock(hashtext(%s))",
-                    (f"manual-crawl:{identity_hash}",),
-                )
-                try:
-                    cached = None if reprocess else load_cached_analysis(identity_lock, identity_hash)
-                    if cached:
-                        analysis = dict(cached["result"] or {})
-                        raw_id = cached.get("raw_report_id")
-                        logger.info("NLP cache hit: pipeline=%s identity=%s", SURVEILLANCE_PIPELINE, identity_hash)
-                    else:
-                        # RAW is persisted before NLP so an NLP outage never
-                        # forces the source article to be crawled again.
-                        with connect() as conn:
-                            raw_id = ensure_raw_report(conn, article)
-                            conn.commit()
-                        logger.info("NLP started: pipeline=%s url=%s", SURVEILLANCE_PIPELINE, article.get("url"))
-                        analysis = analyze_article(article)
-                        with connect() as conn:
-                            store_cached_analysis(conn, identity_hash, raw_id, analysis)
-                            conn.commit()
-                        logger.info("NLP success: pipeline=%s url=%s", SURVEILLANCE_PIPELINE, article.get("url"))
-                    if not raw_id:
-                        with connect() as conn:
-                            raw_id = ensure_raw_report(conn, article)
-                            conn.commit()
-                finally:
-                    identity_lock.execute(
-                        "SELECT pg_advisory_unlock(hashtext(%s))",
-                        (f"manual-crawl:{identity_hash}",),
-                    )
-                    identity_lock.close()
                 if not article_matches(article, analysis, disease_names, payload.get("country")):
                     if direct_url_mode:
                         warnings.append(
@@ -849,18 +898,86 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
             conn.commit()
 
 
-def run_forever() -> None:
-    logger.info("Crawl matrix worker started; poll=%ss stale=%sm", POLL_SECONDS, STALE_MINUTES)
+def _execute_claimed(claimed: tuple[str, dict] | None) -> bool:
+    if not claimed:
+        return False
+    job_id, payload = claimed
+    reprocess = bool(payload.pop("_reprocess", False))
+    logger.info("Processing matrix job %s (reprocess=%s)", job_id, reprocess)
+    run_job(job_id, payload, reprocess=reprocess)
+    return True
+
+
+def _run_claimed_exclusive(claimed: tuple[str, dict] | None) -> bool:
+    """Only one matrix job runs in this process at a time."""
+    if not claimed:
+        return False
+    with _job_lock:
+        return _execute_claimed(claimed)
+
+
+def _next_claimed_job() -> tuple[str, dict] | None:
+    try:
+        job_id = _pending_job_ids.get_nowait()
+    except queue.Empty:
+        job_id = None
+    if job_id:
+        claimed = claim_job_by_id(job_id)
+        if claimed:
+            return claimed
+    return claim_job()
+
+
+def _consume_crawl_queue() -> None:
+    import pika
+    rabbit_url = os.getenv("RABBITMQ_URL")
+    if not rabbit_url:
+        logger.info("RABBITMQ_URL unset; crawl matrix uses database outbox only")
+        return
     while True:
         try:
-            claimed = claim_job()
-            if claimed:
-                job_id, payload = claimed
-                reprocess = bool(payload.pop("_reprocess", False))
-                logger.info("Processing matrix job %s (reprocess=%s)", job_id, reprocess)
-                run_job(job_id, payload, reprocess=reprocess)
-            else:
-                time.sleep(POLL_SECONDS)
+            params = pika.URLParameters(rabbit_url)
+            params.heartbeat = 300
+            params.blocked_connection_timeout = 5
+            with pika.BlockingConnection(params) as broker:
+                channel = broker.channel()
+                channel.queue_declare(queue=CRAWL_QUEUE, durable=True)
+                channel.basic_qos(prefetch_count=1)
+
+                def on_message(_ch, method, _properties, body):
+                    try:
+                        payload = json.loads(body)
+                        job_id = str(payload.get("job_id") or "")
+                        if job_id:
+                            _pending_job_ids.put(job_id)
+                            _wake.set()
+                    except Exception:
+                        logger.exception("Crawl matrix AMQP handler failed")
+                    try:
+                        channel.basic_ack(method.delivery_tag)
+                    except Exception:
+                        logger.exception("Failed to ack crawl matrix message")
+
+                channel.basic_consume(queue=CRAWL_QUEUE, on_message_callback=on_message, auto_ack=False)
+                logger.info("Crawl matrix AMQP consumer on %s", CRAWL_QUEUE)
+                channel.start_consuming()
+        except Exception:
+            logger.exception("Crawl matrix AMQP consumer reconnecting")
+            time.sleep(5)
+
+
+def run_forever() -> None:
+    logger.info(
+        "Crawl matrix worker started; poll=%ss stale=%sm articles=%s queue=%s",
+        POLL_SECONDS, STALE_MINUTES, ARTICLE_WORKERS, CRAWL_QUEUE,
+    )
+    amqp_thread = threading.Thread(target=_consume_crawl_queue, name="crawl-matrix-amqp", daemon=True)
+    amqp_thread.start()
+    while True:
+        try:
+            if not _run_claimed_exclusive(_next_claimed_job()):
+                _wake.wait(POLL_SECONDS)
+                _wake.clear()
         except KeyboardInterrupt:
             raise
         except Exception:

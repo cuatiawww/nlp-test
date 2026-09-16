@@ -1,3 +1,4 @@
+import socket
 import sys
 import unittest
 from pathlib import Path
@@ -6,7 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.crawl_jobs import _article_matches, _disease_labels, _selected_concept
+from app.crawl_jobs import _article_matches, _disease_labels, _selected_concept, sanitize_crawl_url
+from app.crawler_identity import UnsafeUrlError
 
 
 class CrawlJobLogicTests(unittest.TestCase):
@@ -28,6 +30,19 @@ class CrawlJobLogicTests(unittest.TestCase):
         }
         self.assertTrue(_article_matches(analysis, ["Dengue"], "Indonesia"))
         self.assertFalse(_article_matches(analysis, ["Measles"], "Indonesia"))
+
+    def test_direct_url_rejects_loopback_before_queue(self):
+        resolver = lambda *_: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
+        with self.assertRaises(UnsafeUrlError):
+            sanitize_crawl_url("http://example.org/private", resolver=resolver)
+
+    def test_direct_url_accepts_public_address(self):
+        resolver = lambda *_: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+        self.assertEqual(
+            sanitize_crawl_url("https://example.org/news?utm_source=rss", resolver=resolver),
+            "https://example.org/news",
+        )
+        self.assertIsNone(sanitize_crawl_url(None))
 
 
 if __name__ == "__main__":

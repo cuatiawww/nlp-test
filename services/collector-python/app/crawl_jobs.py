@@ -19,6 +19,7 @@ from psycopg.types.json import Jsonb
 
 from . import config
 from .collectors.web_scraper import WebScraperCollector
+from .crawler_identity import UnsafeUrlError, validate_public_url
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -76,6 +77,15 @@ def _safe_date(value: Any) -> str | None:
 
 def _source_name(url: str) -> str:
     return (urlparse(url).hostname or "Google News").removeprefix("www.")
+
+
+def sanitize_crawl_url(url: str | None, resolver=None) -> str | None:
+    """Reject private/loopback destinations before the job is queued."""
+    if not url:
+        return None
+    if resolver is None:
+        return validate_public_url(url)
+    return validate_public_url(url, resolver=resolver)
 
 
 def _build_news_query(disease_names: list[str], country: str | None, region: str | None) -> str:
@@ -244,6 +254,7 @@ def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts:
 
 
 async def _run_job(job_id: str, payload: dict, reprocess: bool = False):
+    """Legacy in-process runner. Production uses ``python -m app.crawl_matrix_jobs``."""
     warnings: list[str] = []
     try:
         with _connection() as conn:
@@ -325,6 +336,11 @@ async def _run_job(job_id: str, payload: dict, reprocess: bool = False):
 @router.post("/crawl-jobs")
 async def create(payload: CrawlJobRequest):
     payload_dict = payload.model_dump(mode="json")
+    if payload.url:
+        try:
+            payload_dict["url"] = sanitize_crawl_url(payload.url)
+        except (UnsafeUrlError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
     with _connection() as conn:
         concepts = _matching_concepts(conn, payload.disease_concept_ids)
         if not concepts:
@@ -340,6 +356,17 @@ async def create(payload: CrawlJobRequest):
     # API request limited to enqueueing makes jobs durable across collector
     # restarts and prevents matrix crawling from blocking /extract-url or the
     # normal collector scheduler.
+    try:
+        from .rabbitmq import publish_to_queue
+        published = publish_to_queue(config.RABBITMQ_CRAWL_MATRIX_QUEUE, {"job_id": job_id})
+        if not published:
+            logger.warning(
+                "RabbitMQ publish skipped for crawl job %s; worker outbox will retry", job_id
+            )
+    except Exception:
+        logger.warning(
+            "RabbitMQ publish skipped for crawl job %s; worker outbox will retry", job_id
+        )
     return {"success": True, "data": {"job_id": job_id, "status": row["status"], "created_at": row["created_at"]}}
 
 
@@ -373,4 +400,15 @@ async def reprocess(job_id: str):
                            updated_at=NOW()
                        WHERE id=%s""", (job_id,))
         conn.commit()
+    try:
+        from .rabbitmq import publish_to_queue
+        published = publish_to_queue(config.RABBITMQ_CRAWL_MATRIX_QUEUE, {"job_id": job_id})
+        if not published:
+            logger.warning(
+                "RabbitMQ publish skipped for crawl reprocess %s; worker outbox will retry", job_id
+            )
+    except Exception:
+        logger.warning(
+            "RabbitMQ publish skipped for crawl reprocess %s; worker outbox will retry", job_id
+        )
     return {"success": True, "data": {"job_id": job_id, "status": "queued"}}

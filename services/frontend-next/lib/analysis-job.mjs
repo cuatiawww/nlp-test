@@ -1,4 +1,4 @@
-export async function waitForAnalysis(initial, poll, {interval = 2000, timeout = 600000, signal} = {}) {
+export async function waitForAnalysis(initial, poll, {interval = 1000, timeout = 600000, signal} = {}) {
  if (!initial?.job_id) return initial;
  const deadline = Date.now() + timeout;
  while (Date.now() < deadline) {

@@ -21,7 +21,7 @@ def _json_safe(value):
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
     return value
-QUEUE = "disease.analysis-url"
+QUEUE = os.getenv("RABBITMQ_ANALYSIS_URL_QUEUE", "disease.analysis-url")
 NLP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "180"))
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
@@ -656,17 +656,55 @@ def _run_matrix_worker_process():
     matrix_main()
 
 
+def spawn_matrix_worker_enabled():
+    """Existing analysis-job-worker already runs both jobs in one compose service.
+
+    Keep that layout: no docker-compose.yml change. Separate RabbitMQ queues
+    stop URL analysis and the crawler from acknowledging each other's messages.
+    Set ANALYSIS_WORKER_SPAWN_MATRIX=false only if a dedicated crawl worker
+    is already running elsewhere.
+    """
+    return os.getenv("ANALYSIS_WORKER_SPAWN_MATRIX", "true").lower() in {"1", "true", "yes", "on"}
+
+
+def analysis_prefetch():
+    return max(1, min(int(os.getenv("ANALYSIS_URL_PREFETCH", "1")), 4))
+
+
+def _handle_analysis_message(channel, method, _properties, body):
+    try:
+        payload = json.loads(body)
+        job_id = str(__import__("uuid").UUID(payload["job_id"]))
+        process_job(job_id)
+    except (ValueError, KeyError, json.JSONDecodeError, TypeError):
+        logger.warning("Discarding malformed analysis job message")
+    except Exception:
+        logger.exception("Analysis job callback failed")
+    try:
+        channel.basic_ack(method.delivery_tag)
+    except Exception:
+        logger.exception("Failed to ack analysis job message")
+
+
+def consume_analysis_queue(channel):
+    channel.queue_declare(queue=QUEUE, durable=True)
+    channel.basic_qos(prefetch_count=analysis_prefetch())
+    channel.basic_consume(queue=QUEUE, on_message_callback=_handle_analysis_message, auto_ack=False)
+
+
 def main():
     import pika
     from multiprocessing import Process
 
     logging.basicConfig(level=logging.INFO)
-    matrix_process = Process(
-        target=_run_matrix_worker_process,
-        name="manual-crawler-worker",
-        daemon=True,
-    )
-    matrix_process.start()
+    matrix_process = None
+    if spawn_matrix_worker_enabled():
+        matrix_process = Process(
+            target=_run_matrix_worker_process,
+            name="manual-crawler-worker",
+            daemon=True,
+        )
+        matrix_process.start()
     while True:
         try:
             params = pika.URLParameters(os.environ["RABBITMQ_URL"])
@@ -674,10 +712,22 @@ def main():
             params.blocked_connection_timeout = 5
             with pika.BlockingConnection(params) as broker:
                 channel = broker.channel()
-                channel.queue_declare(queue=QUEUE,durable=True)
                 channel.confirm_delivery()
+                consume_analysis_queue(channel)
+
+                def outbox():
+                    try:
+                        dispatch(channel)
+                    except Exception:
+                        logger.exception("analysis outbox dispatch failed")
+                    try:
+                        broker.call_later(15, outbox)
+                    except Exception:
+                        pass
+
+                broker.call_later(1, outbox)
                 while broker.is_open:
-                    if not matrix_process.is_alive():
+                    if matrix_process is not None and not matrix_process.is_alive():
                         logger.warning("Manual crawler worker stopped; restarting child process")
                         matrix_process = Process(
                             target=_run_matrix_worker_process,
@@ -685,16 +735,7 @@ def main():
                             daemon=True,
                         )
                         matrix_process.start()
-                    dispatch(channel)
-                    method, properties, body = channel.basic_get(QUEUE,auto_ack=False)
-                    if method:
-                        try:
-                            process_job(str(__import__("uuid").UUID(json.loads(body)["job_id"])))
-                        except (ValueError, KeyError, json.JSONDecodeError):
-                            logger.warning("Discarding malformed analysis job message")
-                        channel.basic_ack(method.delivery_tag)
-                    else:
-                        broker.sleep(2)
+                    broker.process_data_events(time_limit=1)
         except Exception:
             logger.exception("Analysis worker unavailable; reconnecting")
             time.sleep(5)
