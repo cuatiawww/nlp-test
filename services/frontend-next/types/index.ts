@@ -395,13 +395,18 @@ export type VectorSightingsResponse = {
 };
 
 export type LiveFlight = {
-  callsign: string;
-  origin_country: string;
+  icao24?: string | null;
+  callsign?: string | null;
+  origin_country?: string | null;
   latitude: number;
   longitude: number;
   altitude_m?: number | null;
+  on_ground?: boolean | null;
   velocity_ms?: number | null;
   heading?: number | null;
+  vertical_rate_ms?: number | null;
+  squawk?: string | null;
+  last_contact?: number | null;
 };
 
 export type LiveFlightsResponse = {
@@ -418,6 +423,9 @@ export type FireHotspot = {
   brightness?: number | null;
   confidence?: string | null;
   acq_date?: string | null;
+  acq_time?: string | null;
+  satellite?: string | null;
+  frp?: number | null;
 };
 
 export type FireHotspotsResponse = {
@@ -489,4 +497,67 @@ export type ExternalIntelLayers = {
   facilities?: boolean;
   news?: boolean;
   population?: boolean;
+  weather?: boolean;
+  airQuality?: boolean;
+};
+
+export type MapLayerStatusState = "idle" | "loading" | "ok" | "empty" | "error";
+
+export type MapLayerStatus = {
+  state: MapLayerStatusState;
+  count?: number;
+  message?: string;
+  source?: string;
+};
+
+export type EnvironmentMarker = {
+  country: string;
+  display_name: string;
+  capital: string;
+  latitude: number;
+  longitude: number;
+  temperature_c?: number | null;
+  relative_humidity_pct?: number | null;
+  precipitation_mm?: number | null;
+  wind_speed_kmh?: number | null;
+  weather_observed_at?: string | null;
+  european_aqi?: number | null;
+  us_aqi?: number | null;
+  aqi_label?: string | null;
+  pm2_5?: number | null;
+  pm10?: number | null;
+  so2?: number | null;
+  air_observed_at?: string | null;
+  weather_status?: string | null;
+  air_status?: string | null;
+  weather_error?: string | null;
+  air_error?: string | null;
+  partial?: boolean;
+};
+
+export type MapHazardsResponse = {
+  status: string;
+  source: string;
+  total?: number;
+  events: Array<{
+    id?: string | number | null;
+    source?: string | null;
+    kind?: string | null;
+    title?: string | null;
+    latitude: number;
+    longitude: number;
+    magnitude?: number | null;
+    alert_level?: string | null;
+    when?: string | number | null;
+    url?: string | null;
+  }>;
+  error?: string | null;
+};
+
+export type MapEnvironmentResponse = {
+  status: string;
+  source: string;
+  total?: number;
+  markers: EnvironmentMarker[];
+  error?: string | null;
 };

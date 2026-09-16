@@ -25,7 +25,7 @@ The page is near full-width (`px-2` / `sm:px-3` / `md:px-4`, no `max-w-[1600px]`
 | Weather, precipitation, AQI, PM2.5 | `GET /api/v1/region-context` → Open-Meteo forecast + air-quality |
 | 7-day climate means | Same proxy → NASA POWER daily `T2M`, `RH2M`, `PRECTOTCORR` |
 | Map province choropleth | OpenLayers stack (`SpatialOutbreakMap` / `AseanMap`). Indonesia ADM1 from `/wilayah-data`; other members from `/boundaries` (geoBoundaries gbOpen ADM1) |
-| Env layer toggles | Existing InaRISK / wind / basemap controls, plus USGS and GDACS pins from region-context |
+| Env layer toggles | Existing InaRISK / wind / basemap / GIBS / intel controls. Home map now loads USGS + GDACS pins from `GET /api/v1/map-layers/hazards` (ASEAN envelope). Detail-region still prefers `region-context` hazards for the selected country. |
 | InaRISK rasters | BNPB ArcGIS ImageServer, Indonesia only |
 
 `GET /api/v1/region-context?country=` is a public backend proxy. The browser does not call Open-Meteo, NASA, GDACS, or USGS directly (CSP stays same-origin for those reads). Responses are cached for 10 minutes per country. Each upstream call has an 8s timeout; a failed provider returns `status: error` and `—` in the UI.

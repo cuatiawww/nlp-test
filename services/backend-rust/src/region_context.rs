@@ -36,6 +36,9 @@ pub struct CountryMeta {
     pub bbox: [f64; 4],
 }
 
+/// ASEAN 10 + Timor-Leste envelope used by dashboard map overlays.
+pub const ASEAN_MAP_BBOX: [f64; 4] = [92.1, -11.2, 141.1, 28.6];
+
 const COUNTRIES: &[CountryMeta] = &[
     CountryMeta {
         storage: "Brunei",
@@ -159,6 +162,10 @@ const COUNTRIES: &[CountryMeta] = &[
         bbox: [102.1, 8.4, 109.5, 23.4],
     },
 ];
+
+pub fn asean_countries() -> &'static [CountryMeta] {
+    COUNTRIES
+}
 
 pub fn resolve_country(raw: &str) -> Option<CountryMeta> {
     let key = raw.trim().to_lowercase().replace('_', " ");
@@ -700,6 +707,145 @@ pub async fn build_region_context(http: &Client, country_raw: &str) -> Result<Va
     Ok(payload)
 }
 
+pub async fn fetch_asean_hazards(http: &Client) -> Value {
+    let cache_key = "asean_map_hazards";
+    if let Some(cached) = cache_get(cache_key) {
+        return cached;
+    }
+
+    let start = (Utc::now() - ChronoDuration::days(90))
+        .format("%Y-%m-%d")
+        .to_string();
+    let usgs_url = format!(
+        "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minmagnitude=4.5&minlatitude={}&maxlatitude={}&minlongitude={}&maxlongitude={}&starttime={}&limit=80&orderby=time",
+        ASEAN_MAP_BBOX[1],
+        ASEAN_MAP_BBOX[3],
+        ASEAN_MAP_BBOX[0],
+        ASEAN_MAP_BBOX[2],
+        start
+    );
+    let from = (Utc::now() - ChronoDuration::days(180))
+        .format("%Y-%m-%d")
+        .to_string();
+    let to = Utc::now().format("%Y-%m-%d").to_string();
+    let gdacs_url = format!(
+        "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?eventlist=EQ;FL;TC;VO&fromdate={}&todate={}",
+        from, to
+    );
+
+    let (usgs_res, gdacs_res) = tokio::join!(fetch_json(http, &usgs_url), fetch_json(http, &gdacs_url));
+    let mut events = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    match usgs_res {
+        Ok(payload) => events.extend(parse_usgs(&payload, ASEAN_MAP_BBOX)),
+        Err(error) => errors.push(format!("USGS: {error}")),
+    }
+    match gdacs_res {
+        Ok(payload) => events.extend(parse_gdacs(&payload, ASEAN_MAP_BBOX)),
+        Err(error) => errors.push(format!("GDACS: {error}")),
+    }
+
+    let status = if events.is_empty() && !errors.is_empty() {
+        "error"
+    } else {
+        "ok"
+    };
+    let result = json!({
+        "status": status,
+        "source": "USGS Earthquake FDSN + GDACS Multi-hazard",
+        "total": events.len(),
+        "events": events,
+        "error": if errors.is_empty() { Value::Null } else { json!(errors.join("; ")) }
+    });
+    if status == "ok" {
+        cache_put(cache_key.to_string(), result.clone());
+    }
+    result
+}
+
+fn environment_marker(country: CountryMeta, weather: Value, air: Value) -> Value {
+    let weather_ok = weather.get("status").and_then(|v| v.as_str()) == Some("ok");
+    let air_ok = air.get("status").and_then(|v| v.as_str()) == Some("ok");
+    json!({
+        "country": country.storage,
+        "display_name": country.display,
+        "capital": country.capital,
+        "latitude": country.lat,
+        "longitude": country.lon,
+        "temperature_c": weather.pointer("/current/temperature_c"),
+        "relative_humidity_pct": weather.pointer("/current/relative_humidity_pct"),
+        "precipitation_mm": weather.pointer("/current/precipitation_mm"),
+        "wind_speed_kmh": weather.pointer("/current/wind_speed_kmh"),
+        "weather_observed_at": weather.pointer("/current/observed_at"),
+        "european_aqi": air.pointer("/current/european_aqi"),
+        "us_aqi": air.pointer("/current/us_aqi"),
+        "aqi_label": air.pointer("/current/aqi_label"),
+        "pm2_5": air.pointer("/current/pm2_5"),
+        "pm10": air.pointer("/current/pm10"),
+        "so2": air.pointer("/current/so2"),
+        "air_observed_at": air.pointer("/current/observed_at"),
+        "weather_status": weather.get("status"),
+        "air_status": air.get("status"),
+        "weather_error": weather.get("error"),
+        "air_error": air.get("error"),
+        "partial": !(weather_ok && air_ok)
+    })
+}
+
+pub async fn fetch_asean_environment(http: &Client) -> Value {
+    let cache_key = "asean_map_environment";
+    if let Some(cached) = cache_get(cache_key) {
+        return cached;
+    }
+
+    let mut handles = Vec::new();
+    for country in COUNTRIES.iter().copied() {
+        let http = http.clone();
+        handles.push(tokio::spawn(async move {
+            let (weather, air) = tokio::join!(
+                open_meteo_weather(&http, country),
+                open_meteo_air(&http, country)
+            );
+            environment_marker(country, weather, air)
+        }));
+    }
+
+    let mut markers = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    for handle in handles {
+        match handle.await {
+            Ok(marker) => {
+                let weather_ok = marker.get("weather_status").and_then(|v| v.as_str()) == Some("ok");
+                let air_ok = marker.get("air_status").and_then(|v| v.as_str()) == Some("ok");
+                if weather_ok || air_ok {
+                    markers.push(marker);
+                } else {
+                    errors.push(format!(
+                        "{}: weather {} / air {}",
+                        marker.get("display_name").and_then(|v| v.as_str()).unwrap_or("country"),
+                        marker.get("weather_error").and_then(|v| v.as_str()).unwrap_or("error"),
+                        marker.get("air_error").and_then(|v| v.as_str()).unwrap_or("error")
+                    ));
+                }
+            }
+            Err(error) => errors.push(error.to_string()),
+        }
+    }
+
+    let status = if markers.is_empty() { "error" } else { "ok" };
+    let result = json!({
+        "status": status,
+        "source": "Open-Meteo Forecast + Air Quality (CAMS)",
+        "total": markers.len(),
+        "markers": markers,
+        "error": if errors.is_empty() { Value::Null } else { json!(errors.join("; ")) }
+    });
+    if status == "ok" {
+        cache_put(cache_key.to_string(), result.clone());
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -748,5 +894,44 @@ mod tests {
         let events = parse_usgs(&payload, indonesia.bbox);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["title"], "Java");
+    }
+
+    #[test]
+    fn asean_envelope_contains_every_capital() {
+        for country in asean_countries() {
+            assert!(
+                in_bbox(country.lon, country.lat, ASEAN_MAP_BBOX),
+                "{} capital is outside ASEAN map envelope",
+                country.storage
+            );
+        }
+    }
+
+    #[test]
+    fn gdacs_keeps_volcano_inside_asean_envelope() {
+        let payload = json!({
+            "features": [
+                {
+                    "id": "vo1",
+                    "geometry": { "coordinates": [110.44, -7.54] },
+                    "properties": {
+                        "eventid": "vo1",
+                        "eventtype": "VO",
+                        "eventname": "Merapi",
+                        "alertlevel": "Orange",
+                        "fromdate": "2026-09-01"
+                    }
+                },
+                {
+                    "id": "vo2",
+                    "geometry": { "coordinates": [-155.0, 19.4] },
+                    "properties": { "eventtype": "VO", "eventname": "Kilauea" }
+                }
+            ]
+        });
+        let events = parse_gdacs(&payload, ASEAN_MAP_BBOX);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["title"], "Merapi");
+        assert_eq!(events[0]["kind"], "VO");
     }
 }

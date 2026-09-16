@@ -1773,6 +1773,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/map-layers/facilities", get(get_health_facilities))
         .route("/api/v1/map-layers/news", get(get_disease_news))
         .route("/api/v1/map-layers/population", get(get_population_meta))
+        .route("/api/v1/map-layers/hazards", get(get_map_hazards))
+        .route("/api/v1/map-layers/environment", get(get_map_environment))
         .route("/api/v1/report-issues/:id/assets", post(reports_cms::upsert_asset))
         .route("/api/v1/skdr/ibs-summary", get(skdr_detached))
         .route("/api/v1/skdr/ebs-summary", get(skdr_detached))
@@ -1917,6 +1919,20 @@ async fn get_population_meta(
 ) -> Json<Value> {
     let iso3 = params.iso3.as_deref().unwrap_or("IDN");
     let data = external_layers::fetch_worldpop_meta(&state.http, iso3).await;
+    Json(json!({ "success": true, "data": data }))
+}
+
+async fn get_map_hazards(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let data = region_context::fetch_asean_hazards(&state.http).await;
+    Json(json!({ "success": true, "data": data }))
+}
+
+async fn get_map_environment(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let data = region_context::fetch_asean_environment(&state.http).await;
     Json(json!({ "success": true, "data": data }))
 }
 

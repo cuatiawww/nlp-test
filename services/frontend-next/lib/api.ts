@@ -16,6 +16,8 @@ import type {
   HealthFacilitiesResponse,
   DiseaseNewsResponse,
   WorldPopMeta,
+  MapHazardsResponse,
+  MapEnvironmentResponse,
 } from "@/types";
 
 // Client-side: proxy via Next.js rewrites /nlp/api/* → backend-rust:8081/api/*
@@ -802,3 +804,9 @@ export const fetchWorldPopMeta = (iso3?: string) => {
   const q = iso3 ? `?iso3=${encodeURIComponent(iso3)}` : "";
   return fetchFrom<WorldPopMeta>(`/api/v1/map-layers/population${q}`);
 };
+
+export const fetchMapHazards = () =>
+  fetchFrom<MapHazardsResponse>("/api/v1/map-layers/hazards");
+
+export const fetchMapEnvironment = () =>
+  fetchFrom<MapEnvironmentResponse>("/api/v1/map-layers/environment");
