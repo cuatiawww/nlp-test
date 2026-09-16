@@ -634,17 +634,21 @@ fn cache_get(key: &str) -> Option<Value> {
     }
 }
 
-fn cache_put(key: String, payload: Value) {
+fn cache_put_ttl(key: String, payload: Value, ttl: Duration) {
     if let Ok(mut guard) = CACHE.lock() {
         let map = guard.get_or_insert_with(HashMap::new);
         map.insert(
             key,
             CacheEntry {
-                expires_at: Instant::now() + CACHE_TTL,
+                expires_at: Instant::now() + ttl,
                 payload,
             },
         );
     }
+}
+
+fn cache_put(key: String, payload: Value) {
+    cache_put_ttl(key, payload, CACHE_TTL);
 }
 
 pub async fn build_region_context(http: &Client, country_raw: &str) -> Result<Value, String> {
@@ -758,7 +762,7 @@ pub async fn fetch_asean_hazards(http: &Client) -> Value {
         "error": if errors.is_empty() { Value::Null } else { json!(errors.join("; ")) }
     });
     if status == "ok" {
-        cache_put(cache_key.to_string(), result.clone());
+        cache_put_ttl(cache_key.to_string(), result.clone(), Duration::from_secs(180));
     }
     result
 }
@@ -841,7 +845,7 @@ pub async fn fetch_asean_environment(http: &Client) -> Value {
         "error": if errors.is_empty() { Value::Null } else { json!(errors.join("; ")) }
     });
     if status == "ok" {
-        cache_put(cache_key.to_string(), result.clone());
+        cache_put_ttl(cache_key.to_string(), result.clone(), Duration::from_secs(180));
     }
     result
 }

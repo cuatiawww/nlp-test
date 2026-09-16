@@ -38,7 +38,7 @@ export default function TvPage() {
   const { t, locale, translateDisease, translateSeverity } = useTranslation()
   const numLocale = locale === 'en' ? 'en-US' : 'id-ID'
 
-  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [crawlItems,setCrawlItems]=useState<CrawlingFeedItem[]>([]), [selectedEvent,setSelectedEvent]=useState<OutbreakLocation|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(60)
+  const [data,setData]=useState<PublicDashboard|null>(null), [crawlingStats,setCrawlingStats]=useState<CrawlingStats|null>(null), [crawlItems,setCrawlItems]=useState<CrawlingFeedItem[]>([]), [selectedEvent,setSelectedEvent]=useState<OutbreakLocation|null>(null), [loading,setLoading]=useState(true), [countdown,setCountdown]=useState(120)
   const [mapMode,setMapMode]=useState<'map'|'crawl'>('map')
   const [drawer,setDrawer]=useState(false), [sound,setSound]=useState(false), [fullscreen,setFullscreen]=useState(false), [kpiHidden,setKpiHidden]=useState(false), [leftHidden,setLeftHidden]=useState(false), [rightHidden,setRightHidden]=useState(false)
   const [baseMap,setBaseMap]=useState<BaseMap>('osm'), [admin,setAdmin]=useState(true), [markers,setMarkers]=useState(true), [markerLookbackDays,setMarkerLookbackDays]=useState<MarkerLookbackDays>(30), [choropleth,setChoropleth]=useState(true), [headerExpanded, setHeaderExpanded]=useState(false)
@@ -77,10 +77,18 @@ export default function TvPage() {
       }
       setData(dashboardData)
       if (crawlData) setCrawlingStats(crawlData)
-      setCountdown(60)
+      setCountdown(120)
     } finally {
       setLoading(false)
     }
+  },[])
+
+  const refreshKpis=useCallback(async()=>{
+    const kpiData=await fetchKpiSnapshot().catch(()=>null)
+    if (kpiData?.kpis) {
+      setData(prev => prev ? { ...prev, kpis: { ...prev.kpis, ...kpiData.kpis } } : prev)
+    }
+    setCountdown(120)
   },[])
 
   const refreshCrawlingStats=useCallback(async()=>{
@@ -88,9 +96,9 @@ export default function TvPage() {
     if(crawlData)setCrawlingStats(crawlData)
   },[])
 
-  useEffect(()=>{load();const i=setInterval(load,60000);return()=>clearInterval(i)},[load])
-  useEffect(()=>{const i=setInterval(refreshCrawlingStats,5000);return()=>clearInterval(i)},[refreshCrawlingStats])
-  useEffect(()=>{const i=setInterval(()=>setCountdown(c=>c<=1?60:c-1),1000);return()=>clearInterval(i)},[])
+  useEffect(()=>{load();const i=setInterval(refreshKpis,120000);return()=>clearInterval(i)},[load,refreshKpis])
+  useEffect(()=>{const i=setInterval(refreshCrawlingStats,15000);return()=>clearInterval(i)},[refreshCrawlingStats])
+  useEffect(()=>{const i=setInterval(()=>setCountdown(c=>c<=1?120:c-1),1000);return()=>clearInterval(i)},[])
   useEffect(()=>{
     const tick=()=>{
       const now=new Date()

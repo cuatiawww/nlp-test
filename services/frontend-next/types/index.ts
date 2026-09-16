@@ -386,13 +386,19 @@ export type VectorSighting = {
   place?: string;
 };
 
+export type MapLayerCacheFlags = {
+  cached?: boolean;
+  stale?: boolean;
+  fromCache?: boolean;
+};
+
 export type VectorSightingsResponse = {
   status: string;
   source: string;
   total?: number;
   sightings: VectorSighting[];
   error?: string;
-};
+} & MapLayerCacheFlags;
 
 export type LiveFlight = {
   icao24?: string | null;
@@ -415,7 +421,7 @@ export type LiveFlightsResponse = {
   total: number;
   flights: LiveFlight[];
   error?: string;
-};
+} & MapLayerCacheFlags;
 
 export type FireHotspot = {
   latitude: number;
@@ -434,7 +440,7 @@ export type FireHotspotsResponse = {
   total?: number;
   hotspots: FireHotspot[];
   error?: string;
-};
+} & MapLayerCacheFlags;
 
 export type HealthFacility = {
   name: string;
@@ -450,7 +456,7 @@ export type HealthFacilitiesResponse = {
   total?: number;
   facilities: HealthFacility[];
   error?: string;
-};
+} & MapLayerCacheFlags;
 
 export type DiseaseNewsArticle = {
   title: string;
@@ -467,7 +473,7 @@ export type DiseaseNewsResponse = {
   total?: number;
   articles: DiseaseNewsArticle[];
   error?: string;
-};
+} & MapLayerCacheFlags;
 
 export type WorldPopMeta = {
   status: string;
@@ -479,7 +485,7 @@ export type WorldPopMeta = {
   tif_url?: string;
   summary_url?: string;
   error?: string;
-};
+} & MapLayerCacheFlags;
 
 export type NasaGibsLayers = {
   viirsTrueColor?: boolean;
@@ -501,7 +507,17 @@ export type ExternalIntelLayers = {
   airQuality?: boolean;
 };
 
-export type MapLayerStatusState = "idle" | "loading" | "ok" | "empty" | "error";
+export type MapLayerStatusState =
+  | "idle"
+  | "loading"
+  | "ok"
+  | "cached"
+  | "empty"
+  | "timeout"
+  | "auth"
+  | "upstream"
+  | "unavailable"
+  | "error";
 
 export type MapLayerStatus = {
   state: MapLayerStatusState;
@@ -552,7 +568,7 @@ export type MapHazardsResponse = {
     url?: string | null;
   }>;
   error?: string | null;
-};
+} & MapLayerCacheFlags;
 
 export type MapEnvironmentResponse = {
   status: string;
@@ -560,4 +576,4 @@ export type MapEnvironmentResponse = {
   total?: number;
   markers: EnvironmentMarker[];
   error?: string | null;
-};
+} & MapLayerCacheFlags;

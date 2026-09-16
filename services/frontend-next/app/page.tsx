@@ -842,19 +842,27 @@ export default function DashboardPage() {
     if (crawlData) setCrawlingStats(crawlData);
   }, []);
 
+  const dashboardApiFilters = useCallback((active: EpiFilterState) => ({
+    country: active.country,
+    disease: active.disease,
+    start_year: active.startYear,
+    start_week: active.startWeek,
+    end_year: active.endYear,
+    end_week: active.endWeek,
+    year: active.endYear,
+  }), []);
+
+  const refreshKpis = useCallback(async () => {
+    const kpiData = await fetchKpiSnapshot(dashboardApiFilters(filters)).catch(() => null);
+    if (!kpiData?.kpis) return;
+    setData((prev) => (prev ? { ...prev, kpis: { ...prev.kpis, ...kpiData.kpis } } : prev));
+  }, [dashboardApiFilters, filters]);
+
   const load = useCallback(async (customFilters?: EpiFilterState) => {
     const active = customFilters || filters;
     try {
       setError("");
-      const dashboardFilters = {
-          country: active.country,
-          disease: active.disease,
-          start_year: active.startYear,
-          start_week: active.startWeek,
-          end_year: active.endYear,
-          end_week: active.endWeek,
-          year: active.endYear,
-      }
+      const dashboardFilters = dashboardApiFilters(active);
       const [dashData, kpiData, crawlData] = await Promise.all([
         fetchPublicDashboard(dashboardFilters),
         fetchKpiSnapshot(dashboardFilters).catch(() => null),
@@ -870,18 +878,18 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, t]);
+  }, [dashboardApiFilters, filters, t]);
 
   useEffect(() => {
     load();
-    const id = window.setInterval(load, 60_000);
+    const id = window.setInterval(() => void refreshKpis(), 120_000);
     return () => window.clearInterval(id);
-  }, [load]);
+  }, [load, refreshKpis]);
 
   // Keep the collector KPI live without reloading the heavier dashboard payload.
   useEffect(() => {
     void refreshCrawlingStats();
-    const id = window.setInterval(() => void refreshCrawlingStats(), 5_000);
+    const id = window.setInterval(() => void refreshCrawlingStats(), 15_000);
     return () => window.clearInterval(id);
   }, [refreshCrawlingStats]);
 

@@ -1,20 +1,35 @@
 ﻿//! Proxy fetchers for external map layer APIs.
-//! Follows the same cache-and-proxy pattern as `region_context.rs`.
-//! Successful payloads are cached; errors are not, so a later toggle can retry.
+//!
+//! Cache TTLs (also documented in the PR):
+//! - flights (OpenSky): 45s
+//! - fires / news / vectors default: 3 min
+//! - facilities / population: 5 min
+//! Successful payloads are cached; errors are not. A last-good copy is kept
+//! so a timeout can still return structured data instead of hanging until a
+//! reverse-proxy 503.
 
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
-    sync::Mutex,
+    future::Future,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::region_context::{self, CountryMeta};
 
 const UA: &str = "ASEAN-PHE-Surveillance/1.0 (map-layers; non-commercial research)";
-const FETCH_TIMEOUT: Duration = Duration::from_secs(12);
-const CACHE_TTL: Duration = Duration::from_secs(600);
+const FETCH_TIMEOUT: Duration = Duration::from_secs(8);
+const LAYER_HANDLER_BUDGET: Duration = Duration::from_secs(12);
+const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(180);
+const FLIGHTS_CACHE_TTL: Duration = Duration::from_secs(45);
+const SLOW_LAYER_CACHE_TTL: Duration = Duration::from_secs(300);
+const LAST_GOOD_TTL: Duration = Duration::from_secs(1_800);
+const OVERPASS_HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+const OVERPASS_QUERY_TIMEOUT_SECS: u64 = 8;
+const FACILITIES_LIMIT: usize = 120;
 const FIRMS_PUBLIC_SEA_CSV: &str =
     "https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_SouthEast_Asia_24h.csv";
 const OVERPASS_ENDPOINTS: &[&str] = &[
@@ -28,9 +43,39 @@ struct CacheEntry {
 }
 
 static LAYER_CACHE: Mutex<Option<HashMap<String, CacheEntry>>> = Mutex::new(None);
+static LAST_GOOD: Mutex<Option<HashMap<String, CacheEntry>>> = Mutex::new(None);
+static LAYER_LOCKS: Mutex<Option<HashMap<String, Arc<TokioMutex<()>>>>> = Mutex::new(None);
 
-fn get_cached(key: &str) -> Option<Value> {
-    let guard = LAYER_CACHE.lock().ok()?;
+fn ttl_for(key: &str) -> Duration {
+    if key.starts_with("opensky") {
+        FLIGHTS_CACHE_TTL
+    } else if key.starts_with("healthsites") || key.starts_with("worldpop") {
+        SLOW_LAYER_CACHE_TTL
+    } else {
+        DEFAULT_CACHE_TTL
+    }
+}
+
+fn cache_store(
+    store: &Mutex<Option<HashMap<String, CacheEntry>>>,
+    key: String,
+    payload: Value,
+    ttl: Duration,
+) {
+    if let Ok(mut guard) = store.lock() {
+        let map = guard.get_or_insert_with(HashMap::new);
+        map.insert(
+            key,
+            CacheEntry {
+                expires_at: Instant::now() + ttl,
+                payload,
+            },
+        );
+    }
+}
+
+fn cache_read(store: &Mutex<Option<HashMap<String, CacheEntry>>>, key: &str) -> Option<Value> {
+    let guard = store.lock().ok()?;
     let map = guard.as_ref()?;
     let entry = map.get(key)?;
     if entry.expires_at > Instant::now() {
@@ -40,41 +85,118 @@ fn get_cached(key: &str) -> Option<Value> {
     }
 }
 
+fn get_cached(key: &str) -> Option<Value> {
+    cache_read(&LAYER_CACHE, key)
+}
+
+fn get_last_good(key: &str) -> Option<Value> {
+    cache_read(&LAST_GOOD, key)
+}
+
 fn set_cached(key: String, payload: Value) {
-    if let Ok(mut guard) = LAYER_CACHE.lock() {
-        let map = guard.get_or_insert_with(HashMap::new);
-        map.insert(
-            key,
-            CacheEntry {
-                expires_at: Instant::now() + CACHE_TTL,
-                payload,
-            },
-        );
+    let ttl = ttl_for(&key);
+    cache_store(&LAYER_CACHE, key, payload, ttl);
+}
+
+fn set_last_good(key: String, payload: Value) {
+    cache_store(&LAST_GOOD, key, payload, LAST_GOOD_TTL);
+}
+
+fn mark_cached(mut payload: Value, stale: bool) -> Value {
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("cached".to_string(), json!(true));
+        obj.insert("stale".to_string(), json!(stale));
+    }
+    payload
+}
+
+fn is_ok_status(payload: &Value) -> bool {
+    matches!(payload.get("status").and_then(|v| v.as_str()), Some("ok"))
+}
+
+fn finish_layer(key: String, result: Value) -> Value {
+    if is_ok_status(&result) {
+        set_cached(key.clone(), result.clone());
+        set_last_good(key, result.clone());
+        return result;
+    }
+    if let Some(stale) = get_last_good(&key) {
+        let mut marked = mark_cached(stale, true);
+        if let Some(obj) = marked.as_object_mut() {
+            if let Some(err) = result.get("error").cloned() {
+                obj.insert("refresh_error".to_string(), err);
+            }
+        }
+        return marked;
+    }
+    result
+}
+
+fn layer_lock(key: &str) -> Arc<TokioMutex<()>> {
+    let mut guard = LAYER_LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    let map = guard.get_or_insert_with(HashMap::new);
+    map.entry(key.to_string())
+        .or_insert_with(|| Arc::new(TokioMutex::new(())))
+        .clone()
+}
+
+fn classify_status(err: &str) -> &'static str {
+    let lower = err.to_ascii_lowercase();
+    if lower.contains("timed out") || lower.contains("timeout") {
+        "timeout"
+    } else if lower.contains("401") || lower.contains("403") || lower.contains("not configured") {
+        "auth"
+    } else if lower.contains("503") || lower.contains("unavailable") {
+        "unavailable"
+    } else {
+        "error"
     }
 }
 
-fn cache_if_ok(key: String, payload: &Value) {
-    if payload.get("status").and_then(|v| v.as_str()) == Some("ok") {
-        set_cached(key, payload.clone());
+async fn guarded_fetch<F, Fut>(key: &str, timeout_payload: Value, fut: F) -> Value
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Value>,
+{
+    if let Some(cached) = get_cached(key) {
+        return mark_cached(cached, false);
     }
+    let lock = layer_lock(key);
+    let _guard = lock.lock().await;
+    if let Some(cached) = get_cached(key) {
+        return mark_cached(cached, false);
+    }
+    let result = match tokio::time::timeout(LAYER_HANDLER_BUDGET, fut()).await {
+        Ok(value) => value,
+        Err(_) => timeout_payload,
+    };
+    finish_layer(key.to_string(), result)
 }
 
 fn pct_encode(input: &str) -> String {
     url::form_urlencoded::byte_serialize(input.as_bytes()).collect()
 }
 
-async fn fetch_response_text(http: &Client, url: &str) -> Result<(u16, String), String> {
+async fn fetch_response_text_timed(
+    http: &Client,
+    url: &str,
+    timeout: Duration,
+) -> Result<(u16, String), String> {
     let response = http
         .get(url)
         .header("User-Agent", UA)
         .header("Accept", "application/json, text/csv, text/plain, */*")
-        .timeout(FETCH_TIMEOUT)
+        .timeout(timeout)
         .send()
         .await
         .map_err(|e| e.to_string())?;
     let status = response.status().as_u16();
     let text = response.text().await.map_err(|e| e.to_string())?;
     Ok((status, text))
+}
+
+async fn fetch_response_text(http: &Client, url: &str) -> Result<(u16, String), String> {
+    fetch_response_text_timed(http, url, FETCH_TIMEOUT).await
 }
 
 async fn fetch_json(http: &Client, url: &str) -> Result<Value, String> {
@@ -240,7 +362,7 @@ fn parse_overpass_elements(payload: &Value) -> Vec<Value> {
                 "osm_id": el.get("id")
             }))
         })
-        .take(250)
+        .take(FACILITIES_LIMIT)
         .collect()
 }
 
@@ -314,88 +436,106 @@ fn parse_gdelt_articles(payload: &Value) -> Vec<Value> {
 // ── iNaturalist: Aedes vector sightings ──────────────────────────────
 
 pub async fn fetch_inaturalist_vectors(http: &Client) -> Value {
-    let cache_key = "inaturalist_aedes_asean".to_string();
-    if let Some(cached) = get_cached(&cache_key) {
-        return cached;
-    }
-
-    let url = "https://api.inaturalist.org/v1/observations?taxon_name=Aedes&nelat=28&nelng=141&swlat=-11&swlng=95&per_page=200&order=desc&order_by=observed_on&quality_grade=research";
-
-    let result = match fetch_json(http, url).await {
-        Ok(payload) => {
-            let observations = payload
-                .get("results")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let markers: Vec<Value> = observations
-                .iter()
-                .filter_map(|obs| {
-                    let (lon, lat) = observation_coords(obs)?;
-                    let species = obs
-                        .get("species_guess")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Aedes sp.");
-                    let observed = obs.get("observed_on").and_then(|v| v.as_str()).unwrap_or("");
-                    let photo = obs
-                        .pointer("/photos/0/url")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let place = obs.get("place_guess").and_then(|v| v.as_str()).unwrap_or("");
-                    Some(json!({
-                        "latitude": lat,
-                        "longitude": lon,
-                        "species": species,
-                        "observed_on": observed,
-                        "photo_url": photo.replace("/square.", "/small."),
-                        "place": place
-                    }))
-                })
-                .collect();
-            json!({
-                "status": "ok",
-                "source": "iNaturalist",
-                "total": markers.len(),
-                "sightings": markers
-            })
-        }
-        Err(error) => json!({ "status": "error", "source": "iNaturalist", "error": error, "sightings": [] }),
-    };
-    cache_if_ok(cache_key, &result);
-    result
+    let cache_key = "inaturalist_aedes_asean";
+    guarded_fetch(
+        cache_key,
+        json!({
+            "status": "timeout",
+            "source": "iNaturalist",
+            "error": "iNaturalist request exceeded 12s budget",
+            "sightings": []
+        }),
+        || async move {
+            let url = "https://api.inaturalist.org/v1/observations?taxon_name=Aedes&nelat=28&nelng=141&swlat=-11&swlng=95&per_page=200&order=desc&order_by=observed_on&quality_grade=research";
+            match fetch_json(http, url).await {
+                Ok(payload) => {
+                    let observations = payload
+                        .get("results")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let markers: Vec<Value> = observations
+                        .iter()
+                        .filter_map(|obs| {
+                            let (lon, lat) = observation_coords(obs)?;
+                            let species = obs
+                                .get("species_guess")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Aedes sp.");
+                            let observed = obs.get("observed_on").and_then(|v| v.as_str()).unwrap_or("");
+                            let photo = obs
+                                .pointer("/photos/0/url")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let place = obs.get("place_guess").and_then(|v| v.as_str()).unwrap_or("");
+                            Some(json!({
+                                "latitude": lat,
+                                "longitude": lon,
+                                "species": species,
+                                "observed_on": observed,
+                                "photo_url": photo.replace("/square.", "/small."),
+                                "place": place
+                            }))
+                        })
+                        .collect();
+                    json!({
+                        "status": "ok",
+                        "source": "iNaturalist",
+                        "total": markers.len(),
+                        "sightings": markers
+                    })
+                }
+                Err(error) => json!({
+                    "status": classify_status(&error),
+                    "source": "iNaturalist",
+                    "error": error,
+                    "sightings": []
+                }),
+            }
+        },
+    )
+    .await
 }
 
 // ── OpenSky Network: live flights ────────────────────────────────────
 
 pub async fn fetch_opensky_flights(http: &Client) -> Value {
-    let cache_key = "opensky_asean".to_string();
-    if let Some(cached) = get_cached(&cache_key) {
-        return cached;
-    }
-
-    let url = "https://opensky-network.org/api/states/all?lamin=-11&lomin=95&lamax=28&lomax=141";
-
-    let result = match fetch_json(http, url).await {
-        Ok(payload) => {
-            let states = payload
-                .get("states")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let flights: Vec<Value> = states.iter().filter_map(parse_opensky_state).take(250).collect();
-            json!({
-                "status": "ok",
-                "source": "OpenSky Network",
-                "total": flights.len(),
-                "flights": flights
-            })
-        }
-        Err(error) => {
-            json!({ "status": "error", "source": "OpenSky Network", "error": error, "flights": [] })
-        }
-    };
-    cache_if_ok(cache_key, &result);
-    result
+    let cache_key = "opensky_asean";
+    guarded_fetch(
+        cache_key,
+        json!({
+            "status": "timeout",
+            "source": "OpenSky Network",
+            "error": "OpenSky request exceeded 12s budget",
+            "flights": []
+        }),
+        || async move {
+            let url = "https://opensky-network.org/api/states/all?lamin=-11&lomin=95&lamax=28&lomax=141";
+            match fetch_json(http, url).await {
+                Ok(payload) => {
+                    let states = payload
+                        .get("states")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let flights: Vec<Value> = states.iter().filter_map(parse_opensky_state).take(250).collect();
+                    json!({
+                        "status": "ok",
+                        "source": "OpenSky Network",
+                        "total": flights.len(),
+                        "flights": flights
+                    })
+                }
+                Err(error) => json!({
+                    "status": classify_status(&error),
+                    "source": "OpenSky Network",
+                    "error": error,
+                    "flights": []
+                }),
+            }
+        },
+    )
+    .await
 }
 
 async fn fetch_firms_csv(http: &Client, url: &str) -> Result<Vec<Value>, String> {
@@ -409,94 +549,109 @@ async fn fetch_firms_csv(http: &Client, url: &str) -> Result<Vec<Value>, String>
 // ── NASA FIRMS: active fire hotspots ─────────────────────────────────
 
 pub async fn fetch_firms_hotspots(http: &Client, map_key: Option<&str>) -> Value {
-    let cache_key = "firms_asean".to_string();
-    if let Some(cached) = get_cached(&cache_key) {
-        return cached;
-    }
+    let cache_key = "firms_asean";
+    guarded_fetch(
+        cache_key,
+        json!({
+            "status": "timeout",
+            "source": "NASA FIRMS",
+            "error": "FIRMS request exceeded 12s budget",
+            "hotspots": []
+        }),
+        || async move {
+            let mut source = "NASA FIRMS (VIIRS SNPP NRT)".to_string();
+            let mut error: Option<String> = None;
+            let mut hotspots = Vec::new();
 
-    let mut source = "NASA FIRMS (VIIRS SNPP NRT)".to_string();
-    let mut error: Option<String> = None;
-    let mut hotspots = Vec::new();
-
-    if let Some(key) = map_key.map(str::trim).filter(|k| !k.is_empty()) {
-        let url = format!(
-            "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{}/VIIRS_SNPP_NRT/95,-11,141,28/2",
-            key
-        );
-        match fetch_firms_csv(http, &url).await {
-            Ok(points) => hotspots = points,
-            Err(e) => error = Some(format!("MAP_KEY API: {e}")),
-        }
-    }
-
-    if hotspots.is_empty() {
-        source = "NASA FIRMS public SE Asia 24h CSV".to_string();
-        match fetch_firms_csv(http, FIRMS_PUBLIC_SEA_CSV).await {
-            Ok(points) => {
-                hotspots = points;
-                if error.is_some() && !hotspots.is_empty() {
-                    error = None;
+            if let Some(key) = map_key.map(str::trim).filter(|k| !k.is_empty()) {
+                let url = format!(
+                    "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{}/VIIRS_SNPP_NRT/95,-11,141,28/2",
+                    key
+                );
+                match fetch_firms_csv(http, &url).await {
+                    Ok(points) => hotspots = points,
+                    Err(e) => error = Some(format!("MAP_KEY API: {e}")),
                 }
             }
-            Err(e) => {
-                let public_err = format!("public CSV: {e}");
-                error = Some(match error {
-                    Some(prev) => format!("{prev}; {public_err}"),
-                    None => public_err,
-                });
-            }
-        }
-    }
 
-    let result = if hotspots.is_empty() && error.is_some() {
-        json!({
-            "status": "error",
-            "source": source,
-            "error": error,
-            "hotspots": []
-        })
-    } else {
-        json!({
-            "status": "ok",
-            "source": source,
-            "total": hotspots.len(),
-            "hotspots": hotspots
-        })
-    };
-    cache_if_ok(cache_key, &result);
-    result
+            if hotspots.is_empty() {
+                source = "NASA FIRMS public SE Asia 24h CSV".to_string();
+                match fetch_firms_csv(http, FIRMS_PUBLIC_SEA_CSV).await {
+                    Ok(points) => {
+                        hotspots = points;
+                        if error.is_some() && !hotspots.is_empty() {
+                            error = None;
+                        }
+                    }
+                    Err(e) => {
+                        let public_err = format!("public CSV: {e}");
+                        error = Some(match error {
+                            Some(prev) => format!("{prev}; {public_err}"),
+                            None => public_err,
+                        });
+                    }
+                }
+            }
+
+            if hotspots.is_empty() && error.is_some() {
+                let err = error.unwrap_or_else(|| "FIRMS unavailable".to_string());
+                json!({
+                    "status": classify_status(&err),
+                    "source": source,
+                    "error": err,
+                    "hotspots": []
+                })
+            } else {
+                json!({
+                    "status": "ok",
+                    "source": source,
+                    "total": hotspots.len(),
+                    "hotspots": hotspots
+                })
+            }
+        },
+    )
+    .await
 }
 
-fn overpass_query_for_country(country: CountryMeta) -> String {
-    let [min_lon, min_lat, max_lon, max_lat] = country.bbox;
-    format!(
-        "[out:json][timeout:20];(\
-         node[\"amenity\"~\"^(hospital|clinic|doctors)$\"]({min_lat},{min_lon},{max_lat},{max_lon});\
-         node[\"healthcare\"~\"^(hospital|clinic)$\"]({min_lat},{min_lon},{max_lat},{max_lon});\
-         );out center 250;"
-    )
+fn remaining(deadline: Instant) -> Duration {
+    deadline.saturating_duration_since(Instant::now())
 }
 
 fn overpass_query_around_capital(country: CountryMeta) -> String {
     format!(
-        "[out:json][timeout:20];(\
-         node[\"amenity\"~\"^(hospital|clinic|doctors)$\"](around:120000,{lat},{lon});\
-         node[\"healthcare\"~\"^(hospital|clinic)$\"](around:120000,{lat},{lon});\
-         );out center 250;",
+        "[out:json][timeout:{OVERPASS_QUERY_TIMEOUT_SECS}];(\
+         node[\"amenity\"=\"hospital\"](around:80000,{lat},{lon});\
+         node[\"amenity\"=\"clinic\"](around:80000,{lat},{lon});\
+         );out center {FACILITIES_LIMIT};",
         lat = country.lat,
         lon = country.lon
     )
 }
 
-async fn fetch_overpass(http: &Client, query: &str) -> Result<Value, String> {
+fn overpass_query_asean_hospitals() -> String {
+    let [min_lon, min_lat, max_lon, max_lat] = region_context::ASEAN_MAP_BBOX;
+    format!(
+        "[out:json][timeout:{OVERPASS_QUERY_TIMEOUT_SECS}];\
+         node[\"amenity\"=\"hospital\"]({min_lat},{min_lon},{max_lat},{max_lon});\
+         out center {FACILITIES_LIMIT};"
+    )
+}
+
+async fn fetch_overpass(http: &Client, query: &str, deadline: Instant) -> Result<Value, String> {
     let mut last_error = "no Overpass endpoint tried".to_string();
     for endpoint in OVERPASS_ENDPOINTS {
+        let budget = remaining(deadline);
+        if budget < Duration::from_millis(250) {
+            return Err("timeout".to_string());
+        }
+        let timeout = budget.min(OVERPASS_HTTP_TIMEOUT);
         let response = http
             .post(*endpoint)
             .header("User-Agent", UA)
             .header("Accept", "application/json")
             .header("Content-Type", "application/x-www-form-urlencoded")
-            .timeout(Duration::from_secs(22))
+            .timeout(timeout)
             .body(format!("data={}", pct_encode(query)))
             .send()
             .await;
@@ -513,18 +668,24 @@ async fn fetch_overpass(http: &Client, query: &str) -> Result<Value, String> {
 }
 
 async fn fetch_overpass_facilities(http: &Client, country: CountryMeta) -> Result<Vec<Value>, String> {
-    match fetch_overpass(http, &overpass_query_for_country(country)).await {
+    let deadline = Instant::now() + LAYER_HANDLER_BUDGET;
+    match fetch_overpass(http, &overpass_query_around_capital(country), deadline).await {
         Ok(payload) => {
             let facilities = parse_overpass_elements(&payload);
-            if facilities.is_empty() {
-                let fallback = fetch_overpass(http, &overpass_query_around_capital(country)).await?;
-                Ok(parse_overpass_elements(&fallback))
-            } else {
-                Ok(facilities)
+            if !facilities.is_empty() {
+                return Ok(facilities);
             }
+            if remaining(deadline) < Duration::from_millis(400) {
+                return Ok(facilities);
+            }
+            let fallback = fetch_overpass(http, &overpass_query_asean_hospitals(), deadline).await?;
+            Ok(parse_overpass_elements(&fallback))
         }
-        Err(_) => {
-            let fallback = fetch_overpass(http, &overpass_query_around_capital(country)).await?;
+        Err(err) => {
+            if remaining(deadline) < Duration::from_millis(400) {
+                return Err(err);
+            }
+            let fallback = fetch_overpass(http, &overpass_query_asean_hospitals(), deadline).await?;
             Ok(parse_overpass_elements(&fallback))
         }
     }
@@ -568,67 +729,74 @@ pub async fn fetch_healthsites(http: &Client, api_key: Option<&str>, country: &s
         region_context::resolve_country("Indonesia").expect("Indonesia is in the ASEAN set")
     });
     let cache_key = format!("healthsites_{}", meta.iso2.to_lowercase());
-    if let Some(cached) = get_cached(&cache_key) {
-        return cached;
-    }
+    guarded_fetch(
+        &cache_key,
+        json!({
+            "status": "timeout",
+            "source": "OpenStreetMap Overpass",
+            "error": "Facilities request exceeded 12s budget",
+            "facilities": []
+        }),
+        || async move {
+            let mut source = "Healthsites.io".to_string();
+            let mut error: Option<String> = None;
+            let mut facilities = Vec::new();
 
-    let mut source = "Healthsites.io".to_string();
-    let mut error: Option<String> = None;
-    let mut facilities = Vec::new();
-
-    if let Some(key) = api_key.map(str::trim).filter(|k| !k.is_empty()) {
-        let url = format!(
-            "https://healthsites.io/api/v3/facilities/?api-key={}&page=1&country={}&page_size=200",
-            key,
-            pct_encode(meta.display)
-        );
-        match fetch_json(http, &url).await {
-            Ok(payload) => facilities = parse_healthsites_features(&payload),
-            Err(e) => error = Some(format!("Healthsites.io: {e}")),
-        }
-    }
-
-    if facilities.is_empty() {
-        source = format!("OpenStreetMap Overpass ({})", meta.display);
-        match fetch_overpass_facilities(http, meta).await {
-            Ok(points) => {
-                facilities = points;
-                if !facilities.is_empty() {
-                    error = None;
+            if let Some(key) = api_key.map(str::trim).filter(|k| !k.is_empty()) {
+                let url = format!(
+                    "https://healthsites.io/api/v3/facilities/?api-key={}&page=1&country={}&page_size=200",
+                    key,
+                    pct_encode(meta.display)
+                );
+                match fetch_json(http, &url).await {
+                    Ok(payload) => facilities = parse_healthsites_features(&payload),
+                    Err(e) => error = Some(format!("Healthsites.io: {e}")),
                 }
             }
-            Err(e) => {
-                let overpass_err = format!("Overpass: {e}");
-                error = Some(match error {
-                    Some(prev) => format!("{prev}; {overpass_err}"),
-                    None => overpass_err,
-                });
-            }
-        }
-    }
 
-    let result = if facilities.is_empty() && error.is_some() {
-        json!({
-            "status": "error",
-            "source": source,
-            "error": error,
-            "facilities": []
-        })
-    } else {
-        json!({
-            "status": "ok",
-            "source": source,
-            "total": facilities.len(),
-            "facilities": facilities
-        })
-    };
-    cache_if_ok(cache_key, &result);
-    result
+            if facilities.is_empty() {
+                source = format!("OpenStreetMap Overpass ({})", meta.display);
+                match fetch_overpass_facilities(http, meta).await {
+                    Ok(points) => {
+                        facilities = points;
+                        if !facilities.is_empty() {
+                            error = None;
+                        }
+                    }
+                    Err(e) => {
+                        let overpass_err = format!("Overpass: {e}");
+                        error = Some(match error {
+                            Some(prev) => format!("{prev}; {overpass_err}"),
+                            None => overpass_err,
+                        });
+                    }
+                }
+            }
+
+            if facilities.is_empty() && error.is_some() {
+                let err = error.unwrap_or_else(|| "Facilities unavailable".to_string());
+                json!({
+                    "status": classify_status(&err),
+                    "source": source,
+                    "error": err,
+                    "facilities": []
+                })
+            } else {
+                json!({
+                    "status": "ok",
+                    "source": source,
+                    "total": facilities.len(),
+                    "facilities": facilities
+                })
+            }
+        },
+    )
+    .await
 }
 
 async fn fetch_who_news(http: &Client) -> Result<Vec<Value>, String> {
     let url = "https://www.who.int/rss-feeds/news-english.xml";
-    let (status, text) = fetch_response_text(http, url).await?;
+    let (status, text) = fetch_response_text_timed(http, url, Duration::from_secs(6)).await?;
     if !(200..300).contains(&status) {
         return Err(format!("HTTP {status}"));
     }
@@ -639,110 +807,132 @@ async fn fetch_who_news(http: &Client) -> Result<Vec<Value>, String> {
     Ok(articles)
 }
 
-// ── GDELT Doc 2.0 / ReliefWeb disease news ───────────────────────────
+// ── GDELT Doc 2.0 / WHO News RSS ─────────────────────────────────────
 
 pub async fn fetch_gdelt_news(http: &Client, disease: Option<&str>) -> Value {
     let query = disease.unwrap_or("dengue OR cholera OR influenza");
     let cache_key = format!("gdelt_{}", query.replace(' ', "_").to_lowercase());
-    if let Some(cached) = get_cached(&cache_key) {
-        return cached;
-    }
+    guarded_fetch(
+        &cache_key,
+        json!({
+            "status": "timeout",
+            "source": "GDELT Doc 2.0",
+            "error": "Disease media request exceeded 12s budget",
+            "articles": []
+        }),
+        || async move {
+            let url = format!(
+                "https://api.gdeltproject.org/api/v2/doc/doc?query={}&mode=ArtList&maxrecords=30&format=json&timespan=7d",
+                pct_encode(query)
+            );
 
-    let url = format!(
-        "https://api.gdeltproject.org/api/v2/doc/doc?query={}&mode=ArtList&maxrecords=30&format=json&timespan=7d",
-        pct_encode(query)
-    );
+            let mut source = "GDELT Doc 2.0".to_string();
+            let mut error: Option<String> = None;
+            let mut articles = Vec::new();
 
-    let mut source = "GDELT Doc 2.0".to_string();
-    let mut error: Option<String> = None;
-    let mut articles = Vec::new();
+            match fetch_json(http, &url).await {
+                Ok(payload) => articles = parse_gdelt_articles(&payload),
+                Err(e) => error = Some(format!("GDELT: {e}")),
+            }
 
-    match fetch_json(http, &url).await {
-        Ok(payload) => articles = parse_gdelt_articles(&payload),
-        Err(e) => error = Some(format!("GDELT: {e}")),
-    }
-
-    if articles.is_empty() {
-        source = "WHO News RSS".to_string();
-        match fetch_who_news(http).await {
-            Ok(items) => {
-                articles = items;
-                if !articles.is_empty() {
-                    error = None;
+            if articles.is_empty() {
+                source = "WHO News RSS".to_string();
+                match fetch_who_news(http).await {
+                    Ok(items) => {
+                        articles = items;
+                        if !articles.is_empty() {
+                            error = None;
+                        }
+                    }
+                    Err(e) => {
+                        let who_err = format!("WHO RSS: {e}");
+                        error = Some(match error {
+                            Some(prev) => format!("{prev}; {who_err}"),
+                            None => who_err,
+                        });
+                    }
                 }
             }
-            Err(e) => {
-                let who_err = format!("WHO RSS: {e}");
-                error = Some(match error {
-                    Some(prev) => format!("{prev}; {who_err}"),
-                    None => who_err,
-                });
-            }
-        }
-    }
 
-    let result = if articles.is_empty() && error.is_some() {
-        json!({
-            "status": "error",
-            "source": source,
-            "error": error,
-            "articles": []
-        })
-    } else {
-        json!({
-            "status": "ok",
-            "source": source,
-            "total": articles.len(),
-            "articles": articles
-        })
-    };
-    cache_if_ok(cache_key, &result);
-    result
+            if articles.is_empty() && error.is_some() {
+                let err = error.unwrap_or_else(|| "Disease media unavailable".to_string());
+                json!({
+                    "status": classify_status(&err),
+                    "source": source,
+                    "error": err,
+                    "articles": []
+                })
+            } else {
+                json!({
+                    "status": "ok",
+                    "source": source,
+                    "total": articles.len(),
+                    "articles": articles
+                })
+            }
+        },
+    )
+    .await
 }
 
 // ── WorldPop: population metadata ────────────────────────────────────
 
 pub async fn fetch_worldpop_meta(http: &Client, iso3: &str) -> Value {
-    let cache_key = format!("worldpop_{}", iso3.to_uppercase());
-    if let Some(cached) = get_cached(&cache_key) {
-        return cached;
-    }
-
-    let url = format!(
-        "https://hub.worldpop.org/rest/data/pop/wpgp?iso3={}",
-        iso3.to_uppercase()
-    );
-
-    let result = match fetch_json(http, &url).await {
-        Ok(payload) => {
-            let data = payload
-                .get("data")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let latest = data.iter().max_by_key(|d| {
-                d.get("popyear")
-                    .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|n| n.to_string())))
-                    .unwrap_or_else(|| "0".to_string())
-            });
-            match latest {
-                Some(entry) => json!({
-                    "status": "ok",
+    let iso = iso3.to_uppercase();
+    let cache_key = format!("worldpop_{iso}");
+    guarded_fetch(
+        &cache_key,
+        json!({
+            "status": "timeout",
+            "source": "WorldPop",
+            "error": "WorldPop request exceeded 12s budget",
+            "iso3": iso
+        }),
+        || async move {
+            let url = format!(
+                "https://hub.worldpop.org/rest/data/pop/wpgp?iso3={iso}"
+            );
+            match fetch_json(http, &url).await {
+                Ok(payload) => {
+                    let data = payload
+                        .get("data")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let latest = data.iter().max_by_key(|d| {
+                        d.get("popyear")
+                            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|n| n.to_string())))
+                            .unwrap_or_else(|| "0".to_string())
+                    });
+                    match latest {
+                        Some(entry) => json!({
+                            "status": "ok",
+                            "source": "WorldPop",
+                            "iso3": iso,
+                            "country": entry.get("country").and_then(|v| v.as_str()).unwrap_or(""),
+                            "year": entry.get("popyear").and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|n| n.to_string()))).unwrap_or_default(),
+                            "title": entry.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                            "tif_url": entry.get("files").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()).unwrap_or(""),
+                            "summary_url": entry.get("url_summary").and_then(|v| v.as_str()).unwrap_or("")
+                        }),
+                        None => json!({
+                            "status": "empty",
+                            "source": "WorldPop",
+                            "error": "No WorldPop row for this ISO3",
+                            "iso3": iso
+                        }),
+                    }
+                }
+                Err(error) => json!({
+                    "status": classify_status(&error),
                     "source": "WorldPop",
-                    "iso3": iso3.to_uppercase(),
-                    "country": entry.get("country").and_then(|v| v.as_str()).unwrap_or(""),
-                    "year": entry.get("popyear").and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|n| n.to_string()))).unwrap_or_default(),
-                    "title": entry.get("title").and_then(|v| v.as_str()).unwrap_or(""),
-                    "tif_url": entry.get("files").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()).unwrap_or(""),
-                    "summary_url": entry.get("url_summary").and_then(|v| v.as_str()).unwrap_or("")
+                    "error": error,
+                    "iso3": iso
                 }),
-                None => json!({ "status": "error", "source": "WorldPop", "error": "No WorldPop row for this ISO3", "iso3": iso3.to_uppercase() }),
             }
-        }
-        Err(error) => json!({ "status": "error", "source": "WorldPop", "error": error, "iso3": iso3.to_uppercase() }),
-    };
-    cache_if_ok(cache_key, &result);
-    result
+        },
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -839,5 +1029,55 @@ mod tests {
     fn json_parser_rejects_gdelt_throttle_text() {
         let err = parse_json_body("Your request was too frequent. Please try again later.").unwrap_err();
         assert!(err.contains("non-JSON"));
+    }
+
+    #[test]
+    fn overpass_queries_are_bounded() {
+        let indonesia = region_context::resolve_country("Indonesia").unwrap();
+        let capital = overpass_query_around_capital(indonesia);
+        assert!(capital.contains("[timeout:8]"));
+        assert!(capital.contains("out center 120"));
+        assert!(!capital.contains("[timeout:20]"));
+        let asean = overpass_query_asean_hospitals();
+        assert!(asean.contains("[timeout:8]"));
+        assert!(asean.contains("out center 120"));
+        assert!(asean.contains("-11.2"));
+        assert!(asean.contains("amenity"));
+        assert!(!asean.contains("doctors"));
+    }
+
+    #[test]
+    fn cache_ttl_is_shorter_for_flights() {
+        assert_eq!(ttl_for("opensky_asean"), Duration::from_secs(45));
+        assert_eq!(ttl_for("healthsites_id"), Duration::from_secs(300));
+        assert_eq!(ttl_for("worldpop_IDN"), Duration::from_secs(300));
+        assert_eq!(ttl_for("firms_asean"), Duration::from_secs(180));
+        assert_eq!(ttl_for("gdelt_dengue"), Duration::from_secs(180));
+    }
+
+    #[test]
+    fn last_good_is_served_when_fresh_cache_misses() {
+        let key = "test_last_good_facilities";
+        set_last_good(
+            key.to_string(),
+            json!({"status":"ok","facilities":[{"name":"RS A"}],"source":"Overpass"}),
+        );
+        let stale = finish_layer(
+            key.to_string(),
+            json!({"status":"timeout","error":"Overpass: timeout","facilities":[]}),
+        );
+        assert_eq!(stale["cached"], true);
+        assert_eq!(stale["stale"], true);
+        assert_eq!(stale["facilities"][0]["name"], "RS A");
+        assert_eq!(stale["refresh_error"], "Overpass: timeout");
+    }
+
+    #[test]
+    fn classify_status_maps_timeout_auth_and_unavailable() {
+        assert_eq!(classify_status("error sending request: timed out"), "timeout");
+        assert_eq!(classify_status("HTTP 401"), "auth");
+        assert_eq!(classify_status("NASA_FIRMS_MAP_KEY not configured"), "auth");
+        assert_eq!(classify_status("HTTP 503"), "unavailable");
+        assert_eq!(classify_status("connection reset"), "error");
     }
 }

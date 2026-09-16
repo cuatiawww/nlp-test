@@ -7,6 +7,7 @@ import AseanMap, { type HazardEvent } from "./AseanMap";
 import type { OutbreakLocation } from "@/types";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 import { fetchMapHazards } from "@/lib/api";
+import { classifyLayerError } from "@/lib/map-layer-client.mjs";
 
 type Base = "osm" | "terrain" | "satellite" | "light" | "dark";
 type MarkerLookbackDays = 7 | 14 | 30 | 90;
@@ -51,8 +52,8 @@ export default function SpatialOutbreakMap({
     [admin, setAdmin] = useState(true),
     [choropleth, setChoropleth] = useState(true),
     [wind, setWind] = useState(!regionalMode),
-    [usgs, setUsgs] = useState(true),
-    [gdacs, setGdacs] = useState(true),
+    [usgs, setUsgs] = useState(false),
+    [gdacs, setGdacs] = useState(false),
     [bnpb, setBnpb] = useState({
       flood: false,
       earthquake: false,
@@ -90,8 +91,8 @@ export default function SpatialOutbreakMap({
     setChoropleth(true);
     setWind(!regionalMode);
     setWindLegend(true);
-    setUsgs(true);
-    setGdacs(true);
+    setUsgs(false);
+    setGdacs(false);
     setBnpb({
       flood: false,
       earthquake: false,
@@ -141,12 +142,13 @@ export default function SpatialOutbreakMap({
       return;
     }
     let cancelled = false;
+    const ac = new AbortController();
     setLayerStatus((prev) => ({
       ...prev,
       usgs: { state: "loading", message: "Loading USGS earthquakes…" },
       gdacs: { state: "loading", message: "Loading GDACS alerts…" },
     }));
-    fetchMapHazards()
+    fetchMapHazards({ signal: ac.signal })
       .then((res) => {
         if (cancelled) return;
         const events = (res?.events || []) as HazardEvent[];
@@ -154,34 +156,43 @@ export default function SpatialOutbreakMap({
         const usgsCount = events.filter((item) => (item.source || "").toLowerCase() === "usgs").length;
         const gdacsCount = events.filter((item) => (item.source || "").toLowerCase() === "gdacs").length;
         const err = res?.error || undefined;
+        const cached = Boolean(res?.cached || res?.fromCache);
+        const stale = Boolean(res?.stale);
+        const timeout = res?.status === "timeout";
+        const suffix = cached ? (stale ? " (cached, stale)" : " (cached)") : "";
         setLayerStatus((prev) => ({
           ...prev,
           usgs: {
-            state: err && usgsCount === 0 ? "error" : usgsCount ? "ok" : "empty",
+            state: timeout && usgsCount === 0 ? "timeout" : err && usgsCount === 0 ? "upstream" : usgsCount ? (cached ? "cached" : "ok") : "empty",
             count: usgsCount,
             source: "USGS",
-            message: usgsCount ? `${usgsCount} earthquakes` : err || "No M4.5+ quakes in the ASEAN window",
+            message: usgsCount
+              ? `${usgsCount} earthquakes${suffix}`
+              : err || "No M4.5+ quakes in the ASEAN window",
           },
           gdacs: {
-            state: err && gdacsCount === 0 ? "error" : gdacsCount ? "ok" : "empty",
+            state: timeout && gdacsCount === 0 ? "timeout" : err && gdacsCount === 0 ? "upstream" : gdacsCount ? (cached ? "cached" : "ok") : "empty",
             count: gdacsCount,
             source: "GDACS",
-            message: gdacsCount ? `${gdacsCount} alerts` : err || "No GDACS alerts in the ASEAN window",
+            message: gdacsCount
+              ? `${gdacsCount} alerts${suffix}`
+              : err || "No GDACS alerts in the ASEAN window",
           },
         }));
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled || err?.name === "AbortError") return;
         setFetchedHazards([]);
-        const message = err?.message || "Failed to load hazard feeds";
+        const status = classifyLayerError(err);
         setLayerStatus((prev) => ({
           ...prev,
-          usgs: { state: "error", message },
-          gdacs: { state: "error", message },
+          usgs: status.aborted ? { state: "idle" } : status,
+          gdacs: status.aborted ? { state: "idle" } : status,
         }));
       });
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [usgs, gdacs, hazardEvents]);
 
@@ -554,17 +565,33 @@ function Row({
       ? null
       : status.state === "loading"
         ? status.message || "Loading…"
-        : status.state === "error"
-          ? status.message || "Layer failed"
-          : status.message;
+        : status.state === "timeout"
+          ? status.message || "Timed out"
+          : status.state === "auth"
+            ? status.message || "API key or authentication required"
+            : status.state === "unavailable"
+              ? status.message || "Service unavailable (503)"
+              : status.state === "upstream" || status.state === "error"
+                ? status.message || "Upstream error"
+                : status.state === "cached"
+                  ? status.message || "Cached"
+                  : status.state === "empty"
+                    ? status.message || "No data"
+                    : status.message;
   const statusClass =
-    status?.state === "error"
+    status?.state === "error" || status?.state === "upstream" || status?.state === "unavailable"
       ? "text-rose-600"
-      : status?.state === "empty"
-        ? "text-amber-600"
-        : status?.state === "loading"
-          ? "text-[#0060A9]"
-          : "text-emerald-700";
+      : status?.state === "timeout"
+        ? "text-orange-600"
+        : status?.state === "auth"
+          ? "text-violet-700"
+          : status?.state === "empty"
+            ? "text-amber-600"
+            : status?.state === "loading"
+              ? "text-[#0060A9]"
+              : status?.state === "cached"
+                ? "text-teal-700"
+                : "text-emerald-700";
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">

@@ -1896,26 +1896,46 @@ struct MapLayerQuery {
     bbox: Option<String>,
 }
 
+async fn map_layer_json(
+    fut: impl std::future::Future<Output = Value>,
+    timeout_body: Value,
+) -> Json<Value> {
+    let data = match tokio::time::timeout(Duration::from_secs(14), fut).await {
+        Ok(value) => value,
+        Err(_) => timeout_body,
+    };
+    Json(json!({ "success": true, "data": data }))
+}
+
 async fn get_vector_sightings(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let data = external_layers::fetch_inaturalist_vectors(&state.http).await;
-    Json(json!({ "success": true, "data": data }))
+    map_layer_json(
+        external_layers::fetch_inaturalist_vectors(&state.http),
+        json!({ "status": "timeout", "source": "iNaturalist", "error": "Layer handler exceeded 14s", "sightings": [] }),
+    )
+    .await
 }
 
 async fn get_live_flights(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let data = external_layers::fetch_opensky_flights(&state.http).await;
-    Json(json!({ "success": true, "data": data }))
+    map_layer_json(
+        external_layers::fetch_opensky_flights(&state.http),
+        json!({ "status": "timeout", "source": "OpenSky Network", "error": "Layer handler exceeded 14s", "flights": [] }),
+    )
+    .await
 }
 
 async fn get_fire_hotspots(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
     let key = env::var("NASA_FIRMS_MAP_KEY").ok();
-    let data = external_layers::fetch_firms_hotspots(&state.http, key.as_deref()).await;
-    Json(json!({ "success": true, "data": data }))
+    map_layer_json(
+        external_layers::fetch_firms_hotspots(&state.http, key.as_deref()),
+        json!({ "status": "timeout", "source": "NASA FIRMS", "error": "Layer handler exceeded 14s", "hotspots": [] }),
+    )
+    .await
 }
 
 async fn get_health_facilities(
@@ -1924,16 +1944,22 @@ async fn get_health_facilities(
 ) -> Json<Value> {
     let key = env::var("HEALTHSITES_API_KEY").ok();
     let country = params.country.as_deref().unwrap_or("Indonesia");
-    let data = external_layers::fetch_healthsites(&state.http, key.as_deref(), country).await;
-    Json(json!({ "success": true, "data": data }))
+    map_layer_json(
+        external_layers::fetch_healthsites(&state.http, key.as_deref(), country),
+        json!({ "status": "timeout", "source": "OpenStreetMap Overpass", "error": "Layer handler exceeded 14s", "facilities": [] }),
+    )
+    .await
 }
 
 async fn get_disease_news(
     State(state): State<Arc<AppState>>,
     Query(params): Query<MapLayerQuery>,
 ) -> Json<Value> {
-    let data = external_layers::fetch_gdelt_news(&state.http, params.disease.as_deref()).await;
-    Json(json!({ "success": true, "data": data }))
+    map_layer_json(
+        external_layers::fetch_gdelt_news(&state.http, params.disease.as_deref()),
+        json!({ "status": "timeout", "source": "GDELT Doc 2.0", "error": "Layer handler exceeded 14s", "articles": [] }),
+    )
+    .await
 }
 
 async fn get_population_meta(
@@ -1941,22 +1967,31 @@ async fn get_population_meta(
     Query(params): Query<MapLayerQuery>,
 ) -> Json<Value> {
     let iso3 = params.iso3.as_deref().unwrap_or("IDN");
-    let data = external_layers::fetch_worldpop_meta(&state.http, iso3).await;
-    Json(json!({ "success": true, "data": data }))
+    map_layer_json(
+        external_layers::fetch_worldpop_meta(&state.http, iso3),
+        json!({ "status": "timeout", "source": "WorldPop", "error": "Layer handler exceeded 14s", "iso3": iso3 }),
+    )
+    .await
 }
 
 async fn get_map_hazards(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let data = region_context::fetch_asean_hazards(&state.http).await;
-    Json(json!({ "success": true, "data": data }))
+    map_layer_json(
+        region_context::fetch_asean_hazards(&state.http),
+        json!({ "status": "timeout", "source": "USGS Earthquake FDSN + GDACS Multi-hazard", "error": "Layer handler exceeded 14s", "events": [] }),
+    )
+    .await
 }
 
 async fn get_map_environment(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
-    let data = region_context::fetch_asean_environment(&state.http).await;
-    Json(json!({ "success": true, "data": data }))
+    map_layer_json(
+        region_context::fetch_asean_environment(&state.http),
+        json!({ "status": "timeout", "source": "Open-Meteo Forecast + Air Quality (CAMS)", "error": "Layer handler exceeded 14s", "markers": [] }),
+    )
+    .await
 }
 
 async fn health() -> Json<Value> {
