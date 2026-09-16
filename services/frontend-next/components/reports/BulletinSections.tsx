@@ -43,8 +43,8 @@ function KpiCard({ label, value, hint }: { label: string; value: string; hint?: 
 
 export function AmsTable({ rows, caption }: { rows: AmsKpiRow[]; caption?: string }) {
   return (
-    <div className="sitrep-keep overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
-      {caption ? <p className="border-b border-slate-100 px-4 py-3 text-[11px] font-semibold text-slate-500">{caption}</p> : null}
+    <div className="sitrep-table-wrap overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
+      {caption ? <p className="border-b border-slate-100 px-4 py-3 text-[11px] font-semibold text-slate-500" data-pdf-caption="">{caption}</p> : null}
       <table className="min-w-full text-left text-xs">
         <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
           <tr>
@@ -89,7 +89,7 @@ function DiseaseMatrix({ snap }: { snap: SitrepKpiPackage | null }) {
   const cell = (code: string, iso3: string | null) =>
     matrix.find((row) => row.disease_code === code && row.iso3 === iso3)
   return (
-    <div className="sitrep-keep overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
+    <div className="sitrep-table-wrap overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
       <table className="min-w-full text-left text-[11px]">
         <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
           <tr>
@@ -123,7 +123,7 @@ function DiseaseMatrix({ snap }: { snap: SitrepKpiPackage | null }) {
           ))}
         </tbody>
       </table>
-      <p className="px-3 py-2 text-[10px] text-slate-500">
+      <p className="px-3 py-2 text-[10px] text-slate-500" data-pdf-note="">
         Cases (deaths). Em dash is No data / Not reported — never a zero-filled missing cell. Source: KPI snapshot / event aggregates.
       </p>
     </div>
@@ -135,7 +135,7 @@ function GlanceKpis({ issue, snap }: { issue: ReportIssue; snap: SitrepKpiPackag
   const week = snap?.kpis?.week || {}
   const reported = (snap?.by_ams || []).filter((r) => r.has_data).length
   return (
-    <section id="glance" data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+    <section id="glance" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
       <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Situation at a Glance</h2>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="YTD cases" value={fmt(ytd.cases == null ? null : Number(ytd.cases))} hint="Extracted counts" />
@@ -166,28 +166,28 @@ function DiseaseChapter({
   const series = section.series_weekly || []
   return (
     <section id={`chapter-${code}`} data-pdf-page="" data-pdf-break="before" data-pdf-split="" className="sitrep-chapter sitrep-page-start sitrep-card sitrep-print-page space-y-4 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-black text-slate-900">{section.name}</h2>
-        <p className="text-xs text-slate-500">
-          {section.has_data === false
-            ? 'No data / Not reported in this window'
-            : `Cases ${fmt(section.kpis?.cases)} · Deaths ${fmt(section.kpis?.deaths)}${section.kpis?.cfr == null ? '' : ` · CFR ${section.kpis.cfr}%`}`}
-        </p>
-      </div>
-      <div id={`chapter-${code}-highlights`}>
-        <h3 className="mb-1 text-[11px] font-extrabold uppercase tracking-wide text-slate-500">Highlights and Situation Overview</h3>
-        <HtmlOrText html={section.analyst_note} empty="No analyst note yet (optional; human-reviewed if present)." />
-      </div>
-      <div id={`chapter-${code}-table`}>
-        <AmsTable rows={section.by_ams || []} caption={`${section.name} cases and deaths in ASEAN`} />
-      </div>
-      <div id={`chapter-${code}-curve`} className="grid gap-3 lg:grid-cols-2">
-        <EpiCurveChart series={series} title={`${section.name} epidemic curve`} epiLabel={epi} />
-        <div id={`chapter-${code}-weekly`}>
-          <WeeklyLineChart series={series} title={`${section.name} weekly new cases and deaths`} epiLabel={epi} />
+      <div className="sitrep-keep space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-black text-slate-900">{section.name}</h2>
+          <p className="text-xs text-slate-500">
+            {section.has_data === false
+              ? 'No data / Not reported in this window'
+              : `Cases ${fmt(section.kpis?.cases)} · Deaths ${fmt(section.kpis?.deaths)}${section.kpis?.cfr == null ? '' : ` · CFR ${section.kpis.cfr}%`}`}
+          </p>
+        </div>
+        <div id={`chapter-${code}-highlights`}>
+          <h3 className="mb-1 text-[11px] font-extrabold uppercase tracking-wide text-slate-500">Highlights and Situation Overview</h3>
+          <HtmlOrText html={section.analyst_note} empty="No analyst note yet (optional; human-reviewed if present)." />
         </div>
       </div>
-      <div id={`chapter-${code}-map`} className="sitrep-page-start" data-pdf-break="before">
+      <div id={`chapter-${code}-table`} className="sitrep-table-wrap">
+        <AmsTable rows={section.by_ams || []} caption={`${section.name} cases and deaths in ASEAN`} />
+      </div>
+      <div id={`chapter-${code}-curve`} data-pdf-split="" className="grid gap-3 print:grid-cols-1 lg:grid-cols-2">
+        <EpiCurveChart series={series} title={`${section.name} epidemic curve`} epiLabel={epi} />
+        <WeeklyLineChart series={series} title={`${section.name} weekly new cases and deaths`} epiLabel={epi} />
+      </div>
+      <div id={`chapter-${code}-map`} className="sitrep-page-start sitrep-keep" data-pdf-break="before">
         <AseanChoropleth
           rows={section.by_ams || []}
           indicator="cases"
@@ -195,7 +195,9 @@ function DiseaseChapter({
           title={`${section.name} · cases by AMS (Admin-0 polygons)`}
         />
       </div>
-      <AmsBarChart rows={section.by_ams || []} indicator="cases" title={`${section.name} · AMS cases`} epiLabel={epi} />
+      <div id={`chapter-${code}-ams-bar`} className="sitrep-keep">
+        <AmsBarChart rows={section.by_ams || []} indicator="cases" title={`${section.name} · AMS cases`} epiLabel={epi} />
+      </div>
     </section>
   )
 }
@@ -204,7 +206,7 @@ function CoverBlock({ issue, epi }: { issue: ReportIssue; epi: string }) {
   const cover = issue.cover_url || issue.assets?.cover_url
   if (cover) {
     return (
-      <figure id="cover" data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid overflow-hidden rounded-2xl border border-slate-200 bg-white p-2">
+      <figure id="cover" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid overflow-hidden rounded-2xl border border-slate-200 bg-white p-2">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={cover} alt="" className="max-h-[320px] w-full object-cover" />
         <figcaption className="px-6 py-5">
@@ -216,7 +218,7 @@ function CoverBlock({ issue, epi }: { issue: ReportIssue; epi: string }) {
     )
   }
   return (
-    <div id="cover" data-pdf-page="" className="sitrep-print-page break-inside-avoid">
+    <div id="cover" data-pdf-page="" className="sitrep-major sitrep-keep sitrep-print-page break-inside-avoid">
       <PublicationCover
         variant="page"
         templateId={issue.template_id}
@@ -230,7 +232,7 @@ function CoverBlock({ issue, epi }: { issue: ReportIssue; epi: string }) {
 
 function ExtraPage({ id, url, caption }: { id: string; url: string; caption?: string }) {
   return (
-    <figure id={id} data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid overflow-hidden rounded-2xl border border-slate-200 bg-white p-6">
+    <figure id={id} data-pdf-page="" className="sitrep-card sitrep-keep sitrep-print-page break-inside-avoid overflow-hidden rounded-2xl border border-slate-200 bg-white p-6">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={caption || ''} className="w-full object-contain" />
       {caption ? <figcaption className="px-4 py-2 text-xs text-slate-600">{caption}</figcaption> : null}
@@ -262,7 +264,7 @@ export default function BulletinSections({
     if (id === 'cover') return <CoverBlock key={id} issue={issue} epi={epi} />
     if (id === 'publisher') {
       return (
-        <section key={id} id="publisher" data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <section key={id} id="publisher" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
           <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">{NARRATIVE_LABELS.publisher}</h2>
           <HtmlOrText html={[narrativeOf(issue, 'publisher'), narrativeOf(issue, 'editorial')].filter(Boolean).join('\n\n')} empty="Publisher / editorial board not yet entered." />
         </section>
@@ -270,7 +272,7 @@ export default function BulletinSections({
     }
     if (id === 'toc') {
       return (
-        <section key={id} id="toc" data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <section key={id} id="toc" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
           <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Contents</h2>
           <ol className="list-decimal space-y-1 px-5 text-sm">
             {toc.map((item) => (
@@ -291,7 +293,7 @@ export default function BulletinSections({
     }
     if (id === 'exec_summary') {
       return (
-        <section key={id} id="exec-summary" data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <section key={id} id="exec-summary" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
           <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">
             {tpl.family === 'sitrep' ? 'Key highlights' : 'Executive summary'}
           </h2>
@@ -310,15 +312,15 @@ export default function BulletinSections({
     if (id === 'glance') return <GlanceKpis key={id} issue={issue} snap={snap} />
     if (id === 'matrix') {
       return (
-        <section key={id} id="matrix" data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid space-y-3 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
-          <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-700">Disease × Country matrix</h2>
+        <section key={id} id="matrix" data-pdf-page="" className="sitrep-card sitrep-major sitrep-table-page sitrep-print-page space-y-3 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+          <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-700" data-pdf-caption="">Disease × Country matrix</h2>
           <DiseaseMatrix snap={snap} />
         </section>
       )
     }
     if (id === 'map') {
       return (
-        <section key={id} id="map" data-pdf-page="" data-pdf-break="before" className="sitrep-page-start sitrep-print-page break-inside-avoid">
+        <section key={id} id="map" data-pdf-page="" data-pdf-break="before" className="sitrep-page-start sitrep-major sitrep-keep sitrep-print-page break-inside-avoid">
           <AseanChoropleth
             rows={snap?.by_ams || []}
             indicator={indicator}
@@ -330,7 +332,7 @@ export default function BulletinSections({
     }
     if (id === 'ams_table') {
       return (
-        <section key={id} id="ams-table" data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid space-y-3 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <section key={id} id="ams-table" data-pdf-page="" className="sitrep-card sitrep-major sitrep-table-page sitrep-print-page space-y-3 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
           <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-700">AMS cases / deaths / CFR</h2>
           <AmsTable rows={snap?.by_ams || []} />
         </section>
@@ -338,7 +340,7 @@ export default function BulletinSections({
     }
     if (id === 'weekly_chart') {
       return (
-        <section key={id} id="weekly-chart" data-pdf-page="" className="sitrep-print-page break-inside-avoid grid gap-3 lg:grid-cols-2">
+        <section key={id} id="weekly-chart" data-pdf-page="" data-pdf-split="" className="sitrep-print-page grid gap-3 print:grid-cols-1 lg:grid-cols-2">
           <EpiCurveChart series={snap?.series_weekly || []} epiLabel={epi} title="Weekly new cases and deaths (ASEAN-11)" />
           <WeeklyLineChart series={snap?.series_weekly || []} epiLabel={epi} title="Weekly trend (cases and deaths)" />
         </section>
@@ -352,7 +354,7 @@ export default function BulletinSections({
     }
     if (id === 'country_updates' || id === 'response' || id === 'recommendations' || id === 'definitions' || id === 'abstract' || id === 'methods' || id === 'discussion') {
       return (
-        <section key={id} id={id} data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <section key={id} id={id} data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
           <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">{NARRATIVE_LABELS[id] || id}</h2>
           <HtmlOrText html={narrativeOf(issue, id)} />
         </section>
@@ -360,7 +362,7 @@ export default function BulletinSections({
     }
     if (id === 'sources') {
       return (
-        <section key={id} id="sources" data-pdf-page="" className="sitrep-card sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 text-sm text-slate-700">
+        <section key={id} id="sources" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 text-sm text-slate-700">
           <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Notes, limitations & sources</h2>
           <p className="leading-relaxed">{issue.limitations}</p>
           <ul className="mt-3 list-disc space-y-1 px-4 text-xs text-slate-600">

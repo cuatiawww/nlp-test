@@ -81,9 +81,11 @@ Admin-0 ISO3 choropleth (default indicator: **cases**; deaths is the other allow
 
 ## Print / PDF
 
-Live preview, `/reports/{slug}/print`, and **Download PDF artifact** share the same SitRep/MMWR layout. Cards use inner padding; `@page` is A4 with ~16–18 mm margins. Choropleth, tables, and chapter blocks use `break-inside: avoid`; the ASEAN map and each disease chapter start on a new page. html2canvas/jsPDF packs `[data-pdf-page]` blocks with those margins and **never slices** a map or table — a block taller than the page is scaled to fit.
+Live preview, `/reports/{slug}/print`, and **Download PDF artifact** share the same SitRep/MMWR layout. Cards keep inner padding; `@page` is A4 with ~16–18 mm margins (22px/24px card padding). **Every major section is a whole print/PDF block** (`break-inside: avoid`): cover / blue banner, publisher / editorial board, the entire CONTENTS list, Situation at a Glance (KPI grid stays one card), narrative pages, figures, and the ASEAN choropleth (map + legend + AMS list). A card that would straddle a page boundary starts on the next page.
 
-Verify: open a bulletin → Print / PDF → browser print preview (A4) **and** Download PDF artifact. Confirm padding around CONTENTS / publisher / cover, and that the choropleth + AMS list are not cut by a page boundary.
+Disease chapters start on a new page and paginate **between** subsections (Highlights, cases/deaths table, epidemic curve, weekly charts, map, AMS bar) — never through a heading, chart, or table row. Long tables may break **between rows only**, with a repeated header; html2canvas/jsPDF packs `[data-pdf-page]` atoms with those margins and never slices a block. A map or chart taller than the inner page is scaled to fit; a long matrix is split into row-group chunks instead.
+
+Verify: open a multi-disease EW bulletin → Print / PDF → browser print preview (A4) **and** Download PDF artifact. Confirm padding around CONTENTS / publisher / cover, and that no card, table row, chart, or choropleth is cut by a page boundary.
 
 ## API
 

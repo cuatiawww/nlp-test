@@ -163,22 +163,34 @@
     page-break-before: auto !important;
   }
 
+  /* Whole cards, maps, figures, and chart surfaces stay intact.
+     A block that would straddle a page boundary starts on the next page. */
   .break-inside-avoid,
   .sitrep-keep,
+  .sitrep-major,
   .sitrep-choropleth,
-  .sitrep-document table,
+  .sitrep-masthead,
   .sitrep-document figure,
+  .sitrep-document img,
+  .sitrep-document svg,
+  .sitrep-document canvas,
+  .sitrep-document .recharts-wrapper,
+  .sitrep-document .recharts-surface,
   .sitrep-document thead,
-  .sitrep-document tr {
+  .sitrep-document tr,
+  .sitrep-document th,
+  .sitrep-document td {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 
-  .sitrep-card:not(.sitrep-chapter) {
+  .sitrep-document > [data-pdf-page]:not(.sitrep-chapter):not(.sitrep-table-page),
+  .sitrep-card:not(.sitrep-chapter):not(.sitrep-table-page) {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 
+  /* Disease chapters paginate between subsections, never through one. */
   .sitrep-chapter {
     break-inside: auto !important;
     page-break-inside: auto !important;
@@ -187,6 +199,41 @@
   .sitrep-chapter > * {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+
+  /* Long tables may break between rows only; header repeats on the next page. */
+  .sitrep-table-page,
+  .sitrep-table-wrap,
+  .sitrep-chapter > .sitrep-table-wrap,
+  .sitrep-chapter > [id$="-table"] {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  .sitrep-document table {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .sitrep-document thead {
+    display: table-header-group !important;
+  }
+
+  .sitrep-document tfoot {
+    display: table-footer-group !important;
+  }
+
+  .sitrep-document h1,
+  .sitrep-document h2,
+  .sitrep-document h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .sitrep-document p,
+  .sitrep-document li {
+    orphans: 3;
+    widows: 3;
   }
 
   .sitrep-card,

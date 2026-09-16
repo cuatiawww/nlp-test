@@ -215,7 +215,7 @@ export function AmsWeekHeatmap({
   )
 
   return (
-    <figure className="sitrep-keep break-inside-avoid overflow-x-auto rounded-2xl border border-slate-200 bg-white p-6 print:overflow-visible">
+    <figure className="sitrep-keep sitrep-table-wrap break-inside-avoid overflow-x-auto rounded-2xl border border-slate-200 bg-white p-6 print:overflow-visible">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">

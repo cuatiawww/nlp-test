@@ -60,3 +60,53 @@ export function placePdfBlocks(blocks, innerHeightMm, gapMm = PDF_PAGE.gapMm) {
 
   return placements
 }
+
+/**
+ * Flatten a section tree into atomic PDF/print blocks.
+ * Grids of figures and explicit split sections expand; KPI grids stay whole.
+ */
+export function flattenPdfTree(node, inheritedBreak = false) {
+  if (!node) return []
+  const breakBefore = Boolean(inheritedBreak || node.breakBefore || node.pageStart)
+  const kids = Array.isArray(node.kids) ? node.kids : []
+  const atomKids = kids.filter((kid) => kid.atom)
+  const shouldSplit =
+    Boolean(node.split) || (Boolean(node.grid) && atomKids.length >= 2)
+  if (shouldSplit && kids.length) {
+    const out = []
+    kids.forEach((kid, index) => {
+      const childBreak =
+        index === 0 ? breakBefore : Boolean(kid.breakBefore || kid.pageStart)
+      out.push(...flattenPdfTree(kid, childBreak))
+    })
+    return out.length ? out : [{ id: node.id, el: node.el, breakBefore }]
+  }
+  return [{ id: node.id, el: node.el, breakBefore }]
+}
+
+/**
+ * Long tables may break between rows, never through a row.
+ * Later pages repeat the header (`repeatHeader`).
+ */
+export function tableRowChunks(
+  rowCount,
+  innerHeightMm,
+  headerMm = 16,
+  rowMm = 8,
+) {
+  const n = Math.max(0, Math.floor(Number(rowCount) || 0))
+  const usable = Math.max(rowMm, Number(innerHeightMm) - Number(headerMm) || rowMm)
+  const per = Math.max(1, Math.floor(usable / Math.max(1, Number(rowMm) || 8)))
+  if (n <= per) {
+    return [{ start: 0, count: n, repeatHeader: false }]
+  }
+  const chunks = []
+  for (let start = 0; start < n; start += per) {
+    chunks.push({
+      start,
+      count: Math.min(per, n - start),
+      repeatHeader: start > 0,
+    })
+  }
+  return chunks
+}

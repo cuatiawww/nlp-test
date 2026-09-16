@@ -45,7 +45,7 @@ function KpiCard({ label, value, hint }: { label: string; value: string; hint?: 
 
 function AmsTable({ rows }: { rows: AmsKpiRow[] }) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+    <div className="sitrep-table-wrap overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
       <table className="min-w-full text-left text-xs">
         <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
           <tr>
@@ -92,7 +92,7 @@ function ProseSection({
   empty?: string
 }) {
   return (
-    <section id={id} className="sitrep-card sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+    <section id={id} data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
       <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">{title}</h2>
       {body ? (
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{body}</p>
@@ -228,7 +228,7 @@ function AlertsTable({ snap }: { snap: SitrepKpiPackage | null }) {
 
 function SourcesBlock({ issue, snap }: { issue: ReportIssue; snap: SitrepKpiPackage | null }) {
   return (
-    <section id="sources" className="sitrep-print-page rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+    <section id="sources" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
       <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Notes, limitations & sources</h2>
       <p className="leading-relaxed">{issue.limitations}</p>
       <ul className="mt-3 list-disc space-y-1 px-4 text-xs text-slate-600">
@@ -248,7 +248,7 @@ function SourcesBlock({ issue, snap }: { issue: ReportIssue; snap: SitrepKpiPack
 
 function Toc({ items }: { items: { href: string; label: string }[] }) {
   return (
-    <section id="toc" className="sitrep-print-page rounded-2xl border border-slate-200 bg-white p-4">
+    <section id="toc" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4">
       <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Contents</h2>
       <ol className="list-decimal space-y-1 px-5 text-sm">
         {items.map((item) => (
@@ -266,10 +266,10 @@ function Toc({ items }: { items: { href: string; label: string }[] }) {
 function TwoWeekSummary({ snap }: { snap: SitrepKpiPackage | null }) {
   const weeks = (snap?.series_weekly || []).slice(-2)
   return (
-    <section id="two-week" className="sitrep-print-page">
+    <section id="two-week" data-pdf-page="" className="sitrep-card sitrep-major sitrep-table-page sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
       <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Two-week cases and deaths</h2>
       {weeks.length ? (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+        <div className="sitrep-table-wrap overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
           <table className="min-w-full text-left text-xs">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
               <tr>
@@ -336,7 +336,7 @@ function MmwrBody({
           { href: '#sources', label: 'Source notes' },
         ]}
       />
-      <section id="exec-summary" className="sitrep-print-page">
+      <section id="exec-summary" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
         <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Executive summary</h2>
         {highlights.length ? (
           <ul className="list-disc space-y-1 rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm text-slate-800">
@@ -462,7 +462,7 @@ function EiBody({
 }) {
   return (
     <>
-      <div id="cover" className="space-y-4">
+      <div id="cover" data-pdf-page="" data-pdf-split="" className="sitrep-print-page space-y-4">
         <PublicationCover
           variant="page"
           templateId={issue.template_id}
@@ -480,7 +480,7 @@ function EiBody({
       <ProseSection id="editorial" title="Editorial" body={narrativeOf(issue, 'editorial')} />
       <ProseSection id="definitions" title="Definitions" body={narrativeOf(issue, 'definitions')} />
       <TwoWeekSummary snap={snap} />
-      <section id="exec-summary">
+      <section id="exec-summary" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
         <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Executive summary</h2>
         {highlights.length ? (
           <ul className="list-disc space-y-1 rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm">
@@ -492,10 +492,10 @@ function EiBody({
           <p className="text-sm text-slate-500">No executive bullets yet.</p>
         )}
       </section>
-      <section id="disease-signal" className="sitrep-print-page">
+      <section id="disease-signal" data-pdf-page="" data-pdf-split="" className="sitrep-print-page">
         <DiseaseSmallMultiples series={snap?.series_by_disease || []} title="Disease-signal visual" />
       </section>
-      <section id="summary-table" className="sitrep-print-page space-y-3">
+      <section id="summary-table" data-pdf-page="" className="sitrep-card sitrep-major sitrep-table-page sitrep-print-page space-y-3 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
         <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-700">Summary table</h2>
         <AmsTable rows={snap?.by_ams || []} />
       </section>
@@ -515,7 +515,7 @@ function FocusBody({
     <>
       <ProseSection id="abstract" title="Abstract" body={narrativeOf(issue, 'abstract')} />
       <ProseSection id="methods" title="Methods" body={narrativeOf(issue, 'methods')} />
-      <section id="results" className="space-y-4 sitrep-print-page">
+      <section id="results" data-pdf-page="" data-pdf-split="" className="space-y-4 sitrep-print-page">
         <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-700">Results</h2>
         <GlanceKpis issue={issue} snap={snap} />
         <DiseaseSmallMultiples series={snap?.series_by_disease || []} />
@@ -523,7 +523,7 @@ function FocusBody({
         <AmsTable rows={snap?.by_ams || []} />
       </section>
       <ProseSection id="discussion" title="Discussion" body={narrativeOf(issue, 'discussion')} />
-      <section id="limitations" className="sitrep-print-page rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <section id="limitations" data-pdf-page="" className="sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-amber-200 bg-amber-50 p-4">
         <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-amber-900">Limitations</h2>
         <p className="text-sm leading-relaxed text-amber-950">{issue.limitations}</p>
         <p className="mt-3 text-xs text-amber-900">
@@ -564,7 +564,7 @@ export default function SitrepView({
         </p>
       ) : null}
 
-      <header data-pdf-page="" className="sitrep-masthead sitrep-card sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+      <header data-pdf-page="" className="sitrep-masthead sitrep-card sitrep-major sitrep-keep sitrep-print-page break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#0060A9]">
