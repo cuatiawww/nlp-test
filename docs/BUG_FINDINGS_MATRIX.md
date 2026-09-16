@@ -1,4 +1,4 @@
-﻿# Matriks Temuan Bug & Rencana Solusi (Disease Surveillance AI)
+![alt text](image.png)# Matriks Temuan Bug & Rencana Solusi (Disease Surveillance AI)
 
 Dokumen ini mencatat seluruh temuan bug, akar masalah teknis (*root cause*), dan rencana perbaikan pada stack sistem NLP Surveillance Penyakit.
 

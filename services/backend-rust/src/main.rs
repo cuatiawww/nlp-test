@@ -1,5 +1,6 @@
 #![recursion_limit = "512"]
 
+mod external_layers;
 mod region_context;
 mod report_narrative;
 mod report_package;
@@ -1757,6 +1758,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/report-issues/:id/transition", post(reports_cms::transition_issue))
         .route("/api/v1/report-issues/:id/publish", post(reports_cms::publish_issue))
         .route("/api/v1/report-issues/:id/suggest-notes", post(reports_cms::suggest_notes))
+        .route("/api/v1/map-layers/vectors", get(get_vector_sightings))
+        .route("/api/v1/map-layers/flights", get(get_live_flights))
+        .route("/api/v1/map-layers/fires", get(get_fire_hotspots))
+        .route("/api/v1/map-layers/facilities", get(get_health_facilities))
+        .route("/api/v1/map-layers/news", get(get_disease_news))
+        .route("/api/v1/map-layers/population", get(get_population_meta))
         .route("/api/v1/report-issues/:id/assets", post(reports_cms::upsert_asset))
         .route("/api/v1/skdr/ibs-summary", get(skdr_detached))
         .route("/api/v1/skdr/ebs-summary", get(skdr_detached))
@@ -1843,6 +1850,65 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+// ── External map layer proxy handlers ────────────────────────────────
+
+#[derive(Deserialize)]
+struct MapLayerQuery {
+    country: Option<String>,
+    disease: Option<String>,
+    iso3: Option<String>,
+    bbox: Option<String>,
+}
+
+async fn get_vector_sightings(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let data = external_layers::fetch_inaturalist_vectors(&state.http).await;
+    Json(json!({ "success": true, "data": data }))
+}
+
+async fn get_live_flights(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let data = external_layers::fetch_opensky_flights(&state.http).await;
+    Json(json!({ "success": true, "data": data }))
+}
+
+async fn get_fire_hotspots(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let key = env::var("NASA_FIRMS_MAP_KEY").ok();
+    let data = external_layers::fetch_firms_hotspots(&state.http, key.as_deref()).await;
+    Json(json!({ "success": true, "data": data }))
+}
+
+async fn get_health_facilities(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MapLayerQuery>,
+) -> Json<Value> {
+    let key = env::var("HEALTHSITES_API_KEY").ok();
+    let country = params.country.as_deref().unwrap_or("Indonesia");
+    let data = external_layers::fetch_healthsites(&state.http, key.as_deref(), country).await;
+    Json(json!({ "success": true, "data": data }))
+}
+
+async fn get_disease_news(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MapLayerQuery>,
+) -> Json<Value> {
+    let data = external_layers::fetch_gdelt_news(&state.http, params.disease.as_deref()).await;
+    Json(json!({ "success": true, "data": data }))
+}
+
+async fn get_population_meta(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MapLayerQuery>,
+) -> Json<Value> {
+    let iso3 = params.iso3.as_deref().unwrap_or("IDN");
+    let data = external_layers::fetch_worldpop_meta(&state.http, iso3).await;
+    Json(json!({ "success": true, "data": data }))
 }
 
 async fn health() -> Json<Value> {
