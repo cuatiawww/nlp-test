@@ -22,6 +22,7 @@ import {
   normalizeSelectedDiseases,
   CHART_POLICY,
 } from '../lib/report-outline.mjs'
+import { amsDirectory, amsPopup, formatBurdenCount } from '../lib/asean-map.mjs'
 
 test('workflow does not allow draft to skip review', () => {
   assert.equal(allowedTransition('draft', 'in_review'), true)
@@ -119,6 +120,28 @@ test('multi-disease TOC nests Phase 1 chapter depth', () => {
   assert.ok(order.some((s) => s.id === 'chapter:mpox'))
   assert.ok(order.some((s) => s.id === 'matrix'))
   assert.ok(order.some((s) => s.id === 'glance'))
+})
+
+test('choropleth popup shows cases and deaths without dummy zeros', () => {
+  const missing = amsPopup({ iso3: 'SGP', display_name: 'Singapore', has_data: false, cases: 0, deaths: 0 }, 'SGP')
+  assert.equal(missing.has_data, false)
+  assert.equal(missing.cases, '—')
+  assert.equal(missing.deaths, '—')
+  assert.match(missing.status, /No data/)
+
+  const idn = amsPopup(
+    { iso3: 'IDN', display_name: 'Indonesia', has_data: true, cases: 12400, deaths: 210, cfr: 1.7 },
+    'IDN',
+  )
+  assert.equal(idn.has_data, true)
+  assert.equal(idn.cases, formatBurdenCount(12400))
+  assert.equal(idn.deaths, formatBurdenCount(210))
+  assert.equal(idn.cfr, '1.7%')
+
+  const dir = amsDirectory([{ iso3: 'IDN', display_name: 'Indonesia', has_data: true, cases: 12400, deaths: 210, cfr: 1.7 }])
+  assert.equal(dir.length, 11)
+  assert.equal(dir.find((row) => row.iso3 === 'TLS').has_data, false)
+  assert.equal(dir.find((row) => row.iso3 === 'IDN').cases, idn.cases)
 })
 
 test('bulletin indicators are burden metrics only', () => {

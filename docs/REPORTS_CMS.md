@@ -77,7 +77,7 @@ The create path pulls the package immediately (KPIs + AMS table + **per-selected
 
 ## Maps and missing data
 
-Admin-0 ISO3 choropleth (default indicator: **cases**). No data / Not reported is never zero. Heatmap missing cells are hatched, not class 0. When a single AMS is in scope, the same Admin-0 join is used; ADM1 is not invented.
+Admin-0 ISO3 choropleth (default indicator: **cases**; deaths is the other allowed map color). Click or hover a country (or the Singapore inset, or the AMS list) for a popup of **cases, deaths, and CFR**. No data / Not reported is hatched gray and still opens the popup with em dashes — never a dummy zero. Heatmap missing cells are hatched, not class 0. When a single AMS is in scope, the same Admin-0 join is used; ADM1 is not invented.
 
 ## API
 
