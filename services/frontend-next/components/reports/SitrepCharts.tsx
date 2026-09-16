@@ -31,7 +31,7 @@ export function EpiCurveChart({
     label: `W${p.week}`,
   }))
   return (
-    <figure className="break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4">
+    <figure className="sitrep-keep break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">{epiLabel ? `${epiLabel} · ` : ''}Unit: extracted cases and deaths · Source: materialized KPI snapshot</p>
@@ -79,7 +79,7 @@ export function AmsBarChart({
   const missing = (rows || []).filter((r) => !r.has_data).map((r) => r.display_name)
 
   return (
-    <figure className="break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4">
+    <figure className="sitrep-keep break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">
@@ -119,7 +119,7 @@ export function WeeklyLineChart({
 }) {
   const data = (series || []).map((p) => ({ ...p, label: `W${p.week}` }))
   return (
-    <figure className="break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4">
+    <figure className="sitrep-keep break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">
@@ -156,7 +156,7 @@ export function DiseaseSmallMultiples({
 }) {
   const items = (series || []).slice(0, 8)
   return (
-    <figure className="rounded-2xl border border-slate-200 bg-white p-4">
+    <figure className="sitrep-keep break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">Selected diseases by extracted cases. Empty panes mean no matching extracts for that disease-week, not a plotted zero series.</p>
@@ -215,7 +215,7 @@ export function AmsWeekHeatmap({
   )
 
   return (
-    <figure className="break-inside-avoid overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4">
+    <figure className="sitrep-keep break-inside-avoid overflow-x-auto rounded-2xl border border-slate-200 bg-white p-6 print:overflow-visible">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">

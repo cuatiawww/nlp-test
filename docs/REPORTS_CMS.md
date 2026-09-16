@@ -79,6 +79,12 @@ The create path pulls the package immediately (KPIs + AMS table + **per-selected
 
 Admin-0 ISO3 choropleth (default indicator: **cases**; deaths is the other allowed map color). Click or hover a country (or the Singapore inset, or the AMS list) for a popup of **cases, deaths, and CFR**. No data / Not reported is hatched gray and still opens the popup with em dashes — never a dummy zero. Heatmap missing cells are hatched, not class 0. When a single AMS is in scope, the same Admin-0 join is used; ADM1 is not invented.
 
+## Print / PDF
+
+Live preview, `/reports/{slug}/print`, and **Download PDF artifact** share the same SitRep/MMWR layout. Cards use inner padding; `@page` is A4 with ~16–18 mm margins. Choropleth, tables, and chapter blocks use `break-inside: avoid`; the ASEAN map and each disease chapter start on a new page. html2canvas/jsPDF packs `[data-pdf-page]` blocks with those margins and **never slices** a map or table — a block taller than the page is scaled to fit.
+
+Verify: open a bulletin → Print / PDF → browser print preview (A4) **and** Download PDF artifact. Confirm padding around CONTENTS / publisher / cover, and that the choropleth + AMS list are not cut by a page boundary.
+
 ## API
 
 Public GET:

@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf"
 import html2canvas from "html2canvas"
+import { canvasHeightMm, pdfInnerSize, placePdfBlocks, PDF_PAGE } from "./pdf-layout.mjs"
 
 export interface GeneratePdfOptions {
   filename?: string
@@ -7,9 +8,48 @@ export interface GeneratePdfOptions {
   onProgress?: (step: string) => void
 }
 
+function collectPdfBlocks(container: HTMLElement): { el: HTMLElement; breakBefore: boolean }[] {
+  const marked = Array.from(container.querySelectorAll<HTMLElement>("[data-pdf-page]"))
+  const roots = marked.length
+    ? marked
+    : Array.from(container.querySelectorAll<HTMLElement>(".sitrep-print-page"))
+  if (!roots.length) return [{ el: container, breakBefore: false }]
+
+  const blocks: { el: HTMLElement; breakBefore: boolean }[] = []
+  for (const root of roots) {
+    const breakBefore =
+      root.classList.contains("sitrep-page-start") ||
+      root.getAttribute("data-pdf-break") === "before"
+    const split = root.hasAttribute("data-pdf-split")
+      ? Array.from(root.children).filter((node): node is HTMLElement => node instanceof HTMLElement)
+      : []
+    if (split.length >= 2) {
+      split.forEach((el, index) => {
+        blocks.push({
+          el,
+          breakBefore:
+            index === 0
+              ? breakBefore
+              : el.classList.contains("sitrep-page-start") || el.getAttribute("data-pdf-break") === "before",
+        })
+      })
+    } else {
+      blocks.push({ el: root, breakBefore })
+    }
+  }
+  return blocks
+}
+
+function prepareClone(doc: Document) {
+  doc.querySelectorAll<HTMLElement>(".sitrep-choropleth ul, .sitrep-keep").forEach((node) => {
+    node.style.maxHeight = "none"
+    node.style.overflow = "visible"
+  })
+}
+
 /**
- * High-quality multi-page A4 PDF generator using html2canvas & jsPDF.
- * Renders sharp 300 DPI pages with authentic official publication dimensions.
+ * Multi-page A4 PDF. Blocks are packed with page margins and never sliced
+ * mid-card / mid-map — oversized blocks are scaled to fit one page.
  */
 export async function exportReportToPdf({
   filename = "ABVC_Weekly_Situation_Report_Week_38_2026.pdf",
@@ -22,9 +62,32 @@ export async function exportReportToPdf({
   }
 
   onProgress?.("Preparing document pages...")
+  const sourceBlocks = collectPdfBlocks(container)
+  const inner = pdfInnerSize()
 
-  // Look for distinct page containers with [data-pdf-page]
-  const pageElements = container.querySelectorAll<HTMLElement>("[data-pdf-page]")
+  const rendered: { img: string; widthMm: number; heightMm: number; breakBefore: boolean }[] = []
+  for (let i = 0; i < sourceBlocks.length; i++) {
+    onProgress?.(`Rendering section ${i + 1} of ${sourceBlocks.length}...`)
+    const canvas = await html2canvas(sourceBlocks[i].el, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+      onclone: prepareClone,
+    })
+    rendered.push({
+      img: canvas.toDataURL("image/jpeg", 0.96),
+      widthMm: inner.width,
+      heightMm: canvasHeightMm(canvas.width, canvas.height, inner.width),
+      breakBefore: sourceBlocks[i].breakBefore,
+    })
+  }
+
+  const placements = placePdfBlocks(
+    rendered.map((block) => ({ height: block.heightMm, breakBefore: block.breakBefore })),
+    inner.height,
+    PDF_PAGE.gapMm,
+  )
 
   const pdf = new jsPDF({
     orientation: "portrait",
@@ -33,56 +96,26 @@ export async function exportReportToPdf({
     compress: true,
   })
 
-  const pdfWidth = 210
-  const pdfHeight = 297
-
-  if (pageElements.length > 0) {
-    for (let i = 0; i < pageElements.length; i++) {
-      onProgress?.(`Rendering page ${i + 1} of ${pageElements.length}...`)
-      const pageEl = pageElements[i]
-      if (i > 0) {
-        pdf.addPage("a4", "portrait")
-      }
-
-      const canvas = await html2canvas(pageEl, {
-        scale: 2, // 2x for sharp 300 DPI resolution
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-      })
-
-      const imgData = canvas.toDataURL("image/jpeg", 0.96)
-      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight, undefined, "FAST")
-    }
-  } else {
-    // Single container fallback
-    onProgress?.("Rendering document canvas...")
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: "#ffffff",
-    })
-
-    const imgWidth = pdfWidth
-    const imgHeight = (canvas.height * pdfWidth) / canvas.width
-    let heightLeft = imgHeight
-    let position = 0
-
-    const imgData = canvas.toDataURL("image/jpeg", 0.96)
-    pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight, undefined, "FAST")
-    heightLeft -= pdfHeight
-
-    let pageNum = 1
-    while (heightLeft > 0) {
-      pageNum++
-      onProgress?.(`Generating page ${pageNum}...`)
-      position = heightLeft - imgHeight
+  let currentPage = 0
+  placements.forEach((slot, index) => {
+    while (currentPage < slot.page) {
       pdf.addPage("a4", "portrait")
-      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight, undefined, "FAST")
-      heightLeft -= pdfHeight
+      currentPage += 1
     }
-  }
+    const block = rendered[index]
+    const drawWidth = inner.width * slot.scale
+    const drawHeight = slot.height
+    pdf.addImage(
+      block.img,
+      "JPEG",
+      PDF_PAGE.marginXMm + (inner.width - drawWidth) / 2,
+      PDF_PAGE.marginYMm + slot.y,
+      drawWidth,
+      drawHeight,
+      undefined,
+      "FAST",
+    )
+  })
 
   onProgress?.("Saving PDF file...")
   pdf.save(filename)
