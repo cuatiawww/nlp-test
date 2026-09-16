@@ -1,6 +1,8 @@
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import config
@@ -14,6 +16,31 @@ class UrlTimeoutConfigTests(unittest.TestCase):
             config.TRANSLATION_STAGE_TIMEOUT_SECONDS + config.INFERENCE_STAGE_TIMEOUT_SECONDS,
             config.NLP_REQUEST_TIMEOUT_SECONDS,
         )
+
+    def test_defaults_cover_full_xlm_geo_counts_path(self):
+        # Production 408s were INFERENCE_STAGE_TIMEOUT_SECONDS=90, which is
+        # below a cold/auxiliary-head CPU pass. Keep a coordinated window.
+        self.assertGreaterEqual(config.INFERENCE_STAGE_TIMEOUT_SECONDS, 180)
+        self.assertGreaterEqual(config.NLP_REQUEST_TIMEOUT_SECONDS, 270)
+        self.assertGreaterEqual(
+            config.NLP_REQUEST_TIMEOUT_SECONDS
+            - config.TRANSLATION_STAGE_TIMEOUT_SECONDS
+            - config.NLP_STAGE_OVERHEAD_SECONDS,
+            90,
+        )
+
+    def test_old_env_timeouts_cannot_shrink_below_code_floors(self):
+        from app.config import env_seconds_at_least
+        with patch.dict(os.environ, {
+            "TRANSLATION_STAGE_TIMEOUT_SECONDS": "45",
+            "INFERENCE_STAGE_TIMEOUT_SECONDS": "90",
+            "NLP_REQUEST_TIMEOUT_SECONDS": "180",
+        }):
+            self.assertEqual(env_seconds_at_least("TRANSLATION_STAGE_TIMEOUT_SECONDS", 60), 60)
+            self.assertEqual(env_seconds_at_least("INFERENCE_STAGE_TIMEOUT_SECONDS", 180), 180)
+            self.assertEqual(env_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270), 270)
+        with patch.dict(os.environ, {"NLP_REQUEST_TIMEOUT_SECONDS": "360"}):
+            self.assertEqual(env_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270), 360)
 
 
 if __name__ == "__main__":

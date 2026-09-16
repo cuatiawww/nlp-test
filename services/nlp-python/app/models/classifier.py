@@ -4,6 +4,10 @@ import os
 import time
 import urllib.request
 
+# Must be set before importing tokenizers/transformers. Fork-after-load plus
+# the Rayon thread pool is a common hang that surfaces as NLP HTTP 408.
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 from transformers import pipeline
 
 from ..config import NLP_MODEL

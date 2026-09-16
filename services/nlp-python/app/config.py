@@ -23,9 +23,27 @@ DEEPSEEK_LOCATION_MAX_CANDIDATES = int(os.getenv("DEEPSEEK_LOCATION_MAX_CANDIDAT
 AGENT_ENABLED = os.getenv("AGENT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 AGENT_PROVIDER_ORDER = os.getenv("AGENT_PROVIDER_ORDER", "deepseek,openai")
 AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", str(DEEPSEEK_TIMEOUT_SECONDS)))
-TRANSLATION_STAGE_TIMEOUT_SECONDS = int(os.getenv("TRANSLATION_STAGE_TIMEOUT_SECONDS", "45"))
-INFERENCE_STAGE_TIMEOUT_SECONDS = int(os.getenv("INFERENCE_STAGE_TIMEOUT_SECONDS", "90"))
-NLP_REQUEST_TIMEOUT_SECONDS = int(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "180"))
+
+
+def env_seconds_at_least(name, default):
+    """Read an optional timeout override, but never go below the code default.
+
+    Production `.env` still has the old 45/90/180 knobs. Those values caused
+    NLP HTTP 408. Floors live in code so deploy does not require compose/.env
+    edits; env may only raise the budget.
+    """
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(int(default), value)
+
+
+TRANSLATION_STAGE_TIMEOUT_SECONDS = env_seconds_at_least("TRANSLATION_STAGE_TIMEOUT_SECONDS", 60)
+INFERENCE_STAGE_TIMEOUT_SECONDS = env_seconds_at_least("INFERENCE_STAGE_TIMEOUT_SECONDS", 180)
+NLP_REQUEST_TIMEOUT_SECONDS = env_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270)
+NLP_STAGE_OVERHEAD_SECONDS = env_seconds_at_least("NLP_STAGE_OVERHEAD_SECONDS", 15)
+NLP_STAGE_ISOLATION = os.getenv("NLP_STAGE_ISOLATION", "inprocess").strip().lower() or "inprocess"
 # Keep optional LLM fallbacks bounded.  These defaults reduce burst traffic
 # without disabling the deterministic NLP pipeline or the explicit URL flow.
 AGENT_MAX_CONCURRENT_REQUESTS = max(1, int(os.getenv("AGENT_MAX_CONCURRENT_REQUESTS", "1")))

@@ -21,22 +21,56 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(result["result"]["content"], "10 dengue cases")
         self.assertFalse(nlp.call_args.kwargs["fallback"])
 
-    def test_nlp_timeout_keeps_article_and_tries_rules(self):
+    def test_nlp_timeout_retries_full_nlp_without_rules(self):
         nlp = Mock(side_effect=[TimeoutError(), {"disease_classification": "DENGUE", "case_count": 10}])
-        result = analyze_stages("https://example.org", Mock(return_value={"content": "10 dengue cases"}), nlp)
+        result = analyze_stages(
+            "https://example.org",
+            Mock(return_value={"content": "10 dengue cases"}),
+            nlp,
+            nlp_retries=1,
+            rules_only_fallback=False,
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(nlp.call_count, 2)
+        self.assertFalse(nlp.call_args.kwargs["fallback"])
+        self.assertEqual(result["result"]["case_count"], 10)
+
+    def test_nlp_timeout_keeps_article_and_tries_rules_when_opted_in(self):
+        nlp = Mock(side_effect=[TimeoutError(), {"disease_classification": "DENGUE", "case_count": 10}])
+        result = analyze_stages(
+            "https://example.org",
+            Mock(return_value={"content": "10 dengue cases"}),
+            nlp,
+            nlp_retries=0,
+            rules_only_fallback=True,
+        )
         self.assertEqual(result["status"], "partial")
         self.assertTrue(nlp.call_args.kwargs["fallback"])
         self.assertTrue(result["result"]["needs_review"])
 
     def test_nlp_failure_warning_keeps_a_safe_diagnostic(self):
-        nlp = Mock(side_effect=[RuntimeError("NLP HTTP 503: busy"), {"case_count": 0}])
-        result = analyze_stages("https://example.org", Mock(return_value={"content": "Report"}), nlp)
+        nlp = Mock(side_effect=RuntimeError("NLP HTTP 503: busy"))
+        result = analyze_stages(
+            "https://example.org",
+            Mock(return_value={"content": "Report"}),
+            nlp,
+            nlp_retries=0,
+            rules_only_fallback=False,
+        )
+        self.assertEqual(result["status"], "failed")
         self.assertIn("NLP HTTP 503: busy", result["warnings"][0])
+        self.assertEqual(result["result"]["content"], "Report")
 
     def test_both_nlp_attempts_fail_does_not_fabricate_non_health(self):
-        result = analyze_stages("https://example.org", Mock(return_value={"content": "Report"}), Mock(side_effect=TimeoutError()))
-        self.assertEqual(result["status"], "partial")
-        self.assertIsNone(result["result"].get("is_health_related"))
+        result = analyze_stages(
+            "https://example.org",
+            Mock(return_value={"content": "Report"}),
+            Mock(side_effect=TimeoutError()),
+            nlp_retries=0,
+            rules_only_fallback=False,
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(result["result"]["needs_review"])
         self.assertNotIn("case_count", result["result"])
         self.assertEqual(result["result"]["content"], "Report")
 
@@ -114,6 +148,21 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(QUEUE, "disease.analysis-url")
         self.assertNotEqual(QUEUE, "disease.raw")
         self.assertNotEqual(QUEUE, "disease.crawl-matrix")
+
+    def test_rules_only_fallback_is_opt_in(self):
+        from app.analysis_jobs import rules_only_fallback_enabled, is_retryable_nlp_error
+        with patch.dict("os.environ", {"ANALYZE_URL_RULES_ONLY_FALLBACK": ""}, clear=False):
+            os.environ.pop("ANALYZE_URL_RULES_ONLY_FALLBACK", None)
+            self.assertFalse(rules_only_fallback_enabled())
+        self.assertTrue(is_retryable_nlp_error(RuntimeError("NLP HTTP 408: exceeded budget (180s)")))
+        self.assertFalse(is_retryable_nlp_error(RuntimeError("NLP HTTP 400: bad url")))
+
+    def test_legacy_env_timeout_is_clamped_up_in_code(self):
+        from app.analysis_jobs import _seconds_at_least
+        with patch.dict("os.environ", {"NLP_REQUEST_TIMEOUT_SECONDS": "180"}):
+            self.assertEqual(_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270), 270)
+        with patch.dict("os.environ", {"NLP_REQUEST_TIMEOUT_SECONDS": "400"}):
+            self.assertEqual(_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270), 400)
 
 
 if __name__ == "__main__":

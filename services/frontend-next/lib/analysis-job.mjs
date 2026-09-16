@@ -1,4 +1,27 @@
-export async function waitForAnalysis(initial, poll, {interval = 1000, timeout = 600000, signal} = {}) {
+export function isWeakNlpResult(job = {}) {
+  const warnings = job.warnings || job.analysis_warnings || [];
+  return warnings.some((warning) =>
+    /Full NLP unavailable|Full NLP failed|rules-only|exceeded budget/i.test(String(warning || ''))
+  );
+}
+
+export class AnalysisJobError extends Error {
+  constructor(message, {result, job_id, warnings} = {}) {
+    super(message);
+    this.name = 'AnalysisJobError';
+    this.result = result || null;
+    this.job_id = job_id;
+    this.warnings = warnings || [];
+  }
+}
+
+export async function waitForAnalysis(initial, poll, {
+  interval = 1000,
+  timeout = 600000,
+  signal,
+  onProgress,
+  requireFullNlp = true,
+} = {}) {
  if (!initial?.job_id) return initial;
  const deadline = Date.now() + timeout;
  while (Date.now() < deadline) {
@@ -14,8 +37,21 @@ export async function waitForAnalysis(initial, poll, {interval = 1000, timeout =
    await new Promise(resolve => setTimeout(resolve, interval));
    continue;
   }
-  if (job.status === 'failed') throw new Error(job.error || 'Analysis failed');
+  onProgress?.(job);
+  if (job.status === 'failed') {
+    throw new AnalysisJobError(job.error || 'Analysis failed', {
+      result: job.result,
+      job_id: initial.job_id,
+      warnings: job.warnings || [],
+    });
+  }
   if (['completed','partial'].includes(job.status)) {
+   if (requireFullNlp && (job.status === 'partial' && isWeakNlpResult(job))) {
+     throw new AnalysisJobError(
+       (job.warnings || ['Full NLP did not complete']).join('. '),
+       {result: job.result, job_id: initial.job_id, warnings: job.warnings || []},
+     );
+   }
    return {...job.result, analysis_status:job.status, analysis_warnings:job.warnings || [], job_id: initial.job_id};
   }
   await new Promise(resolve => setTimeout(resolve, interval));
