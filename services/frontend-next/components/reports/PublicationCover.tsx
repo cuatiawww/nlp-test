@@ -28,7 +28,7 @@ export default function PublicationCover({
   const card = variant === 'card'
   const box = card
     ? 'relative shrink-0 overflow-hidden rounded-lg border select-none flex flex-col justify-between p-2.5 w-20 h-28 sm:w-24 sm:h-32'
-    : 'relative overflow-hidden rounded-2xl border p-8 min-h-[280px] flex flex-col justify-between sitrep-print-page'
+    : 'relative overflow-hidden rounded-2xl border p-8 sm:p-10 min-h-[280px] flex flex-col justify-between sitrep-print-page sitrep-card sitrep-major sitrep-keep'
 
   const style =
     family === 'mmwr'

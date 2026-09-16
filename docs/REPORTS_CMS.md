@@ -79,6 +79,14 @@ The create path pulls the package immediately (KPIs + AMS table + **per-selected
 
 Admin-0 ISO3 choropleth (default indicator: **cases**; deaths is the other allowed map color). Click or hover a country (or the Singapore inset, or the AMS list) for a popup of **cases, deaths, and CFR**. No data / Not reported is hatched gray and still opens the popup with em dashes — never a dummy zero. Heatmap missing cells are hatched, not class 0. When a single AMS is in scope, the same Admin-0 join is used; ADM1 is not invented.
 
+## Print / PDF
+
+Live preview, `/reports/{slug}/print`, and **Download PDF artifact** share the same SitRep/MMWR layout. Cards keep inner padding; `@page` is A4 with ~16–18 mm margins (22px/24px card padding). **Every major section is a whole print/PDF block** (`break-inside: avoid`): cover / blue banner, publisher / editorial board, the entire CONTENTS list, Situation at a Glance (KPI grid stays one card), narrative pages, figures, and the ASEAN choropleth (map + legend + AMS list). A card that would straddle a page boundary starts on the next page.
+
+Disease chapters start on a new page and paginate **between** subsections (Highlights, cases/deaths table, epidemic curve, weekly charts, map, AMS bar) — never through a heading, chart, or table row. Long tables may break **between rows only**, with a repeated header; html2canvas/jsPDF packs `[data-pdf-page]` atoms with those margins and never slices a block. A map or chart taller than the inner page is scaled to fit; a long matrix is split into row-group chunks instead.
+
+Verify: open a multi-disease EW bulletin → Print / PDF → browser print preview (A4) **and** Download PDF artifact. Confirm padding around CONTENTS / publisher / cover, and that no card, table row, chart, or choropleth is cut by a page boundary.
+
 ## API
 
 Public GET:

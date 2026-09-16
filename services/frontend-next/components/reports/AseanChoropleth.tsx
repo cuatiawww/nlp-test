@@ -190,7 +190,7 @@ export default function AseanChoropleth({
   })
 
   return (
-    <figure className="break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4">
+    <figure className="sitrep-keep sitrep-choropleth break-inside-avoid rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">
@@ -315,7 +315,7 @@ export default function AseanChoropleth({
             </div>
           ))}
           <p className="mt-3 mb-1 font-bold uppercase tracking-wide text-slate-500">AMS</p>
-          <ul className="max-h-64 space-y-0.5 overflow-auto pr-1">
+          <ul className="max-h-64 space-y-0.5 overflow-auto pr-1 print:max-h-none print:overflow-visible">
             {directory.map((item) => (
               <li key={item.iso3}>
                 <button

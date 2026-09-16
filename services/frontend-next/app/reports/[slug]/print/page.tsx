@@ -21,7 +21,7 @@ export default function ReportPrintPage() {
   if (!issue) return <p className="p-6 text-sm text-slate-500">Preparing print layout…</p>
 
   return (
-    <div className="mx-auto max-w-[210mm] bg-white p-6 print:p-0">
+    <div className="mx-auto max-w-[210mm] bg-white p-6 sm:p-10 print:max-w-none print:p-0">
       <div className="no-print mb-4 flex gap-2">
         <button
           type="button"
