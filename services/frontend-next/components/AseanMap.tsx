@@ -46,6 +46,7 @@ import {
   fetchWorldPopMeta,
   fetchMapEnvironment,
 } from "@/lib/api";
+import { classifyLayerError, statusFromPayload } from "@/lib/map-layer-client.mjs";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 import CountryFlag from "@/components/CountryFlag";
 
@@ -187,19 +188,33 @@ function formatHeading(deg?: number | null): string {
   return `${Math.round(deg)}°`;
 }
 
-function layerOutcome(count: number, source?: string, error?: string | null): MapLayerStatus {
-  if (error) {
-    return {
-      state: count > 0 ? "ok" : "error",
-      count,
-      source,
-      message: error,
-    };
+function layerOutcome(
+  count: number,
+  source?: string,
+  error?: string | null,
+  payload?: {
+    status?: string;
+    cached?: boolean;
+    stale?: boolean;
+    fromCache?: boolean;
+  },
+): MapLayerStatus {
+  return statusFromPayload(count, {
+    source,
+    error: error || undefined,
+    status: payload?.status,
+    cached: payload?.cached,
+    stale: payload?.stale,
+    fromCache: payload?.fromCache,
+  }) as MapLayerStatus;
+}
+
+function statusFromCatch(err: unknown): MapLayerStatus {
+  const classified = classifyLayerError(err);
+  if (classified.aborted) {
+    return { state: "idle" };
   }
-  if (count > 0) {
-    return { state: "ok", count, source, message: `${count.toLocaleString()} loaded` };
-  }
-  return { state: "empty", count: 0, source, message: "No data in the ASEAN window" };
+  return classified as MapLayerStatus;
 }
 
 export default function AseanMap({
@@ -940,19 +955,18 @@ export default function AseanMap({
     const visible = Boolean(intelLayers?.vectors);
     layer.setVisible(visible);
     if (!visible) {
+      reportStatus("vectors", { state: "idle" });
       return;
     }
     const src = layer.getSource();
     if (!src) return;
-    if (src.getFeatures().length > 0) {
-      reportStatus("vectors", layerOutcome(src.getFeatures().length, "iNaturalist"));
-      return;
-    }
+    const ac = new AbortController();
     let cancelled = false;
     reportStatus("vectors", { state: "loading", message: "Loading iNaturalist observations…" });
-    fetchVectorSightings()
+    fetchVectorSightings({ signal: ac.signal })
       .then((res) => {
         if (cancelled) return;
+        src.clear();
         const features = (res?.sightings || []).map((s) => {
           const f = new Feature({
             geometry: new Point(fromLonLat([s.longitude, s.latitude])),
@@ -962,13 +976,15 @@ export default function AseanMap({
           return f;
         });
         src.addFeatures(features);
-        reportStatus("vectors", layerOutcome(features.length, res?.source, res?.error));
+        reportStatus("vectors", layerOutcome(features.length, res?.source, res?.error, res));
       })
       .catch((err) => {
-        if (!cancelled) reportStatus("vectors", { state: "error", message: err?.message || "Failed to load vector sightings" });
+        if (cancelled || err?.name === "AbortError") return;
+        reportStatus("vectors", statusFromCatch(err));
       });
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [intelLayers?.vectors]);
 
@@ -979,19 +995,18 @@ export default function AseanMap({
     const visible = Boolean(intelLayers?.flights);
     layer.setVisible(visible);
     if (!visible) {
+      reportStatus("flights", { state: "idle" });
       return;
     }
     const src = layer.getSource();
     if (!src) return;
-    if (src.getFeatures().length > 0) {
-      reportStatus("flights", layerOutcome(src.getFeatures().length, "OpenSky Network"));
-      return;
-    }
+    const ac = new AbortController();
     let cancelled = false;
     reportStatus("flights", { state: "loading", message: "Loading OpenSky traffic…" });
-    fetchLiveFlights()
+    fetchLiveFlights({ signal: ac.signal })
       .then((res) => {
         if (cancelled) return;
+        src.clear();
         const features = (res?.flights || []).map((flight) => {
           const f = new Feature({
             geometry: new Point(fromLonLat([flight.longitude, flight.latitude])),
@@ -1001,13 +1016,15 @@ export default function AseanMap({
           return f;
         });
         src.addFeatures(features);
-        reportStatus("flights", layerOutcome(features.length, res?.source, res?.error));
+        reportStatus("flights", layerOutcome(features.length, res?.source, res?.error, res));
       })
       .catch((err) => {
-        if (!cancelled) reportStatus("flights", { state: "error", message: err?.message || "Failed to load live flights" });
+        if (cancelled || err?.name === "AbortError") return;
+        reportStatus("flights", statusFromCatch(err));
       });
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [intelLayers?.flights]);
 
@@ -1018,19 +1035,18 @@ export default function AseanMap({
     const visible = Boolean(intelLayers?.fires);
     layer.setVisible(visible);
     if (!visible) {
+      reportStatus("fires", { state: "idle" });
       return;
     }
     const src = layer.getSource();
     if (!src) return;
-    if (src.getFeatures().length > 0) {
-      reportStatus("fires", layerOutcome(src.getFeatures().length, "NASA FIRMS"));
-      return;
-    }
+    const ac = new AbortController();
     let cancelled = false;
     reportStatus("fires", { state: "loading", message: "Loading NASA FIRMS hotspots…" });
-    fetchFireHotspots()
+    fetchFireHotspots({ signal: ac.signal })
       .then((res) => {
         if (cancelled) return;
+        src.clear();
         const features = (res?.hotspots || []).map((h) => {
           const f = new Feature({
             geometry: new Point(fromLonLat([h.longitude, h.latitude])),
@@ -1040,13 +1056,15 @@ export default function AseanMap({
           return f;
         });
         src.addFeatures(features);
-        reportStatus("fires", layerOutcome(features.length, res?.source, res?.error));
+        reportStatus("fires", layerOutcome(features.length, res?.source, res?.error, res));
       })
       .catch((err) => {
-        if (!cancelled) reportStatus("fires", { state: "error", message: err?.message || "Failed to load fire hotspots" });
+        if (cancelled || err?.name === "AbortError") return;
+        reportStatus("fires", statusFromCatch(err));
       });
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [intelLayers?.fires]);
 
@@ -1057,17 +1075,19 @@ export default function AseanMap({
     const visible = Boolean(intelLayers?.facilities);
     layer.setVisible(visible);
     if (!visible) {
+      reportStatus("facilities", { state: "idle" });
       return;
     }
     const targetCountry = selected?.name || highlightCountry || "Indonesia";
     const src = layer.getSource();
     if (!src) return;
-    src.clear();
+    const ac = new AbortController();
     let cancelled = false;
     reportStatus("facilities", { state: "loading", message: `Loading facilities in ${targetCountry}…` });
-    fetchHealthFacilities(targetCountry)
+    fetchHealthFacilities(targetCountry, { signal: ac.signal })
       .then((res) => {
         if (cancelled) return;
+        src.clear();
         const features = (res?.facilities || []).map((fac) => {
           const f = new Feature({
             geometry: new Point(fromLonLat([fac.longitude, fac.latitude])),
@@ -1077,42 +1097,48 @@ export default function AseanMap({
           return f;
         });
         src.addFeatures(features);
-        reportStatus("facilities", layerOutcome(features.length, res?.source, res?.error));
+        reportStatus("facilities", layerOutcome(features.length, res?.source, res?.error, res));
       })
       .catch((err) => {
-        if (!cancelled) reportStatus("facilities", { state: "error", message: err?.message || "Failed to load health facilities" });
+        if (cancelled || err?.name === "AbortError") return;
+        reportStatus("facilities", statusFromCatch(err));
       });
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [intelLayers?.facilities, selected?.name, highlightCountry]);
 
-  // GDELT / ReliefWeb disease news
+  // GDELT / WHO disease news — fetch only when toggled on; abort when off.
   useEffect(() => {
     if (!intelLayers?.news) {
       setDiseaseNews([]);
       setNewsMeta({});
+      reportStatus("news", { state: "idle" });
       return;
     }
+    const ac = new AbortController();
     let cancelled = false;
     reportStatus("news", { state: "loading", message: "Loading disease media…" });
-    fetchDiseaseNews()
+    fetchDiseaseNews(undefined, { signal: ac.signal })
       .then((res) => {
         if (cancelled) return;
         const articles = res?.articles || [];
         setDiseaseNews(articles);
         setNewsMeta({ source: res?.source, error: res?.error });
         setNewsOpen(true);
-        reportStatus("news", layerOutcome(articles.length, res?.source, res?.error));
+        reportStatus("news", layerOutcome(articles.length, res?.source, res?.error, res));
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled || err?.name === "AbortError") return;
         setDiseaseNews([]);
-        setNewsMeta({ error: err?.message || "Failed to load news" });
-        reportStatus("news", { state: "error", message: err?.message || "Failed to load news" });
+        const status = statusFromCatch(err);
+        setNewsMeta({ error: status.message || "Failed to load news" });
+        reportStatus("news", status);
       });
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [intelLayers?.news]);
 
@@ -1120,38 +1146,38 @@ export default function AseanMap({
   useEffect(() => {
     if (!intelLayers?.population) {
       setWorldPopMeta(null);
+      reportStatus("population", { state: "idle" });
       return;
     }
     const country = normalizedCountry(selected?.name || highlightCountry || "indonesia");
     const iso3 = COUNTRY_ISO3[country] || "IDN";
+    const ac = new AbortController();
     let cancelled = false;
     reportStatus("population", { state: "loading", message: `Loading WorldPop metadata for ${iso3}…` });
-    fetchWorldPopMeta(iso3)
+    fetchWorldPopMeta(iso3, { signal: ac.signal })
       .then((res) => {
         if (cancelled) return;
-        if (res && res.status === "ok") {
+        if (res && (res.status === "ok" || res.fromCache || res.cached) && !res.error) {
           setWorldPopMeta(res);
+          const label = `${res.country || iso3} ${res.year || ""}`.trim();
           reportStatus("population", {
-            state: "ok",
+            state: res.fromCache || res.cached ? "cached" : "ok",
             source: res.source,
-            message: `${res.country || iso3} ${res.year || ""}`.trim(),
+            message: label || "WorldPop metadata",
           });
         } else {
           setWorldPopMeta(res || null);
-          reportStatus("population", {
-            state: "error",
-            source: res?.source,
-            message: res?.error || "WorldPop metadata unavailable",
-          });
+          reportStatus("population", layerOutcome(0, res?.source, res?.error || "WorldPop metadata unavailable", res));
         }
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled || err?.name === "AbortError") return;
         setWorldPopMeta(null);
-        reportStatus("population", { state: "error", message: err?.message || "Failed to load WorldPop metadata" });
+        reportStatus("population", statusFromCatch(err));
       });
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [intelLayers?.population, selected?.name, highlightCountry]);
 
@@ -1162,22 +1188,24 @@ export default function AseanMap({
     const visible = Boolean(intelLayers?.weather || intelLayers?.airQuality);
     layer.setVisible(visible);
     if (!visible) {
+      reportStatus("weather", { state: "idle" });
+      reportStatus("airQuality", { state: "idle" });
       return;
     }
     const src = layer.getSource();
     if (!src) return;
-    if (src.getFeatures().length > 0) {
-      const count = src.getFeatures().length;
-      reportStatus("weather", layerOutcome(count, "Open-Meteo"));
-      reportStatus("airQuality", layerOutcome(count, "Open-Meteo Air Quality"));
-      return;
-    }
+    const ac = new AbortController();
     let cancelled = false;
-    reportStatus("weather", { state: "loading", message: "Loading capital weather…" });
-    reportStatus("airQuality", { state: "loading", message: "Loading capital AQI…" });
-    fetchMapEnvironment()
+    if (intelLayers?.weather) {
+      reportStatus("weather", { state: "loading", message: "Loading capital weather…" });
+    }
+    if (intelLayers?.airQuality) {
+      reportStatus("airQuality", { state: "loading", message: "Loading capital AQI…" });
+    }
+    fetchMapEnvironment({ signal: ac.signal })
       .then((res) => {
         if (cancelled) return;
+        src.clear();
         const features = (res?.markers || []).map((marker) => {
           const f = new Feature({
             geometry: new Point(fromLonLat([marker.longitude, marker.latitude])),
@@ -1187,18 +1215,19 @@ export default function AseanMap({
           return f;
         });
         src.addFeatures(features);
-        const status = layerOutcome(features.length, res?.source, res?.error);
-        reportStatus("weather", status);
-        reportStatus("airQuality", status);
+        const status = layerOutcome(features.length, res?.source, res?.error, res);
+        if (intelLayers?.weather) reportStatus("weather", status);
+        if (intelLayers?.airQuality) reportStatus("airQuality", status);
       })
       .catch((err) => {
-        if (cancelled) return;
-        const status = { state: "error" as const, message: err?.message || "Failed to load weather / AQI" };
-        reportStatus("weather", status);
-        reportStatus("airQuality", status);
+        if (cancelled || err?.name === "AbortError") return;
+        const status = statusFromCatch(err);
+        if (intelLayers?.weather) reportStatus("weather", status);
+        if (intelLayers?.airQuality) reportStatus("airQuality", status);
       });
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [intelLayers?.weather, intelLayers?.airQuality]);
 

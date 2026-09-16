@@ -1,5 +1,6 @@
 ﻿import { getCurrentEpiWeek } from "@/lib/epi-week";
 import { ASEAN11_SCOPE, isAseanDefaultScope } from "@/lib/asean-scope";
+import { fetchMapLayer, LAYER_TTL_MS } from "@/lib/map-layer-client.mjs";
 import type {
   Source,
   Run,
@@ -39,8 +40,17 @@ function authHeaders(): Record<string, string> {
 function formatApiError(res: Response, json?: any): string {
   if (json?.error && typeof json.error === "string") return json.error;
   if (json?.detail && typeof json.detail === "string") return json.detail;
+  if (res.status === 401 || res.status === 403) {
+    return `Authentication required (${res.status}). Sign in or configure the upstream API key.`;
+  }
   if (res.status === 408) {
     return "URL extraction timed out. The source website is slow or blocking crawler access.";
+  }
+  if (res.status === 429) {
+    return "Upstream rate-limited (429). Wait before retrying this layer.";
+  }
+  if (res.status === 503) {
+    return "Service unavailable (503): gateway or upstream overloaded. This is not a generic server crash.";
   }
   if (res.status === 504) {
     return "Gateway Timeout (504): Server atau website sumber artikel membutuhkan waktu terlalu lama untuk merespons. Silakan periksa apakah tautan dapat diakses dan coba beberapa saat lagi.";
@@ -48,12 +58,24 @@ function formatApiError(res: Response, json?: any): string {
   if (res.status === 502) {
     return "Bad Gateway (502): Layanan backend sedang tidak dapat dihubungi atau sedang restart. Silakan coba kembali.";
   }
+  if (res.status >= 500) {
+    return `Upstream error (${res.status}${res.statusText ? `: ${res.statusText}` : ""}).`;
+  }
   const text = res.statusText ? `: ${res.statusText}` : "";
-  return `API ${res.status}${text || " (Terjadi kesalahan pada server)"}`;
+  return `API ${res.status}${text}`;
 }
 
-export async function fetchFrom<T>(path: string): Promise<T> {
-  const res = await fetch(`${baseURL()}${path}`, { cache: "no-store", headers: authHeaders() });
+export async function fetchFrom<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${baseURL()}${path}`, {
+    cache: "no-store",
+    ...init,
+    headers: { ...authHeaders(), ...(init?.headers || {}) },
+  });
+  if (init?.signal?.aborted) {
+    const err = new Error("aborted");
+    err.name = "AbortError";
+    throw err;
+  }
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(formatApiError(res, json));
   return (json?.data ?? json) as T;
@@ -796,33 +818,95 @@ export const fetchMorbidityMortality = (params?: PublicDashboardApiParams & { we
   return fetchFrom<MorbidityMortalityResponse>(`/api/v1/morbidity-mortality?${q.toString()}`);
 };
 // ── External Map Layers API ───────────────────────────────────────────
+// Cached + queued. Pass AbortSignal so toggling a layer OFF cancels in-flight work.
 
-export const fetchVectorSightings = () =>
-  fetchFrom<VectorSightingsResponse>("/api/v1/map-layers/vectors");
+type LayerInit = RequestInit & { cacheKey?: string };
 
-export const fetchLiveFlights = () =>
-  fetchFrom<LiveFlightsResponse>("/api/v1/map-layers/flights");
+async function fetchCachedLayer<T>(
+  path: string,
+  cacheKey: string,
+  ttlMs: number,
+  init?: LayerInit,
+): Promise<T> {
+  const { cacheKey: overrideKey, signal, ...rest } = init || {};
+  const { data } = await fetchMapLayer<T>({
+    cacheKey: overrideKey || cacheKey,
+    ttlMs,
+    signal,
+    request: (nextSignal) => fetchFrom<T>(path, { ...rest, signal: nextSignal }),
+  });
+  return data;
+}
 
-export const fetchFireHotspots = () =>
-  fetchFrom<FireHotspotsResponse>("/api/v1/map-layers/fires");
+export const fetchVectorSightings = (init?: LayerInit) =>
+  fetchCachedLayer<VectorSightingsResponse>(
+    "/api/v1/map-layers/vectors",
+    "vectors",
+    LAYER_TTL_MS.vectors,
+    init,
+  );
 
-export const fetchHealthFacilities = (country?: string) => {
+export const fetchLiveFlights = (init?: LayerInit) =>
+  fetchCachedLayer<LiveFlightsResponse>(
+    "/api/v1/map-layers/flights",
+    "flights",
+    LAYER_TTL_MS.flights,
+    init,
+  );
+
+export const fetchFireHotspots = (init?: LayerInit) =>
+  fetchCachedLayer<FireHotspotsResponse>(
+    "/api/v1/map-layers/fires",
+    "fires",
+    LAYER_TTL_MS.fires,
+    init,
+  );
+
+export const fetchHealthFacilities = (country?: string, init?: LayerInit) => {
   const q = country ? `?country=${encodeURIComponent(country)}` : "";
-  return fetchFrom<HealthFacilitiesResponse>(`/api/v1/map-layers/facilities${q}`);
+  const key = `facilities:${(country || "Indonesia").toLowerCase()}`;
+  return fetchCachedLayer<HealthFacilitiesResponse>(
+    `/api/v1/map-layers/facilities${q}`,
+    key,
+    LAYER_TTL_MS.facilities,
+    init,
+  );
 };
 
-export const fetchDiseaseNews = (disease?: string) => {
+export const fetchDiseaseNews = (disease?: string, init?: LayerInit) => {
   const q = disease ? `?disease=${encodeURIComponent(disease)}` : "";
-  return fetchFrom<DiseaseNewsResponse>(`/api/v1/map-layers/news${q}`);
+  const key = `news:${(disease || "default").toLowerCase()}`;
+  return fetchCachedLayer<DiseaseNewsResponse>(
+    `/api/v1/map-layers/news${q}`,
+    key,
+    LAYER_TTL_MS.news,
+    init,
+  );
 };
 
-export const fetchWorldPopMeta = (iso3?: string) => {
+export const fetchWorldPopMeta = (iso3?: string, init?: LayerInit) => {
   const q = iso3 ? `?iso3=${encodeURIComponent(iso3)}` : "";
-  return fetchFrom<WorldPopMeta>(`/api/v1/map-layers/population${q}`);
+  const key = `population:${(iso3 || "IDN").toUpperCase()}`;
+  return fetchCachedLayer<WorldPopMeta>(
+    `/api/v1/map-layers/population${q}`,
+    key,
+    LAYER_TTL_MS.population,
+    init,
+  );
 };
 
-export const fetchMapHazards = () =>
-  fetchFrom<MapHazardsResponse>("/api/v1/map-layers/hazards");
+export const fetchMapHazards = (init?: LayerInit) =>
+  fetchCachedLayer<MapHazardsResponse>(
+    "/api/v1/map-layers/hazards",
+    "hazards",
+    LAYER_TTL_MS.hazards,
+    init,
+  );
 
-export const fetchMapEnvironment = () =>
-  fetchFrom<MapEnvironmentResponse>("/api/v1/map-layers/environment");
+export const fetchMapEnvironment = (init?: LayerInit) =>
+  fetchCachedLayer<MapEnvironmentResponse>(
+    "/api/v1/map-layers/environment",
+    "environment",
+    LAYER_TTL_MS.environment,
+    init,
+  );
