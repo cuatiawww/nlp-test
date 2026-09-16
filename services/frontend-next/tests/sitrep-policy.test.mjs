@@ -93,6 +93,17 @@ test('heatmap missing cells are not zero', () => {
   assert.equal(sgp.cells.every((cell) => cell.isMissing), true)
 })
 
+test('heatmap never plots scrape/event volume as cases', () => {
+  const weeks = [{ year: 2026, week: 7, label: 'W07' }]
+  const grid = buildAmsWeekHeatmap(
+    [{ iso3: 'IDN', year: 2026, week: 7, events: 99, has_data: true }],
+    weeks,
+  )
+  const idn = grid.find((row) => row.iso3 === 'IDN')
+  assert.equal(idn.cells[0].isMissing, true)
+  assert.equal(idn.cells[0].value, null)
+})
+
 test('multi-disease TOC nests Phase 1 chapter depth', () => {
   const selected = normalizeSelectedDiseases(['COVID-19', { name: 'Mpox', disease_code: 'mpox' }])
   assert.equal(selected.length, 2)

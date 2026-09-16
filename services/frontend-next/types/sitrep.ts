@@ -87,6 +87,7 @@ export type SitrepKpiPackage = {
     location_name: string
     events: number
     cases: number
+    deaths?: number | null
     status?: string
   }[]
   matrix?: {

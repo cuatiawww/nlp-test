@@ -68,11 +68,12 @@ export function AmsBarChart({
   title?: string
   epiLabel?: string
 }) {
+  const metric = indicator === 'deaths' ? 'deaths' : 'cases'
   const data = (rows || [])
     .filter((r) => r.has_data)
     .map((r) => ({
       name: r.display_name,
-      value: Number(r[indicator] ?? 0),
+      value: Number(r[metric] ?? 0),
     }))
     .sort((a, b) => a.value - b.value)
   const missing = (rows || []).filter((r) => !r.has_data).map((r) => r.display_name)
@@ -82,7 +83,7 @@ export function AmsBarChart({
       <figcaption className="mb-3">
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">
-          {epiLabel ? `${epiLabel} · ` : ''}Unit: {indicator} · AMS with no matching events omitted from bars (listed as no data)
+          {epiLabel ? `${epiLabel} · ` : ''}Unit: {metric} · AMS with no matching case/death extracts omitted from bars (listed as no data)
         </p>
       </figcaption>
       <div className="h-72">
@@ -93,11 +94,11 @@ export function AmsBarChart({
               <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
               <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="value" name={indicator} fill="#3182bd" radius={[0, 3, 3, 0]} />
+              <Bar dataKey="value" name={metric} fill="#3182bd" radius={[0, 3, 3, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <p className="flex h-full items-center justify-center text-sm text-slate-500">No AMS reported {indicator} in this window.</p>
+          <p className="flex h-full items-center justify-center text-sm text-slate-500">No AMS reported {metric} in this window.</p>
         )}
       </div>
       {missing.length ? (

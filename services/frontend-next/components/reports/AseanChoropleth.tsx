@@ -78,6 +78,7 @@ export default function AseanChoropleth({
   epiLabel?: string
   title?: string
 }) {
+  const metric = indicator === 'deaths' ? 'deaths' : 'cases'
   const [hover, setHover] = useState<string | null>(null)
   const byIso = useMemo(() => {
     const map = new Map<string, AmsKpiRow>()
@@ -91,9 +92,9 @@ export default function AseanChoropleth({
     () =>
       (rows || [])
         .filter((r) => r.has_data)
-        .map((r) => Number(r[indicator] ?? 0))
+        .map((r) => Number(r[metric] ?? 0))
         .filter((v) => Number.isFinite(v)),
-    [rows, indicator],
+    [rows, metric],
   )
   const breaks = useMemo(() => quantileBreaks(valued, Math.min(6, Math.max(3, valued.length))), [valued])
 
@@ -104,7 +105,7 @@ export default function AseanChoropleth({
     if (!iso3) return NO_DATA_FILL
     const row = byIso.get(iso3)
     if (!row || !row.has_data) return NO_DATA_FILL
-    const value = Number(row[indicator] ?? 0)
+    const value = Number(row[metric] ?? 0)
     const idx = classIndex(value, breaks)
     return CHOROPLETH_BLUES[Math.min(idx, CHOROPLETH_BLUES.length - 1)]
   }
@@ -117,7 +118,7 @@ export default function AseanChoropleth({
         <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
         <p className="text-xs text-slate-500">
           {epiLabel ? `${epiLabel} · ` : ''}
-          Unit: {indicator} · Classification: quantile among AMS with data · Join: ISO 3166-1 alpha-3
+          Unit: {metric} · Classification: quantile among AMS with data · Join: ISO 3166-1 alpha-3
         </p>
       </figcaption>
       <div className="grid gap-4 lg:grid-cols-[1fr_180px]">
@@ -181,7 +182,7 @@ export default function AseanChoropleth({
               <p className="font-bold text-slate-900">{ISO3_DISPLAY[hover as keyof typeof ISO3_DISPLAY] || hover}</p>
               {hovered?.has_data ? (
                 <p className="text-slate-600">
-                  {indicator}: {hovered[indicator] ?? 0}
+                  {metric}: {hovered[metric] ?? 0}
                   {hovered.cfr != null ? ` · CFR ${hovered.cfr}%` : ''}
                 </p>
               ) : (
