@@ -596,7 +596,11 @@ export const fetchEbsSummary = async (_filters?: { year?: number; province?: str
 
 // ── URL Analyze ──────────────────────────────────
 
-export const analyzeUrl = async (url: string) => {
+export const analyzeUrl = async (url: string, options?: {
+  forceRefresh?: boolean;
+  onProgress?: (job: { status?: string; stage?: string; job_id?: string }) => void;
+  signal?: AbortSignal;
+}) => {
   const { waitForAnalysis } = await import("./analysis-job.mjs");
   // Interactive URL analysis must use the dedicated async worker. The old
   // synchronous/force-refresh flags made the browser wait for crawling and
@@ -604,8 +608,12 @@ export const analyzeUrl = async (url: string) => {
   const res = await fetch(`${baseURL()}/api/v1/analyze-url`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ url, async: true, force_refresh: false }),
-    signal: AbortSignal.timeout(20000),
+    body: JSON.stringify({
+      url,
+      async: true,
+      force_refresh: Boolean(options?.forceRefresh),
+    }),
+    signal: options?.signal ?? AbortSignal.timeout(20000),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(formatApiError(res, json));
@@ -616,6 +624,11 @@ export const analyzeUrl = async (url: string) => {
     const json = await res.json().catch(() => null);
     if (!res.ok) throw new Error(formatApiError(res, json));
     return json.data;
+  }, {
+    timeout: 600000,
+    requireFullNlp: true,
+    onProgress: options?.onProgress,
+    signal: options?.signal,
   });
 };
 

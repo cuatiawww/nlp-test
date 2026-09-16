@@ -231,7 +231,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             else:
                 disease, confidence = classify_disease(clf_sample)
             
-            if payload.historical_fast:
+            # Interactive URL analysis must finish inside the worker HTTP
+            # budget. Auxiliary zero-shot XLM-RoBERTa heads (sentiment /
+            # event_type / relevance) were loading a second model on the
+            # critical path and routinely exceeded the old 90s cap. Disease,
+            # geo, and counts still run; outbreak/relevance labels are filled
+            # from rules later in this function.
+            skip_aux_models = payload.historical_fast or payload.interactive
+            if skip_aux_models:
                 relevance = "high" if disease != "UNKNOWN" or has_keywords else "low"
                 relevance_confidence = confidence if relevance == "high" else 0.99
             else:

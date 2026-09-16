@@ -955,6 +955,18 @@ fn default_analyze_async() -> bool {
     true
 }
 
+fn parse_nlp_http_timeout_secs(raw: Option<&str>) -> u64 {
+    raw.and_then(|value| value.parse::<u64>().ok())
+        .filter(|&secs| secs >= 30)
+        .unwrap_or(270)
+}
+
+fn nlp_http_timeout() -> std::time::Duration {
+    std::time::Duration::from_secs(parse_nlp_http_timeout_secs(
+        env::var("NLP_REQUEST_TIMEOUT_SECONDS").ok().as_deref(),
+    ))
+}
+
 #[derive(Debug, Deserialize)]
 struct AnalyzeUrlRequest {
     url: String,
@@ -987,6 +999,13 @@ mod analysis_contract_tests {
     fn async_false_is_explicit_opt_out() {
         let request: AnalyzeUrlRequest = serde_json::from_value(json!({"url":"https://example.org","async":false})).unwrap();
         assert!(!request.asynchronous);
+    }
+
+    #[test]
+    fn nlp_http_timeout_defaults_cover_full_inference_budget() {
+        assert_eq!(parse_nlp_http_timeout_secs(None), 270);
+        assert_eq!(parse_nlp_http_timeout_secs(Some("15")), 270);
+        assert_eq!(parse_nlp_http_timeout_secs(Some("300")), 300);
     }
 
     #[test]
@@ -2559,6 +2578,17 @@ async fn analyze_url(
                  JOIN raw_reports rr ON de.raw_report_id = rr.id
                  LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
                  WHERE rr.url = $1
+                   AND NOT EXISTS (
+                       SELECT 1 FROM (
+                           SELECT warnings
+                           FROM analysis_jobs aj
+                           WHERE aj.url = $1
+                           ORDER BY aj.created_at DESC
+                           LIMIT 1
+                       ) latest
+                       WHERE COALESCE(latest.warnings::text, '') ILIKE '%Full NLP unavailable%'
+                          OR COALESCE(latest.warnings::text, '') ILIKE '%exceeded budget%'
+                   )
                  ORDER BY de.created_at DESC
                  LIMIT 1",
                  &[&url],
@@ -2828,7 +2858,7 @@ async fn analyze_url(
             "source_country": source_country,
             "published_at": published_at,
         }))
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(nlp_http_timeout())
         .send()
         .await
         .map_err(|e| {

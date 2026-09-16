@@ -82,3 +82,21 @@ migration runner memproses file tersebut.
 File overlay docker-compose.analysis-jobs.yml tidak digunakan oleh konfigurasi
 sekarang. Jangan menambah service Compose baru; worker interaktif yang sudah
 ada memproses queue `disease.analysis-url` dan `disease.crawl-matrix`.
+
+
+6. ANALYZE URL TIMEOUT (Full NLP)
+=================================
+
+Lihat docs/ANALYZE_URL_TIMEOUT.md. Default yang perlu ada di .env:
+
+TRANSLATION_STAGE_TIMEOUT_SECONDS=60
+INFERENCE_STAGE_TIMEOUT_SECONDS=180
+NLP_REQUEST_TIMEOUT_SECONDS=270
+NLP_STAGE_ISOLATION=inprocess
+ANALYZE_URL_NLP_RETRIES=1
+ANALYZE_URL_RULES_ONLY_FALLBACK=false
+
+Recreate setelah mengubah nilai:
+
+docker compose up -d --build --force-recreate \
+  disease-nlp-python analysis-job-worker disease-backend-rust

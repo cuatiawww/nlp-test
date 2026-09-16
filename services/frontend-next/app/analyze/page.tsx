@@ -73,6 +73,7 @@ export default function AnalyzePage() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null)
   const [error, setError] = useState('')
   const [partial, setPartial] = useState<{content?: string; job_id?: string} | null>(null)
+  const [stage, setStage] = useState('')
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
 
   useEffect(() => {
@@ -117,7 +118,7 @@ export default function AnalyzePage() {
     return <span className="text-xs text-slate-400">-</span>
   }
 
-  async function handleSubmit(value = url.trim()) {
+  async function handleSubmit(value = url.trim(), forceRefresh = false) {
     if (!value) {
       toast.error(t('pages.analyze.urlRequired'))
       return
@@ -126,8 +127,12 @@ export default function AnalyzePage() {
     setError('')
     setResult(null)
     setPartial(null)
+    setStage(forceRefresh ? 'nlp' : 'queued')
     try {
-      const data = await analyzeUrl(value)
+      const data = await analyzeUrl(value, {
+        forceRefresh,
+        onProgress: (job) => setStage(job.stage || job.status || ''),
+      })
       if (data.analysis_status === 'partial') {
         setPartial(data)
         setError((data.analysis_warnings || ['Analysis incomplete; please retry']).join('. '))
@@ -139,9 +144,13 @@ export default function AnalyzePage() {
     } catch (e: any) {
       const msg = e?.message || t('pages.analyze.failed')
       setError(msg)
+      if (e?.result?.content) {
+        setPartial({ content: e.result.content, job_id: e.job_id })
+      }
       toast.error(msg)
     } finally {
       setLoading(false)
+      setStage('')
     }
   }
 
@@ -185,15 +194,29 @@ export default function AnalyzePage() {
       {loading && (
         <div className="mt-8 flex flex-col items-center justify-center py-16 text-slate-400">
           <Loader2 className="h-8 w-8 animate-spin text-[#0060A9]" />
-          <p className="mt-3 text-sm">{t('pages.analyze.analyzing')}</p>
+          <p className="mt-3 text-sm">
+            {stage === 'fetch'
+              ? 'Fetching article…'
+              : stage === 'nlp'
+                ? 'Running Full NLP…'
+                : t('pages.analyze.analyzing')}
+          </p>
         </div>
       )}
 
       {partial && (
         <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <h2 className="font-semibold">Source retained — analysis needs review</h2>
+          <h2 className="font-semibold">Source retained — Full NLP did not finish</h2>
           <p className="text-xs">Job: {partial.job_id}</p>
           <p className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-sm">{partial.content}</p>
+          <button
+            type="button"
+            onClick={() => handleSubmit(url.trim(), true)}
+            disabled={loading}
+            className="mt-3 rounded-lg bg-[#0060A9] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            Retry Full NLP
+          </button>
         </section>
       )}
       {result && (

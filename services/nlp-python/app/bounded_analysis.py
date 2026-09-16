@@ -1,10 +1,11 @@
 """Opt-in endpoint for interactive jobs only; legacy /nlp/analyze is unchanged."""
 import logging
 import threading
+import time
 from fastapi import APIRouter, HTTPException
 from . import config
 from .schemas import AnalyzeRequest
-from .stage_budget import bounded_call
+from .stage_budget import bounded_call, remaining_inference_budget
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -48,6 +49,7 @@ def analyze_bounded(payload: BoundedRequest):
         raise HTTPException(503, "Interactive NLP is busy; retry later")
     warnings = []
     translation = {"translated": False, "translated_text": "", "structured": {}, "provider": "none"}
+    started = time.monotonic()
     try:
         if not payload.rules_only:
             try:
@@ -59,16 +61,25 @@ def analyze_bounded(payload: BoundedRequest):
                 warnings.append(
                     f"Translation unavailable within {TRANSLATION_STAGE_TIMEOUT_SECONDS}s; original text used"
                 )
+        inference_budget = max(
+            INFERENCE_STAGE_TIMEOUT_SECONDS,
+            remaining_inference_budget(
+                time.monotonic() - started,
+                config.NLP_REQUEST_TIMEOUT_SECONDS,
+                config.NLP_STAGE_OVERHEAD_SECONDS,
+            ),
+        )
         try:
-            result = bounded_call(inference_stage,
+            result = bounded_call(
+                inference_stage,
                 (payload.model_dump(), translation, payload.rules_only),
-                INFERENCE_STAGE_TIMEOUT_SECONDS,
+                inference_budget,
             )
         except TimeoutError as exc:
-            logger.warning("Inference stage timed out: %s", exc)
+            logger.warning("Inference stage timed out after %ss: %s", inference_budget, exc)
             raise HTTPException(
                 408,
-                f"NLP stage exceeded budget ({INFERENCE_STAGE_TIMEOUT_SECONDS}s)",
+                f"NLP stage exceeded budget ({inference_budget}s)",
             ) from exc
         except Exception as exc:
             logger.warning("Inference stage failed: %s", exc)
