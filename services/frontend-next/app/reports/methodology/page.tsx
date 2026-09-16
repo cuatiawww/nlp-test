@@ -19,12 +19,14 @@ export default function ReportsMethodologyPage() {
         <li>
           <strong>Media monitoring bulletin</strong> (<code>mmwr_bulletin_v1</code>, primary; alias{' '}
           <code>media_monitoring_v1</code>): cover → publisher / editorial → linked contents → executive summary →
-          disease chapters (tables, Admin-0 maps, line/bar, small multiples) → source notes → print page numbers.
+          Situation at a Glance → Disease×Country matrix → ASEAN choropleth → per-selected-disease chapters
+          (highlights, cases/deaths tables, epidemic curves, maps) → source notes → print page numbers.
         </li>
         <li>
           <strong>Situation report</strong> (<code>situation_report_v1</code>, primary; legacy alias{' '}
-          <code>weekly_sitrep_v1</code>): glance KPIs → health-zone choropleth → AMS cases/deaths/CFR table → weekly
-          chart → country updates → epidemiology → response → recommendations → references.
+          <code>weekly_sitrep_v1</code>): glance KPIs (cases/deaths/CFR) → health-zone choropleth → AMS
+          cases/deaths/CFR table → weekly cases and deaths → per-disease chapters → country updates → response →
+          recommendations → references.
         </li>
         <li>
           <strong>Epidemic intelligence</strong> (<code>epidemic_intelligence_v1</code>): cover + regional map →

@@ -43,11 +43,14 @@ const TEMPLATES: &[TemplateSpec] = &[
         version: "1.0.0",
         narrative_keys: &["publisher", "editorial"],
         outline: &[
-            "Cover",
+            "Cover (uploadable)",
             "Publisher / editorial board",
-            "Table of contents (linked)",
+            "Table of contents (per selected disease)",
             "Executive summary",
-            "Disease chapters (tables, maps, line/bar, small multiples)",
+            "Situation at a Glance (cases / deaths / CFR)",
+            "Disease × Country matrix",
+            "ASEAN polygon choropleth",
+            "Per-disease chapters (highlights, tables, epi curves, maps)",
             "Source notes",
             "Page numbers (print)",
         ],
@@ -61,14 +64,15 @@ const TEMPLATES: &[TemplateSpec] = &[
         version: "1.0.0",
         narrative_keys: &["response", "recommendations", "country_updates"],
         outline: &[
-            "Glance KPIs",
-            "Health-zone choropleth (Admin-0)",
-            "AMS cases / deaths / CFR table",
-            "Weekly chart",
+            "Cover (uploadable)",
+            "Table of contents (per selected disease)",
+            "Situation at a Glance (cases / deaths / CFR)",
+            "ASEAN polygon choropleth",
+            "Disease × Country matrix",
+            "Weekly cases and deaths",
+            "Per-disease chapters (highlights, tables, epi curves, maps)",
             "Country updates",
-            "Epidemiology",
-            "Response",
-            "Recommendations",
+            "Epidemiology / response / recommendations",
             "References",
         ],
     },
@@ -274,7 +278,7 @@ fn apply_section_notes(sections: &mut Value, notes: &[Value]) {
     }
 }
 
-fn disease_code(name: &str) -> String {
+pub fn disease_code(name: &str) -> String {
     let mut out = String::new();
     for ch in name.trim().chars() {
         if ch.is_ascii_alphanumeric() {
@@ -320,12 +324,13 @@ fn default_title(template_id: &str, year: i32, week: i32) -> String {
 
 fn map_meta() -> Value {
     json!({
-        "indicator": "events",
+        "indicator": crate::report_package::default_map_indicator(),
         "classification": "quantile",
         "geojson_ref": "asean11_admin0_iso3",
         "missing_policy": "no_data_not_zero",
         "classes": 6,
         "palette": "ColorBrewer Blues (color-blind safe sequential)",
+        "chart_policy": "cases_deaths_cfr_burden_only",
     })
 }
 
@@ -338,6 +343,16 @@ async fn actor_username(state: &Arc<AppState>, headers: &HeaderMap) -> String {
 }
 
 fn issue_from_row(row: &tokio_postgres::Row) -> Value {
+    let assets = row
+        .try_get::<_, Value>("assets")
+        .unwrap_or_else(|_| crate::report_package::empty_assets());
+    let cover_from_assets = assets
+        .get("cover_url")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string());
+    let cover_url = row
+        .get::<_, Option<String>>("cover_url")
+        .or(cover_from_assets);
     json!({
         "id": row.get::<_, i32>("id"),
         "slug": row.get::<_, String>("slug"),
@@ -349,9 +364,12 @@ fn issue_from_row(row: &tokio_postgres::Row) -> Value {
         "status": row.get::<_, String>("status"),
         "template_id": row.get::<_, String>("template_id"),
         "template_version": row.get::<_, String>("template_version"),
-        "cover_url": row.get::<_, Option<String>>("cover_url"),
+        "cover_url": cover_url,
         "highlights": row.get::<_, Value>("highlights"),
         "sections": row.get::<_, Value>("sections"),
+        "selected_diseases": row.try_get::<_, Value>("selected_diseases").unwrap_or_else(|_| json!([])),
+        "section_order": row.try_get::<_, Value>("section_order").unwrap_or_else(|_| json!([])),
+        "assets": assets,
         "kpi_snapshot": row.get::<_, Option<Value>>("kpi_snapshot"),
         "published_snapshot": row.get::<_, Option<Value>>("published_snapshot"),
         "map": row.get::<_, Value>("map_meta"),
@@ -365,6 +383,7 @@ fn issue_from_row(row: &tokio_postgres::Row) -> Value {
         "created_at": row.get::<_, Option<String>>("created_at"),
         "updated_at": row.get::<_, Option<String>>("updated_at"),
         "llm_policy": "optional_draft_notes_only_human_review_required",
+        "chart_policy": "cases_deaths_cfr_burden_only",
     })
 }
 
@@ -373,6 +392,9 @@ const ISSUE_SELECT: &str = r#"
            template_id, template_version, cover_url, highlights, sections,
            kpi_snapshot, published_snapshot, map_meta, sources, limitations,
            COALESCE(narrative, '{}'::jsonb) AS narrative, visibility,
+           COALESCE(selected_diseases, '[]'::jsonb) AS selected_diseases,
+           COALESCE(section_order, '[]'::jsonb) AS section_order,
+           COALESCE(assets, '{}'::jsonb) AS assets,
            created_by, updated_by, published_at::text, created_at::text, updated_at::text
     FROM report_issues
 "#;
@@ -617,7 +639,7 @@ async fn query_weekly_by_disease(
     ranked.sort_by(|a, b| b.1.cmp(&a.1));
     Ok(ranked
         .into_iter()
-        .take(8)
+        .take(40)
         .map(|(name, _events, series)| {
             json!({
                 "disease_code": disease_code(&name),
@@ -693,15 +715,17 @@ async fn query_disease_ams_matrix(
         "{} SELECT COALESCE(NULLIF(TRIM(disease_classification), ''), 'UNKNOWN') AS disease,
             resolved_country AS country,
             COALESCE(SUM({cases}), 0)::bigint AS cases,
+            COALESCE(SUM({deaths}), 0)::bigint AS deaths,
             COUNT(*)::bigint AS events
          FROM valid
          WHERE {}
          GROUP BY 1, 2
-         ORDER BY events DESC
-         LIMIT 88",
+         ORDER BY cases DESC
+         LIMIT 400",
         dashboard_valid_cte(),
         crate::country_scope_sql(),
         cases = security::SANE_CASES_SQL,
+        deaths = security::SANE_DEATHS_SQL,
     );
     let rows = client
         .query(
@@ -724,14 +748,18 @@ async fn query_disease_ams_matrix(
                 return None;
             }
             let country: String = r.get("country");
+            let cases = r.get::<_, i64>("cases");
+            let deaths = r.get::<_, i64>("deaths");
             Some(json!({
                 "disease": disease,
                 "disease_code": disease_code(&disease),
                 "country": country,
                 "display_name": display_ams_name(&country),
                 "iso3": iso3_for_country(&country),
-                "cases": r.get::<_, i64>("cases"),
+                "cases": cases,
+                "deaths": deaths,
                 "events": r.get::<_, i64>("events"),
+                "cfr": cfr_json(cases, deaths),
                 "has_data": true,
             }))
         })
@@ -843,6 +871,7 @@ pub async fn build_kpi_package(
     epi_week: u32,
     epi_week_end: u32,
     scope: &str,
+    selected_diseases: &[Value],
 ) -> Result<Value, (StatusCode, Json<Value>)> {
     let week_end_n = epi_week_end.max(epi_week);
     let (range_start, _) = resolve_dashboard_dates(
@@ -908,7 +937,7 @@ pub async fn build_kpi_package(
         &sql_source,
     )
     .await?;
-    let by_ams = pad_ams_rows(ams_raw);
+    let mut by_ams = pad_ams_rows(ams_raw);
 
     let disease_raw = query_shared_by_disease(
         client,
@@ -941,19 +970,74 @@ pub async fn build_kpi_package(
                 "deaths": deaths,
                 "events": events,
                 "cfr": cfr_json(cases, deaths),
+                "has_data": true,
             })
         })
         .collect();
-    by_disease.sort_by(|a, b| b["events"].as_i64().cmp(&a["events"].as_i64()));
+    by_disease.sort_by(|a, b| b["cases"].as_i64().cmp(&a["cases"].as_i64()));
+    by_disease = crate::report_package::resolve_selected_against_rows(selected_diseases, &by_disease);
 
-    let series_weekly =
+    let ytd_disease_raw = query_shared_by_disease(
+        client,
+        ytd_start,
+        ytd_end,
+        &sql_country,
+        &sql_disease,
+        &sql_source,
+    )
+    .await?;
+    let ytd_by_disease: Vec<Value> = ytd_disease_raw
+        .into_iter()
+        .filter(|item| {
+            let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+            !name.is_empty() && !name.eq_ignore_ascii_case("UNKNOWN")
+        })
+        .map(|item| {
+            let name = item.get("name").and_then(Value::as_str).unwrap_or("UNKNOWN").to_string();
+            json!({
+                "disease_code": disease_code(&name),
+                "name": name,
+                "cases": item.get("cases").and_then(Value::as_i64).unwrap_or(0),
+                "deaths": item.get("deaths").and_then(Value::as_i64).unwrap_or(0),
+                "events": item.get("events").and_then(Value::as_i64).unwrap_or(0),
+                "has_data": true,
+            })
+        })
+        .collect();
+    let ytd_filtered = crate::report_package::filter_rows_by_diseases(
+        &ytd_by_disease,
+        &by_disease,
+        "name",
+        "disease_code",
+    );
+
+    let mut series_weekly =
         query_weekly_series(client, range_start, range_end, &sql_country, &sql_disease, &sql_source)
             .await?;
-    let series_by_disease =
+    let mut series_by_disease =
         query_weekly_by_disease(client, range_start, range_end, &sql_country, &sql_source).await?;
+    series_by_disease = crate::report_package::filter_rows_by_diseases(
+        &series_by_disease,
+        &by_disease,
+        "name",
+        "disease_code",
+    );
+    if !selected_diseases.is_empty() {
+        series_weekly = crate::report_package::sum_weekly_series(&series_by_disease);
+    }
     let ams_weekly = query_ams_weekly(client, range_start, range_end, &sql_country, &sql_source).await?;
-    let matrix =
+    let matrix_raw =
         query_disease_ams_matrix(client, range_start, range_end, &sql_country, &sql_source).await?;
+    let matrix_raw = crate::report_package::filter_rows_by_diseases(
+        &matrix_raw,
+        &by_disease,
+        "disease",
+        "disease_code",
+    );
+    let matrix = crate::report_package::matrix_with_deaths(matrix_raw, &by_disease);
+    if !selected_diseases.is_empty() {
+        by_ams = crate::report_package::aggregate_ams_from_matrix(&matrix);
+    }
     let sources = query_sources(
         client,
         range_start,
@@ -963,10 +1047,32 @@ pub async fn build_kpi_package(
         &sql_source,
     )
     .await?;
-    let alerts = query_alerts(client, range_start, range_end, &sql_country, &sql_source).await?;
+    let mut alerts = query_alerts(client, range_start, range_end, &sql_country, &sql_source).await?;
+    alerts = crate::report_package::filter_rows_by_diseases(&alerts, &by_disease, "disease", "disease");
 
-    let ytd = &ytd_snapshot.kpis;
-    let week = &week_snapshot.kpis;
+    let mut ytd_kpis = kpis_json_with_snapshot(&ytd_snapshot);
+    let mut week_kpis = kpis_json_with_snapshot(&week_snapshot);
+    let mut cfr_ytd = cfr_json(ytd_snapshot.kpis.cases, ytd_snapshot.kpis.deaths);
+    let mut cfr_week = cfr_json(week_snapshot.kpis.cases, week_snapshot.kpis.deaths);
+    if !selected_diseases.is_empty() {
+        let ytd_cases = crate::report_package::sum_i64(&ytd_filtered, "cases");
+        let ytd_deaths = crate::report_package::sum_i64(&ytd_filtered, "deaths");
+        if let Some(obj) = ytd_kpis.as_object_mut() {
+            obj.insert("cases".into(), json!(ytd_cases));
+            obj.insert("deaths".into(), json!(ytd_deaths));
+            obj.insert("selection".into(), json!("selected_diseases"));
+        }
+        cfr_ytd = crate::report_package::cfr_from_option(ytd_cases, ytd_deaths);
+        let last_week = series_weekly.last();
+        let week_cases = last_week.and_then(|p| p.get("cases").and_then(Value::as_i64));
+        let week_deaths = last_week.and_then(|p| p.get("deaths").and_then(Value::as_i64));
+        if let Some(obj) = week_kpis.as_object_mut() {
+            obj.insert("cases".into(), json!(week_cases));
+            obj.insert("deaths".into(), json!(week_deaths));
+            obj.insert("selection".into(), json!("selected_diseases"));
+        }
+        cfr_week = crate::report_package::cfr_from_option(week_cases, week_deaths);
+    }
 
     Ok(json!({
         "kpi_source": "materialized_kpi_snapshot",
@@ -982,11 +1088,16 @@ pub async fn build_kpi_package(
         "pulled_at": Utc::now().to_rfc3339(),
         "snapshot": kpi_snapshot_json(&ytd_snapshot),
         "week_snapshot": kpi_snapshot_json(&week_snapshot),
+        "selected_diseases": by_disease.iter().map(|d| json!({
+            "disease_code": d.get("disease_code"),
+            "name": d.get("name"),
+        })).collect::<Vec<_>>(),
+        "chart_policy": "cases_deaths_cfr_burden_only",
         "kpis": {
-            "ytd": kpis_json_with_snapshot(&ytd_snapshot),
-            "week": kpis_json_with_snapshot(&week_snapshot),
-            "cfr_ytd": cfr_json(ytd.cases, ytd.deaths),
-            "cfr_week": cfr_json(week.cases, week.deaths),
+            "ytd": ytd_kpis,
+            "week": week_kpis,
+            "cfr_ytd": cfr_ytd,
+            "cfr_week": cfr_week,
         },
         "by_ams": by_ams,
         "by_disease": by_disease,
@@ -1020,11 +1131,12 @@ fn merge_sections(package: &Value, previous: Option<&Value>) -> Value {
             }
         }
     }
-    let series = package
-        .get("series_weekly")
+    let fallback_ams = package.get("by_ams").cloned().unwrap_or(json!([]));
+    let matrix = package
+        .get("matrix")
+        .and_then(Value::as_array)
         .cloned()
-        .unwrap_or(json!([]));
-    let by_ams = package.get("by_ams").cloned().unwrap_or(json!([]));
+        .unwrap_or_default();
     let series_by_disease = package
         .get("series_by_disease")
         .and_then(Value::as_array)
@@ -1032,7 +1144,6 @@ fn merge_sections(package: &Value, previous: Option<&Value>) -> Value {
         .unwrap_or_default();
     let sections: Vec<Value> = diseases
         .into_iter()
-        .take(8)
         .map(|d| {
             let code = d
                 .get("disease_code")
@@ -1046,10 +1157,12 @@ fn merge_sections(package: &Value, previous: Option<&Value>) -> Value {
                     item.get("disease_code").and_then(Value::as_str) == Some(code.as_str())
                 })
                 .and_then(|item| item.get("series").cloned())
-                .unwrap_or_else(|| series.clone());
+                .unwrap_or_else(|| json!([]));
+            let by_ams = crate::report_package::ams_rows_for_disease(&matrix, &code);
             json!({
                 "disease_code": code,
                 "name": d.get("name"),
+                "has_data": d.get("has_data").cloned().unwrap_or(json!(true)),
                 "kpis": {
                     "cases": d.get("cases"),
                     "deaths": d.get("deaths"),
@@ -1057,7 +1170,7 @@ fn merge_sections(package: &Value, previous: Option<&Value>) -> Value {
                     "cfr": d.get("cfr"),
                 },
                 "series_weekly": disease_series,
-                "by_ams": by_ams,
+                "by_ams": if by_ams.is_empty() { fallback_ams.clone() } else { json!(by_ams) },
                 "analyst_note": note,
                 "analyst_note_status": if note.is_empty() { "empty" } else { "human" },
             })
@@ -1069,33 +1182,40 @@ fn merge_sections(package: &Value, previous: Option<&Value>) -> Value {
 fn data_highlights(package: &Value) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(week) = package.pointer("/kpis/week") {
-        let events = week.get("events").and_then(Value::as_i64).unwrap_or(0);
         let cases = week.get("cases").and_then(Value::as_i64).unwrap_or(0);
         let deaths = week.get("deaths").and_then(Value::as_i64).unwrap_or(0);
         let epi_week = package.get("epi_week").and_then(Value::as_i64).unwrap_or(0);
         let epi_year = package.get("epi_year").and_then(Value::as_i64).unwrap_or(0);
         out.push(format!(
-            "Epi week {epi_week}/{epi_year}: {events} ASEAN-11 health events, {cases} extracted cases, {deaths} extracted deaths (NLP snapshot, not an official national total)."
+            "Epi week {epi_week}/{epi_year}: {cases} extracted cases and {deaths} extracted deaths across the selected disease chapters (NLP snapshot, not an official national total)."
         ));
     }
     if let Some(diseases) = package.get("by_disease").and_then(Value::as_array) {
-        if let Some(top) = diseases.first() {
+        if let Some(top) = diseases.iter().find(|d| d.get("has_data").and_then(Value::as_bool) != Some(false)) {
             out.push(format!(
-                "Leading disease by event count: {} ({} events, {} cases).",
+                "Leading disease by extracted cases: {} ({} cases, {} deaths).",
                 top.get("name").and_then(Value::as_str).unwrap_or("n/a"),
-                top.get("events").and_then(Value::as_i64).unwrap_or(0),
-                top.get("cases").and_then(Value::as_i64).unwrap_or(0)
+                top.get("cases").and_then(Value::as_i64).unwrap_or(0),
+                top.get("deaths").and_then(Value::as_i64).unwrap_or(0)
             ));
+        }
+        let names: Vec<&str> = diseases
+            .iter()
+            .filter_map(|d| d.get("name").and_then(Value::as_str))
+            .take(6)
+            .collect();
+        if !names.is_empty() {
+            out.push(format!("Selected disease chapters: {}.", names.join(", ")));
         }
     }
     if let Some(ams) = package.get("by_ams").and_then(Value::as_array) {
         let reported = ams.iter().filter(|r| r.get("has_data").and_then(Value::as_bool).unwrap_or(false)).count();
         let missing = 11usize.saturating_sub(reported);
         out.push(format!(
-            "{reported} of 11 AMS have matching events in this window; {missing} render as No data / Not reported."
+            "{reported} of 11 AMS have matching case extracts in this window; {missing} render as No data / Not reported."
         ));
     }
-    out.truncate(5);
+    out.truncate(crate::report_package::MAX_HIGHLIGHTS);
     out
 }
 
@@ -1220,6 +1340,8 @@ pub struct CreateIssueRequest {
     pub template_id: Option<String>,
     pub scope: Option<String>,
     pub assist_narrative: Option<bool>,
+    pub selected_diseases: Option<Value>,
+    pub disease_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1233,6 +1355,9 @@ pub struct PatchIssueRequest {
     pub map_indicator: Option<String>,
     pub visibility: Option<String>,
     pub narrative: Option<Value>,
+    pub section_order: Option<Value>,
+    pub assets: Option<Value>,
+    pub selected_diseases: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1532,9 +1657,19 @@ pub async fn create_issue(
         Some(body.epi_year),
         Some(week_end as u32),
     );
-    let package =
-        build_kpi_package(&client, body.epi_year, body.epi_week as u32, week_end as u32, &scope)
-            .await?;
+    let selected = crate::report_package::normalize_selected_diseases(
+        body.selected_diseases.as_ref(),
+        body.disease_ids.as_deref().unwrap_or(&[]),
+    );
+    let package = build_kpi_package(
+        &client,
+        body.epi_year,
+        body.epi_week as u32,
+        week_end as u32,
+        &scope,
+        &selected,
+    )
+    .await?;
     let sections = merge_sections(&package, None);
     let sources = package.get("sources").cloned().unwrap_or(json!([]));
     let template_id = canonicalize_template_id(body.template_id.as_deref().unwrap_or(TEMPLATE_ID))
@@ -1593,13 +1728,24 @@ pub async fn create_issue(
         apply_section_notes(&mut sections, &draft.section_notes);
     }
     let version = spec.version.to_string();
+    let stored_diseases = package
+        .get("selected_diseases")
+        .cloned()
+        .unwrap_or_else(|| json!(selected));
+    let family = spec.family;
+    let section_order = json!(crate::report_package::default_section_order(
+        family,
+        stored_diseases.as_array().unwrap_or(&vec![]),
+    ));
+    let assets = crate::report_package::empty_assets();
     let row = client
         .query_one(
             "INSERT INTO report_issues (
                     slug, title, epi_year, epi_week, period_start, period_end, status,
                     template_id, template_version, highlights, sections, kpi_snapshot,
-                    map_meta, sources, limitations, narrative, created_by, updated_by
-                 ) VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)
+                    map_meta, sources, limitations, narrative, created_by, updated_by,
+                    selected_diseases, section_order, assets
+                 ) VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,$17,$18,$19)
                  RETURNING id",
             &[
                 &slug,
@@ -1618,6 +1764,9 @@ pub async fn create_issue(
                 &limitations,
                 &narrative,
                 &actor,
+                &stored_diseases,
+                &section_order,
+                &assets,
             ],
         )
         .await
@@ -1664,6 +1813,11 @@ pub async fn patch_issue(
     let mut map_meta_val: Value = row.get("map_meta");
     let mut visibility: String = row.get("visibility");
     let mut narrative: Value = row.try_get("narrative").unwrap_or_else(|_| json!({}));
+    let mut section_order: Value = row.try_get("section_order").unwrap_or_else(|_| json!([]));
+    let mut assets: Value = row
+        .try_get("assets")
+        .unwrap_or_else(|_| crate::report_package::empty_assets());
+    let mut selected_diseases: Value = row.try_get("selected_diseases").unwrap_or_else(|_| json!([]));
 
     if let Some(v) = body.title {
         title = v;
@@ -1680,10 +1834,10 @@ pub async fn patch_issue(
     }
     if let Some(v) = body.highlights {
         if let Some(arr) = v.as_array() {
-            if arr.len() > 5 {
+            if arr.len() > crate::report_package::MAX_HIGHLIGHTS {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "error": "Highlights are capped at 5 bullets"})),
+                    Json(json!({"success": false, "error": "Highlights are capped at 12 bullets"})),
                 ));
             }
         }
@@ -1693,10 +1847,10 @@ pub async fn patch_issue(
         if let Some(arr) = v.as_array() {
             for section in arr {
                 if let Some(note) = section.get("analyst_note").and_then(Value::as_str) {
-                    if note.chars().count() > 1200 {
+                    if note.chars().count() > 8000 {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            Json(json!({"success": false, "error": "Analyst notes are capped at 1200 characters"})),
+                            Json(json!({"success": false, "error": "Analyst notes are capped at 8000 characters"})),
                         ));
                     }
                 }
@@ -1704,17 +1858,14 @@ pub async fn patch_issue(
         }
         sections = v;
     }
-    if let Some(v) = body.cover_url {
-        cover_url = if v.trim().is_empty() { None } else { Some(v) };
-    }
     if let Some(v) = body.limitations {
         limitations = Some(v);
     }
     if let Some(indicator) = body.map_indicator {
-        if !matches!(indicator.as_str(), "events" | "cases" | "deaths") {
+        if !matches!(indicator.as_str(), "cases" | "deaths") {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(json!({"success": false, "error": "map indicator must be events, cases, or deaths"})),
+                Json(json!({"success": false, "error": "map indicator must be cases or deaths (bulletin charts are disease-burden only)"})),
             ));
         }
         if let Some(obj) = map_meta_val.as_object_mut() {
@@ -1734,10 +1885,10 @@ pub async fn patch_issue(
         if let Some(obj) = v.as_object() {
             for val in obj.values() {
                 if let Some(s) = val.as_str() {
-                    if s.chars().count() > 4000 {
+                    if s.chars().count() > 20000 {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            Json(json!({"success": false, "error": "Narrative fields are capped at 4000 characters"})),
+                            Json(json!({"success": false, "error": "Narrative fields are capped at 20000 characters"})),
                         ));
                     }
                 }
@@ -1745,13 +1896,42 @@ pub async fn patch_issue(
         }
         narrative = v;
     }
+    if let Some(v) = body.section_order {
+        if let Some(arr) = v.as_array() {
+            if arr.len() > 80 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"success": false, "error": "section_order is too long"})),
+                ));
+            }
+        }
+        section_order = v;
+    }
+    if let Some(v) = body.assets {
+        assets = crate::report_package::merge_assets(
+            &assets,
+            v.get("cover_url").and_then(Value::as_str),
+            v.get("pages"),
+        );
+        if let Some(url) = assets.get("cover_url").and_then(Value::as_str) {
+            cover_url = Some(url.to_string());
+        }
+    }
+    if let Some(v) = body.cover_url {
+        cover_url = if v.trim().is_empty() { None } else { Some(v.clone()) };
+        assets = crate::report_package::merge_assets(&assets, cover_url.as_deref(), None);
+    }
+    if let Some(v) = body.selected_diseases {
+        selected_diseases = json!(crate::report_package::normalize_selected_diseases(Some(&v), &[]));
+    }
 
     client
         .execute(
             "UPDATE report_issues SET
                 title = $2, slug = $3, highlights = $4, sections = $5, cover_url = $6,
                 limitations = $7, map_meta = $8, visibility = $9, narrative = $10,
-                updated_by = $11, updated_at = NOW()
+                section_order = $11, assets = $12, selected_diseases = $13,
+                updated_by = $14, updated_at = NOW()
              WHERE id = $1",
             &[
                 &id,
@@ -1764,6 +1944,9 @@ pub async fn patch_issue(
                 &map_meta_val,
                 &visibility,
                 &narrative,
+                &section_order,
+                &assets,
+                &selected_diseases,
                 &actor,
             ],
         )
@@ -1801,17 +1984,60 @@ pub async fn pull_kpi(
         .as_ref()
         .and_then(|p| p.get("epi_week_end").and_then(Value::as_u64))
         .unwrap_or(epi_week as u64) as u32;
-    let package =
-        build_kpi_package(&client, epi_year, epi_week as u32, week_end.max(epi_week as u32), &scope)
-            .await?;
+    let selected = row
+        .try_get::<_, Value>("selected_diseases")
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .or_else(|| {
+            previous_package
+                .as_ref()
+                .and_then(|p| p.get("selected_diseases").and_then(Value::as_array).cloned())
+        })
+        .unwrap_or_default();
+    let previous_order: Value = row.try_get("section_order").unwrap_or_else(|_| json!([]));
+    let package = build_kpi_package(
+        &client,
+        epi_year,
+        epi_week as u32,
+        week_end.max(epi_week as u32),
+        &scope,
+        &selected,
+    )
+    .await?;
     let sections = merge_sections(&package, Some(&previous_sections));
     let sources = package.get("sources").cloned().unwrap_or(json!([]));
+    let family = template_spec(&row.get::<_, String>("template_id"))
+        .map(|t| t.family)
+        .unwrap_or("sitrep");
+    let diseases = package
+        .get("by_disease")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let section_order = json!(crate::report_package::apply_section_order(
+        Some(&previous_order),
+        family,
+        &diseases,
+    ));
+    let stored_diseases = package
+        .get("selected_diseases")
+        .cloned()
+        .unwrap_or_else(|| json!(selected));
     client
         .execute(
             "UPDATE report_issues SET kpi_snapshot = $2, sections = $3, sources = $4,
+                    selected_diseases = $6, section_order = $7,
                     updated_by = $5, updated_at = NOW()
              WHERE id = $1",
-            &[&id, &package, &sections, &sources, &actor],
+            &[
+                &id,
+                &package,
+                &sections,
+                &sources,
+                &actor,
+                &stored_diseases,
+                &section_order,
+            ],
         )
         .await
         .map_err(internal_error)?;
@@ -2022,6 +2248,8 @@ pub async fn list_templates() -> Json<Value> {
                 "slug_prefix": t.slug_prefix,
                 "narrative_keys": t.narrative_keys,
                 "outline": t.outline,
+                "chart_policy": "cases_deaths_cfr_burden_only",
+                "map_indicators": ["cases", "deaths"],
                 "llm_role": "DeepSeek may draft highlights/notes from truncated KPI stats; never the bulletin body; human review required"
             })
         })
@@ -2029,7 +2257,116 @@ pub async fn list_templates() -> Json<Value> {
     Json(json!({"success": true, "data": data}))
 }
 
-pub async fn list_taxonomies() -> Json<Value> {
+#[derive(Debug, Deserialize)]
+pub struct AssetRequest {
+    pub kind: Option<String>,
+    pub data_url: Option<String>,
+    pub caption: Option<String>,
+    pub page_id: Option<String>,
+}
+
+fn valid_image_data_url(raw: &str) -> bool {
+    let t = raw.trim();
+    t.starts_with("data:image/") && t.contains("base64,") && t.len() <= 2_500_000
+}
+
+pub async fn upsert_asset(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i32>,
+    Json(body): Json<AssetRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let actor = actor_username(&state, &headers).await;
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = fetch_issue(&client, id).await?;
+    let status: String = row.get("status");
+    if matches!(status.as_str(), "published" | "superseded" | "archived") {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"success": false, "error": "Published issues are frozen"})),
+        ));
+    }
+    let data_url = body.data_url.unwrap_or_default();
+    if !valid_image_data_url(&data_url) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "Asset must be a data:image/*;base64 URL under 2 MB"})),
+        ));
+    }
+    let kind = body.kind.unwrap_or_else(|| "cover".into()).to_ascii_lowercase();
+    let mut assets: Value = row
+        .try_get("assets")
+        .unwrap_or_else(|_| crate::report_package::empty_assets());
+    let mut cover_url: Option<String> = row.get("cover_url");
+    if kind == "cover" {
+        assets = crate::report_package::merge_assets(&assets, Some(&data_url), None);
+        cover_url = Some(data_url);
+    } else if kind == "page" {
+        let mut pages = assets
+            .get("pages")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if pages.len() >= 12 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"success": false, "error": "At most 12 extra pages"})),
+            ));
+        }
+        let page_id = body
+            .page_id
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| format!("page-{}", pages.len() + 1));
+        let caption = body.caption.unwrap_or_default();
+        pages.push(json!({
+            "id": page_id,
+            "url": data_url,
+            "caption": caption,
+        }));
+        assets = crate::report_package::merge_assets(&assets, None, Some(&json!(pages)));
+        let mut order: Value = row.try_get("section_order").unwrap_or_else(|_| json!([]));
+        if let Some(arr) = order.as_array_mut() {
+            let extra_id = format!("extra:{page_id}");
+            if !arr.iter().any(|item| item.get("id").and_then(Value::as_str) == Some(extra_id.as_str())) {
+                let label = if caption.trim().is_empty() {
+                    "Inserted page".to_string()
+                } else {
+                    caption.clone()
+                };
+                arr.push(json!({ "id": extra_id, "label": label }));
+            }
+        }
+        client
+            .execute(
+                "UPDATE report_issues SET assets = $2, cover_url = $3, section_order = $4,
+                        updated_by = $5, updated_at = NOW() WHERE id = $1",
+                &[&id, &assets, &cover_url, &order, &actor],
+            )
+            .await
+            .map_err(internal_error)?;
+        let updated = fetch_issue(&client, id).await?;
+        return Ok(Json(json!({"success": true, "data": issue_from_row(&updated)})));
+    } else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "kind must be cover or page"})),
+        ));
+    }
+    client
+        .execute(
+            "UPDATE report_issues SET assets = $2, cover_url = $3, updated_by = $4, updated_at = NOW()
+             WHERE id = $1",
+            &[&id, &assets, &cover_url, &actor],
+        )
+        .await
+        .map_err(internal_error)?;
+    let updated = fetch_issue(&client, id).await?;
+    Ok(Json(json!({"success": true, "data": issue_from_row(&updated)})))
+}
+
+pub async fn list_taxonomies(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let ams: Vec<Value> = ASEAN11_MEMBERS
         .iter()
         .map(|name| {
@@ -2041,15 +2378,60 @@ pub async fn list_taxonomies() -> Json<Value> {
             })
         })
         .collect();
-    Json(json!({
+    let client = state.db.get().await.map_err(internal_error)?;
+    let mut diseases: Vec<Value> = Vec::new();
+    if let Ok(rows) = client
+        .query(
+            "SELECT canonical_name,
+                    COALESCE(NULLIF(BTRIM(english_name), ''), canonical_name) AS label
+             FROM disease_concepts
+             WHERE is_active = TRUE AND NULLIF(BTRIM(canonical_name), '') IS NOT NULL
+             ORDER BY canonical_name
+             LIMIT 250",
+            &[],
+        )
+        .await
+    {
+        for r in rows {
+            let name: String = r.get("label");
+            diseases.push(json!({
+                "name": name,
+                "disease_code": disease_code(&r.get::<_, String>("canonical_name")),
+            }));
+        }
+    }
+    if diseases.is_empty() {
+        if let Ok(rows) = client
+            .query(
+                "SELECT label FROM nlp_labels
+                 WHERE category = 'disease' AND is_active = TRUE
+                   AND label NOT ILIKE 'NEGATIVE%'
+                 ORDER BY priority NULLS LAST, label
+                 LIMIT 250",
+                &[],
+            )
+            .await
+        {
+            for r in rows {
+                let name: String = r.get("label");
+                diseases.push(json!({
+                    "name": name,
+                    "disease_code": disease_code(&name),
+                }));
+            }
+        }
+    }
+    Ok(Json(json!({
         "success": true,
         "data": {
             "ams": ams,
-            "map_indicators": ["events", "cases", "deaths"],
+            "diseases": diseases,
+            "map_indicators": ["cases", "deaths"],
+            "chart_policy": "cases_deaths_cfr_burden_only",
             "statuses": ["draft","in_review","changes_requested","approved","published","superseded","archived"],
             "missing_policy": "no_data_not_zero"
         }
-    }))
+    })))
 }
 
 #[cfg(test)]
@@ -2114,5 +2496,18 @@ mod tests {
         assert_eq!(slug_for("mmwr_bulletin_v1", 2026, 7, None), "mmwr-2026-w07");
         assert_eq!(slug_for("situation_report_v1", 2026, 7, Some(2)), "sitrep-2026-w07-2");
         assert!(canonicalize_template_id("not-a-template").is_none());
+    }
+
+    #[test]
+    fn map_and_outlines_are_burden_not_crawler() {
+        let map = map_meta();
+        assert_eq!(map["indicator"], json!("cases"));
+        assert_eq!(map["chart_policy"], json!("cases_deaths_cfr_burden_only"));
+        let mmwr = template_spec("mmwr_bulletin_v1").unwrap();
+        assert!(mmwr.outline.iter().any(|s| s.contains("Per-disease")));
+        assert!(mmwr.outline.iter().any(|s| s.contains("matrix")));
+        assert!(!mmwr.outline.iter().any(|s| s.to_ascii_lowercase().contains("scrape")));
+        let sitrep = template_spec("situation_report_v1").unwrap();
+        assert!(sitrep.outline.iter().any(|s| s.contains("Glance")));
     }
 }

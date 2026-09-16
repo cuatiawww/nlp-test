@@ -14,6 +14,14 @@ import {
   heatmapCell,
   slugForEdition,
 } from '../lib/publication-templates.mjs'
+import {
+  buildSectionOrder,
+  buildToc,
+  diseaseMatches,
+  isBurdenIndicator,
+  normalizeSelectedDiseases,
+  CHART_POLICY,
+} from '../lib/report-outline.mjs'
 
 test('workflow does not allow draft to skip review', () => {
   assert.equal(allowedTransition('draft', 'in_review'), true)
@@ -72,7 +80,7 @@ test('heatmap missing cells are not zero', () => {
 
   const weeks = [{ year: 2026, week: 6, label: 'W06' }, { year: 2026, week: 7, label: 'W07' }]
   const grid = buildAmsWeekHeatmap(
-    [{ iso3: 'IDN', year: 2026, week: 7, events: 4, has_data: true }],
+    [{ iso3: 'IDN', year: 2026, week: 7, cases: 4, events: 4, has_data: true }],
     weeks,
   )
   assert.equal(grid.length, 11)
@@ -84,3 +92,44 @@ test('heatmap missing cells are not zero', () => {
   const sgp = grid.find((row) => row.iso3 === 'SGP')
   assert.equal(sgp.cells.every((cell) => cell.isMissing), true)
 })
+
+test('heatmap never plots scrape/event volume as cases', () => {
+  const weeks = [{ year: 2026, week: 7, label: 'W07' }]
+  const grid = buildAmsWeekHeatmap(
+    [{ iso3: 'IDN', year: 2026, week: 7, events: 99, has_data: true }],
+    weeks,
+  )
+  const idn = grid.find((row) => row.iso3 === 'IDN')
+  assert.equal(idn.cells[0].isMissing, true)
+  assert.equal(idn.cells[0].value, null)
+})
+
+test('multi-disease TOC nests Phase 1 chapter depth', () => {
+  const selected = normalizeSelectedDiseases(['COVID-19', { name: 'Mpox', disease_code: 'mpox' }])
+  assert.equal(selected.length, 2)
+  const toc = buildToc('mmwr_bulletin_v1', selected)
+  const covid = toc.find((item) => item.label === 'COVID-19')
+  const mpox = toc.find((item) => item.label === 'Mpox')
+  assert.ok(covid && covid.children.length >= 4)
+  assert.ok(mpox)
+  assert.ok(covid.children.some((c) => /Epidemic Curve/i.test(c.label)))
+  assert.ok(covid.children.every((c) => !/scrape|crawler/i.test(c.label)))
+  const order = buildSectionOrder('situation_report_v1', selected)
+  assert.ok(order.some((s) => s.id === 'chapter:covid-19'))
+  assert.ok(order.some((s) => s.id === 'chapter:mpox'))
+  assert.ok(order.some((s) => s.id === 'matrix'))
+  assert.ok(order.some((s) => s.id === 'glance'))
+})
+
+test('bulletin indicators are burden metrics only', () => {
+  assert.equal(isBurdenIndicator('cases'), true)
+  assert.equal(isBurdenIndicator('deaths'), true)
+  assert.equal(isBurdenIndicator('cfr'), true)
+  assert.equal(isBurdenIndicator('events'), false)
+  assert.equal(isBurdenIndicator('scrape_volume'), false)
+  assert.equal(CHART_POLICY, 'cases_deaths_cfr_burden_only')
+  assert.equal(diseaseMatches(normalizeSelectedDiseases(['COVID-19']), 'COVID-19 coronavirus', 'covid-19'), true)
+  assert.equal(diseaseMatches(normalizeSelectedDiseases(['Mpox']), 'Monkeypox', 'monkeypox'), true)
+  assert.equal(diseaseMatches(normalizeSelectedDiseases(['Mpox']), 'Dengue', 'dengue'), false)
+})
+

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Download, Printer } from 'lucide-react'
 import AseanChoropleth from '@/components/reports/AseanChoropleth'
 import PublicationCover from '@/components/reports/PublicationCover'
+import BulletinSections from '@/components/reports/BulletinSections'
 import {
   AmsBarChart,
   AmsWeekHeatmap,
@@ -50,7 +51,6 @@ function AmsTable({ rows }: { rows: AmsKpiRow[] }) {
           <tr>
             <th className="px-3 py-2">AMS</th>
             <th className="px-3 py-2">ISO3</th>
-            <th className="px-3 py-2 text-right">Events</th>
             <th className="px-3 py-2 text-right">Cases</th>
             <th className="px-3 py-2 text-right">Deaths</th>
             <th className="px-3 py-2 text-right">CFR %</th>
@@ -63,13 +63,12 @@ function AmsTable({ rows }: { rows: AmsKpiRow[] }) {
               <td className="px-3 py-2 font-mono text-slate-500">{row.iso3}</td>
               {row.has_data ? (
                 <>
-                  <td className="px-3 py-2 text-right">{fmt(row.events)}</td>
                   <td className="px-3 py-2 text-right">{fmt(row.cases)}</td>
                   <td className="px-3 py-2 text-right">{fmt(row.deaths)}</td>
                   <td className="px-3 py-2 text-right">{row.cfr == null ? '—' : row.cfr}</td>
                 </>
               ) : (
-                <td className="px-3 py-2 text-slate-500" colSpan={4}>
+                <td className="px-3 py-2 text-slate-500" colSpan={3}>
                   No data / Not reported
                 </td>
               )}
@@ -111,18 +110,22 @@ function GlanceKpis({ issue, snap }: { issue: ReportIssue; snap: SitrepKpiPackag
     <section id="glance" className="sitrep-print-page">
       <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Glance KPIs</h2>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="YTD events" value={fmt(Number(ytd.events))} hint="ASEAN-11 snapshot" />
-        <KpiCard label="YTD cases" value={fmt(Number(ytd.cases))} hint="Extracted counts" />
-        <KpiCard label="YTD deaths" value={fmt(Number(ytd.deaths))} />
+        <KpiCard label="YTD cases" value={fmt(ytd.cases == null ? null : Number(ytd.cases))} hint="Extracted counts" />
+        <KpiCard label="YTD deaths" value={fmt(ytd.deaths == null ? null : Number(ytd.deaths))} />
         <KpiCard
           label="YTD CFR"
           value={snap?.kpis?.cfr_ytd == null ? '—' : `${snap.kpis.cfr_ytd}%`}
           hint="Blank if no case denominator"
         />
-        <KpiCard label={`Week ${issue.epi_week} events`} value={fmt(Number(week.events))} />
-        <KpiCard label={`Week ${issue.epi_week} cases`} value={fmt(Number(week.cases))} />
-        <KpiCard label={`Week ${issue.epi_week} deaths`} value={fmt(Number(week.deaths))} />
+        <KpiCard
+          label="AMS with data"
+          value={`${(snap?.by_ams || []).filter((r) => r.has_data).length} / 11`}
+          hint="Missing is not zero"
+        />
+        <KpiCard label={`Week ${issue.epi_week} cases`} value={fmt(week.cases == null ? null : Number(week.cases))} />
+        <KpiCard label={`Week ${issue.epi_week} deaths`} value={fmt(week.deaths == null ? null : Number(week.deaths))} />
         <KpiCard label="Week CFR" value={snap?.kpis?.cfr_week == null ? '—' : `${snap.kpis.cfr_week}%`} />
+        <KpiCard label="Disease chapters" value={String((issue.sections || []).length)} />
       </div>
       <p className="mt-2 text-[11px] text-slate-500">
         Source of truth: materialized KPI snapshot {String(ytd.snapshot_id || snap?.snapshot?.['snapshot_id'] || '—')}.
@@ -154,7 +157,7 @@ function DiseaseChapters({ issue, snap }: { issue: ReportIssue; snap: SitrepKpiP
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-base font-black text-slate-900">{section.name}</h3>
                 <p className="text-xs text-slate-500">
-                  Events {fmt(section.kpis?.events)} · Cases {fmt(section.kpis?.cases)} · Deaths {fmt(section.kpis?.deaths)}
+                  Cases {fmt(section.kpis?.cases)} · Deaths {fmt(section.kpis?.deaths)}
                   {section.kpis?.cfr == null ? '' : ` · CFR ${section.kpis.cfr}%`}
                 </p>
               </div>
@@ -167,8 +170,8 @@ function DiseaseChapters({ issue, snap }: { issue: ReportIssue; snap: SitrepKpiP
                 <WeeklyLineChart series={series} title={`${section.name} weekly`} />
                 <AmsBarChart
                   rows={section.by_ams || snap?.by_ams || []}
-                  indicator="events"
-                  title={`${section.name} · AMS events`}
+                  indicator="cases"
+                  title={`${section.name} · AMS cases`}
                 />
               </div>
             </div>
@@ -192,7 +195,8 @@ function AlertsTable({ snap }: { snap: SitrepKpiPackage | null }) {
                 <th className="px-3 py-2">Disease</th>
                 <th className="px-3 py-2">AMS</th>
                 <th className="px-3 py-2">Location</th>
-                <th className="px-3 py-2 text-right">Events</th>
+                <th className="px-3 py-2 text-right">Cases</th>
+                <th className="px-3 py-2 text-right">Deaths</th>
               </tr>
             </thead>
             <tbody>
@@ -206,7 +210,8 @@ function AlertsTable({ snap }: { snap: SitrepKpiPackage | null }) {
                   <td className="px-3 py-2">{alert.disease}</td>
                   <td className="px-3 py-2">{alert.display_name || alert.country}</td>
                   <td className="px-3 py-2">{alert.location_name}</td>
-                  <td className="px-3 py-2 text-right">{fmt(alert.events)}</td>
+                  <td className="px-3 py-2 text-right">{fmt(alert.cases)}</td>
+                  <td className="px-3 py-2 text-right">{fmt(alert.deaths)}</td>
                 </tr>
               ))}
             </tbody>
@@ -262,14 +267,13 @@ function TwoWeekSummary({ snap }: { snap: SitrepKpiPackage | null }) {
   const weeks = (snap?.series_weekly || []).slice(-2)
   return (
     <section id="two-week" className="sitrep-print-page">
-      <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Two-week event summary</h2>
+      <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Two-week cases and deaths</h2>
       {weeks.length ? (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="min-w-full text-left text-xs">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-3 py-2">Week</th>
-                <th className="px-3 py-2 text-right">Events</th>
                 <th className="px-3 py-2 text-right">Cases</th>
                 <th className="px-3 py-2 text-right">Deaths</th>
               </tr>
@@ -278,7 +282,6 @@ function TwoWeekSummary({ snap }: { snap: SitrepKpiPackage | null }) {
               {weeks.map((row) => (
                 <tr key={`${row.year}-${row.week}`} className="border-t border-slate-100">
                   <td className="px-3 py-2 font-semibold">EW {String(row.week).padStart(2, '0')} / {row.year}</td>
-                  <td className="px-3 py-2 text-right">{fmt(row.events)}</td>
                   <td className="px-3 py-2 text-right">{fmt(row.cases)}</td>
                   <td className="px-3 py-2 text-right">{fmt(row.deaths)}</td>
                 </tr>
@@ -426,7 +429,7 @@ function SitrepBody({
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-base font-black text-slate-900">{section.name}</h3>
               <p className="text-xs text-slate-500">
-                Events {fmt(section.kpis?.events)} · Cases {fmt(section.kpis?.cases)} · Deaths {fmt(section.kpis?.deaths)}
+                Cases {fmt(section.kpis?.cases)} · Deaths {fmt(section.kpis?.deaths)}
                 {section.kpis?.cfr == null ? '' : ` · CFR ${section.kpis.cfr}%`}
               </p>
             </div>
@@ -544,7 +547,8 @@ export default function SitrepView({
 }) {
   const snap = snapshotOf(issue)
   const tpl = templateById(issue.template_id)
-  const indicator = (issue.map?.indicator || snap?.map?.indicator || 'events') as 'events' | 'cases' | 'deaths'
+  const rawIndicator = issue.map?.indicator || snap?.map?.indicator || 'cases'
+  const indicator = (rawIndicator === 'deaths' ? 'deaths' : 'cases') as 'cases' | 'deaths'
   const epi = formatEpiBadge(issue.epi_year, issue.epi_week)
   const highlights = (issue.highlights || []).filter((h) => h && h.trim())
   const cutoff = snap?.pulled_at || issue.published_at || issue.updated_at
@@ -591,14 +595,14 @@ export default function SitrepView({
         </div>
       </header>
 
-      {tpl.family === 'mmwr' ? (
-        <MmwrBody issue={issue} snap={snap} indicator={indicator} epi={epi} highlights={highlights} />
+      {tpl.family === 'mmwr' || tpl.family === 'sitrep' ? (
+        <BulletinSections issue={issue} snap={snap} epi={epi} highlights={highlights} />
       ) : tpl.family === 'ei' ? (
         <EiBody issue={issue} snap={snap} indicator={indicator} epi={epi} highlights={highlights} />
       ) : tpl.family === 'focus' ? (
         <FocusBody issue={issue} snap={snap} />
       ) : (
-        <SitrepBody issue={issue} snap={snap} indicator={indicator} epi={epi} highlights={highlights} />
+        <BulletinSections issue={issue} snap={snap} epi={epi} highlights={highlights} />
       )}
     </article>
   )

@@ -22,10 +22,11 @@ export type AmsKpiRow = {
 export type DiseaseKpiRow = {
   disease_code: string
   name: string
-  cases: number
-  deaths: number
-  events: number
+  cases: number | null
+  deaths: number | null
+  events: number | null
   cfr: number | null
+  has_data?: boolean
 }
 
 export type WeeklyPoint = {
@@ -86,8 +87,23 @@ export type SitrepKpiPackage = {
     location_name: string
     events: number
     cases: number
+    deaths?: number | null
     status?: string
   }[]
+  matrix?: {
+    disease: string
+    disease_code: string
+    country: string
+    display_name: string
+    iso3: string | null
+    cases: number | null
+    deaths: number | null
+    events?: number | null
+    cfr: number | null
+    has_data: boolean
+  }[]
+  selected_diseases?: DiseaseRef[]
+  chart_policy?: string
   map?: {
     indicator?: string
     classification?: string
@@ -96,10 +112,32 @@ export type SitrepKpiPackage = {
   missing_policy?: string
 }
 
+export type DiseaseRef = {
+  disease_code: string
+  name: string
+}
+
+export type ReportAssetPage = {
+  id: string
+  url: string
+  caption?: string
+}
+
+export type ReportAssets = {
+  cover_url?: string | null
+  pages?: ReportAssetPage[]
+}
+
+export type ReportSectionOrderItem = {
+  id: string
+  label: string
+}
+
 export type ReportSection = {
   disease_code: string
   name: string
-  kpis: { cases?: number; deaths?: number; events?: number; cfr?: number | null }
+  has_data?: boolean
+  kpis: { cases?: number | null; deaths?: number | null; events?: number | null; cfr?: number | null }
   series_weekly?: WeeklyPoint[]
   by_ams?: AmsKpiRow[]
   analyst_note: string
@@ -120,9 +158,13 @@ export type ReportIssue = {
   cover_url?: string | null
   highlights: string[]
   sections: ReportSection[]
+  selected_diseases?: DiseaseRef[]
+  section_order?: ReportSectionOrderItem[]
+  assets?: ReportAssets
   narrative?: Record<string, unknown>
   kpi_snapshot?: SitrepKpiPackage | null
   published_snapshot?: SitrepKpiPackage | null
+  chart_policy?: string
   map?: {
     indicator?: string
     classification?: string

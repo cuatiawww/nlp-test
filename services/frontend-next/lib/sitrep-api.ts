@@ -45,6 +45,8 @@ export function createReportIssue(body: {
   template_id?: string
   scope?: string
   assist_narrative?: boolean
+  selected_diseases?: Array<string | { name?: string; disease_code?: string }>
+  disease_ids?: string[]
 }) {
   return postTo<ReportIssue>("/api/v1/report-issues", body)
 }
@@ -96,9 +98,19 @@ export function fetchReportTemplates() {
 export function fetchReportTaxonomies() {
   return fetchFrom<{
     ams: { country: string; display_name: string; iso3: string }[]
+    diseases?: { name: string; disease_code: string }[]
     statuses: string[]
+    map_indicators?: string[]
+    chart_policy?: string
     missing_policy: string
   }>("/api/v1/report-issues/taxonomies")
+}
+
+export function uploadReportAsset(
+  id: number,
+  body: { kind: "cover" | "page"; data_url: string; caption?: string; page_id?: string },
+) {
+  return postTo<ReportIssue>(`/api/v1/report-issues/${id}/assets`, body)
 }
 
 export function formatEpiBadge(year: number, week: number) {
