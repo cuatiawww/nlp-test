@@ -1,6 +1,6 @@
 'use client'
 
-import { Layers, MapPin, Settings, Wind, X, Bug, Plane, Flame, Building2, Newspaper, Users, Globe, Sun, CloudRain, CloudSun, Droplets } from "lucide-react";
+import { Layers, MapPin, Settings, Wind, X, Plane, Flame, Building2, Newspaper, Users, Globe, Sun, CloudRain, CloudSun, Droplets } from "lucide-react";
 import type { NasaGibsLayers, ExternalIntelLayers, MapLayerStatus } from "@/types";
 import { useEffect, useState } from "react";
 import AseanMap, { type HazardEvent } from "./AseanMap";
@@ -378,14 +378,6 @@ export default function SpatialOutbreakMap({
 
               {/* ── Surveillance & Vector Intelligence ── */}
               <Group title="Surveillance & Vector Intelligence">
-                <Row
-                  icon={<Bug className="h-4 w-4 text-amber-600" />}
-                  title="Aedes Mosquito Sightings"
-                  sub="iNaturalist community vector observations"
-                  value={Boolean(intel.vectors)}
-                  set={(v) => setIntel((p) => ({ ...p, vectors: v }))}
-                  status={layerStatus.vectors}
-                />
                 <Row
                   icon={<Plane className="h-4 w-4 text-cyan-600" />}
                   title="Live Air Traffic"
