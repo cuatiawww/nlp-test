@@ -1,6 +1,7 @@
 //! Authenticated crawl-history ledger: stored manual-job matrix rows plus
 //! continuous / analyze-url outcomes that did not come from those jobs.
-//! Empty tables return empty pages — never dummy rows.
+//! Default quality is health surveillance (known disease, not UNKNOWN/non-health).
+//! List queries paginate in SQL (inner LIMIT per branch) — never scan the full union.
 
 use axum::{
     extract::{Path, Query, State},
@@ -18,8 +19,13 @@ use crate::{
 };
 
 const EXPORT_CAP: i64 = 5_000;
-const SNIPPET_CHARS: i32 = 800;
 const TITLE_CHARS: i32 = 220;
+const EVIDENCE_LIST_CHARS: i32 = 180;
+const EVIDENCE_DETAIL_CHARS: i32 = 2_000;
+const SNIPPET_CHARS: i32 = 800;
+const SURVEILLANCE_MIN_CONFIDENCE: &str = "0.15";
+const ASEAN11_IN: &str = "'Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Timor-Leste','Vietnam'";
+const DEFAULT_PAGE_SIZE: i64 = 25;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct CrawlHistoryQuery {
@@ -36,6 +42,7 @@ pub struct CrawlHistoryQuery {
     pub has_geo: Option<bool>,
     pub job_id: Option<String>,
     pub format: Option<String>,
+    pub quality: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -56,6 +63,14 @@ enum Channel {
     Manual,
     Continuous,
     AnalyzeUrl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Quality {
+    Surveillance,
+    Review,
+    Noise,
+    All,
 }
 
 fn opt_text(value: &Option<String>) -> Option<String> {
@@ -89,6 +104,94 @@ fn channel_sql(channel: Channel) -> Option<&'static str> {
     }
 }
 
+fn parse_quality(raw: &Option<String>) -> Quality {
+    match opt_text(raw)
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "all" | "events" | "raw" => Quality::All,
+        "review" | "needs_review" | "unknown" => Quality::Review,
+        "noise" | "non_health" | "junk" => Quality::Noise,
+        _ => Quality::Surveillance,
+    }
+}
+
+fn quality_sql(quality: Quality) -> Option<&'static str> {
+    match quality {
+        Quality::All => None,
+        Quality::Surveillance => Some("surveillance"),
+        Quality::Review => Some("review"),
+        Quality::Noise => Some("noise"),
+    }
+}
+
+fn known_disease_sql(expr: &str) -> String {
+    format!(
+        "({expr} IS NOT NULL AND BTRIM({expr}) <> '' AND UPPER(BTRIM({expr})) <> 'UNKNOWN' AND UPPER(BTRIM({expr})) NOT LIKE 'NEGATIVE%')"
+    )
+}
+
+fn matrix_quality_sql() -> String {
+    r#"CASE
+                WHEN UPPER(BTRIM(COALESCE(m.disease_name, ''))) LIKE 'NEGATIVE%' THEN 'noise'
+                WHEN m.disease_name IS NULL OR UPPER(BTRIM(m.disease_name)) IN ('UNKNOWN', '') THEN 'review'
+                ELSE 'surveillance'
+            END"#
+        .into()
+}
+
+fn pipeline_quality_sql() -> String {
+    format!(
+        r#"CASE
+                WHEN COALESCE(de.is_health_related, FALSE) IS NOT TRUE
+                     OR UPPER(BTRIM(COALESCE(de.disease_classification, ''))) LIKE 'NEGATIVE%'
+                    THEN 'noise'
+                WHEN de.disease_classification IS NULL
+                     OR UPPER(BTRIM(de.disease_classification)) IN ('UNKNOWN', '')
+                     OR COALESCE(de.confidence, 0) < {min_conf}
+                    THEN 'review'
+                ELSE 'surveillance'
+            END"#,
+        min_conf = SURVEILLANCE_MIN_CONFIDENCE
+    )
+}
+
+fn matrix_quality_where(quality: Quality) -> String {
+    match quality {
+        Quality::All => "TRUE".into(),
+        Quality::Surveillance => format!("{} ", known_disease_sql("m.disease_name")),
+        Quality::Review => format!(
+            "UPPER(BTRIM(COALESCE(m.disease_name, ''))) NOT LIKE 'NEGATIVE%' AND NOT {}",
+            known_disease_sql("m.disease_name")
+        ),
+        Quality::Noise => "UPPER(BTRIM(COALESCE(m.disease_name, ''))) LIKE 'NEGATIVE%'".into(),
+    }
+}
+
+fn event_quality_where(quality: Quality) -> String {
+    let known = known_disease_sql("de.disease_classification");
+    match quality {
+        Quality::All => "TRUE".into(),
+        Quality::Surveillance => format!(
+            "de.is_health_related = TRUE AND {known} AND COALESCE(de.confidence, 0) >= {min}",
+            known = known,
+            min = SURVEILLANCE_MIN_CONFIDENCE
+        ),
+        Quality::Review => format!(
+            "de.is_health_related = TRUE
+             AND UPPER(BTRIM(COALESCE(de.disease_classification, ''))) NOT LIKE 'NEGATIVE%'
+             AND (NOT {known} OR COALESCE(de.confidence, 0) < {min})",
+            known = known,
+            min = SURVEILLANCE_MIN_CONFIDENCE
+        ),
+        Quality::Noise => "COALESCE(de.is_health_related, FALSE) IS NOT TRUE
+             OR UPPER(BTRIM(COALESCE(de.disease_classification, ''))) LIKE 'NEGATIVE%'"
+            .into(),
+    }
+}
+
 fn parse_status(raw: &Option<String>) -> Option<String> {
     match opt_text(raw).unwrap_or_default().to_ascii_lowercase().as_str() {
         "processed" | "needs_review" | "failed" => opt_text(raw).map(|value| value.to_ascii_lowercase()),
@@ -117,6 +220,12 @@ fn parse_row_id(raw: &str) -> Result<Uuid, (StatusCode, Json<Value>)> {
     })
 }
 
+fn history_pagination(page: Option<i64>, per_page: Option<i64>) -> (i64, i64, i64) {
+    let p = page.unwrap_or(1).max(1);
+    let pp = per_page.unwrap_or(DEFAULT_PAGE_SIZE).max(1).min(100);
+    (p, pp, (p - 1) * pp)
+}
+
 fn export_limit(per_page: Option<i64>) -> i64 {
     per_page.unwrap_or(2_000).max(1).min(EXPORT_CAP)
 }
@@ -126,9 +235,9 @@ fn csv_cell(value: &Value) -> String {
         Value::Null => String::new(),
         Value::Bool(flag) => {
             if *flag {
-                "true".into()
+                "True".into()
             } else {
-                "false".into()
+                "False".into()
             }
         }
         Value::Number(number) => number.to_string(),
@@ -155,53 +264,82 @@ fn json_text(value: &Value) -> String {
     }
 }
 
-fn export_headers() -> [&'static str; 18] {
+fn display_or_value(row: &Value, display_key: &str, fallback_key: &str) -> Value {
+    match row.get(display_key).and_then(|value| value.as_str()).filter(|text| !text.is_empty()) {
+        Some(text) => json!(text),
+        None => row.get(fallback_key).cloned().unwrap_or(Value::Null),
+    }
+}
+
+fn export_headers() -> [&'static str; 29] {
     [
-        "title",
-        "url",
-        "published_at",
-        "country",
-        "province",
-        "city",
-        "disease",
-        "cases",
-        "deaths",
-        "confidence",
-        "source",
-        "crawl_channel",
-        "job_id",
-        "mapped",
-        "needs_review",
-        "has_geo",
-        "raw_report_id",
-        "status",
+        "No",
+        "Country",
+        "Language",
+        "Source URL",
+        "Article Title",
+        "Disease Name",
+        "Crawling Date",
+        "Region",
+        "Province / City Case",
+        "Article Date",
+        "Date Case",
+        "Number of Cases",
+        "Number of Deaths",
+        "Latitude",
+        "Longitude",
+        "Source Type",
+        "Source Name",
+        "Evidence",
+        "Confidence",
+        "Processing Status",
+        "Event ID",
+        "Is Health Related",
+        "Event Type",
+        "Source Credibility",
+        "Credibility Label",
+        "Sentiment",
+        "Relevance Score",
+        "Outbreak Alert",
+        "Needs Review",
     ]
 }
 
-fn row_export_values(row: &Value) -> Vec<Value> {
+fn row_export_values(row: &Value, no: i64) -> Vec<Value> {
     vec![
-        row["title"].clone(),
-        row["url"].clone(),
-        row["published_at"].clone(),
+        json!(no),
         row["country"].clone(),
-        row["province"].clone(),
-        row["city"].clone(),
+        row["language"].clone(),
+        row["url"].clone(),
+        row["title"].clone(),
         row["disease"].clone(),
-        row["cases"].clone(),
-        row["deaths"].clone(),
+        row["crawling_date"].clone(),
+        row["region"].clone(),
+        row["province_city_case"].clone(),
+        row["article_date"].clone(),
+        row["date_case"].clone(),
+        display_or_value(row, "cases_display", "cases"),
+        display_or_value(row, "deaths_display", "deaths"),
+        display_or_value(row, "geo_summary", "latitude"),
+        if row.get("geo_summary").and_then(|value| value.as_str()).filter(|text| !text.is_empty()).is_some() {
+            Value::Null
+        } else {
+            row["longitude"].clone()
+        },
+        row["source_type"].clone(),
+        row["source_name"].clone(),
+        row["evidence"].clone(),
         row["confidence"].clone(),
-        json!(format!(
-            "{} / {}",
-            json_text(&row["source_type"]),
-            json_text(&row["source_name"])
-        )),
-        row["crawl_channel"].clone(),
-        row["job_id"].clone(),
-        row["mapped"].clone(),
-        row["needs_review"].clone(),
-        row["has_geo"].clone(),
-        row["raw_report_id"].clone(),
         row["status"].clone(),
+        row["disease_event_id"].clone(),
+        row["is_health_related"].clone(),
+        row["event_type"].clone(),
+        row["source_credibility"].clone(),
+        row["source_credibility_label"].clone(),
+        row["sentiment"].clone(),
+        row["relevance_score"].clone(),
+        row["outbreak_alert"].clone(),
+        row["needs_review"].clone(),
     ]
 }
 
@@ -209,8 +347,8 @@ fn to_csv(rows: &[Value]) -> String {
     let mut out = String::from('\u{feff}');
     out.push_str(&export_headers().join(","));
     out.push('\n');
-    for row in rows {
-        let line = row_export_values(row)
+    for (idx, row) in rows.iter().enumerate() {
+        let line = row_export_values(row, (idx as i64) + 1)
             .iter()
             .map(csv_cell)
             .collect::<Vec<_>>()
@@ -239,9 +377,9 @@ fn to_excel_xml(rows: &[Value]) -> String {
         ));
     }
     out.push_str("</Row>\n");
-    for row in rows {
+    for (idx, row) in rows.iter().enumerate() {
         out.push_str("   <Row>");
-        for value in row_export_values(row) {
+        for value in row_export_values(row, (idx as i64) + 1) {
             let text = json_text(&value);
             let is_number = matches!(value, Value::Number(_));
             if is_number {
@@ -268,16 +406,112 @@ fn country_filter_sql(expr: &str, param: &str) -> String {
               {param}::text IS NULL
               OR (
                 LOWER({param}) IN ('asean', 'asean11')
-                AND {expr} IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Timor-Leste','Vietnam')
+                AND {expr} IN ({list})
               )
               OR {expr} = {param}
-            )"#
+            )"#,
+        list = ASEAN11_IN
     )
 }
 
-fn unified_source_sql() -> String {
+fn event_country_lookup_sql() -> &'static str {
+    r#"(SELECT l.country FROM locations l
+            WHERE l.is_active = TRUE
+              AND (
+                    LOWER(l.name) = LOWER(NULLIF(BTRIM(de.location_name), ''))
+                 OR LOWER(l.name) = LOWER(NULLIF(BTRIM(de.province), ''))
+                 OR LOWER(l.name) = LOWER(NULLIF(BTRIM(de.city), ''))
+              )
+            ORDER BY CASE
+                WHEN LOWER(l.name) = LOWER(NULLIF(BTRIM(de.location_name), '')) THEN 0
+                WHEN LOWER(l.name) = LOWER(NULLIF(BTRIM(de.province), '')) THEN 1
+                ELSE 2
+            END, l.updated_at DESC NULLS LAST, l.created_at DESC
+            LIMIT 1)"#
+}
+
+fn event_resolved_country_sql() -> String {
+    asean11_fold_sql(&format!(
+        "COALESCE({loc}, NULLIF(BTRIM(de.location_name), ''))",
+        loc = event_country_lookup_sql()
+    ))
+}
+
+fn event_country_where(param: &str) -> String {
+    country_filter_sql(&event_resolved_country_sql(), param)
+}
+
+fn event_country_select() -> String {
+    event_resolved_country_sql()
+}
+
+fn skip_test_skdr(alias: &str) -> String {
+    format!("LOWER(COALESCE({alias}.source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')")
+}
+
+async fn matrix_tables_ready(client: &deadpool_postgres::Object) -> bool {
+    client
+        .query_one(
+            "SELECT to_regclass('public.crawl_matrix_jobs') IS NOT NULL
+                    AND to_regclass('public.crawl_matrix_rows') IS NOT NULL",
+            &[],
+        )
+        .await
+        .ok()
+        .map(|row| row.get::<_, bool>(0))
+        .unwrap_or(false)
+}
+
+fn place_or_null_sql(expr: &str) -> String {
+    format!(
+        r#"CASE
+            WHEN {expr} IS NULL OR BTRIM({expr}) = '' THEN NULL
+            WHEN LOWER(BTRIM({expr})) IN (
+                'harian','persen','tak','percent','unknown','n/a','na','null','none',
+                'the','and','of','untuk','yang','dari','pada','hari','koran','-',
+                'outside asean','n/a','tidak','bukan'
+            ) THEN NULL
+            WHEN LENGTH(BTRIM({expr})) < 3 THEN NULL
+            WHEN BTRIM({expr}) ~ '^[0-9.%]+$' THEN NULL
+            ELSE NULLIF(BTRIM({expr}), '')
+        END"#
+    )
+}
+
+fn event_article_key_sql() -> &'static str {
+    "COALESCE(NULLIF(BTRIM(rr.normalized_url), ''), NULLIF(BTRIM(rr.url), ''), NULLIF(BTRIM(de.source_url), ''), de.raw_report_id::text, de.id::text)"
+}
+
+fn matrix_article_key_sql() -> &'static str {
+    "COALESCE(NULLIF(BTRIM(rr.normalized_url), ''), NULLIF(BTRIM(m.source_url), ''), NULLIF(BTRIM(rr.url), ''), m.raw_report_id::text, m.id::text)"
+}
+
+/// `Indonesia(8278); Philippines(3734)` — descending count, then label A–Z.
+/// Production list uses the same ORDER BY inside `collapse_article_sql`.
+#[allow(dead_code)]
+fn format_label_counts(mut pairs: Vec<(String, i64)>) -> String {
+    pairs.retain(|(label, _)| !label.trim().is_empty());
+    pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    pairs
+        .into_iter()
+        .map(|(label, n)| format!("{label}({n})"))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Unique labels joined with `; ` (alphabetical). SQL uses cases-desc then label.
+#[allow(dead_code)]
+fn join_unique_labels(mut labels: Vec<String>) -> String {
+    labels.retain(|label| !label.trim().is_empty());
+    labels.sort();
+    labels.dedup();
+    labels.join("; ")
+}
+
+fn matrix_select_sql(evidence_chars: i32) -> String {
     let matrix_country = asean11_fold_sql("m.country");
-    let event_country = asean11_fold_sql("COALESCE(loc.country, de.location_name)");
+    let matrix_known = known_disease_sql("m.disease_name");
+    let matrix_quality = matrix_quality_sql();
     format!(
         r#"
         SELECT
@@ -286,158 +520,483 @@ fn unified_source_sql() -> String {
             m.crawl_job_id,
             m.raw_report_id,
             de.id AS disease_event_id,
-            COALESCE(NULLIF(m.article_title, ''), NULLIF(LEFT(rr.original_text, {TITLE_CHARS}), ''), m.source_url) AS title,
+            COALESCE(NULLIF(m.article_title, ''), NULLIF(LEFT(rr.original_text, {title}), ''), m.source_url) AS title,
             COALESCE(m.source_url, rr.url) AS url,
-            COALESCE(m.article_date, rr.published_at, m.crawling_date)::text AS published_at,
+            de.language,
             {matrix_country} AS country,
+            NULLIF(m.region, '') AS region,
+            COALESCE(NULLIF(m.province_city_case, ''), NULLIF(CONCAT_WS(' / ', NULLIF(m.province, ''), NULLIF(m.city, '')), '')) AS province_city_case,
             NULLIF(m.province, '') AS province,
             NULLIF(m.city, '') AS city,
             m.disease_name AS disease,
             m.icd11_code,
-            COALESCE(m.number_of_cases, 0)::bigint AS cases,
-            COALESCE(m.number_of_deaths, 0)::bigint AS deaths,
-            m.confidence::float8 AS confidence,
-            COALESCE(m.source_type, rr.source_type, 'news') AS source_type,
+            m.crawling_date::text AS crawling_date,
+            m.article_date::text AS article_date,
+            NULLIF(m.date_case, '') AS date_case,
+            m.number_of_cases::bigint AS cases,
+            m.number_of_deaths::bigint AS deaths,
+            m.latitude::float8 AS latitude,
+            m.longitude::float8 AS longitude,
+            COALESCE(m.source_type, rr.source_type) AS source_type,
             COALESCE(m.source_name, rr.source_name) AS source_name,
+            LEFT(m.evidence, {evidence}) AS evidence,
+            m.confidence::float8 AS confidence,
             m.processing_status AS status,
             (m.processing_status = 'needs_review' OR COALESCE(de.needs_review, FALSE)) AS needs_review,
             (m.latitude IS NOT NULL AND m.longitude IS NOT NULL) AS has_geo,
-            (de.id IS NOT NULL OR (m.latitude IS NOT NULL AND m.longitude IS NOT NULL)) AS mapped,
-            m.latitude::float8 AS latitude,
-            m.longitude::float8 AS longitude,
+            ({matrix_known} AND m.latitude IS NOT NULL AND m.longitude IS NOT NULL) AS mapped,
+            COALESCE(de.is_health_related, TRUE) AS is_health_related,
+            {matrix_quality} AS quality_class,
+            de.event_type,
+            de.source_credibility::float8 AS source_credibility,
+            de.source_credibility_label,
+            de.sentiment,
+            de.relevance_score,
+            de.outbreak_alert,
             m.created_at::text AS created_at,
-            m.evidence,
-            LEFT(COALESCE(rr.original_text, m.evidence, ''), {SNIPPET_CHARS}) AS snippet
+            LEFT(COALESCE(rr.original_text, m.evidence, ''), {snippet}) AS snippet,
+            COALESCE(m.crawling_date::timestamp, m.created_at::timestamp) AS sort_ts,
+            {article_key} AS article_key
         FROM crawl_matrix_rows m
         JOIN crawl_matrix_jobs j ON j.id = m.crawl_job_id
         LEFT JOIN raw_reports rr ON rr.id = m.raw_report_id
         LEFT JOIN LATERAL (
-            SELECT de0.id, de0.needs_review
+            SELECT de0.id, de0.language, de0.needs_review, de0.is_health_related,
+                   de0.event_type, de0.source_credibility, de0.source_credibility_label,
+                   de0.sentiment, de0.relevance_score, de0.outbreak_alert
             FROM disease_events de0
             WHERE de0.raw_report_id IS NOT NULL AND de0.raw_report_id = m.raw_report_id
             ORDER BY de0.created_at DESC
             LIMIT 1
         ) de ON TRUE
+        "#,
+        title = TITLE_CHARS,
+        evidence = evidence_chars,
+        snippet = SNIPPET_CHARS,
+        matrix_country = matrix_country,
+        matrix_known = matrix_known,
+        matrix_quality = matrix_quality,
+        article_key = matrix_article_key_sql(),
+    )
+}
 
-        UNION ALL
-
+fn event_select_sql(evidence_chars: i32) -> String {
+    let event_country = event_country_select();
+    let event_known = known_disease_sql("de.disease_classification");
+    let pipeline_quality = pipeline_quality_sql();
+    format!(
+        r#"
         SELECT
             de.id,
             CASE
-                WHEN aj.id IS NOT NULL OR LOWER(COALESCE(de.source_name, rr.source_name, '')) = 'url analyzer'
+                WHEN LOWER(COALESCE(de.source_name, rr.source_name, '')) = 'url analyzer'
+                     OR EXISTS (SELECT 1 FROM analysis_jobs aj WHERE aj.event_id = de.id)
                     THEN 'analyze-url'
                 ELSE 'continuous'
             END AS crawl_channel,
             NULL::uuid AS crawl_job_id,
             de.raw_report_id,
             de.id AS disease_event_id,
-            COALESCE(NULLIF(LEFT(rr.original_text, {TITLE_CHARS}), ''), rr.url, de.location_name) AS title,
-            rr.url,
-            COALESCE(de.published_at, rr.published_at)::text AS published_at,
+            COALESCE(NULLIF(LEFT(rr.original_text, {title}), ''), COALESCE(rr.url, de.source_url), de.location_name) AS title,
+            COALESCE(rr.url, de.source_url) AS url,
+            de.language,
             {event_country} AS country,
-            NULLIF(de.province, '') AS province,
-            NULLIF(de.city, '') AS city,
-            COALESCE(de.disease_classification, '') AS disease,
+            COALESCE({region}, {event_country}) AS region,
+            COALESCE(NULLIF(CONCAT_WS(' / ', {province}, {city}), ''), {region}) AS province_city_case,
+            {province} AS province,
+            {city} AS city,
+            NULLIF(de.disease_classification, '') AS disease,
             NULL::text AS icd11_code,
-            COALESCE(de.case_count, 0)::bigint AS cases,
-            COALESCE(de.death_count, 0)::bigint AS deaths,
-            de.confidence::float8 AS confidence,
-            COALESCE(de.source_type, rr.source_type) AS source_type,
-            COALESCE(de.source_name, rr.source_name) AS source_name,
-            CASE
-                WHEN COALESCE(de.needs_review, FALSE) THEN 'needs_review'
-                WHEN de.disease_classification IS NULL OR UPPER(de.disease_classification) IN ('UNKNOWN', '') THEN 'failed'
-                ELSE 'processed'
-            END AS status,
-            COALESCE(de.needs_review, FALSE) AS needs_review,
-            (de.geom IS NOT NULL) AS has_geo,
-            (de.geom IS NOT NULL OR NULLIF(de.location_name, '') IS NOT NULL) AS mapped,
+            de.created_at::text AS crawling_date,
+            de.published_at::text AS article_date,
+            de.event_date::text AS date_case,
+            de.case_count::bigint AS cases,
+            de.death_count::bigint AS deaths,
             ST_Y(de.geom)::float8 AS latitude,
             ST_X(de.geom)::float8 AS longitude,
+            COALESCE(de.source_type, rr.source_type) AS source_type,
+            COALESCE(de.source_name, rr.source_name) AS source_name,
+            LEFT(
+                CASE
+                    WHEN de.epidemiological_evidence IS NULL OR de.epidemiological_evidence = '[]'::jsonb THEN NULL
+                    WHEN jsonb_typeof(de.epidemiological_evidence) = 'string'
+                        THEN de.epidemiological_evidence #>> '{{}}'
+                    WHEN jsonb_typeof(de.epidemiological_evidence) = 'array'
+                        THEN de.epidemiological_evidence->>0
+                    ELSE NULL
+                END,
+                {evidence}
+            ) AS evidence,
+            de.confidence::float8 AS confidence,
+            rr.processing_status AS status,
+            COALESCE(de.needs_review, FALSE) AS needs_review,
+            (de.geom IS NOT NULL) AS has_geo,
+            ({event_known} AND COALESCE(de.is_health_related, FALSE) AND de.geom IS NOT NULL) AS mapped,
+            COALESCE(de.is_health_related, FALSE) AS is_health_related,
+            {pipeline_quality} AS quality_class,
+            de.event_type,
+            de.source_credibility::float8 AS source_credibility,
+            de.source_credibility_label,
+            de.sentiment,
+            de.relevance_score,
+            de.outbreak_alert,
             de.created_at::text AS created_at,
-            LEFT(COALESCE(de.original_text, ''), 400) AS evidence,
-            LEFT(COALESCE(rr.original_text, de.original_text, ''), {SNIPPET_CHARS}) AS snippet
+            LEFT(COALESCE(rr.original_text, de.original_text, ''), {snippet}) AS snippet,
+            de.created_at::timestamp AS sort_ts,
+            {article_key} AS article_key
         FROM disease_events de
         LEFT JOIN raw_reports rr ON rr.id = de.raw_report_id
-        LEFT JOIN LATERAL (
-            SELECT l.country
-            FROM locations l
-            WHERE l.is_active = TRUE AND LOWER(l.name) = LOWER(de.location_name)
-            ORDER BY l.updated_at DESC NULLS LAST, l.created_at DESC
-            LIMIT 1
-        ) loc ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT aj0.id
-            FROM analysis_jobs aj0
-            WHERE aj0.event_id = de.id
-            ORDER BY aj0.created_at DESC
-            LIMIT 1
-        ) aj ON TRUE
-        WHERE NOT EXISTS (
-            SELECT 1 FROM crawl_matrix_rows m
-            WHERE m.raw_report_id IS NOT NULL AND m.raw_report_id = de.raw_report_id
-        )
-          AND LOWER(COALESCE(de.source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')
         "#,
-        TITLE_CHARS = TITLE_CHARS,
-        SNIPPET_CHARS = SNIPPET_CHARS,
-        matrix_country = matrix_country,
+        title = TITLE_CHARS,
+        evidence = evidence_chars,
+        snippet = SNIPPET_CHARS,
         event_country = event_country,
+        event_known = event_known,
+        pipeline_quality = pipeline_quality,
+        article_key = event_article_key_sql(),
+        province = place_or_null_sql("de.province"),
+        city = place_or_null_sql("de.city"),
+        region = place_or_null_sql("de.location_name"),
     )
 }
 
-fn filter_sql(country_expr: &str) -> String {
+fn collapse_article_sql(inner: &str) -> String {
+    let template = r#"
+        WITH base AS (
+            __INNER__
+        ),
+        by_country AS (
+            SELECT article_key, country,
+                   SUM(COALESCE(cases, 0)) AS cases,
+                   SUM(COALESCE(deaths, 0)) AS deaths
+            FROM base
+            WHERE country IS NOT NULL AND BTRIM(country) <> ''
+            GROUP BY article_key, country
+        ),
+        by_place AS (
+            SELECT article_key,
+                   COALESCE(NULLIF(BTRIM(province), ''), NULLIF(BTRIM(city), ''), NULLIF(BTRIM(region), '')) AS label,
+                   SUM(COALESCE(cases, 0)) AS cases,
+                   SUM(COALESCE(deaths, 0)) AS deaths
+            FROM base
+            WHERE COALESCE(NULLIF(BTRIM(province), ''), NULLIF(BTRIM(city), ''), NULLIF(BTRIM(region), '')) IS NOT NULL
+            GROUP BY 1, 2
+        ),
+        country_txt AS (
+            SELECT article_key,
+                   COUNT(*)::int AS n,
+                   string_agg(country, '; ' ORDER BY cases DESC, country) AS labels,
+                   string_agg(country || '(' || cases::text || ')', '; ' ORDER BY cases DESC, country) AS cases_display,
+                   string_agg(country || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, country) AS deaths_display
+            FROM by_country
+            GROUP BY article_key
+        ),
+        place_txt AS (
+            SELECT article_key,
+                   COUNT(*)::int AS n,
+                   string_agg(label, '; ' ORDER BY cases DESC, label) AS labels,
+                   string_agg(label || '(' || cases::text || ')', '; ' ORDER BY cases DESC, label) AS cases_display,
+                   string_agg(label || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, label) AS deaths_display
+            FROM by_place
+            GROUP BY article_key
+        ),
+        disease_txt AS (
+            SELECT article_key,
+                   string_agg(disease, '; ' ORDER BY n DESC, disease) AS labels
+            FROM (
+                SELECT article_key, disease, SUM(COALESCE(cases, 0)) AS n
+                FROM base
+                WHERE disease IS NOT NULL AND BTRIM(disease) <> ''
+                GROUP BY article_key, disease
+            ) d
+            GROUP BY article_key
+        ),
+        region_txt AS (
+            SELECT article_key,
+                   string_agg(region, '; ' ORDER BY n DESC, region) AS labels
+            FROM (
+                SELECT article_key, region, SUM(COALESCE(cases, 0)) AS n
+                FROM base
+                WHERE region IS NOT NULL AND BTRIM(region) <> ''
+                GROUP BY article_key, region
+            ) r
+            GROUP BY article_key
+        ),
+        grouped AS (
+            SELECT
+                b.article_key,
+                (ARRAY_AGG(b.id ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS id,
+                (ARRAY_AGG(b.crawl_channel ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS crawl_channel,
+                (ARRAY_AGG(b.crawl_job_id ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS crawl_job_id,
+                (ARRAY_AGG(b.raw_report_id ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS raw_report_id,
+                (ARRAY_AGG(b.disease_event_id ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS disease_event_id,
+                (ARRAY_AGG(b.title ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS title,
+                (ARRAY_AGG(b.url ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS url,
+                (ARRAY_AGG(b.language ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS language,
+                (ARRAY_AGG(b.icd11_code ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS icd11_code,
+                (ARRAY_AGG(b.crawling_date ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS crawling_date,
+                (ARRAY_AGG(b.article_date ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS article_date,
+                (ARRAY_AGG(b.date_case ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS date_case,
+                (ARRAY_AGG(b.source_type ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS source_type,
+                (ARRAY_AGG(b.source_name ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS source_name,
+                (ARRAY_AGG(b.evidence ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS evidence,
+                (ARRAY_AGG(b.status ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS status,
+                (ARRAY_AGG(b.event_type ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS event_type,
+                (ARRAY_AGG(b.sentiment ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS sentiment,
+                (ARRAY_AGG(b.relevance_score ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS relevance_score,
+                (ARRAY_AGG(b.snippet ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS snippet,
+                (ARRAY_AGG(b.created_at ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS created_at,
+                (ARRAY_AGG(b.source_credibility_label ORDER BY b.source_credibility DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS source_credibility_label,
+                string_agg(DISTINCT NULLIF(BTRIM(b.province), ''), '; ') AS province,
+                string_agg(DISTINCT NULLIF(BTRIM(b.city), ''), '; ') AS city,
+                COUNT(*)::bigint AS event_count,
+                COUNT(DISTINCT COALESCE(NULLIF(BTRIM(b.province), ''), NULLIF(BTRIM(b.city), ''), NULLIF(BTRIM(b.region), ''), NULLIF(BTRIM(b.country), '')))::bigint AS location_count,
+                SUM(COALESCE(b.cases, 0))::bigint AS cases,
+                SUM(COALESCE(b.deaths, 0))::bigint AS deaths,
+                MAX(b.confidence) AS confidence,
+                MAX(b.source_credibility) AS source_credibility,
+                BOOL_OR(b.needs_review) AS needs_review,
+                BOOL_OR(COALESCE(b.outbreak_alert, FALSE)) AS outbreak_alert,
+                BOOL_OR(COALESCE(b.is_health_related, FALSE)) AS is_health_related,
+                BOOL_OR(b.has_geo) AS has_geo,
+                BOOL_OR(b.mapped) AS mapped,
+                CASE
+                    WHEN BOOL_OR(b.quality_class = 'surveillance') THEN 'surveillance'
+                    WHEN BOOL_OR(b.quality_class = 'review') THEN 'review'
+                    ELSE 'noise'
+                END AS quality_class,
+                MAX(b.sort_ts) AS sort_ts,
+                (ARRAY_AGG(b.latitude ORDER BY CASE WHEN b.latitude IS NOT NULL THEN 0 ELSE 1 END, COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS primary_latitude,
+                (ARRAY_AGG(b.longitude ORDER BY CASE WHEN b.longitude IS NOT NULL THEN 0 ELSE 1 END, COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS primary_longitude
+            FROM base b
+            GROUP BY b.article_key
+        )
+        SELECT
+            g.id,
+            g.crawl_channel,
+            g.crawl_job_id,
+            g.raw_report_id,
+            g.disease_event_id,
+            g.title,
+            g.url,
+            g.language,
+            ct.labels AS country,
+            rt.labels AS region,
+            COALESCE(pt.labels, g.province) AS province_city_case,
+            g.province,
+            g.city,
+            dt.labels AS disease,
+            g.icd11_code,
+            g.crawling_date,
+            g.article_date,
+            g.date_case,
+            g.cases,
+            g.deaths,
+            CASE WHEN g.location_count > 1 THEN NULL ELSE g.primary_latitude END AS latitude,
+            CASE WHEN g.location_count > 1 THEN NULL ELSE g.primary_longitude END AS longitude,
+            g.source_type,
+            g.source_name,
+            g.evidence,
+            g.confidence,
+            g.status,
+            g.needs_review,
+            g.has_geo,
+            g.mapped,
+            g.is_health_related,
+            g.quality_class,
+            g.event_type,
+            g.source_credibility,
+            g.source_credibility_label,
+            g.sentiment,
+            g.relevance_score,
+            g.outbreak_alert,
+            g.created_at,
+            g.snippet,
+            g.sort_ts,
+            g.article_key,
+            CASE
+                WHEN COALESCE(ct.n, 0) > 1 THEN ct.cases_display
+                WHEN COALESCE(pt.n, 0) > 1 THEN pt.cases_display
+                ELSE NULL
+            END AS cases_display,
+            CASE
+                WHEN COALESCE(ct.n, 0) > 1 THEN ct.deaths_display
+                WHEN COALESCE(pt.n, 0) > 1 THEN pt.deaths_display
+                ELSE NULL
+            END AS deaths_display,
+            CASE WHEN g.location_count > 1 THEN g.location_count::text || ' locations' ELSE NULL END AS geo_summary,
+            g.event_count,
+            g.location_count
+        FROM grouped g
+        LEFT JOIN country_txt ct ON ct.article_key = g.article_key
+        LEFT JOIN place_txt pt ON pt.article_key = g.article_key
+        LEFT JOIN disease_txt dt ON dt.article_key = g.article_key
+        LEFT JOIN region_txt rt ON rt.article_key = g.article_key
+        "#;
+    template.replace("__INNER__", inner)
+}
+
+fn matrix_where_sql(quality: Quality) -> String {
     format!(
         r#"
-        WHERE ($1::text IS NULL
-               OR title ILIKE '%'||$1||'%'
-               OR COALESCE(url, '') ILIKE '%'||$1||'%'
-               OR COALESCE(source_name, '') ILIKE '%'||$1||'%'
-               OR COALESCE(disease, '') ILIKE '%'||$1||'%')
-          AND ($2::text IS NULL OR crawl_channel = $2)
+        WHERE {quality_where}
+          AND ($1::text IS NULL
+               OR COALESCE(m.article_title, '') ILIKE '%'||$1||'%'
+               OR COALESCE(m.source_url, '') ILIKE '%'||$1||'%'
+               OR COALESCE(m.source_name, '') ILIKE '%'||$1||'%'
+               OR COALESCE(m.disease_name, '') ILIKE '%'||$1||'%')
+          AND ($2::text IS NULL OR $2 = 'manual')
           {country}
-          AND ($4::text IS NULL OR disease ILIKE '%'||$4||'%')
-          AND ($5::text IS NULL OR COALESCE(published_at, LEFT(created_at, 10)) >= $5)
-          AND ($6::text IS NULL OR COALESCE(published_at, LEFT(created_at, 10)) <= $6)
-          AND ($7::text IS NULL OR status = $7)
-          AND ($8::bool IS NULL OR needs_review = $8)
-          AND ($9::bool IS NULL OR has_geo = $9)
-          AND ($10::uuid IS NULL OR crawl_job_id = $10)
+          AND ($4::text IS NULL OR m.disease_name ILIKE '%'||$4||'%')
+          AND ($5::text IS NULL OR COALESCE(m.crawling_date::text, m.article_date::text, LEFT(m.created_at::text, 10)) >= $5)
+          AND ($6::text IS NULL OR COALESCE(m.crawling_date::text, m.article_date::text, LEFT(m.created_at::text, 10)) <= $6)
+          AND ($7::text IS NULL OR m.processing_status = $7)
+          AND ($8::bool IS NULL OR (m.processing_status = 'needs_review') = $8)
+          AND ($9::bool IS NULL OR (m.latitude IS NOT NULL AND m.longitude IS NOT NULL) = $9)
+          AND ($10::uuid IS NULL OR m.crawl_job_id = $10)
         "#,
-        country = country_filter_sql(country_expr, "$3")
+        quality_where = matrix_quality_where(quality),
+        country = country_filter_sql(&asean11_fold_sql("m.country"), "$3"),
     )
+}
+
+fn event_where_sql(quality: Quality, matrix_ready: bool) -> String {
+    let known = known_disease_sql("de.disease_classification");
+    let skip_matrix = if matrix_ready {
+        r#"AND NOT EXISTS (
+              SELECT 1 FROM crawl_matrix_rows mx
+              WHERE mx.raw_report_id IS NOT NULL AND mx.raw_report_id = de.raw_report_id
+          )"#
+    } else {
+        ""
+    };
+    format!(
+        r#"
+        WHERE {quality_where}
+          AND {skip}
+          {skip_matrix}
+          AND ($1::text IS NULL
+               OR COALESCE(de.disease_classification, '') ILIKE '%'||$1||'%'
+               OR COALESCE(de.source_name, '') ILIKE '%'||$1||'%'
+               OR COALESCE(de.location_name, '') ILIKE '%'||$1||'%'
+               OR COALESCE(rr.url, de.source_url, '') ILIKE '%'||$1||'%')
+          AND (
+                $2::text IS NULL
+                OR ($2 = 'continuous' AND LOWER(COALESCE(de.source_name, rr.source_name, '')) <> 'url analyzer'
+                    AND NOT EXISTS (SELECT 1 FROM analysis_jobs aj WHERE aj.event_id = de.id))
+                OR ($2 = 'analyze-url' AND (
+                    LOWER(COALESCE(de.source_name, rr.source_name, '')) = 'url analyzer'
+                    OR EXISTS (SELECT 1 FROM analysis_jobs aj WHERE aj.event_id = de.id)
+                ))
+              )
+          {country}
+          AND ($4::text IS NULL OR COALESCE(de.disease_classification, '') ILIKE '%'||$4||'%')
+          AND ($5::text IS NULL OR COALESCE(de.published_at::text, LEFT(de.created_at::text, 10)) >= $5)
+          AND ($6::text IS NULL OR COALESCE(de.published_at::text, LEFT(de.created_at::text, 10)) <= $6)
+          AND (
+                $7::text IS NULL
+                OR ($7 = 'needs_review' AND COALESCE(de.needs_review, FALSE))
+                OR ($7 = 'processed' AND NOT COALESCE(de.needs_review, FALSE) AND {known})
+                OR ($7 = 'failed' AND NOT {known})
+              )
+          AND ($8::bool IS NULL OR COALESCE(de.needs_review, FALSE) = $8)
+          AND ($9::bool IS NULL OR (de.geom IS NOT NULL) = $9)
+          AND $10::uuid IS NULL
+        "#,
+        quality_where = event_quality_where(quality),
+        skip = skip_test_skdr("de"),
+        skip_matrix = skip_matrix,
+        country = event_country_where("$3"),
+        known = known,
+    )
+}
+
+fn map_opt_string(row: &tokio_postgres::Row, col: &str) -> Value {
+    json!(row.try_get::<_, Option<String>>(col).ok().flatten())
+}
+
+fn map_opt_f64(row: &tokio_postgres::Row, col: &str) -> Value {
+    json!(row.try_get::<_, Option<f64>>(col).ok().flatten())
+}
+
+fn map_opt_i64(row: &tokio_postgres::Row, col: &str) -> Value {
+    json!(row.try_get::<_, Option<i64>>(col).ok().flatten())
+}
+
+fn map_opt_bool(row: &tokio_postgres::Row, col: &str) -> Value {
+    json!(row.try_get::<_, Option<bool>>(col).ok().flatten())
 }
 
 fn map_ledger_row(row: &tokio_postgres::Row) -> Value {
+    let title = row.try_get::<_, Option<String>>("title").ok().flatten();
     json!({
-        "id": row.get::<_, Uuid>(0),
-        "crawl_channel": row.get::<_, String>(1),
-        "job_id": row.get::<_, Option<Uuid>>(2),
-        "raw_report_id": row.get::<_, Option<Uuid>>(3),
-        "disease_event_id": row.get::<_, Option<Uuid>>(4),
-        "title": row.get::<_, Option<String>>(5),
-        "url": row.get::<_, Option<String>>(6),
-        "published_at": row.get::<_, Option<String>>(7),
-        "country": row.get::<_, Option<String>>(8),
-        "province": row.get::<_, Option<String>>(9),
-        "city": row.get::<_, Option<String>>(10),
-        "disease": row.get::<_, Option<String>>(11),
-        "icd11_code": row.get::<_, Option<String>>(12),
-        "cases": row.get::<_, i64>(13),
-        "deaths": row.get::<_, i64>(14),
-        "confidence": row.get::<_, Option<f64>>(15),
-        "source_type": row.get::<_, Option<String>>(16),
-        "source_name": row.get::<_, Option<String>>(17),
-        "status": row.get::<_, Option<String>>(18),
-        "needs_review": row.get::<_, bool>(19),
-        "has_geo": row.get::<_, bool>(20),
-        "mapped": row.get::<_, bool>(21),
-        "latitude": row.get::<_, Option<f64>>(22),
-        "longitude": row.get::<_, Option<f64>>(23),
-        "created_at": row.get::<_, Option<String>>(24),
-        "evidence": row.get::<_, Option<String>>(25),
-        "snippet": row.get::<_, Option<String>>(26),
+        "id": row.get::<_, Uuid>("id"),
+        "crawl_channel": row.get::<_, String>("crawl_channel"),
+        "job_id": row.try_get::<_, Option<Uuid>>("crawl_job_id").ok().flatten(),
+        "raw_report_id": row.try_get::<_, Option<Uuid>>("raw_report_id").ok().flatten(),
+        "disease_event_id": row.try_get::<_, Option<Uuid>>("disease_event_id").ok().flatten(),
+        "title": title,
+        "article_title": title,
+        "url": map_opt_string(row, "url"),
+        "language": map_opt_string(row, "language"),
+        "country": map_opt_string(row, "country"),
+        "region": map_opt_string(row, "region"),
+        "province_city_case": map_opt_string(row, "province_city_case"),
+        "province": map_opt_string(row, "province"),
+        "city": map_opt_string(row, "city"),
+        "disease": map_opt_string(row, "disease"),
+        "disease_name": map_opt_string(row, "disease"),
+        "icd11_code": map_opt_string(row, "icd11_code"),
+        "crawling_date": map_opt_string(row, "crawling_date"),
+        "article_date": map_opt_string(row, "article_date"),
+        "published_at": map_opt_string(row, "article_date"),
+        "date_case": map_opt_string(row, "date_case"),
+        "cases": map_opt_i64(row, "cases"),
+        "deaths": map_opt_i64(row, "deaths"),
+        "latitude": map_opt_f64(row, "latitude"),
+        "longitude": map_opt_f64(row, "longitude"),
+        "source_type": map_opt_string(row, "source_type"),
+        "source_name": map_opt_string(row, "source_name"),
+        "evidence": map_opt_string(row, "evidence"),
+        "confidence": map_opt_f64(row, "confidence"),
+        "status": map_opt_string(row, "status"),
+        "needs_review": row.try_get::<_, bool>("needs_review").ok().unwrap_or(false),
+        "has_geo": row.try_get::<_, bool>("has_geo").ok().unwrap_or(false),
+        "mapped": row.try_get::<_, bool>("mapped").ok().unwrap_or(false),
+        "is_health_related": map_opt_bool(row, "is_health_related"),
+        "quality_class": map_opt_string(row, "quality_class"),
+        "event_type": map_opt_string(row, "event_type"),
+        "source_credibility": map_opt_f64(row, "source_credibility"),
+        "source_credibility_label": map_opt_string(row, "source_credibility_label"),
+        "sentiment": map_opt_string(row, "sentiment"),
+        "relevance_score": map_opt_string(row, "relevance_score"),
+        "outbreak_alert": map_opt_bool(row, "outbreak_alert"),
+        "created_at": map_opt_string(row, "created_at"),
+        "snippet": map_opt_string(row, "snippet"),
+        "article_key": map_opt_string(row, "article_key"),
+        "cases_display": map_opt_string(row, "cases_display"),
+        "deaths_display": map_opt_string(row, "deaths_display"),
+        "geo_summary": map_opt_string(row, "geo_summary"),
+        "event_count": map_opt_i64(row, "event_count"),
+        "location_count": map_opt_i64(row, "location_count"),
     })
+}
+
+fn filter_params<'a>(
+    q: &'a Option<String>,
+    channel: &'a Option<String>,
+    country: &'a Option<String>,
+    disease: &'a Option<String>,
+    date_from: &'a Option<String>,
+    date_to: &'a Option<String>,
+    status: &'a Option<String>,
+    needs_review: &'a Option<bool>,
+    has_geo: &'a Option<bool>,
+    job_id: &'a Option<Uuid>,
+) -> [&'a (dyn tokio_postgres::types::ToSql + Sync); 10] {
+    [
+        q, channel, country, disease, date_from, date_to, status, needs_review, has_geo, job_id,
+    ]
 }
 
 async fn load_filtered_rows(
@@ -446,10 +1005,12 @@ async fn load_filtered_rows(
     limit: i64,
     offset: i64,
     with_total: bool,
+    evidence_chars: i32,
 ) -> Result<(Vec<Value>, i64), (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     let q = opt_text(&query.q);
-    let channel = channel_sql(parse_channel(&query.channel)).map(|value| value.to_string());
+    let parsed_channel = parse_channel(&query.channel);
+    let channel = channel_sql(parsed_channel).map(|value| value.to_string());
     let country = match opt_text(&query.country) {
         Some(value) if value.eq_ignore_ascii_case("all") || value == "*" => None,
         other => other,
@@ -459,64 +1020,117 @@ async fn load_filtered_rows(
     let date_to = opt_text(&query.date_to);
     let status = parse_status(&query.status);
     let job_id = parse_job_id(&query.job_id)?;
-    let source = unified_source_sql();
-    let filters = filter_sql("country");
-    let select_sql = format!(
-        "SELECT id, crawl_channel, crawl_job_id, raw_report_id, disease_event_id, title, url,
-                published_at, country, province, city, disease, icd11_code, cases, deaths,
-                confidence, source_type, source_name, status, needs_review, has_geo, mapped,
-                latitude, longitude, created_at, evidence, snippet
-         FROM ({source}) ledger
-         {filters}
-         ORDER BY COALESCE(published_at, LEFT(created_at, 10)) DESC NULLS LAST, created_at DESC
-         LIMIT $11 OFFSET $12"
-    );
-    let count_sql = format!("SELECT COUNT(*)::bigint FROM ({source}) ledger {filters}", source = source, filters = filters);
+    let quality = parse_quality(&query.quality);
+    let matrix_ready = matrix_tables_ready(&client).await;
+    let include_matrix = matrix_ready && matches!(parsed_channel, Channel::All | Channel::Manual);
+    let include_events = job_id.is_none()
+        && matches!(parsed_channel, Channel::All | Channel::Continuous | Channel::AnalyzeUrl);
 
-    let rows = client
-        .query(
-            &select_sql,
-            &[
-                &q,
-                &channel,
-                &country,
-                &disease,
-                &date_from,
-                &date_to,
-                &status,
-                &query.needs_review,
-                &query.has_geo,
-                &job_id,
-                &limit,
-                &offset,
-            ],
+    let params = filter_params(
+        &q,
+        &channel,
+        &country,
+        &disease,
+        &date_from,
+        &date_to,
+        &status,
+        &query.needs_review,
+        &query.has_geo,
+        &job_id,
+    );
+    let cap = (offset + limit).max(limit).min(EXPORT_CAP);
+    let matrix_sql = format!(
+        "{} ORDER BY sort_ts DESC NULLS LAST, id DESC",
+        collapse_article_sql(&format!(
+            "{} {}",
+            matrix_select_sql(evidence_chars),
+            matrix_where_sql(quality)
+        ))
+    );
+    let event_sql = format!(
+        "{} ORDER BY sort_ts DESC NULLS LAST, id DESC",
+        collapse_article_sql(&format!(
+            "{} {}",
+            event_select_sql(evidence_chars),
+            event_where_sql(quality, matrix_ready)
+        ))
+    );
+
+    let select_sql = if include_matrix && include_events {
+        format!(
+            "SELECT * FROM (
+                ({matrix} LIMIT $11)
+                UNION ALL
+                ({event} LIMIT $11)
+             ) ledger
+             ORDER BY sort_ts DESC NULLS LAST, id DESC
+             LIMIT $12 OFFSET $13",
+            matrix = matrix_sql,
+            event = event_sql
         )
-        .await
-        .map_err(internal_error)?;
+    } else if include_matrix {
+        format!("{matrix} LIMIT $11 OFFSET $12", matrix = matrix_sql)
+    } else if include_events {
+        format!("{event} LIMIT $11 OFFSET $12", event = event_sql)
+    } else {
+        return Ok((Vec::new(), 0));
+    };
+
+    let rows = if include_matrix && include_events {
+        client
+            .query(&select_sql, &[&q, &channel, &country, &disease, &date_from, &date_to, &status, &query.needs_review, &query.has_geo, &job_id, &cap, &limit, &offset])
+            .await
+            .map_err(internal_error)?
+    } else {
+        client
+            .query(&select_sql, &[&q, &channel, &country, &disease, &date_from, &date_to, &status, &query.needs_review, &query.has_geo, &job_id, &limit, &offset])
+            .await
+            .map_err(internal_error)?
+    };
     let data: Vec<Value> = rows.iter().map(map_ledger_row).collect();
     if !with_total {
         let exported = data.len() as i64;
         return Ok((data, exported));
     }
-    let total: i64 = client
-        .query_one(
-            &count_sql,
-            &[
-                &q,
-                &channel,
-                &country,
-                &disease,
-                &date_from,
-                &date_to,
-                &status,
-                &query.needs_review,
-                &query.has_geo,
-                &job_id,
-            ],
-        )
-        .await
-        .map_err(internal_error)?
-        .get(0);
+
+    let mut total = 0_i64;
+    if include_matrix {
+        let count_sql = format!(
+            "SELECT COUNT(*)::bigint FROM (
+                SELECT {key} AS article_key
+                FROM crawl_matrix_rows m
+                JOIN crawl_matrix_jobs j ON j.id = m.crawl_job_id
+                LEFT JOIN raw_reports rr ON rr.id = m.raw_report_id
+                {filters}
+                GROUP BY 1
+             ) keys",
+            key = matrix_article_key_sql(),
+            filters = matrix_where_sql(quality)
+        );
+        total += client
+            .query_one(&count_sql, &params)
+            .await
+            .map_err(internal_error)?
+            .get::<_, i64>(0);
+    }
+    if include_events {
+        let count_sql = format!(
+            "SELECT COUNT(*)::bigint FROM (
+                SELECT {key} AS article_key
+                FROM disease_events de
+                LEFT JOIN raw_reports rr ON rr.id = de.raw_report_id
+                {filters}
+                GROUP BY 1
+             ) keys",
+            key = event_article_key_sql(),
+            filters = event_where_sql(quality, matrix_ready)
+        );
+        total += client
+            .query_one(&count_sql, &params)
+            .await
+            .map_err(internal_error)?
+            .get::<_, i64>(0);
+    }
     Ok((data, total))
 }
 
@@ -531,10 +1145,10 @@ pub async fn list_rows(
     let (limit, offset, page, per_page) = if export {
         (export_limit(query.per_page), 0_i64, 1_i64, export_limit(query.per_page))
     } else {
-        let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+        let (page, per_page, offset) = history_pagination(query.page, query.per_page);
         (per_page, offset, page, per_page)
     };
-    let (data, total) = load_filtered_rows(&state, &query, limit, offset, !export).await?;
+    let (data, total) = load_filtered_rows(&state, &query, limit, offset, !export, EVIDENCE_LIST_CHARS).await?;
     if format == "csv" {
         let body = to_csv(&data);
         return Ok((
@@ -582,6 +1196,62 @@ pub async fn list_rows(
     .into_response())
 }
 
+async fn expand_article_row(
+    client: &deadpool_postgres::Object,
+    data: &mut Value,
+    from_matrix: bool,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let Some(key) = data["article_key"].as_str().map(str::to_string).filter(|item| !item.is_empty()) else {
+        return Ok(());
+    };
+    let inner = if from_matrix {
+        format!(
+            "{} WHERE {} = $1",
+            matrix_select_sql(EVIDENCE_DETAIL_CHARS),
+            matrix_article_key_sql()
+        )
+    } else {
+        format!(
+            "{} WHERE {} = $1 AND {}",
+            event_select_sql(EVIDENCE_DETAIL_CHARS),
+            event_article_key_sql(),
+            skip_test_skdr("de")
+        )
+    };
+    let collapsed_sql = format!("{} LIMIT 1", collapse_article_sql(&inner));
+    if let Some(row) = client
+        .query_opt(&collapsed_sql, &[&key])
+        .await
+        .map_err(internal_error)?
+    {
+        let children_hold = data.get("children").cloned();
+        *data = map_ledger_row(&row);
+        if let Some(children) = children_hold {
+            data["children"] = children;
+        }
+    }
+    let child_sql = if from_matrix {
+        format!(
+            "{} WHERE {} = $1 ORDER BY COALESCE(cases, 0) DESC NULLS LAST, sort_ts DESC, id DESC LIMIT 80",
+            matrix_select_sql(EVIDENCE_DETAIL_CHARS),
+            matrix_article_key_sql()
+        )
+    } else {
+        format!(
+            "{} WHERE {} = $1 AND {} ORDER BY COALESCE(cases, 0) DESC NULLS LAST, sort_ts DESC, id DESC LIMIT 80",
+            event_select_sql(EVIDENCE_DETAIL_CHARS),
+            event_article_key_sql(),
+            skip_test_skdr("de")
+        )
+    };
+    let kids = client
+        .query(&child_sql, &[&key])
+        .await
+        .map_err(internal_error)?;
+    data["children"] = json!(kids.iter().map(map_ledger_row).collect::<Vec<_>>());
+    Ok(())
+}
+
 pub async fn get_row(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -590,61 +1260,39 @@ pub async fn get_row(
     let uuid = parse_row_id(&id)?;
     let client = state.db.get().await.map_err(internal_error)?;
     let channel = parse_channel(&query.channel);
-    let source = unified_source_sql();
-    let sql = format!(
-        "SELECT id, crawl_channel, crawl_job_id, raw_report_id, disease_event_id, title, url,
-                published_at, country, province, city, disease, icd11_code, cases, deaths,
-                confidence, source_type, source_name, status, needs_review, has_geo, mapped,
-                latitude, longitude, created_at, evidence, snippet
-         FROM ({source}) ledger
-         WHERE id = $1 AND ($2::text IS NULL OR crawl_channel = $2)
-         LIMIT 1"
-    );
-    let channel_param = channel_sql(channel).map(|value| value.to_string());
-    let row = client
-        .query_opt(&sql, &[&uuid, &channel_param])
-        .await
-        .map_err(internal_error)?;
-    let Some(row) = row else {
+    let matrix_ready = matrix_tables_ready(&client).await;
+    let try_matrix = matrix_ready && matches!(channel, Channel::All | Channel::Manual);
+    let try_events = matches!(channel, Channel::All | Channel::Continuous | Channel::AnalyzeUrl);
+
+    let mut data = None;
+    let mut from_matrix = false;
+    if try_matrix {
+        let sql = format!(
+            "{} WHERE m.id = $1 LIMIT 1",
+            matrix_select_sql(EVIDENCE_DETAIL_CHARS)
+        );
+        if let Some(row) = client.query_opt(&sql, &[&uuid]).await.map_err(internal_error)? {
+            data = Some(map_ledger_row(&row));
+            from_matrix = true;
+        }
+    }
+    if data.is_none() && try_events {
+        let sql = format!(
+            "{} WHERE de.id = $1 LIMIT 1",
+            event_select_sql(EVIDENCE_DETAIL_CHARS)
+        );
+        if let Some(row) = client.query_opt(&sql, &[&uuid]).await.map_err(internal_error)? {
+            data = Some(map_ledger_row(&row));
+        }
+    }
+    let Some(mut data) = data else {
         return Err((
             StatusCode::NOT_FOUND,
             Json(json!({"success": false, "error": "Crawl history row was not found"})),
         ));
     };
-    let mut data = map_ledger_row(&row);
+    expand_article_row(&client, &mut data, from_matrix).await?;
 
-    if let Some(event_id) = data["disease_event_id"].as_str().and_then(|value| Uuid::parse_str(value).ok()) {
-        if let Ok(Some(extra)) = client
-            .query_opt(
-                "SELECT de.language, de.sentiment, de.event_type, de.relevance_score,
-                        de.source_credibility::float8, de.source_credibility_label,
-                        de.is_health_related, de.outbreak_alert, de.location_name,
-                        de.symptoms, de.disease_extracted, de.needs_review
-                 FROM disease_events de WHERE de.id = $1",
-                &[&event_id],
-            )
-            .await
-        {
-            data["language"] = json!(extra.get::<_, Option<String>>(0));
-            data["sentiment"] = json!(extra.get::<_, Option<String>>(1));
-            data["event_type"] = json!(extra.get::<_, Option<String>>(2));
-            data["relevance_score"] = json!(extra.get::<_, Option<String>>(3));
-            data["source_credibility"] = json!(extra.get::<_, Option<f64>>(4));
-            data["source_credibility_label"] = json!(extra.get::<_, Option<String>>(5));
-            data["is_health_related"] = json!(extra.get::<_, Option<bool>>(6));
-            data["outbreak_alert"] = json!(extra.get::<_, Option<bool>>(7));
-            data["location_name"] = json!(extra.get::<_, Option<String>>(8));
-            data["symptoms"] = extra
-                .get::<_, Option<Value>>(9)
-                .unwrap_or_else(|| json!([]));
-            data["disease_extracted"] = extra
-                .get::<_, Option<Value>>(10)
-                .unwrap_or_else(|| json!([]));
-            if extra.get::<_, Option<bool>>(11).unwrap_or(false) {
-                data["needs_review"] = json!(true);
-            }
-        }
-    }
     if let Some(job_id) = data["job_id"].as_str().and_then(|value| Uuid::parse_str(value).ok()) {
         if let Ok(Some(job)) = client
             .query_opt(
@@ -690,6 +1338,17 @@ pub async fn list_jobs(
     Query(query): Query<CrawlHistoryJobsQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    if !matrix_tables_ready(&client).await {
+        let (page, per_page, _) = build_pagination(query.page, query.per_page);
+        return Ok(Json(ApiResponse {
+            success: true,
+            data: Vec::new(),
+            total: Some(0),
+            page: Some(page),
+            per_page: Some(per_page),
+            total_pages: Some(0),
+        }));
+    }
     let (page, per_page, offset) = build_pagination(query.page, query.per_page);
     let q = opt_text(&query.q);
     let status = match opt_text(&query.status).unwrap_or_default().to_ascii_lowercase().as_str() {
@@ -785,6 +1444,12 @@ pub async fn get_job(
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
     let job_id = parse_row_id(&id)?;
     let client = state.db.get().await.map_err(internal_error)?;
+    if !matrix_tables_ready(&client).await {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"success": false, "error": "Manual crawler job was not found"})),
+        ));
+    }
     let job = client
         .query_opt(
             "SELECT id, status, disease_names, region, country, province_city,
@@ -802,16 +1467,12 @@ pub async fn get_job(
             Json(json!({"success": false, "error": "Manual crawler job was not found"})),
         ));
     };
-    let source = unified_source_sql();
     let row_sql = format!(
-        "SELECT id, crawl_channel, crawl_job_id, raw_report_id, disease_event_id, title, url,
-                published_at, country, province, city, disease, icd11_code, cases, deaths,
-                confidence, source_type, source_name, status, needs_review, has_geo, mapped,
-                latitude, longitude, created_at, evidence, snippet
-         FROM ({source}) ledger
-         WHERE crawl_job_id = $1
-         ORDER BY COALESCE(published_at, LEFT(created_at, 10)) DESC NULLS LAST, created_at DESC
-         LIMIT 500"
+        "{} ORDER BY sort_ts DESC NULLS LAST, id DESC LIMIT 500",
+        collapse_article_sql(&format!(
+            "{} WHERE m.crawl_job_id = $1",
+            matrix_select_sql(EVIDENCE_LIST_CHARS)
+        ))
     );
     let rows = client
         .query(&row_sql, &[&job_id])
@@ -847,29 +1508,94 @@ pub async fn get_job(
     }))
 }
 
+fn surveillance_event_pred(alias: &str) -> String {
+    format!(
+        "{alias}.is_health_related = TRUE
+         AND {known}
+         AND COALESCE({alias}.confidence, 0) >= {min}
+         AND {skip}",
+        alias = alias,
+        known = known_disease_sql(&format!("{alias}.disease_classification")),
+        min = SURVEILLANCE_MIN_CONFIDENCE,
+        skip = skip_test_skdr(alias),
+    )
+}
+
 pub async fn summary(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
-    let source = unified_source_sql();
+    let pred = surveillance_event_pred("de");
+    let matrix_ready = matrix_tables_ready(&client).await;
+    let matrix_jobs = if matrix_ready {
+        "(SELECT COUNT(*)::bigint FROM crawl_matrix_jobs)"
+    } else {
+        "0::bigint"
+    };
+    let matrix_rows = if matrix_ready {
+        "(SELECT COUNT(*)::bigint FROM crawl_matrix_rows)"
+    } else {
+        "0::bigint"
+    };
+    let matrix_surv = known_disease_sql("m.disease_name");
+    let manual_rows = if matrix_ready {
+        format!("(SELECT COUNT(*)::bigint FROM crawl_matrix_rows m WHERE {matrix_surv})")
+    } else {
+        "0::bigint".into()
+    };
+    let skip_matrix = if matrix_ready {
+        r#"AND NOT EXISTS (
+                            SELECT 1 FROM crawl_matrix_rows mx
+                            WHERE mx.raw_report_id IS NOT NULL AND mx.raw_report_id = de.raw_report_id
+                        )"#
+    } else {
+        ""
+    };
+    let surveillance_extra = if matrix_ready {
+        format!("+ (SELECT COUNT(*)::bigint FROM crawl_matrix_rows m WHERE {matrix_surv})")
+    } else {
+        String::new()
+    };
     let counts = client
         .query_one(
             &format!(
                 "SELECT
-                    (SELECT COUNT(*)::bigint FROM crawl_matrix_jobs) AS jobs,
-                    (SELECT COUNT(*)::bigint FROM crawl_matrix_rows) AS matrix_rows,
+                    {matrix_jobs} AS jobs,
+                    {matrix_rows} AS matrix_rows,
                     (SELECT COUNT(*)::bigint FROM raw_reports
                       WHERE LOWER(COALESCE(source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')) AS raw_reports,
                     (SELECT COUNT(*)::bigint FROM disease_events
                       WHERE LOWER(COALESCE(source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')) AS disease_events,
-                    COUNT(*) FILTER (WHERE crawl_channel = 'manual')::bigint AS manual_rows,
-                    COUNT(*) FILTER (WHERE crawl_channel = 'continuous')::bigint AS continuous_rows,
-                    COUNT(*) FILTER (WHERE crawl_channel = 'analyze-url')::bigint AS analyze_url_rows,
-                    COUNT(*) FILTER (WHERE has_geo)::bigint AS with_geo,
-                    COUNT(*) FILTER (WHERE NOT has_geo)::bigint AS without_geo,
-                    COUNT(*) FILTER (WHERE needs_review)::bigint AS needs_review,
-                    COUNT(*) FILTER (WHERE mapped)::bigint AS mapped
-                 FROM ({source}) ledger"
+                    {manual_rows} AS manual_rows,
+                    (SELECT COUNT(*)::bigint FROM disease_events de
+                      WHERE {pred}
+                        AND LOWER(COALESCE(de.source_name, '')) <> 'url analyzer'
+                        {skip_matrix}) AS continuous_rows,
+                    (SELECT COUNT(*)::bigint FROM disease_events de
+                      WHERE {pred}
+                        AND LOWER(COALESCE(de.source_name, '')) = 'url analyzer') AS analyze_url_rows,
+                    (SELECT COUNT(*)::bigint FROM disease_events de
+                      WHERE {pred} AND de.geom IS NOT NULL) AS with_geo,
+                    (SELECT COUNT(*)::bigint FROM disease_events de
+                      WHERE {pred} AND de.geom IS NULL) AS without_geo,
+                    (SELECT COUNT(*)::bigint FROM disease_events de
+                      WHERE {pred} AND COALESCE(de.needs_review, FALSE)) AS needs_review,
+                    (SELECT COUNT(*)::bigint FROM disease_events de
+                      WHERE {pred} AND de.geom IS NOT NULL) AS mapped,
+                    (SELECT COUNT(*)::bigint FROM disease_events de WHERE {pred})
+                      {surveillance_extra} AS surveillance,
+                    (SELECT COUNT(*)::bigint FROM disease_events de
+                      WHERE de.is_health_related = TRUE
+                        AND UPPER(BTRIM(COALESCE(de.disease_classification, ''))) NOT LIKE 'NEGATIVE%'
+                        AND (NOT {known} OR COALESCE(de.confidence, 0) < {min})
+                        AND {skip}) AS review,
+                    (SELECT COUNT(*)::bigint FROM disease_events de
+                      WHERE COALESCE(de.is_health_related, FALSE) IS NOT TRUE
+                         OR UPPER(BTRIM(COALESCE(de.disease_classification, ''))) LIKE 'NEGATIVE%') AS noise",
+                pred = pred,
+                known = known_disease_sql("de.disease_classification"),
+                min = SURVEILLANCE_MIN_CONFIDENCE,
+                skip = skip_test_skdr("de"),
             ),
             &[],
         )
@@ -879,7 +1605,8 @@ pub async fn summary(
         success: true,
         data: json!({
             "phase": "phase2",
-            "note": "Live Phase 2 stored counts. Phase 1 totals are not invented here; compare volume and field richness (province/city, geo, confidence, channel, job id, mapped, needs_review) against a Phase 1 export when that system is reachable.",
+            "note": "Default matrix is one row per article URL, read from the same disease_events / raw_reports inventory as Events (GET is not blocked by an expired session). Health surveillance: known disease, health-related, confidence ≥ 0.15, ASEAN-11+Timor-Leste when country is known. Multi-country cases render as Indonesia(8278); Philippines(3734). Confidence is the max across child events. Non-health RSS stays stored for Events QA.",
+            "default_quality": "surveillance",
             "jobs": counts.get::<_, i64>(0),
             "matrix_rows": counts.get::<_, i64>(1),
             "raw_reports": counts.get::<_, i64>(2),
@@ -893,11 +1620,13 @@ pub async fn summary(
             "without_geo": counts.get::<_, i64>(8),
             "needs_review": counts.get::<_, i64>(9),
             "mapped": counts.get::<_, i64>(10),
-            "fields": [
-                "title","url","published_at","country","province","city","disease",
-                "cases","deaths","confidence","source","crawl_channel","job_id",
-                "mapped","needs_review","raw_report_id","evidence","geo"
-            ],
+            "quality": {
+                "surveillance": counts.get::<_, i64>(11),
+                "review": counts.get::<_, i64>(12),
+                "noise": counts.get::<_, i64>(13),
+            },
+            "noise_excluded": counts.get::<_, i64>(13),
+            "fields": export_headers(),
         }),
         total: None,
         page: None,
@@ -930,27 +1659,30 @@ mod tests {
         let csv = to_csv(&[json!({
             "title": "Measles, Singapore",
             "url": "https://example.org/a",
-            "published_at": "2026-01-02",
+            "article_date": "2026-01-02",
             "country": "Singapore",
-            "province": null,
-            "city": null,
+            "region": null,
+            "province_city_case": null,
             "disease": "Measles",
             "cases": 43,
             "deaths": 0,
             "confidence": 0.9,
             "source_type": "news",
             "source_name": "MOH",
-            "crawl_channel": "manual",
-            "job_id": null,
-            "mapped": true,
-            "needs_review": false,
-            "has_geo": true,
-            "raw_report_id": null,
+            "language": "en",
+            "crawling_date": "2026-09-17",
+            "date_case": "2026-01-02",
             "status": "processed",
+            "disease_event_id": "00000000-0000-0000-0000-000000000001",
+            "is_health_related": true,
+            "needs_review": false,
+            "outbreak_alert": false,
         })]);
         assert!(csv.starts_with('\u{feff}'));
+        assert!(csv.contains("No,Country,Language,Source URL,Article Title,Disease Name"));
         assert!(csv.contains("Measles, Singapore"));
         assert!(csv.contains("43"));
+        assert!(csv.contains("True"));
         let xls = to_excel_xml(&[json!({"title": "<x>", "cases": 1, "deaths": 0})]);
         assert!(xls.contains("&lt;x&gt;"));
         assert!(xls.contains("ss:Type=\"Number\""));
@@ -962,5 +1694,81 @@ mod tests {
         assert_eq!(parse_status(&Some("bogus".into())), None);
         assert!(parse_job_id(&Some("not-a-uuid".into())).is_err());
         assert!(parse_job_id(&None).unwrap().is_none());
+        let (page, per_page, offset) = history_pagination(None, None);
+        assert_eq!((page, per_page, offset), (1, 25, 0));
+    }
+
+    #[test]
+    fn quality_defaults_to_surveillance_and_paginates_in_sql() {
+        assert_eq!(parse_quality(&None), Quality::Surveillance);
+        assert_eq!(parse_quality(&Some("".into())), Quality::Surveillance);
+        assert_eq!(parse_quality(&Some("surveillance".into())), Quality::Surveillance);
+        assert_eq!(parse_quality(&Some("ALL".into())), Quality::All);
+        assert_eq!(parse_quality(&Some("non-health".into())), Quality::Noise);
+        assert_eq!(quality_sql(Quality::Surveillance), Some("surveillance"));
+        assert_eq!(quality_sql(Quality::All), None);
+        let event_where = event_where_sql(Quality::Surveillance, true);
+        assert!(event_where.contains("is_health_related = TRUE"));
+        assert!(event_where.contains("0.15"));
+        assert!(!event_where.contains("DISTINCT ON"));
+        let event_sql = event_select_sql(180);
+        assert!(event_sql.contains("de.language"));
+        assert!(event_sql.contains("province_city_case"));
+        assert!(event_sql.contains("crawling_date"));
+        assert!(!event_sql.contains("DISTINCT ON"));
+        let matrix_where = matrix_where_sql(Quality::Surveillance);
+        assert!(matrix_where.contains("LIMIT") == false);
+        assert!(matrix_where.contains("disease_name"));
+        assert!(event_sql.contains("article_key"));
+        let inner = "SELECT de.epidemiological_evidence #>> '{}' AS evidence, 1 AS article_key";
+        let collapsed = collapse_article_sql(inner);
+        assert!(collapsed.contains("GROUP BY b.article_key"));
+        assert!(collapsed.contains("cases_display"));
+        assert!(collapsed.contains("deaths_display"));
+        assert!(collapsed.contains("geo_summary"));
+        assert!(collapsed.contains("location_count"));
+        assert!(!collapsed.contains("__INNER__"));
+        assert!(collapsed.contains("#>> '{}'"));
+        let country_sql = event_country_select();
+        assert!(country_sql.contains("de.province"));
+        assert!(country_sql.contains("de.city"));
+        let places = place_or_null_sql("de.province");
+        assert!(places.contains("harian"));
+        assert!(event_where_sql(Quality::Surveillance, false).contains("is_health_related = TRUE"));
+        assert!(!event_where_sql(Quality::Surveillance, false).contains("crawl_matrix_rows mx"));
+    }
+
+    #[test]
+    fn multi_location_display_matches_sheet_pattern() {
+        assert_eq!(
+            format_label_counts(vec![
+                ("Philippines".into(), 3734),
+                ("Indonesia".into(), 8278),
+            ]),
+            "Indonesia(8278); Philippines(3734)"
+        );
+        assert_eq!(
+            format_label_counts(vec![("Indonesia".into(), 12), ("".into(), 9)]),
+            "Indonesia(12)"
+        );
+        assert_eq!(
+            join_unique_labels(vec!["Philippines".into(), "Indonesia".into(), "Indonesia".into()]),
+            "Indonesia; Philippines"
+        );
+        let csv = to_csv(&[json!({
+            "country": "Indonesia; Philippines",
+            "disease": "Dengue; Measles",
+            "cases_display": "Indonesia(8278); Philippines(3734)",
+            "deaths_display": "Indonesia(12); Philippines(3)",
+            "geo_summary": "2 locations",
+            "latitude": 1.2,
+            "longitude": 103.8,
+            "is_health_related": true,
+        })]);
+        assert!(csv.contains("Indonesia(8278); Philippines(3734)"));
+        assert!(csv.contains("Indonesia(12); Philippines(3)"));
+        assert!(csv.contains("2 locations"));
+        assert!(!csv.contains("103.8"));
+        assert_eq!(display_or_value(&json!({"cases_display": "", "cases": 9}), "cases_display", "cases"), json!(9));
     }
 }

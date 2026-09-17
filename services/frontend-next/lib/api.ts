@@ -350,6 +350,7 @@ export type CrawlHistoryFilters = {
   needs_review?: boolean;
   has_geo?: boolean;
   job_id?: string;
+  quality?: string;
 };
 
 function crawlHistoryParams(filters: CrawlHistoryFilters = {}) {
@@ -366,6 +367,7 @@ function crawlHistoryParams(filters: CrawlHistoryFilters = {}) {
   if (typeof filters.needs_review === 'boolean') params.set('needs_review', String(filters.needs_review));
   if (typeof filters.has_geo === 'boolean') params.set('has_geo', String(filters.has_geo));
   if (filters.job_id) params.set('job_id', filters.job_id);
+  if (filters.quality) params.set('quality', filters.quality);
   return params;
 }
 
@@ -748,12 +750,12 @@ export async function fetchPaginated<T>(
   path: string,
 ): Promise<{ data: T[]; total: number; totalPages: number }> {
   const res = await fetch(`${baseURL()}${path}`, { cache: "no-store", headers: authHeaders() });
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  const json = await res.json();
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(formatApiError(res, json));
   return {
-    data: json.data as T[],
-    total: (json.total as number) || 0,
-    totalPages: (json.total_pages as number) || 1,
+    data: (json?.data ?? []) as T[],
+    total: (json?.total as number) || 0,
+    totalPages: (json?.total_pages as number) || 1,
   };
 }
 

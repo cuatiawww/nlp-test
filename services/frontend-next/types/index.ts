@@ -375,8 +375,8 @@ export type CrawlHistoryRow = {
   city?: string | null;
   disease?: string | null;
   icd11_code?: string | null;
-  cases: number;
-  deaths: number;
+  cases?: number | null;
+  deaths?: number | null;
   confidence?: number | null;
   source_type?: string | null;
   source_name?: string | null;
@@ -384,6 +384,8 @@ export type CrawlHistoryRow = {
   needs_review: boolean;
   has_geo: boolean;
   mapped: boolean;
+  quality_class?: string | null;
+  is_health_related?: boolean | null;
   latitude?: number | null;
   longitude?: number | null;
   created_at?: string | null;
@@ -392,8 +394,26 @@ export type CrawlHistoryRow = {
   language?: string | null;
   sentiment?: string | null;
   location_name?: string | null;
+  article_title?: string | null;
+  crawling_date?: string | null;
+  article_date?: string | null;
+  date_case?: string | null;
+  region?: string | null;
+  province_city_case?: string | null;
+  event_type?: string | null;
+  source_credibility?: number | null;
+  source_credibility_label?: string | null;
+  relevance_score?: string | null;
+  outbreak_alert?: boolean | null;
   symptoms?: unknown;
   disease_extracted?: unknown;
+  article_key?: string | null;
+  cases_display?: string | null;
+  deaths_display?: string | null;
+  geo_summary?: string | null;
+  event_count?: number | null;
+  location_count?: number | null;
+  children?: CrawlHistoryRow[];
   job?: CrawlHistoryJob;
 };
 
@@ -435,6 +455,13 @@ export type CrawlHistorySummary = {
   without_geo: number;
   needs_review: number;
   mapped: number;
+  default_quality?: string;
+  quality?: {
+    surveillance: number;
+    review: number;
+    noise: number;
+  };
+  noise_excluded?: number;
   fields?: string[];
 };
 

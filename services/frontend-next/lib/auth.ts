@@ -24,7 +24,7 @@ export const SYSTEM_MODULES: SystemModule[] = [
   { id: 'sources', label: 'Data Sources', description: 'Manage news feeds and API collection sources', category: 'Surveillance & Monitoring', path: '/sources' },
   { id: 'analyze', label: 'URL Analysis', description: 'Analyze a single web article or PDF independently', category: 'Surveillance & Monitoring', path: '/analyze' },
   { id: 'manual_crawler', label: 'Manual Crawler', description: 'Run an on-demand disease and location surveillance crawl', category: 'Surveillance & Monitoring', path: '/manual-crawler' },
-  { id: 'crawl_history', label: 'Crawl History', description: 'Browse stored crawl results as a Phase 1-style history matrix', category: 'Surveillance & Monitoring', path: '/crawl-history' },
+  { id: 'crawl_history', label: 'Crawl History', description: 'Browse stored health-surveillance crawl results (non-health noise hidden by default)', category: 'Surveillance & Monitoring', path: '/crawl-history' },
   { id: 'processing', label: 'Processing & Queue', description: 'Monitor worker queues and collection status', category: 'Surveillance & Monitoring', path: '/processing' },
   { id: 'reports', label: 'Reports & Matrix', description: 'Epidemiological reports and summary matrices', category: 'Surveillance & Monitoring', path: '/reports' },
   { id: 'tv', label: 'TV Command Center', description: 'Wide-screen command center dashboard view', category: 'Surveillance & Monitoring', path: '/tv' },
@@ -56,7 +56,7 @@ export const ROLE_PRESET_MODULES: Record<string, string[]> = {
 export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string): boolean {
   if (!user) return false;
   const role = user.role?.toLowerCase();
-  if (role === 'admin' || user.permissions?.includes('*')) return true;
+  if (role === 'admin' || role === 'superadmin' || role === 'webmaster' || user.permissions?.includes('*')) return true;
 
   if (user.permissions?.includes(moduleKeyOrPath)) return true;
 
