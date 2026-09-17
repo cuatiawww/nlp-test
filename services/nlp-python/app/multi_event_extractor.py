@@ -497,6 +497,104 @@ def extract_multi_events(
     return []
 
 
+def _infectious_disease_labels(diseases: list[str], text: str) -> list[str]:
+    """Outbreak-relevant labels only — never NCD mashups or UNKNOWN."""
+    from . import extractors as ext
+
+    kept: list[str] = []
+    for item in ext.filter_diseases_to_evidence(diseases or [], text):
+        display = ext.normalize_disease_display(item, text=text)
+        if not display or display.upper() == "UNKNOWN":
+            continue
+        if ext.is_ncd_only_non_outbreak(display, [display]):
+            continue
+        if display not in kept:
+            kept.append(display)
+    return kept
+
+
+def _event_for_disease(
+    *,
+    disease: str,
+    location: Optional[str],
+    text: str,
+    default_cases: int,
+    default_deaths: int,
+) -> dict[str, Any]:
+    from . import extractors as ext
+
+    loc = location or ""
+    country = _resolve_country(loc) if loc else None
+    lat, lon = _resolve_coords(loc) if loc else (None, None)
+    per_cases = ext.extract_case_count(text, disease=disease)
+    per_deaths = ext.extract_death_count(text, disease=disease)
+    if ext.article_states_zero_cases(text):
+        per_cases = 0
+    if ext.is_vaccine_campaign_not_outbreak(text) or ext.should_reject_incident_count(per_cases, text):
+        per_cases = 0
+        per_deaths = 0
+    elif not ext.has_explicit_case_count(text, disease=disease):
+        # Extra diseases must not inherit the article-wide total.
+        per_cases = 0
+    return {
+        "disease": disease,
+        "location_name": loc,
+        "country": country,
+        "latitude": lat,
+        "longitude": lon,
+        "case_count": per_cases,
+        "death_count": per_deaths,
+        "evidence": "",
+    }
+
+
+def compose_structured_events(
+    text: str,
+    primary_disease: str,
+    primary_location: Optional[str],
+    diseases_extracted: list[str],
+    locations: list[dict],
+    case_count: int,
+    death_count: int,
+) -> list[dict[str, Any]]:
+    """Location-scoped counts plus per-disease facts for one article.
+
+    Location pairs stay authoritative for Number of Cases/Deaths. Extra
+    outbreak-relevant diseases are persisted as their own rows so the
+    collapsed Disease column can show ``Influenza; RSV`` instead of the
+    primary label alone. NCD-only articles must not reach this helper.
+    """
+    events = extract_multi_events(
+        text=text,
+        primary_disease=primary_disease,
+        primary_location=primary_location,
+        diseases_extracted=diseases_extracted,
+        locations=locations,
+        case_count=case_count,
+        death_count=death_count,
+    )
+    infectious = _infectious_disease_labels(
+        [primary_disease, *(diseases_extracted or [])],
+        text,
+    )
+    present = {(evt.get("disease") or "").casefold() for evt in events}
+    for disease in infectious:
+        if disease.casefold() in present:
+            continue
+        events.append(
+            _event_for_disease(
+                disease=disease,
+                location=primary_location,
+                text=text,
+                default_cases=case_count,
+                default_deaths=death_count,
+            )
+        )
+        present.add(disease.casefold())
+    events = _deduplicate_events(events)
+    return events if len(events) >= MULTI_EVENT_MIN_PAIRS else []
+
+
 def _deduplicate_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Deduplicate events by (disease, location) key, keeping the highest counts."""
     merged: dict[tuple, dict[str, Any]] = {}

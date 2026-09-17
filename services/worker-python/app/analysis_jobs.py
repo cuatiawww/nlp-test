@@ -9,9 +9,10 @@ from urllib.parse import urlparse
 from .entity_relations import disease_relation_rows, location_relation_rows
 from .geo import st_makepoint_args
 from .kpi import mark_kpi_snapshots_stale
+from .multi_event_persist import load_sibling_facts, persist_child_facts
 
 logger = logging.getLogger(__name__)
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.health-gate")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
 
 
 def _pipeline_version_matches(row) -> bool:
@@ -162,10 +163,15 @@ def analyze_stages(
                 "warnings": warnings,
             }
     warnings.extend(analysis.pop("stage_warnings", []))
-    result = {**extracted, **analysis, "url": url}
+    result = {**extracted, **analysis, "url": url, "cached": False}
     if warnings:
         result["needs_review"] = True
-    return {"status": "partial" if warnings else "completed", "result": result, "warnings": warnings}
+    return {
+        "status": "partial" if warnings else "completed",
+        "result": result,
+        "warnings": warnings,
+        "cached": False,
+    }
 
 def connect():
     import psycopg
@@ -351,46 +357,13 @@ def save_completed(conn, job_id, result, raw_report_id=None):
             )
     result.update(raw_report_id=str(row["id"]), event_id=str(event["id"]))
 
-    # --- Multi-event decomposition for interactive analysis ---
-    sub_events = result.get("sub_events", [])
-    if len(sub_events) >= 2:
-        parent_event_id = event["id"]
-        for sub_evt in sub_events:
-            sub_location = sub_evt.get("location_name")
-            sub_disease = sub_evt.get("disease")
-            sub_cases = sub_evt.get("case_count", 0)
-            sub_deaths = sub_evt.get("death_count", 0)
-            sub_lat = sub_evt.get("latitude")
-            sub_lon = sub_evt.get("longitude")
-            child = conn.execute(
-                """INSERT INTO disease_events
-                   (raw_report_id, source_type, source_name, published_at,
-                    original_text, language, location_name, province, city, geom,
-                    disease_classification, case_count, death_count,
-                    confidence, outbreak_alert, sentiment, event_type,
-                    relevance_score, source_credibility,
-                    source_credibility_label, is_health_related,
-                    parent_event_id, source_url)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
-                                 ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
-                            END,
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s)
-                   ON CONFLICT DO NOTHING""",
-                (
-                    row["id"], result.get("source_type"), result.get("source_name"),
-                    result.get("published_at"), sub_evt.get("evidence", ""),
-                    result.get("language", "id"), sub_location, result.get("province"), result.get("city"),
-                    *st_makepoint_args(sub_lat, sub_lon),
-                    sub_disease, sub_cases, sub_deaths,
-                    result.get("confidence", 0.0), result.get("outbreak_alert", False),
-                    result.get("sentiment"), result.get("event_type"),
-                    result.get("relevance_score"), result.get("source_credibility", 0.50),
-                    result.get("source_credibility_label", ""),
-                    parent_event_id, result.get("url"),
-                ),
-            )
-        logger.info("Multi-event analysis: inserted %d child events", len(sub_events))
+    persist_child_facts(
+        conn,
+        parent_event_id=event["id"],
+        raw_id=row["id"],
+        result=result,
+        source_url=result.get("url"),
+    )
     conn.execute("UPDATE analysis_jobs SET event_id=%s WHERE id=%s", (event["id"],job_id))
     mark_kpi_snapshots_stale(conn)
 
@@ -413,7 +386,9 @@ def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_ca
            LEFT JOIN LATERAL (
                SELECT event.* FROM disease_events event
                WHERE event.raw_report_id=rr.id
-               ORDER BY event.created_at DESC LIMIT 1
+               ORDER BY CASE WHEN event.parent_event_id IS NULL THEN 0 ELSE 1 END,
+                        event.created_at DESC
+               LIMIT 1
            ) de ON TRUE
            WHERE (%s::text IS NOT NULL AND rr.content_hash=%s)
               OR (%s::text IS NOT NULL AND rr.canonical_url=%s)
@@ -561,7 +536,8 @@ def process_job(job_id):
                        SELECT event.*
                        FROM disease_events event
                        WHERE event.raw_report_id = rr.id
-                       ORDER BY event.created_at DESC
+                       ORDER BY CASE WHEN event.parent_event_id IS NULL THEN 0 ELSE 1 END,
+                                event.created_at DESC
                        LIMIT 1
                    ) de ON TRUE
                    WHERE (rr.url = %s
@@ -658,6 +634,15 @@ def process_job(job_id):
                     "cached": True,
                     "source": "database",
                 })
+                sibling_facts = load_sibling_facts(lock_conn, cached_report.get("raw_report_id"))
+                if len(sibling_facts) >= 2:
+                    res["sub_events"] = sibling_facts
+                    extracted = list(res.get("disease_extracted") or [])
+                    for fact in sibling_facts:
+                        name = fact.get("disease")
+                        if name and name not in extracted:
+                            extracted.append(name)
+                    res["disease_extracted"] = extracted
                 # psycopg JSON adaptation must receive only stdlib JSON
                 # primitives, including values nested in database JSONB.
                 res = json.loads(json.dumps(

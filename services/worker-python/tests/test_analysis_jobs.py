@@ -19,6 +19,8 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["result"]["case_count"], 10)
         self.assertEqual(result["result"]["content"], "10 dengue cases")
+        self.assertFalse(result["cached"])
+        self.assertFalse(result["result"]["cached"])
         self.assertFalse(nlp.call_args.kwargs["fallback"])
 
     def test_nlp_timeout_retries_full_nlp_without_rules(self):

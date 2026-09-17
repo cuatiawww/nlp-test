@@ -2694,7 +2694,7 @@ async fn analyze_url(
         .unwrap_or(true);
     let use_analysis_cache = env_use_cache && !payload.force_refresh;
     let pipeline_version = env::var("NLP_PIPELINE_VERSION")
-        .unwrap_or_else(|_| "2026.09.17.health-gate".to_string());
+        .unwrap_or_else(|_| "2026.09.17.multi-fact".to_string());
 
     let row = if use_analysis_cache {
         client
@@ -2735,7 +2735,8 @@ async fn analyze_url(
                        WHERE COALESCE(latest.warnings::text, '') ILIKE '%Full NLP unavailable%'
                           OR COALESCE(latest.warnings::text, '') ILIKE '%exceeded budget%'
                    )
-                 ORDER BY de.created_at DESC
+                 ORDER BY CASE WHEN de.parent_event_id IS NULL THEN 0 ELSE 1 END,
+                          de.created_at DESC
                  LIMIT 1",
                  &[&url, &pipeline_version],
             )
@@ -2822,6 +2823,64 @@ async fn analyze_url(
             }))
         }).collect();
 
+        let sibling_rows = client
+            .query(
+                "SELECT de.disease_classification, de.location_name, l.country,
+                        de.case_count, de.death_count, de.parent_event_id,
+                        ST_Y(de.geom) as latitude, ST_X(de.geom) as longitude
+                 FROM disease_events de
+                 LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
+                 WHERE de.raw_report_id = $1
+                 ORDER BY CASE WHEN de.parent_event_id IS NULL THEN 0 ELSE 1 END, de.created_at ASC",
+                &[&raw_report_id],
+            )
+            .await
+            .unwrap_or_default();
+        let mut sibling_facts: Vec<crawl_history::ArticleFact> = Vec::new();
+        let mut sub_events: Vec<serde_json::Value> = Vec::new();
+        let children: Vec<&tokio_postgres::Row> = sibling_rows
+            .iter()
+            .filter(|r| r.try_get::<_, Option<Uuid>>("parent_event_id").ok().flatten().is_some())
+            .collect();
+        let fact_rows: Vec<&tokio_postgres::Row> = if children.len() >= 2 {
+            children
+        } else {
+            sibling_rows.iter().collect()
+        };
+        for r in fact_rows {
+            let disease = r.try_get::<_, Option<String>>("disease_classification").ok().flatten();
+            let location_name = r.try_get::<_, Option<String>>("location_name").ok().flatten();
+            let country = r.try_get::<_, Option<String>>("country").ok().flatten();
+            let cases = r.try_get::<_, Option<i32>>("case_count").ok().flatten().map(|n| n as i64);
+            let deaths = r.try_get::<_, Option<i32>>("death_count").ok().flatten().map(|n| n as i64);
+            sibling_facts.push(crawl_history::ArticleFact {
+                disease: disease.clone(),
+                location: location_name
+                    .clone()
+                    .or(country.clone()),
+                cases,
+                deaths,
+            });
+            sub_events.push(json!({
+                "disease": disease,
+                "location_name": location_name,
+                "country": country,
+                "latitude": r.try_get::<_, Option<f64>>("latitude").ok().flatten(),
+                "longitude": r.try_get::<_, Option<f64>>("longitude").ok().flatten(),
+                "case_count": cases,
+                "death_count": deaths,
+            }));
+        }
+        let collapsed = crawl_history::collapse_article_facts(&sibling_facts);
+        let mut disease_extracted = disease_extracted;
+        for fact in &sibling_facts {
+            if let Some(name) = fact.disease.as_ref() {
+                if !name.is_empty() && !disease_extracted.iter().any(|item| item.eq_ignore_ascii_case(name)) {
+                    disease_extracted.push(name.clone());
+                }
+            }
+        }
+
         let language = row
             .try_get::<_, Option<String>>("language")
             .ok()
@@ -2892,6 +2951,12 @@ async fn analyze_url(
                 "nlp_pipeline_version": row.try_get::<_, Option<String>>("nlp_pipeline_version").ok().flatten(),
                 "raw_report_id": raw_report_id,
                 "event_id": event_id,
+                "sub_events": if sub_events.len() >= 2 { json!(sub_events) } else { json!([]) },
+                "disease_display": collapsed.disease,
+                "location_display": collapsed.location,
+                "cases_display": collapsed.cases_display,
+                "deaths_display": collapsed.deaths_display,
+                "display_dimension": collapsed.dimension,
                 "sources": Value::Object(sources),
                 "cached": true,
             }),

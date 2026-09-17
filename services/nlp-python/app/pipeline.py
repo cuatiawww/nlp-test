@@ -717,10 +717,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if count_period == "unknown":
             count_period = "incident"
 
-    # --- Multi-event extraction ---
+    # --- Multi-event extraction (locations AND diseases) ---
     try:
-        from .multi_event_extractor import extract_multi_events
-        multi_events = extract_multi_events(
+        from .multi_event_extractor import compose_structured_events
+        multi_events = compose_structured_events(
             text=text,
             primary_disease=disease,
             primary_location=location,
@@ -827,25 +827,32 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if item and item.upper() != "UNKNOWN"
         and not extractors.is_ncd_only_non_outbreak(item, [item])
     ]
-    flu_rsv = [
-        item for item in infectious
-        if any(token in item.lower() for token in ("influenza", "rsv", "syncytial"))
-        and "avian" not in item.lower()
-    ]
-    if len(flu_rsv) >= 2 and not sub_events:
-        sub_events = [
-            SubEvent(
-                disease=item,
-                location_name=location or "",
-                country=country,
-                latitude=lat,
-                longitude=lon,
-                case_count=0 if extractors.is_vaccine_campaign_not_outbreak(text) else case_count,
-                death_count=0 if extractors.is_vaccine_campaign_not_outbreak(text) else death_count,
-                evidence=next((span for span in evidence if item.split()[0].lower() in span.lower()), ""),
+    present_diseases = {(evt.disease or "").casefold() for evt in sub_events}
+    if ncd_only:
+        sub_events = []
+    elif len(infectious) >= 2:
+        for item in infectious:
+            if item.casefold() in present_diseases:
+                continue
+            sub_events.append(
+                SubEvent(
+                    disease=item,
+                    location_name=location or "",
+                    country=country,
+                    latitude=lat,
+                    longitude=lon,
+                    case_count=0 if extractors.is_vaccine_campaign_not_outbreak(text) else (
+                        extractors.extract_case_count(text, disease=item)
+                        if extractors.has_explicit_case_count(text, disease=item)
+                        else 0
+                    ),
+                    death_count=0 if extractors.is_vaccine_campaign_not_outbreak(text) else (
+                        extractors.extract_death_count(text, disease=item)
+                    ),
+                    evidence=next((span for span in evidence if item.split()[0].lower() in span.lower()), ""),
+                )
             )
-            for item in flu_rsv
-        ]
+            present_diseases.add(item.casefold())
 
     for evt in sub_events:
         resolved_sub = resolve_local_icd11_term(evt.disease)
@@ -881,6 +888,29 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         case_count=case_count,
         death_count=death_count,
     )
+
+    from .multi_fact_display import collapse_facts
+    display_facts = [
+        {
+            "disease": evt.disease,
+            "location_name": evt.location_name,
+            "country": evt.country,
+            "case_count": evt.case_count,
+            "death_count": evt.death_count,
+        }
+        for evt in sub_events
+    ] or [
+        {
+            "disease": disease,
+            "location_name": location,
+            "country": country,
+            "province": extractors.split_admin_place(location, country)[0],
+            "city": extractors.split_admin_place(location, country)[1],
+            "case_count": case_count,
+            "death_count": death_count,
+        }
+    ]
+    collapsed = collapse_facts(display_facts)
 
     return AnalyzeResponse(
         language=language,
@@ -929,4 +959,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         event_date_start=period.get("event_date_start"),
         event_date_end=period.get("event_date_end"),
         date_needs_review=bool(period.get("date_needs_review")),
+        disease_display=collapsed.get("disease_display") or None,
+        location_display=collapsed.get("location_display") or None,
+        cases_display=collapsed.get("cases_display"),
+        deaths_display=collapsed.get("deaths_display"),
+        display_dimension=collapsed.get("dimension"),
     )

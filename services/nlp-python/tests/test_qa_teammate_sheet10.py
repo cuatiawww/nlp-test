@@ -102,6 +102,14 @@ class TeammateSheet10QaTest(unittest.TestCase):
         )
         self.assertLess(int(score.prediction.get("case_count") or 0), 10000)
         self.assertTrue(score.prediction.get("vaccine_campaign"))
+        from app.multi_fact_display import collapse_facts, short_disease_label
+        collapsed = collapse_facts([
+            {"disease": name, "location_name": "Bangkok", "case_count": 0, "death_count": 0}
+            for name in (score.prediction.get("diseases") or [])
+        ])
+        self.assertIn("; ", collapsed["disease_display"])
+        self.assertNotIn(",", collapsed["disease_display"])
+        self.assertIn("RSV", collapsed["disease_display"] or short_disease_label("RSV"))
 
     def test_long_gazetteer_collision_is_rejected(self):
         self.assertFalse(extractors.is_usable_place_name("Long", "ชวนลองเผชิญโรคร้าย"))
