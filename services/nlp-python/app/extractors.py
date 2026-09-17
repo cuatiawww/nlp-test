@@ -84,6 +84,53 @@ def normalize_disease_display(disease: str, language: str = "unknown", text: str
         "hfmd": "Hand, foot and mouth disease",
         "mpox": "Mpox",
         "monkeypox": "Mpox",
+        "ispa": "Acute Respiratory Infection (ARI/ISPA)",
+        "ari": "Acute Respiratory Infection (ARI/ISPA)",
+        "infeksi saluran pernapasan akut": "Acute Respiratory Infection (ARI/ISPA)",
+        "infeksi saluran pernafasan akut": "Acute Respiratory Infection (ARI/ISPA)",
+        "acute respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
+        "upper respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
+        "upper respiratory tract infection": "Acute Respiratory Infection (ARI/ISPA)",
+        "lower respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
+        "pneumonia": "Pneumonia",
+        "radang paru": "Pneumonia",
+        "hepatitis": "Hepatitis",
+        "hepatitis a": "Hepatitis A",
+        "hepatitis b": "Hepatitis B",
+        "diare": "Acute diarrhea",
+        "diarrhea": "Acute diarrhea",
+        "diarrhoea": "Acute diarrhea",
+        "typhoid": "Typhoid fever",
+        "tifus": "Typhoid fever",
+        "typhoid fever": "Typhoid fever",
+        "demam tifoid": "Typhoid fever",
+        "tipes": "Typhoid fever",
+        "chikungunya": "Chikungunya",
+        "leptospirosis": "Leptospirosis",
+        "filariasis": "Filariasis",
+        "kaki gajah": "Filariasis",
+        "scabies": "Scabies",
+        "kudis": "Scabies",
+        "tetanus": "Tetanus",
+        "pertusis": "Pertussis",
+        "pertussis": "Pertussis",
+        "batuk rejan": "Pertussis",
+        "whooping cough": "Pertussis",
+        "difteri": "Diphtheria",
+        "diphtheria": "Diphtheria",
+        "antraks": "Anthrax",
+        "anthrax": "Anthrax",
+        "pes": "Plague",
+        "plague": "Plague",
+        "kusta": "Leprosy",
+        "leprosy": "Leprosy",
+        "lepra": "Leprosy",
+        "stroke": "Stroke",
+        "jantung koroner": "Coronary heart disease",
+        "diabetes": "Diabetes mellitus",
+        "diabetes melitus": "Diabetes mellitus",
+        "hipertensi": "Hypertension",
+        "hypertension": "Hypertension",
     }
     return canonical_aliases.get(key, raw)
 
@@ -1116,6 +1163,23 @@ def disease_has_textual_evidence(disease: str, text: str) -> bool:
         "syncytial": ("rsv", "respiratory syncytial", "syncytial"),
         "nipah": ("nipah",),
         "tuberculosis": ("tbc", "tuberculosis", "tuberkulosis", "bệnh lao", "lao", "วัณโรค"),
+        "acute respiratory": ("ispa", "ari", "infeksi saluran pernapasan", "infeksi saluran pernafasan", "acute respiratory infection", "upper respiratory", "lower respiratory"),
+        "pneumonia": ("pneumonia", "radang paru", "viêm phổi", "ปอดบวม"),
+        "hepatitis": ("hepatitis",),
+        "typhoid": ("typhoid", "tifus", "tipes", "demam tifoid", "thương hàn"),
+        "chikungunya": ("chikungunya", "ไข้ชิคุนกุนยา"),
+        "leptospirosis": ("leptospirosis",),
+        "diarrhea": ("diare", "diarrhea", "diarrhoea", "tiêu chảy", "ท้องร่วง"),
+        "acute diarrhea": ("diare", "diarrhea", "diarrhoea", "diare akut", "acute diarrhea"),
+        "pertussis": ("pertussis", "pertusis", "batuk rejan", "whooping cough"),
+        "diphtheria": ("diphtheria", "difteri", "bạch hầu", "bach hau"),
+        "filariasis": ("filariasis", "kaki gajah"),
+        "scabies": ("scabies", "kudis"),
+        "anthrax": ("anthrax", "antraks"),
+        "leprosy": ("leprosy", "kusta", "lepra"),
+        "stroke": ("stroke", "đột quỵ", "dot quy", "cerebrovascular"),
+        "diabetes": ("diabetes", "diabetes melitus"),
+        "hypertension": ("hipertensi", "hypertension"),
     }
     key = token
     for name, needles in aliases.items():
@@ -1290,15 +1354,51 @@ def _sentence_window(text: str, start: int, end: int) -> str:
 
 
 _WORD_NUMBERS = {
+    # English
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
     "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
     "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+    "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+    "eighty": 80, "ninety": 90, "hundred": 100, "a hundred": 100, "a dozen": 12,
+    "twenty-one": 21, "twenty-two": 22, "twenty-three": 23, "twenty-four": 24, "twenty-five": 25,
+    "twenty-six": 26, "twenty-seven": 27, "twenty-eight": 28, "twenty-nine": 29,
+
+    # Indonesian & Malay
+    "satu": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5,
+    "enam": 6, "tujuh": 7, "delapan": 8, "sembilan": 9, "sepuluh": 10,
+    "sebelas": 11, "dua belas": 12, "tiga belas": 13, "empat belas": 14, "lima belas": 15,
+    "enam belas": 16, "tujuh belas": 17, "delapan belas": 18, "sembilan belas": 19, "dua puluh": 20,
+    "dua puluh satu": 21, "dua puluh dua": 22, "dua puluh tiga": 23, "dua puluh empat": 24, "dua puluh lima": 25,
+    "tiga puluh": 30, "empat puluh": 40, "lima puluh": 50, "enam puluh": 60, "tujuh puluh": 70,
+    "delapan puluh": 80, "sembilan puluh": 90, "seratus": 100, "seribu": 1000,
+    # Classifiers & Quantifiers
+    "seorang": 1, "seekor": 1, "sepasang": 2, "kedua": 2, "tiga bersaudara": 3,
+
+    # Vietnamese
+    "một": 1, "hai": 2, "ba": 3, "bốn": 4, "năm": 5,
+    "sáu": 6, "bảy": 7, "tám": 8, "chín": 9, "mười": 10,
+    "mười một": 11, "mười hai": 12, "hai mươi": 20, "ba mươi": 30, "một trăm": 100,
+    "một người": 1, "một ca": 1, "một bệnh nhân": 1, "hai mẹ con": 2, "cả hai": 2,
+
+    # Thai
+    "หนึ่ง": 1, "สอง": 2, "สาม": 3, "สี่": 4, "ห้า": 5,
+    "หก": 6, "เจ็ด": 7, "แปด": 8, "เก้า": 9, "สิบ": 10,
+    "ยี่สิบ": 20, "สามสิบ": 30, "หนึ่งร้อย": 100, "ร้อย": 100,
+    "รายหนึ่ง": 1, "ทั้งสองราย": 2,
 }
 
 _NUM_TOKEN = (
     r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
     r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
+    r"twenty-[a-z]+|thirty-[a-z]+|forty-[a-z]+|fifty-[a-z]+|"
+    r"satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|"
+    r"sebelas|dua\s+belas|tiga\s+belas|empat\s+belas|lima\s+belas|enam\s+belas|tujuh\s+belas|delapan\s+belas|sembilan\s+belas|"
+    r"dua\s+puluh|tiga\s+puluh|empat\s+puluh|lima\s+puluh|seratus|seribu|"
+    r"seorang|seekor|sepasang|kedua|"
+    r"một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười|hai\s+mươi|ba\s+mươi|một\s+trăm|"
+    r"หนึ่ง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ|ยี่สิบ|ร้อย|"
     r"[0-9]{1,3}(?:[,.\s]\d{3})+\.?|[0-9]+(?:[.,]\d+)?\.?|[0-9][0-9,.]*)"
 )
 
@@ -1309,15 +1409,50 @@ _FOCAL_SINGULAR = re.compile(
     r"(?:infection|case) involved a \d+-year-old|"
     r"(?:reported|reports|confirms?)\s+(?:a|another|one)\s+(?:severe\s+)?"
     r"(?:human\s+)?(?:h5n1\s+)?(?:avian\s+(?:influenza|flu)\s+)?"
-    r"(?:infection|case)\b"
+    r"(?:infection|case)\b|"
+    # Indonesian / Malay single individual
+    r"seorang\s+(?:wanita|pria|anak|pasien|warga|balita|bayi|ibu|bapak|orang|lansia|santri|siswi|siswa|korban|perawat|dokter)\b|"
+    r"seekor\s+(?:anjing|kucing|kera|monyet|unggas|burung|ayam)\b|"
+    r"satu\s+(?:kasus|pasien|orang|warga)\s+(?:baru\s+)?(?:positif|terkonfirmasi|ditemukan|dilaporkan|tercatat|dirawat|meninggal)|"
+    r"(?:pasien|balita|bayi|anak|korban)\s+(?:berusia|berumur)?\s*\d+\s*(?:tahun|thn|th|bulan|bln)\s+(?:terjangkit|terinfeksi|positif|terkena|dirawat|meninggal)|"
+    # English contextual single
+    r"(?:a|one|the)\s+(?:woman|man|child|patient|resident|person|boy|girl|infant|toddler|elderly|individual)\s+(?:was\s+)?(?:diagnosed|infected|contracted|tested positive|hospitalized|stricken|admitted|died)|"
+    r"(?:he|she)\s+(?:was\s+)?(?:diagnosed|infected|contracted|tested positive|hospitalized)|"
+    r"(?:reported|confirms?|detected|logged)\s+(?:a|one|another)\s+(?:case|infection)\b|"
+    # Vietnamese
+    r"một\s+(?:người|phụ nữ|đàn ông|trẻ em|bệnh nhân|cháu bé|ca)\s+(?:nhiễm|mắc|dương tính|nhập viện|tử vong)|"
+    # Thai
+    r"ผู้ป่วย(?:หญิง|ชาย|เด็ก)?รายหนึ่ง\s*(?:ติดเชื้อ|ป่วย|รักษาตัว|เสียชีวิต)"
     r")",
     re.I,
 )
 
 _HEADLINE_TWO = re.compile(
-    r"(?:first(?:\s+\w+){0,8}\s+two|the two cases|two cases\s+[–-]\s+both)",
+    r"(?:"
+    r"first(?:\s+\w+){0,8}\s+two|the two cases|two cases\s+[–-]\s+both|"
+    r"both\s+(?:patients?|cases?|victims?)|a\s+couple|"
+    r"sepasang\s+(?:suami\s+istri|lansia|warga|pasien)|"
+    r"kedua\s+(?:pasien|korban|anak|balita|warga)|"
+    r"dua\s+(?:orang\s+)?(?:pasien|warga|anak|balita|kasus)\s+(?:positif|terinfeksi|terjangkit|terkena|dirawat)|"
+    r"hai\s+(?:mẹ\s+con|anh\s+em|bệnh\s+nhân|ca)|"
+    r"cả\s+hai\s+ca|"
+    r"ผู้ป่วย\s*2\s*ราย|ทั้งสองราย"
+    r")",
     re.I,
 )
+
+_APPROXIMATE_QUANTIFIERS = {
+    "beberapa": {"min": 2, "max": 9, "median": 5},
+    "several": {"min": 2, "max": 9, "median": 5},
+    "a few": {"min": 2, "max": 5, "median": 3},
+    "belasan": {"min": 11, "max": 19, "median": 15},
+    "puluhan": {"min": 20, "max": 99, "median": 50},
+    "tens of": {"min": 20, "max": 99, "median": 50},
+    "ratusan": {"min": 100, "max": 999, "median": 200},
+    "hundreds of": {"min": 100, "max": 999, "median": 200},
+    "ribuan": {"min": 1000, "max": 9999, "median": 2000},
+    "thousands of": {"min": 1000, "max": 9999, "median": 2000},
+}
 
 _OUTBREAK_CLOSED = re.compile(
     r"\b(?:ended its outbreak|officially ended|outbreak closure|"
@@ -1483,14 +1618,25 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         token_str = match.group(1).strip(".,")
         if token_str == "19" and re.search(r"covid|sars", search_text[max(0, match.start(1) - 24): min(len(search_text), match.end(1) + 24)].lower()):
             return
-        after = search_text[match.end(1): match.end(1) + 16]
-        if re.match(r"\s*-?\s*(?:year|month)-olds?", after, re.I):
+        after = search_text[match.end(1): match.end(1) + 30].strip()
+        before = search_text[max(0, match.start(1) - 30): match.start(1)].strip()
+        
+        # 1. Multilingual Age Filtering: Prevent patient ages from being captured as case or death counts
+        # e.g., 'balita 3 tahun' (age 3), 'lansia 65 tahun meninggal' (age 65), 'bé 4 tuổi'
+        is_age = bool(re.match(r"^(?:-|–|\s)*(?:years?(?:\s+old)?|months?(?:\s+old)?|days?(?:\s+old)?|tahun|thn|th|bulan|bln|hari|hr|tuổi|tháng(?:\s+tuổi)?|ขวบ|ปี|yo|yr|mths?)\b", after, re.I))
+        is_age |= bool(re.search(r"\b(?:aged|berusia|berumur|umur|usia|bệnh nhân|bé|độ tuổi)\s*$", before, re.I))
+        if is_age:
             return
+
         parsed = _parse_count(match.group(1), match.group(0))
         if parsed is None:
             return
         raw_token = match.group(1).strip(".,")
+        # 2. Year filter (19xx, 20xx)
         if re.fullmatch(r"(?:19|20)\d{2}", raw_token):
+            return
+        # 3. Calendar dates (e.g. '23 Agustus', '1 to 23 Aug')
+        if re.match(r"^(?:-|–|\s)*(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|january|february|march|april|may|june|july|august|september|october|november|december|tháng)\b", after, re.I):
             return
         window = _sentence_window(search_text, match.start(), match.end())
         window_l = window.lower()
@@ -1548,10 +1694,15 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         if not strong:
             return 1
 
-    if field == "death_count" and override == 1:
-        if re.search(r"\b(?:the patient died|died from (?:his|her|the) infection)\b", search_text, re.I):
-            candidates.append((20, 0, 1, 8))
-        else:
+    if field == "death_count":
+        # Check if text describes a single focal death (e.g. 'meninggal dunia', 'tewas', 'died')
+        if re.search(r"\b(?:meninggal(?:\s+dunia)?|tewas|korban\s+jiwa|merenggut\s+nyawa|died|passed\s+away|fatally|tử\s+vong|เสียชีวิต)\b", search_text, re.I):
+            if override == 1 or _FOCAL_SINGULAR.search(search_text):
+                # If all candidates were filtered out (like ages 65 tahun) or no candidate exists, return 1 death
+                valid_candidates = [item for item in candidates if item[2] > 0 and item[0] >= 5]
+                if not valid_candidates:
+                    return 1
+        if override == 1:
             candidates = [item for item in candidates if item[3] >= 0]
             if not candidates:
                 return default
@@ -1559,6 +1710,11 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     if not candidates:
         if field == "death_count" and re.search(r"\bno deaths?\b", search_text, re.I):
             return 0
+        if field == "case_count":
+            search_lower = search_text.lower()
+            for quant, info in _APPROXIMATE_QUANTIFIERS.items():
+                if re.search(rf"\b{re.escape(quant)}\b", search_lower):
+                    return info["median"]
         return default
     if disease_terms:
         scoped = [item for item in candidates if item[0] >= 12]
@@ -1807,6 +1963,73 @@ DISEASE_ALIASES = {
     "rabies": "Rabies",
     "penyakit anjing gila": "Rabies",
     "malaria": "Malaria",
+    # ARI/ISPA
+    "ispa": "Acute Respiratory Infection (ARI/ISPA)",
+    "infeksi saluran pernapasan akut": "Acute Respiratory Infection (ARI/ISPA)",
+    "infeksi saluran pernafasan akut": "Acute Respiratory Infection (ARI/ISPA)",
+    "acute respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
+    "upper respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
+    "lower respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
+    "ari": "Acute Respiratory Infection (ARI/ISPA)",
+    # Pneumonia
+    "pneumonia": "Pneumonia",
+    "radang paru": "Pneumonia",
+    "radang paru-paru": "Pneumonia",
+    # Hepatitis
+    "hepatitis": "Hepatitis",
+    "hepatitis a": "Hepatitis A",
+    "hepatitis b": "Hepatitis B",
+    # Typhoid
+    "typhoid": "Typhoid fever",
+    "tifus": "Typhoid fever",
+    "demam tifoid": "Typhoid fever",
+    "tipes": "Typhoid fever",
+    "typhoid fever": "Typhoid fever",
+    # Chikungunya
+    "chikungunya": "Chikungunya",
+    # Leptospirosis
+    "leptospirosis": "Leptospirosis",
+    # Diarrhea
+    "diare": "Acute diarrhea",
+    "diare akut": "Acute diarrhea",
+    "diarrhea": "Acute diarrhea",
+    "diarrhoea": "Acute diarrhea",
+    # Filariasis
+    "filariasis": "Filariasis",
+    "kaki gajah": "Filariasis",
+    # Scabies
+    "scabies": "Scabies",
+    "kudis": "Scabies",
+    # Pertussis
+    "pertusis": "Pertussis",
+    "pertussis": "Pertussis",
+    "batuk rejan": "Pertussis",
+    "whooping cough": "Pertussis",
+    # Diphtheria
+    "difteri": "Diphtheria",
+    "diphtheria": "Diphtheria",
+    # Others
+    "antraks": "Anthrax",
+    "anthrax": "Anthrax",
+    "kusta": "Leprosy",
+    "lepra": "Leprosy",
+    "leprosy": "Leprosy",
+    "tetanus": "Tetanus",
+    "diabetes": "Diabetes mellitus",
+    "diabetes melitus": "Diabetes mellitus",
+    "hipertensi": "Hypertension",
+    "hypertension": "Hypertension",
+    "stroke": "Stroke",
+    "penyakit jantung koroner": "Coronary heart disease",
+    # Vietnamese additional
+    "viêm phổi": "Pneumonia",
+    "tiêu chảy": "Acute diarrhea",
+    "bệnh thương hàn": "Typhoid fever",
+    # Thai additional
+    "ปอดบวม": "Pneumonia",
+    "ท้องร่วง": "Acute diarrhea",
+    "ไข้เด็งกี": "Dengue",
+    "ไข้ชิคุนกุนยา": "Chikungunya",
 }
 
 

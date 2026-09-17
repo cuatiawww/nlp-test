@@ -161,6 +161,12 @@ LOCATION_STOPWORDS = {
     "senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu",
     "kasus", "pasien", "rumah", "sakit", "anak", "umum", "sehat",
     "pagi", "siang", "sore", "malam", "hari", "bulan", "tahun",
+    # Indonesian/English/Malay month names — "Juli" is a real village but
+    # virtually always means the month in news articles.
+    "januari", "februari", "maret", "april", "mei", "juni",
+    "juli", "agustus", "september", "oktober", "november", "desember",
+    "january", "february", "march", "may", "june",
+    "july", "august", "october", "december",
     "pos", "posko", "kantor", "dinas", "kementerian", "badan",
     "pusat", "daerah", "wilayah", "provinsi", "kabupaten", "kota",
     "kecamatan", "kelurahan", "desa", "dusun", "kampung", "rt", "rw",

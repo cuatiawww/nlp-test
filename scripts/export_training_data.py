@@ -71,8 +71,12 @@ def load_rows(args: argparse.Namespace) -> tuple[dict[str, list[dict]], str]:
                     "confidence": float(row.get("confidence") or 0),
                     "published_at": str(row.get("published_at") or ""),
                 }
-                seen[label] += 1
-                reservoir_add(buckets[label], item, seen[label], args.max_per_label, rng)
+                if row.get("source") == "human_corrected" or float(row.get("confidence") or 0.0) >= 0.999:
+                    # Always preserve human corrections in training set!
+                    buckets[label].append(item)
+                else:
+                    seen[label] += 1
+                    reservoir_add(buckets[label], item, seen[label], args.max_per_label, rng)
 
         year_clause = "" if args.year is None else " AND EXTRACT(YEAR FROM r.published_at) = %s\n"
         query = f"""

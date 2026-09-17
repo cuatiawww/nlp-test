@@ -1038,3 +1038,85 @@ export const fetchMapEnvironment = (init?: LayerInit) =>
     LAYER_TTL_MS.environment,
     init,
   );
+
+
+export interface NLPCorrectionPayload {
+  event_id?: string;
+  raw_report_id?: string;
+  field_name: 'case_count' | 'death_count' | 'disease' | 'location' | 'country';
+  original_value?: string;
+  corrected_value: string;
+  correction_source?: string;
+  text_snippet?: string;
+  language?: string;
+  corrected_by?: string;
+}
+
+export async function submitNLPCorrection(
+  payload: NLPCorrectionPayload
+): Promise<{ status: string; message: string; correction_id?: string }> {
+  const endpoint = typeof window !== 'undefined'
+    ? `${baseURL()}/api-nlp/correct`
+    : 'http://disease-nlp-python:8000/correct';
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  // Fallback to direct NLP service on localhost if proxy is unavailable
+  const fallbackEndpoint = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:8000/correct'
+    : 'http://disease-nlp-python:8000/correct';
+
+  const fallbackRes = await fetch(fallbackEndpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!fallbackRes.ok) {
+    const errData = await fallbackRes.json().catch(() => ({}));
+    throw new Error(errData?.detail || errData?.error || 'Gagal menyimpan koreksi ke server');
+  }
+
+  return await fallbackRes.json();
+}
+
+export async function fetchNLPTrainingDataset(
+  limit: number = 5000
+): Promise<{ total_examples: number; human_corrected_count: number; data: any[] }> {
+  const endpoint = typeof window !== 'undefined'
+    ? `${baseURL()}/api-nlp/export-dataset?limit=${limit}`
+    : `http://disease-nlp-python:8000/export-dataset?limit=${limit}`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: { ...authHeaders() },
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  const fallbackEndpoint = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? `http://localhost:8000/export-dataset?limit=${limit}`
+    : `http://disease-nlp-python:8000/export-dataset?limit=${limit}`;
+
+  const fallbackRes = await fetch(fallbackEndpoint);
+  if (!fallbackRes.ok) {
+    throw new Error('Gagal mengekspor dataset dari NLP service');
+  }
+  return await fallbackRes.json();
+}

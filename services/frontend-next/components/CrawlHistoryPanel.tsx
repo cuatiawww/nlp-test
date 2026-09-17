@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
+import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
+import { Edit3 } from 'lucide-react'
 import {
   downloadCrawlHistoryExport,
   fetchCrawlHistoryJobs,
@@ -68,6 +70,7 @@ const PHASE1_COLUMNS: { key: string; label: string; width: number; sticky?: bool
   { key: 'relevance_score', label: 'Relevance Score', width: 110 },
   { key: 'outbreak_alert', label: 'Outbreak Alert', width: 110 },
   { key: 'needs_review', label: 'Needs Review', width: 110 },
+  { key: 'action', label: 'Action', width: 95 },
 ]
 
 function fmtNum(value?: number | null) {
@@ -259,6 +262,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [detail, setDetail] = useState<CrawlHistoryRow | null>(null)
+  const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -626,16 +630,45 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                       className="cursor-pointer hover:bg-blue-50/40"
                       onClick={() => void openRow(row)}
                     >
-                      {PHASE1_COLUMNS.map((col) => (
-                        <td
-                          key={col.key}
-                          className={`whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1.5 align-middle text-slate-800 ${
-                            col.sticky ? 'sticky left-0 z-[1]' : ''
-                          }`}
-                        >
-                          {rowCell(row, col.key, index, page)}
-                        </td>
-                      ))}
+                      {PHASE1_COLUMNS.map((col) => {
+                        if (col.key === 'action') {
+                          return (
+                            <td
+                              key={col.key}
+                              className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1 text-center align-middle"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setCorrectionTarget({
+                                  eventId: row.disease_event_id,
+                                  rawReportId: row.id,
+                                  fieldName: 'case_count',
+                                  originalValue: String(row.cases ?? 0),
+                                  textSnippet: row.evidence || row.title || '',
+                                  articleTitle: row.title || row.url,
+                                  language: row.language,
+                                })}
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition"
+                                title="Koreksi data ekstraksi ini (Continuous Learning)"
+                              >
+                                <Edit3 className="h-3 w-3 text-slate-500" />
+                                <span>Koreksi</span>
+                              </button>
+                            </td>
+                          )
+                        }
+                        return (
+                          <td
+                            key={col.key}
+                            className={`whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1.5 align-middle text-slate-800 ${
+                              col.sticky ? 'sticky left-0 z-[1]' : ''
+                            }`}
+                          >
+                            {rowCell(row, col.key, index, page)}
+                          </td>
+                        )
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -683,7 +716,28 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
         ) : detail ? (
           <div className="space-y-4 text-sm">
             <div>
-              <div className="text-base font-semibold text-slate-900">{detail.title || 'Untitled article'}</div>
+              <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-base font-semibold text-slate-900">{detail.title || 'Untitled article'}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCorrectionTarget({
+                  eventId: detail.disease_event_id,
+                  rawReportId: detail.id,
+                  fieldName: 'case_count',
+                  originalValue: String(detail.cases ?? 0),
+                  textSnippet: detail.evidence || detail.title || '',
+                  articleTitle: detail.title || detail.url,
+                  language: detail.language,
+                })}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-xs shrink-0"
+                title="Buka dialog koreksi NLP (Continuous Learning)"
+              >
+                <Edit3 className="h-3.5 w-3.5 text-emerald-600" />
+                <span>Koreksi Ekstraksi</span>
+              </button>
+            </div>
               {detail.url ? (
                 <a href={detail.url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-[#0060A9] hover:underline">
                   {detail.url} <ExternalLink className="h-3 w-3" />
@@ -770,6 +824,15 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           </div>
         ) : null}
       </Modal>
+
+      <CorrectionModal
+        open={!!correctionTarget}
+        target={correctionTarget}
+        onClose={() => setCorrectionTarget(null)}
+        onSuccess={() => {
+          void loadRows()
+        }}
+      />
     </section>
   )
 }

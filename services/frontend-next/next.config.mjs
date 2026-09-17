@@ -53,6 +53,10 @@ const nextConfig = {
         destination: 'http://disease-collector-python:8002/upload-asset',
       },
       {
+        source: '/api/v1/nlp/:path*',
+        destination: 'http://disease-nlp-python:8000/:path*',
+      },
+      {
         source: '/api/:path*',
         destination: `${process.env.BACKEND_INTERNAL_URL || 'http://disease-backend-rust:8081'}/api/:path*`,
       },

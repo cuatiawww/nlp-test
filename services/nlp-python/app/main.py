@@ -234,3 +234,88 @@ def update_sentiment_labels(body: LabelsUpdate):
     set_labels("sentiment", body.labels)
     logger.info("Sentiment labels updated to: %s", body.labels)
     return {"success": True, "labels": body.labels}
+
+
+class NLPCorrectionRequest(BaseModel):
+    event_id: Optional[str] = None
+    raw_report_id: Optional[str] = None
+    field_name: str
+    original_value: Optional[str] = None
+    corrected_value: str
+    correction_source: Optional[str] = "user_ui"
+    text_snippet: Optional[str] = None
+    language: Optional[str] = None
+    corrected_by: Optional[str] = "operator"
+
+
+@app.post("/correct")
+@app.post("/api/nlp/correct")
+def submit_nlp_correction(payload: NLPCorrectionRequest):
+    """Save user correction to nlp_corrections and boost training example confidence to 1.0."""
+    import psycopg
+    from . import config
+    try:
+        conn = psycopg.connect(config.DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO nlp_corrections (
+                event_id, raw_report_id, field_name, original_value, 
+                corrected_value, correction_source, text_snippet, language, corrected_by
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;""",
+            (
+                payload.event_id if payload.event_id else None,
+                payload.raw_report_id if payload.raw_report_id else None,
+                payload.field_name,
+                payload.original_value,
+                payload.corrected_value,
+                payload.correction_source or "user_ui",
+                payload.text_snippet,
+                payload.language,
+                payload.corrected_by or "operator",
+            )
+        )
+        row = cur.fetchone()
+        conn.commit()
+        correction_id = str(row[0]) if row else None
+        logger.info("Saved NLP correction %s: %s -> %s", correction_id, payload.field_name, payload.corrected_value)
+        return {
+            "status": "ok",
+            "message": "Correction recorded and applied to continuous learning loop.",
+            "correction_id": correction_id,
+        }
+    except Exception as e:
+        logger.error("Failed to save correction: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/export-dataset")
+@app.get("/api/nlp/export-dataset")
+def export_training_dataset(limit: int = 5000):
+    """Export training data for Google Colab fine-tuning, prioritizing human corrections."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from . import config
+    try:
+        conn = psycopg.connect(config.DATABASE_URL, row_factory=dict_row)
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT id, text, disease_label, case_count, death_count, confidence, source, language
+               FROM nlp_training_examples
+               WHERE text IS NOT NULL AND length(text) > 20
+               ORDER BY (CASE WHEN source = 'human_corrected' THEN 1 ELSE 2 END), confidence DESC, created_at DESC
+               LIMIT %s;""",
+            (limit,)
+        )
+        rows = cur.fetchall()
+        # Convert UUID to str
+        for r in rows:
+            if r.get("id"):
+                r["id"] = str(r["id"])
+        return {
+            "total_examples": len(rows),
+            "human_corrected_count": sum(1 for r in rows if r["source"] == "human_corrected"),
+            "data": rows,
+        }
+    except Exception as e:
+        logger.error("Failed to export dataset: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))

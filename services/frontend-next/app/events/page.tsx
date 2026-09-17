@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
 import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
+import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
+import { Edit3 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 
 function extractTitle(text: string) {
@@ -14,7 +16,8 @@ export default function EventsPage() {
   const { t, locale, translateDisease } = useTranslation()
   const [healthFilter, setHealthFilter] = useState<string>('')
   const apiPath = healthFilter ? `/api/v1/events?is_health_related=${healthFilter}` : '/api/v1/events'
-  const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage } = usePaginatedFetch<any[]>(apiPath)
+  const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<any[]>(apiPath)
+  const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
 
   function sentimentBadge(s?: string) {
     if (!s || s === 'neutral') return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{locale === 'en' ? 'Neutral' : 'Netral'}</span>
@@ -88,6 +91,7 @@ export default function EventsPage() {
                   <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('pages.events.colRelevance')}</th>
                   <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('pages.sources.colCredibility')}</th>
                   <th className="px-4 py-3 text-center font-semibold text-slate-600">Alert</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-600">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -132,6 +136,25 @@ export default function EventsPage() {
                         : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{t('common.no')}</span>
                       }
                     </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-center">
+                      <button
+                        type="button"
+                        onClick={() => setCorrectionTarget({
+                          eventId: e.id,
+                          rawReportId: e.raw_report_id,
+                          fieldName: 'case_count',
+                          originalValue: String(e.case_count ?? 0),
+                          textSnippet: e.title || '',
+                          articleTitle: e.title || e.url,
+                          language: e.language,
+                        })}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition"
+                        title="Koreksi event ini (Continuous Learning)"
+                      >
+                        <Edit3 className="h-3 w-3 text-slate-500" />
+                        <span>Koreksi</span>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -140,6 +163,14 @@ export default function EventsPage() {
         </div>
         <Pagination page={page} totalPages={totalPages} total={total} onPrev={prevPage} onNext={nextPage} onGoTo={setPage} />
       </div>
+      <CorrectionModal
+        open={!!correctionTarget}
+        target={correctionTarget}
+        onClose={() => setCorrectionTarget(null)}
+        onSuccess={() => {
+          void reload()
+        }}
+      />
     </div>
   )
 }

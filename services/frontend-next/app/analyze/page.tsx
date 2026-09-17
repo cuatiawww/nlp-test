@@ -6,6 +6,8 @@ import { analyzeUrl } from '@/lib/api'
 import AnalyzeResultCard from '@/components/AnalyzeResultCard'
 import Modal from '@/components/Modal'
 import AseanMap from '@/components/AseanMap'
+import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
+import { Edit3 } from 'lucide-react'
 import type { AnalyzeResponse } from '@/types'
 import { collapseAnalyzeResult } from '@/lib/multiFactDisplay.mjs'
 import { isCachedAnalyzeResult } from '@/lib/analysis-job.mjs'
@@ -81,6 +83,7 @@ export default function AnalyzePage() {
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
   const [forceRefresh, setForceRefresh] = useState(false)
   const [matrixExpanded, setMatrixExpanded] = useState(true)
+  const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -359,6 +362,7 @@ export default function AnalyzePage() {
               { key: 'source_credibility', label: 'Source Reliability', width: 130 },
               { key: 'is_health_related', label: 'Health Related', width: 110 },
               { key: 'evidence', label: 'Evidence', width: 240 },
+              { key: 'action', label: 'Action', width: 95 },
             ]
             const tableMinWidth = ANALYZE_COLUMNS.reduce((sum, col) => sum + col.width, 0)
 
@@ -564,6 +568,25 @@ export default function AnalyzePage() {
                               {evidenceSnippet || '-'}
                             </span>
                           </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-2.5 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setCorrectionTarget({
+                                eventId: (result as any)?.id,
+                                rawReportId: (result as any)?.raw_report_id,
+                                fieldName: 'case_count',
+                                originalValue: String(result?.case_count ?? 0),
+                                textSnippet: evidenceSnippet || ((result as any)?.text || '').slice(0, 300),
+                                articleTitle: (result as any)?.title || url,
+                                language: result?.language,
+                              })}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition"
+                              title="Koreksi hasil ekstraksi ini (Continuous Learning)"
+                            >
+                              <Edit3 className="h-3 w-3 text-slate-500" />
+                              <span>Koreksi</span>
+                            </button>
+                          </td>
                         </tr>
 
                         {/* Expandable Child Decomposed Rows */}
@@ -644,6 +667,25 @@ export default function AnalyzePage() {
                                 <span className="block max-w-[220px] truncate" title={childEvtSnippet || evt.evidence}>
                                   {childEvtSnippet || evt.evidence || '-'}
                                 </span>
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-2.5 py-1.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => setCorrectionTarget({
+                                    eventId: (evt as any)?.id || (result as any)?.id,
+                                    rawReportId: (result as any)?.raw_report_id,
+                                    fieldName: 'case_count',
+                                    originalValue: String(evt.case_count ?? 0),
+                                    textSnippet: childEvtSnippet || evt.evidence || evidenceSnippet,
+                                    articleTitle: (result as any)?.title || url,
+                                    language: result?.language,
+                                  })}
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition"
+                                  title="Koreksi sub-event ini"
+                                >
+                                  <Edit3 className="h-3 w-3 text-slate-500" />
+                                  <span>Koreksi</span>
+                                </button>
                               </td>
                             </tr>
                           )
@@ -998,6 +1040,17 @@ export default function AnalyzePage() {
           </Modal>
         </div>
       )}
+
+      <CorrectionModal
+        open={!!correctionTarget}
+        target={correctionTarget}
+        onClose={() => setCorrectionTarget(null)}
+        onSuccess={(field, val) => {
+          if (result && field === 'case_count') {
+            (result as any).case_count = parseInt(val, 10) || 0;
+          }
+        }}
+      />
     </div>
   )
 }
