@@ -600,6 +600,10 @@
       "dataSaved": "Data Tersimpan",
       "savedDescription": "Hasil analisis telah disimpan ke database dan dapat dilihat di halaman Events.",
       "publishedDate": "Tanggal Publikasi",
+      "caseDate": "Tanggal kasus / periode laporan",
+      "dateNeedsReview": "Tanggal perlu ditinjau",
+      "forceRefresh": "Analisis ulang (abaikan cache)",
+      "forceRefreshHint": "Jalankan Full NLP lagi dengan pipeline terbaru. Gunakan setelah perbaikan ekstraksi.",
       "articleDescription": "Deskripsi / Ringkasan Berita",
       "sources": {
         "cached": "Data diambil dari database (hasil analisis sebelumnya)",

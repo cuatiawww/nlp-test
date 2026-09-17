@@ -4,6 +4,7 @@ from app.epidemiology import (
     event_category,
     evidence_sentences,
     extract_event_date,
+    extract_event_period,
     extract_labeled_counts,
     normalize_publication_date,
 )
@@ -31,6 +32,23 @@ class EpidemiologyTests(unittest.TestCase):
         evidence = evidence_sentences("Officials reported 27 dengue cases in Jakarta. A meeting involved 200 people.")
         self.assertEqual(evidence, ["Officials reported 27 dengue cases in Jakarta."])
         self.assertEqual(event_category("disease outbreak wabah", True), "outbreak")
+
+    def test_mpox_range_is_cumulative_and_needs_review(self):
+        period = extract_event_period(
+            "From 1 January to 23 August 2026, the DDC recorded 254 mpox cases."
+        )
+        self.assertEqual(period["event_date_start"], "2026-01-01")
+        self.assertEqual(period["event_date_end"], "2026-08-23")
+        self.assertEqual(period["period_type"], "cumulative")
+        self.assertTrue(period["date_needs_review"])
+
+    def test_cumulative_as_of_window(self):
+        period = extract_event_period(
+            "From September 2025, a cumulative 933 mpox cases and 13 deaths were reported as of January 2026."
+        )
+        self.assertEqual(period["period_type"], "cumulative")
+        self.assertTrue(period["date_needs_review"])
+        self.assertEqual(period["event_date_start"], "2025-09-01")
 
 
 if __name__ == "__main__":

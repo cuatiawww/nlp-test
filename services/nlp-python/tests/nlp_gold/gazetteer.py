@@ -5,6 +5,8 @@ ASEAN_GAZETTEER = {
     "Bandar Seri Begawan": ("Brunei", 4.9031, 114.9398),
     "Cambodia": ("Cambodia", 12.5657, 104.9910),
     "Phnom Penh": ("Cambodia", 11.5564, 104.9282),
+    "Kampot": ("Cambodia", 10.6104, 104.1819),
+    "Banteay Meanchey": ("Cambodia", 13.7533, 103.0324),
     "Kampong Thom": ("Cambodia", 12.7111, 104.8889),
     "Siem Reap": ("Cambodia", 13.3633, 103.8564),
     "Takeo": ("Cambodia", 10.9908, 104.7850),
@@ -45,6 +47,7 @@ ASEAN_GAZETTEER = {
     "Singapore": ("Singapore", 1.3521, 103.8198),
     "Thailand": ("Thailand", 15.8700, 100.9925),
     "Bangkok": ("Thailand", 13.7563, 100.5018),
+    "Long": ("Thailand", 18.0748, 99.8313),
     "Timor-Leste": ("Timor-Leste", -8.8742, 125.7275),
     "Dili": ("Timor-Leste", -8.5569, 125.5603),
     "Ermera": ("Timor-Leste", -8.7524, 125.3960),
@@ -71,6 +74,9 @@ DISEASE_SEED = {
     "avian influenza": "Avian influenza",
     "bird flu": "Avian influenza",
     "flu burung": "Avian influenza",
+    "nipah": "Nipah virus disease",
+    "rsv": "Respiratory syncytial virus infection",
+    "influenza": "Influenza",
     "malaria": "Malaria",
     "chikungunya": "Chikungunya",
     "hfmd": "HFMD",
@@ -109,6 +115,7 @@ def seed_gold_gazetteer():
         "were", "was", "been", "have", "has", "had", "did", "does",
         "asia", "africa", "europe",
         "confirms", "hits", "monitoring",
+        "harian", "persen", "tak", "pesisir", "long",
     })
     config.DISEASE_DICT = dict(DISEASE_SEED)
     config.build_location_patterns()

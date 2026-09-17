@@ -45,11 +45,13 @@ CASES = [
         },
     },
     {
-        "id": "brn-moh-one-health",
+        "id": "brn-tribune-nipah-none",
         "country": "Brunei",
-        "url": "https://moh.gov.bn/news/brunei-darussalam-convenes-one-health-workshop-to-prioritise-zoonotic-diseases-and-strengthen-multisectoral-preparedness/",
+        "url": "https://www.bruneitribune.com/no-nipah-virus-cases-detected-in-brunei-darussalam/",
         "expect": {
+            "disease_contains": ["nipah"],
             "country": "Brunei",
+            "case_count": {"min": 0, "max": 0},
         },
     },
     # --- Cambodia ---

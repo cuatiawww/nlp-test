@@ -42,6 +42,9 @@ def normalize_publication_date(value: Optional[str]) -> Optional[str]:
 
 def extract_event_date(text: str) -> Optional[str]:
     """Extract a date only from an explicitly event-oriented sentence."""
+    period = extract_event_period(text)
+    if period.get("event_date"):
+        return period["event_date"]
     from .extractors import extract_date_from_text
 
     event_markers = re.compile(
@@ -57,6 +60,125 @@ def extract_event_date(text: str) -> Optional[str]:
         if extracted:
             return normalize_publication_date(extracted)
     return None
+
+
+_MONTH_MAP = {
+    "january": 1, "januari": 1, "jan": 1, "มกราคม": 1,
+    "february": 2, "februari": 2, "feb": 2, "กุมภาพันธ์": 2,
+    "march": 3, "maret": 3, "mar": 3, "มีนาคม": 3,
+    "april": 4, "apr": 4, "เมษายน": 4,
+    "may": 5, "mei": 5, "พฤษภาคม": 5,
+    "june": 6, "juni": 6, "jun": 6, "มิถุนายน": 6,
+    "july": 7, "juli": 7, "jul": 7, "กรกฎาคม": 7,
+    "august": 8, "agustus": 8, "aug": 8, "ags": 8, "สิงหาคม": 8,
+    "september": 9, "sep": 9, "กันยายน": 9,
+    "october": 10, "oktober": 10, "oct": 10, "okt": 10, "ตุลาคม": 10,
+    "november": 11, "nov": 11, "พฤศจิกายน": 11,
+    "december": 12, "desember": 12, "dec": 12, "des": 12, "ธันวาคม": 12,
+}
+
+_RANGE = re.compile(
+    r"(?:from|between|sejak|dari)?\s*"
+    r"(?:(?P<d1>\d{1,2})\s+)?"
+    r"(?P<m1>january|januari|february|februari|march|maret|april|may|mei|"
+    r"june|juni|july|juli|august|agustus|september|october|oktober|"
+    r"november|december|desember|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|"
+    r"มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|"
+    r"กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)"
+    r"(?:\s+(?P<y1>20\d{2}|25\d{2}))?"
+    r"\s*(?:-|–|—|to|until|hingga|sampai|and|s/?d)\s*"
+    r"(?:(?P<d2>\d{1,2})\s+)?"
+    r"(?P<m2>january|januari|february|februari|march|maret|april|may|mei|"
+    r"june|juni|july|juli|august|agustus|september|october|oktober|"
+    r"november|december|desember|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|"
+    r"มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|"
+    r"กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)"
+    r"(?:\s+(?P<y2>20\d{2}|25\d{2}))?",
+    re.IGNORECASE,
+)
+
+
+def _calendar_year(raw: Optional[str]) -> Optional[int]:
+    if not raw:
+        return None
+    year = int(raw)
+    if year >= 2500:
+        year -= 543
+    return year
+
+
+def _ymd(year: Optional[int], month: Optional[int], day: Optional[int]) -> Optional[str]:
+    if not year or not month:
+        return None
+    try:
+        return date(year, month, int(day or 1)).isoformat()
+    except ValueError:
+        return None
+
+
+def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
+    """Return reporting window, period type, and whether Date Case needs review.
+
+    Teammate QA:
+    - no.51 range 1 Jan–23 Aug 2026 must not be stored as the article date only
+    - no.52 cumulative Sep 2025 reported as of Jan 2026 must be labeled cumulative
+    """
+    from .extractors import count_period_type, extract_date_from_text
+
+    result = {
+        "event_date": None,
+        "event_date_start": None,
+        "event_date_end": None,
+        "period_type": count_period_type(text),
+        "date_needs_review": False,
+    }
+    sample = text or ""
+    match = _RANGE.search(sample[:2500])
+    if match:
+        y2 = _calendar_year(match.group("y2"))
+        y1 = _calendar_year(match.group("y1")) or y2
+        m1 = _MONTH_MAP.get((match.group("m1") or "").lower())
+        m2 = _MONTH_MAP.get((match.group("m2") or "").lower())
+        start = _ymd(y1, m1, match.group("d1"))
+        end = _ymd(y2, m2, match.group("d2"))
+        result["event_date_start"] = start
+        result["event_date_end"] = end
+        result["event_date"] = end or start
+        result["period_type"] = "cumulative"
+        result["date_needs_review"] = True
+    elif result["period_type"] == "cumulative":
+        start_only = re.search(
+            r"\b(?:from|since|sejak|dari)\s+(?P<m>[A-Za-z]{3,12})\s+(?P<y>20\d{2}|25\d{2})",
+            sample[:2000],
+            re.I,
+        )
+        as_of = re.search(
+            r"\b(?:as of|dilaporkan per|per|hingga|reported as of)\s+"
+            r"([A-Za-z]{3,12}\s+20\d{2}|20\d{2}-\d{2}-\d{2}|\d{1,2}\s+[A-Za-z]{3,12}\s+20\d{2})",
+            sample[:2000],
+            re.I,
+        )
+        if start_only:
+            y = _calendar_year(start_only.group("y"))
+            m = _MONTH_MAP.get(start_only.group("m").lower())
+            result["event_date_start"] = _ymd(y, m, 1)
+            result["date_needs_review"] = True
+        if as_of:
+            result["event_date"] = normalize_publication_date(extract_date_from_text(as_of.group(0)))
+            result["event_date_end"] = result["event_date"]
+            result["date_needs_review"] = True
+    published = normalize_publication_date(published_at)
+    try:
+        today = date.today()
+        for key in ("event_date", "event_date_end", "event_date_start"):
+            value = result.get(key)
+            if value and date.fromisoformat(value) > today:
+                result["date_needs_review"] = True
+        if published and result.get("event_date") and result["event_date"] > published:
+            result["date_needs_review"] = True
+    except ValueError:
+        result["date_needs_review"] = True
+    return result
 
 
 def _parse_count(raw: str) -> int:

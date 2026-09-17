@@ -12,6 +12,7 @@ from .epidemiology import (
     event_category as normalize_event_category,
     evidence_sentences,
     extract_event_date,
+    extract_event_period,
     extract_labeled_counts,
     normalize_publication_date,
 )
@@ -78,23 +79,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     translated_text = translation["translated_text"]
     analysis_text = translated_text or text
     structured = translation["structured"]
-    country_by_language = {
-        "id": "Indonesia", "ms": "Malaysia", "th": "Thailand",
-        "vi": "Vietnam", "km": "Cambodia", "lo": "Laos",
-        "my": "Myanmar", "tl": "Philippines", "tet": "Timor-Leste",
-    }
     facts = extractors.predict_surveillance_facts(text, payload.source_country)
+    non_health_topic = bool(facts.get("non_health_topic")) or extractors.is_clearly_non_health_topic(
+        text
+    ) or extractors.is_clearly_non_health_topic(analysis_text)
     location_country = (
         facts.get("country")
         or extractors.extract_country_hint(text[:1500])
         or extractors.normalize_country(payload.source_country)
-        or country_by_language.get(language, "")
     )
+    if location_country and location_country not in config.ASEAN_COUNTRIES:
+        # Keep ASEAN countries; do not promote "United States" into province.
+        if extractors.extract_country_hint(text[:1500]) is None:
+            location_country = extractors.country_scope(location_country)
     mentioned_countries = [
         country for country in config.ASEAN_COUNTRIES
         if re.search(rf"\b{re.escape(country)}\b", text[:2000], re.I)
     ]
-    restrict_country = location_country if len(mentioned_countries) <= 1 else None
+    restrict_country = location_country if len(mentioned_countries) <= 1 and location_country in config.ASEAN_COUNTRIES else None
     disease = "UNKNOWN"
     confidence = 0.40
     sentiment = "neutral"
@@ -112,7 +114,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if not all_locations:
             all_locations = extractors.extract_all_locations(translated_text, country=restrict_country)
     is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text)))
-    if not location and not is_noisy_early and not payload.historical_fast and not payload.interactive:
+    if not location and not is_noisy_early and not payload.historical_fast and not payload.interactive and not non_health_topic:
         try:
             from .deepseek import detect_location
             resolved_location = detect_location(
@@ -127,9 +129,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     if not location:
         # Preserve a verified country-level location when no city/province is
-        # present in the local gazetteer. Never fabricate a capital city or
-        # coordinates for a national report.
-        location = location_country
+        # present in the local gazetteer. Never fabricate a capital city,
+        # Indonesia-from-language, or coordinates for a national report.
+        if location_country in config.ASEAN_COUNTRIES:
+            location = location_country
     if location and not extractors.is_usable_place_name(location, text):
         location = extractors.extract_country_hint(text) or None
     asean_hits = [
@@ -207,21 +210,30 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     )
     fallback_extracted = _rank_diseases(extractors.extract_diseases(analysis_text) + who_mentions, analysis_text)
     extracted = list(dict.fromkeys(primary_extracted or fallback_extracted))
+    extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
     for value in structured.get("diseases") or []:
         if isinstance(value, str) and value.strip():
             extracted.append(value.strip().upper().replace("-", ""))
     extras = _rank_diseases(extracted, text + " " + analysis_text)
     extracted = list(dict.fromkeys([*(facts.get("diseases") or []), *extracted, *extras]))
+    extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
     if facts.get("disease"):
         extracted = [facts["disease"], *[item for item in extracted if item != facts["disease"]]]
         disease = facts["disease"]
         confidence = max(confidence, 0.85)
     has_keywords = bool(extracted or symptoms)
-    is_health_related = has_keywords
+    is_health_related = has_keywords and not non_health_topic
 
     NON_HEALTH_LABELS = {"NEGATIVE - not health related"}
 
-    if config.NLP_MODEL != "none":
+    if non_health_topic:
+        disease = "UNKNOWN"
+        extracted = []
+        has_keywords = False
+        is_health_related = False
+        confidence = min(confidence, 0.35)
+
+    if config.NLP_MODEL != "none" and not non_health_topic:
         try:
             clf_sample = (analysis_text or text)[:600]
             zero_shot = config.NLP_MODEL == "fine-tuned"
@@ -230,6 +242,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 confidence = 0.85
             else:
                 disease, confidence = classify_disease(clf_sample)
+                # Prefer needs_review over a model label that is not in the
+                # article (live: oil-pipeline "kasus" → Rabies).
+                if not extractors.disease_has_textual_evidence(disease, text + " " + analysis_text):
+                    disease = "UNKNOWN"
+                    confidence = min(confidence, 0.35)
             
             # Interactive URL analysis must finish inside the worker HTTP
             # budget. Auxiliary zero-shot XLM-RoBERTa heads (sentiment /
@@ -268,14 +285,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 relevance_confidence = max(relevance_confidence, 0.90)
                 is_health_related = True
                 if sentiment == "positive":
-                    sentiment = "negative" if extractors.is_explicit_outbreak_report(text) else "neutral" 
+                    sentiment = "negative" if extractors.is_explicit_outbreak_report(text) else "neutral"
 
-            # A1 (cont): model ML dihargai kalau confidence cukup
-            if not extracted and confidence < config.LOW_CONFIDENCE_THRESHOLD:
-                confidence = min(confidence, 0.30)
-                disease = "UNKNOWN"
+            # Prefer needs_review over a model label that is not in the article.
+            if not extracted:
+                if confidence < config.LOW_CONFIDENCE_THRESHOLD or not extractors.disease_has_textual_evidence(
+                    disease, text + " " + analysis_text
+                ):
+                    confidence = min(confidence, 0.30)
+                    disease = "UNKNOWN"
 
-            # A2 + A4: non-health hanya kalau TIDAKADA keyword sama sekali
             if disease in NON_HEALTH_LABELS or (disease == "UNKNOWN" and not has_keywords):
                 is_health_related = False
         except Exception as e:
@@ -300,12 +319,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         language=language,
         needs_review=geocode_needs_review,
         location_missing=not location,
+        non_health_topic=non_health_topic,
     )
     if should_use_deepseek:
         try:
             from .deepseek import detect_disease
             resolved = detect_disease(analysis_text)
-            if resolved:
+            if resolved and extractors.disease_has_textual_evidence(
+                resolved.get("canonical_name") or "", text + " " + analysis_text
+            ):
                 disease = resolved["canonical_name"]
                 confidence = resolved["confidence"]
                 extracted = [
@@ -321,7 +343,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 # Dynamic WHO ICD-11 Discovery & Self-Learning
                 from .icd11 import resolve_and_learn_disease
                 dynamic_resolved = resolve_and_learn_disease(analysis_text or text, language=language)
-                if dynamic_resolved:
+                if dynamic_resolved and extractors.disease_has_textual_evidence(
+                    dynamic_resolved.get("canonical_name") or "", text + " " + analysis_text
+                ):
                     disease = dynamic_resolved["canonical_name"]
                     confidence = dynamic_resolved["confidence"]
                     extracted = [disease, *[x for x in extracted if x != disease]]
@@ -330,19 +354,29 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         except Exception as e:
             logger.info("DeepSeek / WHO ICD-11 discovery fallback unavailable: %s", e)
 
+    extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
     if translated_text and extracted:
         disease = extracted[0]
         confidence = max(confidence, 0.85)
     if who_mentions and disease == "UNKNOWN":
         opening_text = text[:1500] + " " + analysis_text[:1500]
-        opening_who = [w for w in who_mentions if w.lower().split()[0] in opening_text.lower()]
-        disease = opening_who[0] if opening_who else who_mentions[0]
-        confidence = max(confidence, 0.85)
+        opening_who = [
+            w for w in who_mentions
+            if extractors.disease_has_textual_evidence(w, opening_text)
+        ]
+        if opening_who:
+            disease = opening_who[0]
+            confidence = max(confidence, 0.85)
     if extracted and (not disease or disease.strip().upper() == "UNKNOWN"):
         disease = extracted[0]
         confidence = max(confidence, 0.85)
-    if extracted:
+    if extracted and not non_health_topic:
         is_health_related = True
+    if non_health_topic:
+        disease = "UNKNOWN"
+        extracted = []
+        is_health_related = False
+        case_count = 0
 
     case_count = facts.get("case_count") if facts.get("disease") else extractors.extract_case_count(
         text, disease=disease if disease != "UNKNOWN" else None
@@ -358,6 +392,26 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         death_count = extractors.extract_death_count(translated_text)
     if not explicit_case_count:
         case_count = 0
+        explicit_case_count = False
+    if extractors.article_states_zero_cases(text) or extractors.article_states_zero_cases(analysis_text):
+        case_count = 0
+        explicit_case_count = True
+        if death_count and not re.search(r"\b(?:deaths?|kematian|meninggal)\b", (text + " " + analysis_text).lower()):
+            death_count = 0
+        event_type = "health update"
+        outbreak_alert = False
+    if extractors.is_vaccine_campaign_not_outbreak(text) or extractors.is_vaccine_campaign_not_outbreak(analysis_text):
+        outbreak_alert = False
+        event_type = "health update"
+        if extractors.should_reject_incident_count(case_count, text) or extractors.should_reject_incident_count(
+            case_count, analysis_text
+        ):
+            case_count = 0
+            death_count = 0
+            explicit_case_count = False
+    elif extractors.should_reject_incident_count(case_count, text):
+        case_count = 0
+        death_count = 0
         explicit_case_count = False
     if death_count == 0 and isinstance(structured.get("death_count"), int):
         death_count = max(0, structured["death_count"])
@@ -431,18 +485,35 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         "health", "kesehatan", "kesihatan", "disease", "penyakit", "outbreak", "wabah", "klb",
         "virus", "bakteri", "bacteria", "infection", "infeksi", "vaksin", "vaccin", "imunisasi",
         "hospital", "rumah sakit", "puskesmas", "clinic", "klinik", "pasien", "patient",
-        "dokter", "doctor", "epidemi", "pandemi", "symptom", "gejala", "who", "kemenkes", "cdc", "suc khoe", "suc-khoe"
+        "dokter", "doctor", "epidemi", "pandemi", "symptom", "gejala", "kemenkes", "cdc",
+        "world health organization", "suc khoe", "suc-khoe",
     )
     lower_full = (text[:4000] + " " + analysis_text[:4000]).lower()
     has_health_indicators = any(hw in lower_full for hw in health_indicator_words)
 
+    ncd_only = extractors.is_ncd_only_non_outbreak(text, extracted) or extractors.is_ncd_only_non_outbreak(
+        analysis_text, extracted
+    )
+    if ncd_only:
+        is_health_related = False
+        disease = "UNKNOWN"
+        extracted = []
+        case_count = 0
+        death_count = 0
+        outbreak_alert = False
+        event_type = "unknown"
+        location = extractors.extract_country_hint(text) if extractors.extract_country_hint(text) in config.ASEAN_COUNTRIES else None
+        needs_review = True
+
     # UNKNOWN handling: portal overviews from WHO/health agencies remain health-related
-    if not disease or disease.strip().upper() == "UNKNOWN":
-        if has_health_indicators or symptoms or (payload.source_name and "who" in payload.source_name.lower()):
+    if not ncd_only and (not disease or disease.strip().upper() == "UNKNOWN"):
+        source_is_who = bool(payload.source_name and "who" in payload.source_name.lower())
+        if not non_health_topic and (has_health_indicators or symptoms or source_is_who):
             is_health_related = True
             event_type = "health update"
             event_confidence = 0.70
             outbreak_alert = False
+            needs_review = True
         else:
             is_health_related = False
             outbreak_alert = False
@@ -450,7 +521,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             event_confidence = 0.0
         if not explicit_case_count:
             case_count = 0
-    needs_review = confidence < config.LOW_CONFIDENCE_THRESHOLD
+    if ncd_only:
+        is_health_related = False
+    needs_review = True if ncd_only else (confidence < config.LOW_CONFIDENCE_THRESHOLD)
     if not explicit_case_count:
         needs_review = True
         case_count = 0
@@ -608,9 +681,41 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Publication metadata and event dates describe different facts. Body
     # dates must never silently become the article publication date.
     published_at = normalize_publication_date(payload.published_at)
-    event_date = extract_event_date(text)
+    period = extract_event_period(text, published_at=published_at)
+    event_date = period.get("event_date") or extract_event_date(text)
+    count_period = period.get("period_type") or extractors.count_period_type(text)
+    if period.get("date_needs_review"):
+        needs_review = True
+    if extractors.should_reject_incident_count(case_count, text) and count_period != "cumulative":
+        case_count = 0
+        death_count = 0
+        explicit_case_count = False
+        needs_review = True
     typed_counts = extract_labeled_counts(text)
     evidence = evidence_sentences(text)
+    start = period.get("event_date_start")
+    end = period.get("event_date_end") or period.get("event_date")
+    if count_period == "cumulative":
+        window = "Cumulative reporting window"
+        if start and end:
+            window = f"Cumulative reporting window {start} to {end}"
+        elif end:
+            window = f"Cumulative total reported as of {end}"
+        if window not in evidence:
+            evidence = [window, *evidence]
+    if extractors.article_states_zero_cases(text):
+        zero_span = next(
+            (
+                " ".join(sentence.split())
+                for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text)
+                if extractors.article_states_zero_cases(sentence)
+            ),
+            "",
+        )
+        if zero_span and zero_span not in evidence:
+            evidence = [zero_span, *evidence]
+        if count_period == "unknown":
+            count_period = "incident"
 
     # --- Multi-event extraction ---
     try:
@@ -666,7 +771,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             outbreak_alert = strict_output.outbreak_alert
             relevance = strict_output.health_relevance.lower()
             relevance_confidence = max(relevance_confidence, 0.90)
-            is_health_related = is_health_related or strict_output.health_related
+            is_health_related = is_health_related or (
+                strict_output.health_related and not non_health_topic and not ncd_only
+            )
             cred_score = strict_output.source_reliability_score
             if relational_events:
                 # Keep title/lede + ASEAN gazetteer as the primary event.
@@ -715,6 +822,31 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     except Exception as exc:
         logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
 
+    infectious = [
+        item for item in extracted
+        if item and item.upper() != "UNKNOWN"
+        and not extractors.is_ncd_only_non_outbreak(item, [item])
+    ]
+    flu_rsv = [
+        item for item in infectious
+        if any(token in item.lower() for token in ("influenza", "rsv", "syncytial"))
+        and "avian" not in item.lower()
+    ]
+    if len(flu_rsv) >= 2 and not sub_events:
+        sub_events = [
+            SubEvent(
+                disease=item,
+                location_name=location or "",
+                country=country,
+                latitude=lat,
+                longitude=lon,
+                case_count=0 if extractors.is_vaccine_campaign_not_outbreak(text) else case_count,
+                death_count=0 if extractors.is_vaccine_campaign_not_outbreak(text) else death_count,
+                evidence=next((span for span in evidence if item.split()[0].lower() in span.lower()), ""),
+            )
+            for item in flu_rsv
+        ]
+
     for evt in sub_events:
         resolved_sub = resolve_local_icd11_term(evt.disease)
         if resolved_sub and resolved_sub.get("ontology_code"):
@@ -727,7 +859,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         and mention.canonical_name
         and mention.canonical_name.upper() != "UNKNOWN"
     ]
-    if coded_mentions and (not disease or disease.strip().upper() == "UNKNOWN"):
+    if coded_mentions and (not disease or disease.strip().upper() == "UNKNOWN") and not ncd_only:
         primary_mention = next(
             (mention for mention in coded_mentions if mention.role == "primary"),
             coded_mentions[0],
@@ -792,4 +924,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         is_health_related=is_health_related,
         needs_review=needs_review,
         sub_events=sub_events,
+        nlp_pipeline_version=config.NLP_PIPELINE_VERSION,
+        count_period_type=count_period,
+        event_date_start=period.get("event_date_start"),
+        event_date_end=period.get("event_date_end"),
+        date_needs_review=bool(period.get("date_needs_review")),
     )

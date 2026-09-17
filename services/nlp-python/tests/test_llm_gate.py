@@ -26,7 +26,12 @@ class LlmGateTests(unittest.TestCase):
             language="en",
         ))
 
-    def test_noisy_and_interactive_skip(self):
+    def test_non_health_topic_skips_llm(self):
+        self.assertFalse(should_escalate_to_llm(
+            non_health_topic=True,
+            disease="UNKNOWN",
+            confidence=0.1,
+        ))
         self.assertFalse(should_escalate_to_llm(
             interactive=True,
             disease="UNKNOWN",

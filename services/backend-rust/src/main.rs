@@ -2693,6 +2693,8 @@ async fn analyze_url(
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(true);
     let use_analysis_cache = env_use_cache && !payload.force_refresh;
+    let pipeline_version = env::var("NLP_PIPELINE_VERSION")
+        .unwrap_or_else(|_| "2026.09.17.health-gate".to_string());
 
     let row = if use_analysis_cache {
         client
@@ -2714,11 +2716,14 @@ async fn analyze_url(
                         de.disease_classification, de.case_count, de.death_count, de.confidence,
                         de.outbreak_alert, de.sentiment, de.needs_review, de.event_type,
                         de.event_confidence::float8, de.relevance_score, de.relevance_confidence::float8,
-                        de.source_credibility::float8, de.source_credibility_label, de.is_health_related
+                        de.source_credibility::float8, de.source_credibility_label, de.is_health_related,
+                        de.event_date, de.nlp_pipeline_version, de.count_period_type,
+                        de.event_date_start, de.event_date_end, de.date_needs_review
                  FROM disease_events de
                  JOIN raw_reports rr ON de.raw_report_id = rr.id
                  LEFT JOIN locations l ON LOWER(l.name) = LOWER(de.location_name)
                  WHERE rr.url = $1
+                   AND COALESCE(de.nlp_pipeline_version, '') = $2
                    AND NOT EXISTS (
                        SELECT 1 FROM (
                            SELECT warnings
@@ -2732,7 +2737,7 @@ async fn analyze_url(
                    )
                  ORDER BY de.created_at DESC
                  LIMIT 1",
-                 &[&url],
+                 &[&url, &pipeline_version],
             )
             .await
             .map_err(internal_error)?
@@ -2879,6 +2884,12 @@ async fn analyze_url(
                 "source_credibility_label": row.try_get::<_, Option<String>>("source_credibility_label").ok().flatten(),
                 "needs_review": row.try_get::<_, Option<bool>>("needs_review").ok().flatten(),
                 "is_health_related": row.try_get::<_, Option<bool>>("is_health_related").ok().flatten(),
+                "event_date": row.try_get::<_, Option<NaiveDate>>("event_date").ok().flatten().map(|date| date.to_string()),
+                "event_date_start": row.try_get::<_, Option<NaiveDate>>("event_date_start").ok().flatten().map(|date| date.to_string()),
+                "event_date_end": row.try_get::<_, Option<NaiveDate>>("event_date_end").ok().flatten().map(|date| date.to_string()),
+                "count_period_type": row.try_get::<_, Option<String>>("count_period_type").ok().flatten(),
+                "date_needs_review": row.try_get::<_, Option<bool>>("date_needs_review").ok().flatten(),
+                "nlp_pipeline_version": row.try_get::<_, Option<String>>("nlp_pipeline_version").ok().flatten(),
                 "raw_report_id": raw_report_id,
                 "event_id": event_id,
                 "sources": Value::Object(sources),

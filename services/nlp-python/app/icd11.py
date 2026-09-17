@@ -329,6 +329,11 @@ def _local_icd11_fallback_catalog() -> list[dict[str, Any]]:
             ],
         },
         {"canonical_name": "Influenza", "ontology_code": "1E32", "aliases": ["influenza", "flu"]},
+        {
+            "canonical_name": "Respiratory syncytial virus infection",
+            "ontology_code": "CA40.11",
+            "aliases": ["rsv", "respiratory syncytial", "respiratory syncytial virus"],
+        },
         {"canonical_name": "Smallpox", "ontology_code": "1E70", "aliases": ["smallpox", "cacar"]},
         {"canonical_name": "Mpox", "ontology_code": "1E71", "aliases": ["mpox", "monkeypox", "cacar monyet"]},
         {"canonical_name": "Rubella", "ontology_code": "1F02", "aliases": ["rubella", "campak jerman"]},
