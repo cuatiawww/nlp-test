@@ -350,6 +350,7 @@ export type CrawlHistoryFilters = {
   needs_review?: boolean;
   has_geo?: boolean;
   job_id?: string;
+  quality?: string;
 };
 
 function crawlHistoryParams(filters: CrawlHistoryFilters = {}) {
@@ -366,6 +367,7 @@ function crawlHistoryParams(filters: CrawlHistoryFilters = {}) {
   if (typeof filters.needs_review === 'boolean') params.set('needs_review', String(filters.needs_review));
   if (typeof filters.has_geo === 'boolean') params.set('has_geo', String(filters.has_geo));
   if (filters.job_id) params.set('job_id', filters.job_id);
+  if (filters.quality) params.set('quality', filters.quality);
   return params;
 }
 

@@ -624,7 +624,7 @@
     },
     "crawlHistory": {
       "title": "Crawl History / Matriks Hasil Crawl",
-      "subtitle": "Browse every stored Phase 2 crawl result already in the database — manual job matrix rows plus continuous and analyze-url outcomes that did not come from those jobs. Empty filters show empty tables; nothing is invented.",
+      "subtitle": "Health-surveillance crawl results already stored in Phase 2 — manual jobs plus continuous and analyze-url. Non-health RSS stays in the database for Events QA but is hidden here by default. Empty filters show empty tables; nothing is invented.",
       "matrixTab": "Result matrix",
       "jobsTab": "Job history",
       "openManual": "Open Manual Crawler",
@@ -633,7 +633,12 @@
       "diseasePlaceholder": "Disease name",
       "allStatuses": "All statuses",
       "allGeo": "Geo: all",
-      "emptyRows": "No stored crawl results match these filters.",
+      "qualitySurveillance": "Surveillance (default)",
+      "qualityReview": "Needs classifier review",
+      "qualityNoise": "Non-health noise",
+      "qualityAll": "All stored rows",
+      "qualityHint": "Default hides political/economic RSS and UNKNOWN labels. Those rows remain stored for Events; switch Quality to inspect them.",
+      "emptyRows": "No surveillance crawl results match these filters. Non-health articles may still be stored — switch Quality to Needs review, Noise, or All stored.",
       "emptyJobs": "No manual crawl jobs have been stored yet.",
       "detailTitle": "Stored crawl result"
     },

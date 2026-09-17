@@ -624,7 +624,7 @@
     },
     "crawlHistory": {
       "title": "Crawl History / Matriks Hasil Crawl",
-      "subtitle": "Telusuri seluruh hasil crawl Phase 2 yang sudah tersimpan di database — baris matriks job manual plus hasil continuous dan analyze-url yang tidak berasal dari job tersebut. Filter kosong menampilkan tabel kosong; tidak ada baris dummy.",
+      "subtitle": "Hasil crawl surveilans kesehatan yang sudah tersimpan di Phase 2 — job manual plus continuous dan analyze-url. Artikel RSS non-kesehatan tetap ada di database untuk QA Events, tapi disembunyikan di sini secara default. Filter kosong menampilkan tabel kosong; tidak ada baris dummy.",
       "matrixTab": "Matriks hasil",
       "jobsTab": "Riwayat job",
       "openManual": "Buka Manual Crawler",
@@ -633,7 +633,12 @@
       "diseasePlaceholder": "Nama penyakit",
       "allStatuses": "Semua status",
       "allGeo": "Geo: semua",
-      "emptyRows": "Tidak ada hasil crawl tersimpan yang cocok dengan filter ini.",
+      "qualitySurveillance": "Surveilans (default)",
+      "qualityReview": "Perlu review klasifikasi",
+      "qualityNoise": "Noise non-kesehatan",
+      "qualityAll": "Semua baris tersimpan",
+      "qualityHint": "Default menyembunyikan RSS politik/ekonomi dan label UNKNOWN. Baris itu tetap tersimpan untuk Events; ganti Kualitas untuk meninjaunya.",
+      "emptyRows": "Tidak ada hasil crawl surveilans yang cocok dengan filter ini. Artikel non-kesehatan mungkin masih tersimpan — ganti Kualitas ke Perlu review, Noise, atau Semua baris.",
       "emptyJobs": "Belum ada job manual crawl yang tersimpan.",
       "detailTitle": "Hasil crawl tersimpan"
     },

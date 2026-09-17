@@ -384,6 +384,8 @@ export type CrawlHistoryRow = {
   needs_review: boolean;
   has_geo: boolean;
   mapped: boolean;
+  quality_class?: string | null;
+  is_health_related?: boolean | null;
   latitude?: number | null;
   longitude?: number | null;
   created_at?: string | null;
@@ -435,6 +437,13 @@ export type CrawlHistorySummary = {
   without_geo: number;
   needs_review: number;
   mapped: number;
+  default_quality?: string;
+  quality?: {
+    surveillance: number;
+    review: number;
+    noise: number;
+  };
+  noise_excluded?: number;
   fields?: string[];
 };
 

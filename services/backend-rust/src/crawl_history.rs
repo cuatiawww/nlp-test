@@ -1,6 +1,7 @@
 //! Authenticated crawl-history ledger: stored manual-job matrix rows plus
 //! continuous / analyze-url outcomes that did not come from those jobs.
-//! Empty tables return empty pages — never dummy rows.
+//! Default quality is health surveillance (known disease, not UNKNOWN/non-health).
+//! Pipeline rows are one-per-article. Empty tables return empty pages — never dummy rows.
 
 use axum::{
     extract::{Path, Query, State},
@@ -20,6 +21,11 @@ use crate::{
 const EXPORT_CAP: i64 = 5_000;
 const SNIPPET_CHARS: i32 = 800;
 const TITLE_CHARS: i32 = 220;
+const SURVEILLANCE_MIN_CONFIDENCE: &str = "0.15";
+const LEDGER_SELECT: &str = r#"id, crawl_channel, crawl_job_id, raw_report_id, disease_event_id, title, url,
+                published_at, country, province, city, disease, icd11_code, cases, deaths,
+                confidence, source_type, source_name, status, needs_review, has_geo, mapped,
+                latitude, longitude, created_at, evidence, snippet, quality_class, is_health_related"#;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct CrawlHistoryQuery {
@@ -36,6 +42,7 @@ pub struct CrawlHistoryQuery {
     pub has_geo: Option<bool>,
     pub job_id: Option<String>,
     pub format: Option<String>,
+    pub quality: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -56,6 +63,14 @@ enum Channel {
     Manual,
     Continuous,
     AnalyzeUrl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Quality {
+    Surveillance,
+    Review,
+    Noise,
+    All,
 }
 
 fn opt_text(value: &Option<String>) -> Option<String> {
@@ -87,6 +102,64 @@ fn channel_sql(channel: Channel) -> Option<&'static str> {
         Channel::Continuous => Some("continuous"),
         Channel::AnalyzeUrl => Some("analyze-url"),
     }
+}
+
+fn parse_quality(raw: &Option<String>) -> Quality {
+    match opt_text(raw)
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "all" | "events" | "raw" => Quality::All,
+        "review" | "needs_review" | "unknown" => Quality::Review,
+        "noise" | "non_health" | "junk" => Quality::Noise,
+        // Omitted quality is the smart default: health surveillance only.
+        _ => Quality::Surveillance,
+    }
+}
+
+fn quality_sql(quality: Quality) -> Option<&'static str> {
+    match quality {
+        Quality::All => None,
+        Quality::Surveillance => Some("surveillance"),
+        Quality::Review => Some("review"),
+        Quality::Noise => Some("noise"),
+    }
+}
+
+fn known_disease_sql(expr: &str) -> String {
+    format!(
+        "({expr} IS NOT NULL AND BTRIM({expr}) <> '' AND UPPER(BTRIM({expr})) <> 'UNKNOWN' AND UPPER(BTRIM({expr})) NOT LIKE 'NEGATIVE%')"
+    )
+}
+
+fn pipeline_quality_sql() -> String {
+    format!(
+        r#"CASE
+                WHEN COALESCE(de.is_health_related, FALSE) IS NOT TRUE
+                     OR UPPER(BTRIM(COALESCE(de.disease_classification, ''))) LIKE 'NEGATIVE%'
+                    THEN 'noise'
+                WHEN de.disease_classification IS NULL
+                     OR UPPER(BTRIM(de.disease_classification)) IN ('UNKNOWN', '')
+                     OR COALESCE(de.confidence, 0) < {min_conf}
+                    THEN 'review'
+                ELSE 'surveillance'
+            END"#,
+        min_conf = SURVEILLANCE_MIN_CONFIDENCE
+    )
+}
+
+fn matrix_quality_sql() -> String {
+    r#"CASE
+                WHEN UPPER(BTRIM(COALESCE(m.disease_name, ''))) LIKE 'NEGATIVE%'
+                    THEN 'noise'
+                WHEN m.disease_name IS NULL
+                     OR UPPER(BTRIM(m.disease_name)) IN ('UNKNOWN', '')
+                    THEN 'review'
+                ELSE 'surveillance'
+            END"#
+        .into()
 }
 
 fn parse_status(raw: &Option<String>) -> Option<String> {
@@ -155,7 +228,7 @@ fn json_text(value: &Value) -> String {
     }
 }
 
-fn export_headers() -> [&'static str; 18] {
+fn export_headers() -> [&'static str; 20] {
     [
         "title",
         "url",
@@ -175,6 +248,8 @@ fn export_headers() -> [&'static str; 18] {
         "has_geo",
         "raw_report_id",
         "status",
+        "quality_class",
+        "is_health_related",
     ]
 }
 
@@ -202,6 +277,8 @@ fn row_export_values(row: &Value) -> Vec<Value> {
         row["has_geo"].clone(),
         row["raw_report_id"].clone(),
         row["status"].clone(),
+        row["quality_class"].clone(),
+        row["is_health_related"].clone(),
     ]
 }
 
@@ -278,6 +355,10 @@ fn country_filter_sql(expr: &str, param: &str) -> String {
 fn unified_source_sql() -> String {
     let matrix_country = asean11_fold_sql("m.country");
     let event_country = asean11_fold_sql("COALESCE(loc.country, de.location_name)");
+    let matrix_known = known_disease_sql("m.disease_name");
+    let event_known = known_disease_sql("de.disease_classification");
+    let matrix_quality = matrix_quality_sql();
+    let pipeline_quality = pipeline_quality_sql();
     format!(
         r#"
         SELECT
@@ -302,17 +383,19 @@ fn unified_source_sql() -> String {
             m.processing_status AS status,
             (m.processing_status = 'needs_review' OR COALESCE(de.needs_review, FALSE)) AS needs_review,
             (m.latitude IS NOT NULL AND m.longitude IS NOT NULL) AS has_geo,
-            (de.id IS NOT NULL OR (m.latitude IS NOT NULL AND m.longitude IS NOT NULL)) AS mapped,
+            ({matrix_known} AND m.latitude IS NOT NULL AND m.longitude IS NOT NULL) AS mapped,
             m.latitude::float8 AS latitude,
             m.longitude::float8 AS longitude,
             m.created_at::text AS created_at,
             m.evidence,
-            LEFT(COALESCE(rr.original_text, m.evidence, ''), {SNIPPET_CHARS}) AS snippet
+            LEFT(COALESCE(rr.original_text, m.evidence, ''), {SNIPPET_CHARS}) AS snippet,
+            {matrix_quality} AS quality_class,
+            COALESCE(de.is_health_related, TRUE) AS is_health_related
         FROM crawl_matrix_rows m
         JOIN crawl_matrix_jobs j ON j.id = m.crawl_job_id
         LEFT JOIN raw_reports rr ON rr.id = m.raw_report_id
         LEFT JOIN LATERAL (
-            SELECT de0.id, de0.needs_review
+            SELECT de0.id, de0.needs_review, de0.is_health_related
             FROM disease_events de0
             WHERE de0.raw_report_id IS NOT NULL AND de0.raw_report_id = m.raw_report_id
             ORDER BY de0.created_at DESC
@@ -322,67 +405,115 @@ fn unified_source_sql() -> String {
         UNION ALL
 
         SELECT
-            de.id,
-            CASE
-                WHEN aj.id IS NOT NULL OR LOWER(COALESCE(de.source_name, rr.source_name, '')) = 'url analyzer'
-                    THEN 'analyze-url'
-                ELSE 'continuous'
-            END AS crawl_channel,
-            NULL::uuid AS crawl_job_id,
-            de.raw_report_id,
-            de.id AS disease_event_id,
-            COALESCE(NULLIF(LEFT(rr.original_text, {TITLE_CHARS}), ''), rr.url, de.location_name) AS title,
-            rr.url,
-            COALESCE(de.published_at, rr.published_at)::text AS published_at,
-            {event_country} AS country,
-            NULLIF(de.province, '') AS province,
-            NULLIF(de.city, '') AS city,
-            COALESCE(de.disease_classification, '') AS disease,
-            NULL::text AS icd11_code,
-            COALESCE(de.case_count, 0)::bigint AS cases,
-            COALESCE(de.death_count, 0)::bigint AS deaths,
-            de.confidence::float8 AS confidence,
-            COALESCE(de.source_type, rr.source_type) AS source_type,
-            COALESCE(de.source_name, rr.source_name) AS source_name,
-            CASE
-                WHEN COALESCE(de.needs_review, FALSE) THEN 'needs_review'
-                WHEN de.disease_classification IS NULL OR UPPER(de.disease_classification) IN ('UNKNOWN', '') THEN 'failed'
-                ELSE 'processed'
-            END AS status,
-            COALESCE(de.needs_review, FALSE) AS needs_review,
-            (de.geom IS NOT NULL) AS has_geo,
-            (de.geom IS NOT NULL OR NULLIF(de.location_name, '') IS NOT NULL) AS mapped,
-            ST_Y(de.geom)::float8 AS latitude,
-            ST_X(de.geom)::float8 AS longitude,
-            de.created_at::text AS created_at,
-            LEFT(COALESCE(de.original_text, ''), 400) AS evidence,
-            LEFT(COALESCE(rr.original_text, de.original_text, ''), {SNIPPET_CHARS}) AS snippet
-        FROM disease_events de
-        LEFT JOIN raw_reports rr ON rr.id = de.raw_report_id
-        LEFT JOIN LATERAL (
-            SELECT l.country
-            FROM locations l
-            WHERE l.is_active = TRUE AND LOWER(l.name) = LOWER(de.location_name)
-            ORDER BY l.updated_at DESC NULLS LAST, l.created_at DESC
-            LIMIT 1
-        ) loc ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT aj0.id
-            FROM analysis_jobs aj0
-            WHERE aj0.event_id = de.id
-            ORDER BY aj0.created_at DESC
-            LIMIT 1
-        ) aj ON TRUE
-        WHERE NOT EXISTS (
-            SELECT 1 FROM crawl_matrix_rows m
-            WHERE m.raw_report_id IS NOT NULL AND m.raw_report_id = de.raw_report_id
-        )
-          AND LOWER(COALESCE(de.source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')
+            pipeline.id,
+            pipeline.crawl_channel,
+            pipeline.crawl_job_id,
+            pipeline.raw_report_id,
+            pipeline.disease_event_id,
+            pipeline.title,
+            pipeline.url,
+            pipeline.published_at,
+            pipeline.country,
+            pipeline.province,
+            pipeline.city,
+            pipeline.disease,
+            pipeline.icd11_code,
+            pipeline.cases,
+            pipeline.deaths,
+            pipeline.confidence,
+            pipeline.source_type,
+            pipeline.source_name,
+            pipeline.status,
+            pipeline.needs_review,
+            pipeline.has_geo,
+            pipeline.mapped,
+            pipeline.latitude,
+            pipeline.longitude,
+            pipeline.created_at,
+            pipeline.evidence,
+            pipeline.snippet,
+            pipeline.quality_class,
+            pipeline.is_health_related
+        FROM (
+            SELECT DISTINCT ON (
+                COALESCE(NULLIF(rr.normalized_url, ''), NULLIF(rr.url, ''), de.raw_report_id::text, de.id::text)
+            )
+                de.id,
+                CASE
+                    WHEN aj.id IS NOT NULL OR LOWER(COALESCE(de.source_name, rr.source_name, '')) = 'url analyzer'
+                        THEN 'analyze-url'
+                    ELSE 'continuous'
+                END AS crawl_channel,
+                NULL::uuid AS crawl_job_id,
+                de.raw_report_id,
+                de.id AS disease_event_id,
+                COALESCE(NULLIF(LEFT(rr.original_text, {TITLE_CHARS}), ''), rr.url, de.location_name) AS title,
+                rr.url,
+                COALESCE(de.published_at, rr.published_at)::text AS published_at,
+                {event_country} AS country,
+                NULLIF(de.province, '') AS province,
+                NULLIF(de.city, '') AS city,
+                COALESCE(de.disease_classification, '') AS disease,
+                NULL::text AS icd11_code,
+                COALESCE(de.case_count, 0)::bigint AS cases,
+                COALESCE(de.death_count, 0)::bigint AS deaths,
+                de.confidence::float8 AS confidence,
+                COALESCE(de.source_type, rr.source_type) AS source_type,
+                COALESCE(de.source_name, rr.source_name) AS source_name,
+                CASE
+                    WHEN COALESCE(de.needs_review, FALSE) THEN 'needs_review'
+                    WHEN de.disease_classification IS NULL OR UPPER(de.disease_classification) IN ('UNKNOWN', '') THEN 'failed'
+                    ELSE 'processed'
+                END AS status,
+                COALESCE(de.needs_review, FALSE) AS needs_review,
+                (de.geom IS NOT NULL) AS has_geo,
+                ({event_known} AND COALESCE(de.is_health_related, FALSE) AND de.geom IS NOT NULL) AS mapped,
+                ST_Y(de.geom)::float8 AS latitude,
+                ST_X(de.geom)::float8 AS longitude,
+                de.created_at::text AS created_at,
+                LEFT(COALESCE(de.original_text, ''), 400) AS evidence,
+                LEFT(COALESCE(rr.original_text, de.original_text, ''), {SNIPPET_CHARS}) AS snippet,
+                {pipeline_quality} AS quality_class,
+                COALESCE(de.is_health_related, FALSE) AS is_health_related
+            FROM disease_events de
+            LEFT JOIN raw_reports rr ON rr.id = de.raw_report_id
+            LEFT JOIN LATERAL (
+                SELECT l.country
+                FROM locations l
+                WHERE l.is_active = TRUE AND LOWER(l.name) = LOWER(de.location_name)
+                ORDER BY l.updated_at DESC NULLS LAST, l.created_at DESC
+                LIMIT 1
+            ) loc ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT aj0.id
+                FROM analysis_jobs aj0
+                WHERE aj0.event_id = de.id
+                ORDER BY aj0.created_at DESC
+                LIMIT 1
+            ) aj ON TRUE
+            WHERE NOT EXISTS (
+                SELECT 1 FROM crawl_matrix_rows m
+                WHERE m.raw_report_id IS NOT NULL AND m.raw_report_id = de.raw_report_id
+            )
+              AND LOWER(COALESCE(de.source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')
+            ORDER BY
+                COALESCE(NULLIF(rr.normalized_url, ''), NULLIF(rr.url, ''), de.raw_report_id::text, de.id::text),
+                CASE ({pipeline_quality})
+                    WHEN 'surveillance' THEN 0
+                    WHEN 'review' THEN 1
+                    ELSE 2
+                END,
+                de.created_at DESC
+        ) pipeline
         "#,
         TITLE_CHARS = TITLE_CHARS,
         SNIPPET_CHARS = SNIPPET_CHARS,
         matrix_country = matrix_country,
         event_country = event_country,
+        matrix_known = matrix_known,
+        event_known = event_known,
+        matrix_quality = matrix_quality,
+        pipeline_quality = pipeline_quality,
     )
 }
 
@@ -403,6 +534,7 @@ fn filter_sql(country_expr: &str) -> String {
           AND ($8::bool IS NULL OR needs_review = $8)
           AND ($9::bool IS NULL OR has_geo = $9)
           AND ($10::uuid IS NULL OR crawl_job_id = $10)
+          AND ($11::text IS NULL OR quality_class = $11)
         "#,
         country = country_filter_sql(country_expr, "$3")
     )
@@ -437,6 +569,8 @@ fn map_ledger_row(row: &tokio_postgres::Row) -> Value {
         "created_at": row.get::<_, Option<String>>(24),
         "evidence": row.get::<_, Option<String>>(25),
         "snippet": row.get::<_, Option<String>>(26),
+        "quality_class": row.get::<_, String>(27),
+        "is_health_related": row.get::<_, bool>(28),
     })
 }
 
@@ -459,17 +593,15 @@ async fn load_filtered_rows(
     let date_to = opt_text(&query.date_to);
     let status = parse_status(&query.status);
     let job_id = parse_job_id(&query.job_id)?;
+    let quality = quality_sql(parse_quality(&query.quality)).map(|value| value.to_string());
     let source = unified_source_sql();
     let filters = filter_sql("country");
     let select_sql = format!(
-        "SELECT id, crawl_channel, crawl_job_id, raw_report_id, disease_event_id, title, url,
-                published_at, country, province, city, disease, icd11_code, cases, deaths,
-                confidence, source_type, source_name, status, needs_review, has_geo, mapped,
-                latitude, longitude, created_at, evidence, snippet
+        "SELECT {LEDGER_SELECT}
          FROM ({source}) ledger
          {filters}
          ORDER BY COALESCE(published_at, LEFT(created_at, 10)) DESC NULLS LAST, created_at DESC
-         LIMIT $11 OFFSET $12"
+         LIMIT $12 OFFSET $13"
     );
     let count_sql = format!("SELECT COUNT(*)::bigint FROM ({source}) ledger {filters}", source = source, filters = filters);
 
@@ -487,6 +619,7 @@ async fn load_filtered_rows(
                 &query.needs_review,
                 &query.has_geo,
                 &job_id,
+                &quality,
                 &limit,
                 &offset,
             ],
@@ -512,6 +645,7 @@ async fn load_filtered_rows(
                 &query.needs_review,
                 &query.has_geo,
                 &job_id,
+                &quality,
             ],
         )
         .await
@@ -592,10 +726,7 @@ pub async fn get_row(
     let channel = parse_channel(&query.channel);
     let source = unified_source_sql();
     let sql = format!(
-        "SELECT id, crawl_channel, crawl_job_id, raw_report_id, disease_event_id, title, url,
-                published_at, country, province, city, disease, icd11_code, cases, deaths,
-                confidence, source_type, source_name, status, needs_review, has_geo, mapped,
-                latitude, longitude, created_at, evidence, snippet
+        "SELECT {LEDGER_SELECT}
          FROM ({source}) ledger
          WHERE id = $1 AND ($2::text IS NULL OR crawl_channel = $2)
          LIMIT 1"
@@ -804,10 +935,7 @@ pub async fn get_job(
     };
     let source = unified_source_sql();
     let row_sql = format!(
-        "SELECT id, crawl_channel, crawl_job_id, raw_report_id, disease_event_id, title, url,
-                published_at, country, province, city, disease, icd11_code, cases, deaths,
-                confidence, source_type, source_name, status, needs_review, has_geo, mapped,
-                latitude, longitude, created_at, evidence, snippet
+        "SELECT {LEDGER_SELECT}
          FROM ({source}) ledger
          WHERE crawl_job_id = $1
          ORDER BY COALESCE(published_at, LEFT(created_at, 10)) DESC NULLS LAST, created_at DESC
@@ -862,13 +990,16 @@ pub async fn summary(
                       WHERE LOWER(COALESCE(source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')) AS raw_reports,
                     (SELECT COUNT(*)::bigint FROM disease_events
                       WHERE LOWER(COALESCE(source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')) AS disease_events,
-                    COUNT(*) FILTER (WHERE crawl_channel = 'manual')::bigint AS manual_rows,
-                    COUNT(*) FILTER (WHERE crawl_channel = 'continuous')::bigint AS continuous_rows,
-                    COUNT(*) FILTER (WHERE crawl_channel = 'analyze-url')::bigint AS analyze_url_rows,
-                    COUNT(*) FILTER (WHERE has_geo)::bigint AS with_geo,
-                    COUNT(*) FILTER (WHERE NOT has_geo)::bigint AS without_geo,
-                    COUNT(*) FILTER (WHERE needs_review)::bigint AS needs_review,
-                    COUNT(*) FILTER (WHERE mapped)::bigint AS mapped
+                    COUNT(*) FILTER (WHERE quality_class = 'surveillance' AND crawl_channel = 'manual')::bigint AS manual_rows,
+                    COUNT(*) FILTER (WHERE quality_class = 'surveillance' AND crawl_channel = 'continuous')::bigint AS continuous_rows,
+                    COUNT(*) FILTER (WHERE quality_class = 'surveillance' AND crawl_channel = 'analyze-url')::bigint AS analyze_url_rows,
+                    COUNT(*) FILTER (WHERE quality_class = 'surveillance' AND has_geo)::bigint AS with_geo,
+                    COUNT(*) FILTER (WHERE quality_class = 'surveillance' AND NOT has_geo)::bigint AS without_geo,
+                    COUNT(*) FILTER (WHERE quality_class = 'surveillance' AND needs_review)::bigint AS needs_review,
+                    COUNT(*) FILTER (WHERE quality_class = 'surveillance' AND mapped)::bigint AS mapped,
+                    COUNT(*) FILTER (WHERE quality_class = 'surveillance')::bigint AS surveillance,
+                    COUNT(*) FILTER (WHERE quality_class = 'review')::bigint AS review,
+                    COUNT(*) FILTER (WHERE quality_class = 'noise')::bigint AS noise
                  FROM ({source}) ledger"
             ),
             &[],
@@ -879,7 +1010,8 @@ pub async fn summary(
         success: true,
         data: json!({
             "phase": "phase2",
-            "note": "Live Phase 2 stored counts. Phase 1 totals are not invented here; compare volume and field richness (province/city, geo, confidence, channel, job id, mapped, needs_review) against a Phase 1 export when that system is reachable.",
+            "note": "Default matrix is health surveillance only (known disease, health-related, confidence ≥ 0.15). Non-health RSS is still stored for Events QA and is hidden here unless Quality is Noise or All stored. Live Phase 2 counts; Phase 1 totals are not invented.",
+            "default_quality": "surveillance",
             "jobs": counts.get::<_, i64>(0),
             "matrix_rows": counts.get::<_, i64>(1),
             "raw_reports": counts.get::<_, i64>(2),
@@ -893,10 +1025,17 @@ pub async fn summary(
             "without_geo": counts.get::<_, i64>(8),
             "needs_review": counts.get::<_, i64>(9),
             "mapped": counts.get::<_, i64>(10),
+            "quality": {
+                "surveillance": counts.get::<_, i64>(11),
+                "review": counts.get::<_, i64>(12),
+                "noise": counts.get::<_, i64>(13),
+            },
+            "noise_excluded": counts.get::<_, i64>(13),
             "fields": [
                 "title","url","published_at","country","province","city","disease",
                 "cases","deaths","confidence","source","crawl_channel","job_id",
-                "mapped","needs_review","raw_report_id","evidence","geo"
+                "mapped","needs_review","raw_report_id","evidence","geo",
+                "quality_class","is_health_related"
             ],
         }),
         total: None,
@@ -962,5 +1101,30 @@ mod tests {
         assert_eq!(parse_status(&Some("bogus".into())), None);
         assert!(parse_job_id(&Some("not-a-uuid".into())).is_err());
         assert!(parse_job_id(&None).unwrap().is_none());
+    }
+
+    #[test]
+    fn quality_defaults_to_surveillance_and_hides_noise() {
+        assert_eq!(parse_quality(&None), Quality::Surveillance);
+        assert_eq!(parse_quality(&Some("".into())), Quality::Surveillance);
+        assert_eq!(parse_quality(&Some("surveillance".into())), Quality::Surveillance);
+        assert_eq!(parse_quality(&Some("ALL".into())), Quality::All);
+        assert_eq!(parse_quality(&Some("events".into())), Quality::All);
+        assert_eq!(parse_quality(&Some("needs-review".into())), Quality::Review);
+        assert_eq!(parse_quality(&Some("unknown".into())), Quality::Review);
+        assert_eq!(parse_quality(&Some("non-health".into())), Quality::Noise);
+        assert_eq!(parse_quality(&Some("junk".into())), Quality::Noise);
+        assert_eq!(quality_sql(Quality::Surveillance), Some("surveillance"));
+        assert_eq!(quality_sql(Quality::All), None);
+        let filters = filter_sql("country");
+        assert!(filters.contains("$11::text IS NULL OR quality_class = $11"));
+        let sql = unified_source_sql();
+        assert!(sql.contains("DISTINCT ON"));
+        assert!(sql.contains("normalized_url"));
+        assert!(sql.contains("quality_class"));
+        assert!(sql.contains("is_health_related"));
+        assert!(sql.contains("0.15"));
+        assert!(sql.contains("NEGATIVE%"));
+        assert!(known_disease_sql("de.disease_classification").contains("UNKNOWN"));
     }
 }

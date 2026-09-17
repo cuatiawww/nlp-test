@@ -25,6 +25,7 @@ import { useTranslation } from '@/lib/i18n/LanguageContext'
 
 type Tab = 'matrix' | 'jobs'
 type ChannelFilter = 'all' | 'manual' | 'continuous' | 'analyze-url'
+type QualityFilter = 'surveillance' | 'review' | 'noise' | 'all'
 
 const CHANNELS: { id: ChannelFilter; label: string }[] = [
   { id: 'all', label: 'All stored results' },
@@ -58,6 +59,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('matrix')
   const [channel, setChannel] = useState<ChannelFilter>('all')
+  const [quality, setQuality] = useState<QualityFilter>('surveillance')
   const [country, setCountry] = useState('')
   const [disease, setDisease] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -91,8 +93,9 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       status: status === 'all' ? undefined : status,
       has_geo: geo === 'yes' ? true : geo === 'no' ? false : undefined,
       job_id: jobId.trim() || undefined,
+      quality,
     }),
-    [q, channel, country, disease, dateFrom, dateTo, status, geo, jobId],
+    [q, channel, country, disease, dateFrom, dateTo, status, geo, jobId, quality],
   )
 
   const loadSummary = useCallback(async () => {
@@ -158,7 +161,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   useEffect(() => {
     setPage(1)
     setJobPage(1)
-  }, [channel, country, disease, dateFrom, dateTo, status, geo, jobId, q])
+  }, [channel, quality, country, disease, dateFrom, dateTo, status, geo, jobId, q])
 
   async function openRow(row: CrawlHistoryRow) {
     setDetailLoading(true)
@@ -198,11 +201,11 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
 
   const cards = [
     { label: 'Manual jobs', value: summary ? fmtNum(summary.jobs) : '—' },
-    { label: 'Matrix rows', value: summary ? fmtNum(summary.matrix_rows) : '—' },
+    { label: 'Surveillance rows', value: summary ? fmtNum(summary.quality?.surveillance ?? summary.matrix_rows) : '—' },
     { label: 'Continuous', value: summary ? fmtNum(summary.by_channel?.continuous) : '—' },
     { label: 'Analyze URL', value: summary ? fmtNum(summary.by_channel?.analyze_url) : '—' },
     { label: 'Mapped / with geo', value: summary ? `${fmtNum(summary.mapped)} / ${fmtNum(summary.with_geo)}` : '—' },
-    { label: 'Needs review', value: summary ? fmtNum(summary.needs_review) : '—' },
+    { label: 'Noise excluded', value: summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) : '—' },
   ]
 
   return (
@@ -216,9 +219,14 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
         ))}
       </div>
       <p className="text-[11px] leading-relaxed text-slate-500">
-        {summary?.note ||
-          'Live Phase 2 stored counts from the database. Phase 1 totals are not invented here — compare volume and field richness (province/city, geo, confidence, channel, job id, mapped) against a Phase 1 export when that system is reachable.'}
+        {summary?.note || t('pages.crawlHistory.qualityHint')}
       </p>
+      {summary?.quality ? (
+        <p className="text-[11px] text-slate-500">
+          Surveillance {fmtNum(summary.quality.surveillance)} · Review {fmtNum(summary.quality.review)} · Noise {fmtNum(summary.quality.noise)}
+          {typeof summary.disease_events === 'number' ? ` · Stored events ${fmtNum(summary.disease_events)}` : ''}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         {([
@@ -304,6 +312,14 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
             )}
           </select>
           {tab === 'matrix' && (
+            <select value={quality} onChange={(e) => setQuality(e.target.value as QualityFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+              <option value="surveillance">{t('pages.crawlHistory.qualitySurveillance')}</option>
+              <option value="review">{t('pages.crawlHistory.qualityReview')}</option>
+              <option value="noise">{t('pages.crawlHistory.qualityNoise')}</option>
+              <option value="all">{t('pages.crawlHistory.qualityAll')}</option>
+            </select>
+          )}
+          {tab === 'matrix' && (
             <select value={geo} onChange={(e) => setGeo(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
               <option value="all">{t('pages.crawlHistory.allGeo')}</option>
               <option value="yes">Has geo</option>
@@ -356,7 +372,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               <table className="min-w-[1400px] w-full text-left text-xs">
                 <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                   <tr>
-                    {['Title / URL', 'Published', 'Country', 'Province / City', 'Disease', 'Cases', 'Deaths', 'Confidence', 'Source', 'Channel', 'Job', 'Mapped', 'Review'].map((header) => (
+                    {['Title / URL', 'Published', 'Country', 'Province / City', 'Disease', 'Cases', 'Deaths', 'Confidence', 'Source', 'Channel', 'Quality', 'Mapped', 'Review'].map((header) => (
                       <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>
                     ))}
                   </tr>
@@ -387,7 +403,19 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                         <div className="text-[10px] text-slate-400">{row.source_type || ''}</div>
                       </td>
                       <td className="px-3 py-3">{channelLabel(row.crawl_channel)}</td>
-                      <td className="px-3 py-3 font-mono text-[10px]">{row.job_id ? row.job_id.slice(0, 8) : '—'}</td>
+                      <td className="px-3 py-3">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          row.quality_class === 'surveillance'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : row.quality_class === 'review'
+                              ? 'bg-amber-50 text-amber-700'
+                              : row.quality_class === 'noise'
+                                ? 'bg-slate-100 text-slate-500'
+                                : 'text-slate-500'
+                        }`}>
+                          {row.quality_class || '—'}
+                        </span>
+                      </td>
                       <td className="px-3 py-3">
                         {row.mapped ? (
                           <span className="inline-flex items-center gap-1 text-emerald-700"><MapPin className="h-3 w-3" /> Yes</span>
@@ -463,6 +491,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               <div><dt className="text-slate-400">Confidence</dt><dd className="font-medium">{fmtPct(detail.confidence)}</dd></div>
               <div><dt className="text-slate-400">Channel</dt><dd className="font-medium">{channelLabel(detail.crawl_channel)}</dd></div>
               <div><dt className="text-slate-400">Mapped / geo</dt><dd className="font-medium">{detail.mapped ? 'Yes' : 'No'}{detail.has_geo ? ` · ${detail.latitude}, ${detail.longitude}` : ''}</dd></div>
+              <div><dt className="text-slate-400">Quality</dt><dd className="font-medium capitalize">{detail.quality_class || '—'}</dd></div>
+              <div><dt className="text-slate-400">Health related</dt><dd className="font-medium">{detail.is_health_related ? 'Yes' : 'No'}</dd></div>
               <div><dt className="text-slate-400">Needs review</dt><dd className="font-medium">{detail.needs_review ? 'Yes' : 'No'}</dd></div>
               <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Raw report id</dt><dd className="font-mono text-[11px]">{detail.raw_report_id || '—'}</dd></div>
               <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Disease event id</dt><dd className="font-mono text-[11px]">{detail.disease_event_id || '—'}</dd></div>
