@@ -1838,7 +1838,7 @@ pub async fn summary(
         success: true,
         data: json!({
             "phase": "phase2",
-            "note": "Default matrix is one row per article URL, read from the same disease_events / raw_reports inventory as Events (GET is not blocked by an expired session). Health surveillance: known disease, health-related, confidence ≥ 0.15, ASEAN-11+Timor-Leste when country is known. Multi-country cases render as Indonesia(8278); Philippines(3734). Confidence is the max across child events. Non-health RSS stays stored for Events QA.",
+            "note": "Default matrix is one row per article URL, read from the same disease_events / raw_reports inventory as Events. Health surveillance uses known disease, health relevance, confidence ≥ 0.15, and the 11 ASEAN jurisdictions when a country is known. Non-health feeds remain stored for Events quality checks.",
             "default_quality": "surveillance",
             "jobs": counts.get::<_, i64>(0),
             "matrix_rows": counts.get::<_, i64>(1),

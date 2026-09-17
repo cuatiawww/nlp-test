@@ -181,7 +181,7 @@ export default function RegionalDetailPreview() {
       setDiseaseTrends([])
       setNews([])
       setContext(null)
-      setError('This page only covers ASEAN + Timor-Leste. Choose a member country.')
+      setError('This page covers the 11 ASEAN jurisdictions. Select an ASEAN country.')
       setLoading(false)
       return
     }

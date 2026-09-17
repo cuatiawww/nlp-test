@@ -248,11 +248,11 @@ export default function EpiFilterBar({
             </p>
           </div>
 
-          {/* 3. Start EPI Week & Year (2 cols) */}
+          {/* 3. Start MMWR epi-week & year (2 cols) */}
           <div className="lg:col-span-2 flex flex-col gap-1">
             <label className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1">
               <CalendarDays className="h-3 w-3 text-emerald-600" />
-              Start: Week & Year
+              Start: MMWR Epi Week & Year
             </label>
             <div className="flex gap-1.5">
               {/* Start Week */}
@@ -292,11 +292,11 @@ export default function EpiFilterBar({
             </p>
           </div>
 
-          {/* 4. End EPI Week & Year (2 cols) */}
+          {/* 4. End MMWR epi-week & year (2 cols) */}
           <div className="lg:col-span-2 flex flex-col gap-1">
             <label className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1">
               <CalendarDays className="h-3 w-3 text-blue-600" />
-              End: Week & Year
+              End: MMWR Epi Week & Year
             </label>
             <div className="flex gap-1.5">
               {/* End Week */}

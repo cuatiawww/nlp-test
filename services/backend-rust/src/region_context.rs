@@ -653,7 +653,7 @@ fn cache_put(key: String, payload: Value) {
 
 pub async fn build_region_context(http: &Client, country_raw: &str) -> Result<Value, String> {
     let country = resolve_country(country_raw)
-        .ok_or_else(|| "Country is outside the ASEAN + Timor-Leste set.".to_string())?;
+        .ok_or_else(|| "Select one of the 11 ASEAN jurisdictions.".to_string())?;
     let cache_key = country.storage.to_string();
     if let Some(cached) = cache_get(&cache_key) {
         return Ok(cached);

@@ -13,7 +13,7 @@ import {
 } from '@/lib/report-outline.mjs'
 
 const SCOPES = [
-  { id: 'asean11', label: 'All ASEAN (11 jurisdictions)' },
+  { id: 'asean11', label: 'All 11 ASEAN jurisdictions' },
   { id: 'Brunei', label: 'Brunei' },
   { id: 'Cambodia', label: 'Cambodia' },
   { id: 'Indonesia', label: 'Indonesia' },
@@ -119,7 +119,7 @@ export default function GenerateDraftPage() {
       <ReportsModeNav />
       <h1 className="text-2xl font-black">Generate draft from system data</h1>
       <p className="text-sm text-slate-600">
-        Choose template, epi-week range, ASEAN-11 or one AMS, and one or more diseases. The system pulls cases,
+        Choose a template, MMWR epi-week range, all 11 ASEAN jurisdictions or one country, and one or more diseases. The system pulls cases,
         deaths, and CFR from KPI snapshots, builds a TOC with per-disease chapters, draws polygon maps and epidemic
         curves, and may draft narrative from truncated stats only. Charts never show crawler or scrape volume.
       </p>
@@ -221,7 +221,7 @@ export default function GenerateDraftPage() {
       </div>
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <p className="text-sm font-semibold">Preview outline</p>
-        <p className="mb-2 text-[11px] text-slate-500">{tpl.label} · {scope === 'asean11' ? 'ASEAN-11 + Timor-Leste' : scope}</p>
+        <p className="mb-2 text-[11px] text-slate-500">{tpl.label} · {scope === 'asean11' ? '11 ASEAN jurisdictions' : scope}</p>
         <ol className="list-decimal space-y-1 px-5 text-sm text-slate-700">
           {toc.map((item) => (
             <li key={item.href}>

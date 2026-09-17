@@ -140,7 +140,7 @@ export default function SourcesPage() {
       <div className="mt-4 flex flex-wrap gap-2">
         {[
           { key: '', label: 'All outlets' },
-          { key: 'asean_outlet', label: 'ASEAN-11 outlets' },
+          { key: 'asean_outlet', label: '11 ASEAN jurisdiction outlets' },
           { key: 'global_outlet', label: 'Global outlets' },
           { key: 'covers_asean', label: 'Covers ASEAN stories' },
         ].map((item) => (
@@ -217,7 +217,7 @@ export default function SourcesPage() {
         <button type="button" onClick={() => setShowCoverage(value => !value)} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-[#0060A9]/40 hover:shadow-md">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Outlet country (ASEAN-11)</p>
+              <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Outlet country (11 ASEAN jurisdictions)</p>
               <p className="mt-2 text-3xl font-bold text-[#0060A9]">{summaryLoading ? '—' : (summary?.asean_sources ?? 0).toLocaleString()}</p>
               <p className="mt-1 text-xs text-slate-500">Sumber dengan negara ASEAN terisi (kolom country atau config.country)</p>
             </div>

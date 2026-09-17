@@ -1,5 +1,18 @@
 'use client'
 
+function stripHtml(text?: string | null): string {
+  if (!text) return ''
+  return text
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -43,18 +56,20 @@ const CHANNELS: { id: ChannelFilter; label: string }[] = [
 
 const PHASE1_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 52, sticky: true },
-  { key: 'country', label: 'Country', width: 140 },
+  { key: 'action', label: 'Action', width: 105 },
+  { key: 'needs_review', label: 'Review Status', width: 125 },
+  { key: 'country', label: 'Country', width: 130 },
+  { key: 'disease', label: 'Disease Name', width: 180 },
+  { key: 'title', label: 'Article Title', width: 280 },
+  { key: 'cases', label: 'Cases', width: 90 },
+  { key: 'deaths', label: 'Deaths', width: 90 },
+  { key: 'crawling_date', label: 'Crawling Date', width: 140 },
+  { key: 'region', label: 'Region', width: 130 },
+  { key: 'province_city_case', label: 'Province / City Case', width: 160 },
   { key: 'language', label: 'Language', width: 78 },
   { key: 'url', label: 'Source URL', width: 220 },
-  { key: 'title', label: 'Article Title', width: 260 },
-  { key: 'disease', label: 'Disease Name', width: 180 },
-  { key: 'crawling_date', label: 'Crawling Date', width: 140 },
-  { key: 'region', label: 'Region', width: 140 },
-  { key: 'province_city_case', label: 'Province / City Case', width: 160 },
   { key: 'article_date', label: 'Article Date', width: 110 },
   { key: 'date_case', label: 'Date Case', width: 110 },
-  { key: 'cases', label: 'Number of Cases', width: 180 },
-  { key: 'deaths', label: 'Number of Deaths', width: 180 },
   { key: 'latitude', label: 'Latitude', width: 90 },
   { key: 'longitude', label: 'Longitude', width: 90 },
   { key: 'source_type', label: 'Source Type', width: 100 },
@@ -70,8 +85,6 @@ const PHASE1_COLUMNS: { key: string; label: string; width: number; sticky?: bool
   { key: 'sentiment', label: 'Sentiment', width: 90 },
   { key: 'relevance_score', label: 'Relevance Score', width: 110 },
   { key: 'outbreak_alert', label: 'Outbreak Alert', width: 110 },
-  { key: 'needs_review', label: 'Needs Review', width: 110 },
-  { key: 'action', label: 'Action', width: 95 },
 ]
 
 function fmtNum(value?: number | null) {
@@ -155,7 +168,7 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
         </a>
       ) : ''
     case 'title':
-      return fmtTrunc(row.title || row.article_title, 'max-w-[240px]')
+      return fmtTrunc(stripHtml(row.title || row.article_title), 'max-w-[260px]')
     case 'disease':
       return (
         <span className="block max-w-[170px] truncate font-medium" title={row.disease || ''}>
@@ -487,7 +500,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           />
           <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
             <option value="">{t('pages.crawlHistory.allCountries')}</option>
-            <option value="ASEAN">ASEAN-11 + Timor-Leste</option>
+            <option value="ASEAN">All 11 ASEAN jurisdictions</option>
             {ASEAN11_DISPLAY.map((item) => (
               <option key={item.value} value={item.value}>{item.label}</option>
             ))}

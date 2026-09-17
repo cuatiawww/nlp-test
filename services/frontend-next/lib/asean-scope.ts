@@ -15,7 +15,7 @@ export const ASEAN11_COUNTRY_NAMES = [
   "Vietnam",
 ] as const;
 
-/** Product display names: Lao PDR and Viet Nam rather than Laos/Vietnam. */
+/** Product display names use the standard English country names. */
 export const ASEAN11_DISPLAY = [
   { value: "Brunei", label: "Brunei" },
   { value: "Cambodia", label: "Cambodia" },
@@ -30,10 +30,10 @@ export const ASEAN11_DISPLAY = [
   { value: "Vietnam", label: "Viet Nam" },
 ] as const;
 
-export const ASEAN_SCOPE_FILTER_LABEL = "ASEAN — all locations";
-export const ASEAN_SCOPE_BANNER = "Totals shown: ASEAN 11 jurisdictions";
+export const ASEAN_SCOPE_FILTER_LABEL = "All 11 ASEAN jurisdictions";
+export const ASEAN_SCOPE_BANNER = "Scope: 11 ASEAN jurisdictions";
 export const ASEAN_SCOPE_HINT =
-  "Default scope is ASEAN + Timor-Leste (11). A member with zero events is still a jurisdiction; it is not dropped from the set. Outside-ASEAN points (Utah/US, India, DRC, Europe, Brazil, etc.) are excluded unless you choose Global.";
+  "Includes Brunei, Cambodia, Indonesia, Lao PDR, Malaysia, Myanmar, Philippines, Singapore, Thailand, Timor-Leste, and Viet Nam. Outside-ASEAN events are excluded unless Global is selected.";
 
 const ASEAN11_ALIASES: Record<string, string> = {
   brunei: "Brunei",
@@ -69,8 +69,7 @@ export function isAseanDefaultScope(country?: string | null): boolean {
 
 export function isAseanCountryName(country?: string | null): boolean {
   const value = (country || "").trim();
-  if (!value) return false;
-  if (/^outside asean$/i.test(value) || /^other$/i.test(value) || /^global$/i.test(value)) {
+  if (!value || /^outside asean$/i.test(value) || /^other$/i.test(value) || /^global$/i.test(value)) {
     return false;
   }
   return Boolean(ASEAN11_ALIASES[value.toLowerCase()]);
@@ -83,7 +82,7 @@ export function aseanDisplayName(country?: string | null): string {
   return ASEAN11_DISPLAY.find((item) => item.value === canonical)?.label || canonical;
 }
 
-/** Storage/API label (Laos / Vietnam) for an ASEAN+TL alias, or null if outside the set. */
+/** Storage/API label (Laos / Vietnam) for an ASEAN alias, or null if outside the set. */
 export function aseanStorageName(country?: string | null): string | null {
   const value = (country || "").trim();
   if (!value) return null;

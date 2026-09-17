@@ -16,7 +16,7 @@ use axum::{
     routing::{get, patch, post, put},
     Json, Router,
 };
-use chrono::{Datelike, NaiveDate, Weekday};
+use chrono::{Datelike, Duration, NaiveDate};
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -301,6 +301,35 @@ fn kpi_filter_key(
     format!("{start_date}|{end_date}|{country}|{disease}|{source}").to_lowercase()
 }
 
+/// Return the Sunday that starts MMWR epidemiological week 1 for a year.
+/// This matches epiweek.com: week 1 contains January 4 and weeks end on Saturday.
+fn mmwr_week_one_start(year: i32) -> NaiveDate {
+    let jan4 = NaiveDate::from_ymd_opt(year, 1, 4).unwrap();
+    jan4 - Duration::days(jan4.weekday().num_days_from_sunday() as i64)
+}
+
+fn mmwr_week_for_date(date: NaiveDate) -> (i32, u32) {
+    let mut year = date.year();
+    let mut week_one_start = mmwr_week_one_start(year);
+    if date < week_one_start {
+        year -= 1;
+        week_one_start = mmwr_week_one_start(year);
+    } else {
+        let next_week_one_start = mmwr_week_one_start(year + 1);
+        if date >= next_week_one_start {
+            year += 1;
+            week_one_start = next_week_one_start;
+        }
+    }
+    let sunday = date - Duration::days(date.weekday().num_days_from_sunday() as i64);
+    let week = ((sunday - week_one_start).num_days() / 7 + 1) as u32;
+    (year, week)
+}
+
+fn mmwr_week_start(year: i32, week: u32) -> NaiveDate {
+    mmwr_week_one_start(year) + Duration::days((week.saturating_sub(1) * 7) as i64)
+}
+
 fn default_kpi_dates(
     year: Option<i32>,
     start_year: Option<i32>,
@@ -309,8 +338,7 @@ fn default_kpi_dates(
     end_week: Option<u32>,
 ) -> (NaiveDate, NaiveDate) {
     let now = chrono::Utc::now();
-    let epi_year = now.iso_week().year();
-    let epi_week = now.iso_week().week();
+    let (epi_year, epi_week) = mmwr_week_for_date(now.date_naive());
     if start_week.is_none()
         && end_week.is_none()
         && start_year.is_none()
@@ -337,7 +365,7 @@ fn default_kpi_dates(
 
 fn kpi_scope_label(canonical: &str) -> &str {
     if canonical.eq_ignore_ascii_case("asean11") || canonical.eq_ignore_ascii_case("asean") {
-        "ASEAN 11 jurisdictions"
+        "11 ASEAN jurisdictions"
     } else if canonical.eq_ignore_ascii_case("global") {
         "all monitored countries"
     } else {
@@ -1076,10 +1104,10 @@ mod analysis_contract_tests {
     }
 
     #[test]
-    fn unified_dashboard_filter_uses_iso_week_boundaries() {
+    fn unified_dashboard_filter_uses_mmwr_week_boundaries() {
         let (start, end) = resolve_dashboard_dates(2026, Some(2025), Some(1), Some(2026), Some(36));
-        assert_eq!(start, NaiveDate::from_ymd_opt(2024, 12, 30).unwrap());
-        assert_eq!(end, NaiveDate::from_ymd_opt(2026, 9, 6).unwrap());
+        assert_eq!(start, NaiveDate::from_ymd_opt(2024, 12, 29).unwrap());
+        assert_eq!(end, NaiveDate::from_ymd_opt(2026, 9, 5).unwrap());
     }
 
     #[test]
@@ -1091,7 +1119,7 @@ mod analysis_contract_tests {
         assert_eq!(canonical_kpi_country(&Some("global".into())), "global");
         assert_eq!(sql_country_param("asean11").as_deref(), Some("asean11"));
         assert_eq!(sql_country_param("global"), None);
-        assert_eq!(kpi_scope_label("asean11"), "ASEAN 11 jurisdictions");
+        assert_eq!(kpi_scope_label("asean11"), "11 ASEAN jurisdictions");
         assert_eq!(
             resolve_kpi_country(&Some("ASEAN".into()), &Some("asean11".into())),
             "asean11"
@@ -1451,7 +1479,7 @@ struct CrawlingStatsQuery {
     country: Option<String>,
 }
 
-/// Resolve the same ISO-week date boundaries used by the main dashboard.
+/// Resolve the same MMWR date boundaries used by the main dashboard.
 /// Optional fields preserve the legacy year-only behavior of the supporting
 /// dashboard endpoints when callers do not send the unified filter.
 fn resolve_dashboard_dates(
@@ -1464,11 +1492,11 @@ fn resolve_dashboard_dates(
     let start_year = start_year.unwrap_or(default_year);
     let end_year = end_year.unwrap_or(default_year);
     let start_date = start_week
-        .and_then(|week| NaiveDate::from_isoywd_opt(start_year, week, Weekday::Mon))
+        .map(|week| mmwr_week_start(start_year, week))
         .or_else(|| NaiveDate::from_ymd_opt(start_year, 1, 1))
         .unwrap();
     let end_date = end_week
-        .and_then(|week| NaiveDate::from_isoywd_opt(end_year, week, Weekday::Sun))
+        .map(|week| mmwr_week_start(end_year, week) + Duration::days(6))
         .or_else(|| NaiveDate::from_ymd_opt(end_year, 12, 31))
         .unwrap();
     (start_date, end_date)
@@ -5170,7 +5198,7 @@ async fn skdr_summary(
         if week <= 0 {
             if let Some(report_date) = json_field_text(&payload, &date_fields) {
                 if let Ok(date) = NaiveDate::parse_from_str(report_date.get(..10).unwrap_or(&report_date), "%Y-%m-%d") {
-                    week = date.iso_week().week() as i32;
+                    week = mmwr_week_for_date(date).1 as i32;
                 }
             }
         }
@@ -5327,8 +5355,7 @@ async fn public_dashboard(
     };
 
     let now = chrono::Utc::now();
-    let current_epi_week = now.iso_week().week();
-    let current_epi_year = now.iso_week().year();
+    let (current_epi_year, current_epi_week) = mmwr_week_for_date(now.date_naive());
 
     let selected_year = query.year.unwrap_or(current_epi_year);
     let country_key = resolve_kpi_country(&query.country, &query.scope);

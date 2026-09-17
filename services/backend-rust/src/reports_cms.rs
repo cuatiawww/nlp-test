@@ -240,7 +240,7 @@ fn resolve_scope_key(raw: &str) -> String {
 
 fn scope_label(key: &str) -> String {
     if key == "asean11" {
-        "ASEAN 11 jurisdictions".into()
+        "11 ASEAN jurisdictions".into()
     } else {
         display_ams_name(key).to_string()
     }

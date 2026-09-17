@@ -10,14 +10,14 @@ export default function AseanScopeBanner({
   if (country && !isAseanDefaultScope(country) && country !== "global") {
     return (
       <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-2 text-[11px] font-semibold text-slate-600">
-        Totals shown: {country} only (one of 11 ASEAN + Timor-Leste jurisdictions).
+        Showing {country} only (one of the 11 ASEAN jurisdictions).
       </div>
     );
   }
   if (country === "global") {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">
-        Totals shown: Global (outside-ASEAN events included). Default remains ASEAN 11 jurisdictions.
+        Showing all monitored countries, including events outside ASEAN. The default scope is 11 ASEAN jurisdictions.
       </div>
     );
   }
