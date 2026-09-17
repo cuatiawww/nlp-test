@@ -161,9 +161,10 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         for call in post.call_args_list:
             payload = call.kwargs["json"]
             self.assertEqual(payload["fetch_mode"], "http")
-            self.assertEqual(payload["max_retries"], 0)
-            self.assertLessEqual(payload["timeout_ms"], 15000)
-            self.assertLessEqual(call.kwargs["timeout"][1], 25)
+            self.assertEqual(payload["max_retries"], 1)
+            self.assertGreaterEqual(payload["timeout_ms"], 25000)
+            self.assertLessEqual(payload["timeout_ms"], 45000)
+            self.assertLessEqual(call.kwargs["timeout"][1], 55)
 
     def test_dashboard_persist_uses_nlp_coords_and_marks_kpi_stale(self):
         statements = []

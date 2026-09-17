@@ -652,7 +652,10 @@
       "qualityHint": "Each matrix row is one article (same Source URL collapsed). Location children stay in the row detail drawer. Default hides political/economic RSS and UNKNOWN labels; those rows remain stored for Events.",
       "emptyRows": "No surveillance crawl results match these filters. Non-health articles may still be stored — switch Quality to Needs review, Noise, or All stored.",
       "emptyJobs": "No manual crawl jobs have been stored yet.",
-      "loadError": "Crawl History could not load stored rows. Sign in again if the session expired — this ledger reads the same disease_events inventory as Events.",
+      "loadError": "Crawl History could not load stored rows from the same disease_events inventory as Events.",
+      "loadErrorAuth": "Your session expired. Sign in again — this page requires login, but the ledger GET is public like Events (an expired token must not hide stored rows).",
+      "loadErrorTimeout": "The ledger query timed out. This is not missing data and not a wrong table. Retry; History reads the same disease_events inventory as Events.",
+      "signInAgain": "Sign in again",
       "detailTitle": "Stored crawl result"
     },
     "processing": {

@@ -44,10 +44,10 @@ function formatApiError(res: Response, json?: any): string {
   if (json?.error && typeof json.error === "string") return json.error;
   if (json?.detail && typeof json.detail === "string") return json.detail;
   if (res.status === 401 || res.status === 403) {
-    return `Authentication required (${res.status}). Sign in or configure the upstream API key.`;
+    return `Authentication required (${res.status}). Sign in again if the session expired.`;
   }
   if (res.status === 408) {
-    return "URL extraction timed out. The source website is slow or blocking crawler access.";
+    return "URL extraction timed out (408). The source website is slow or blocking crawler access. The article was not lost — retry, or use Re-analyze after a cached row.";
   }
   if (res.status === 429) {
     return "Upstream rate-limited (429). Wait before retrying this layer.";
@@ -56,7 +56,7 @@ function formatApiError(res: Response, json?: any): string {
     return "Service unavailable (503): gateway or upstream overloaded. This is not a generic server crash.";
   }
   if (res.status === 504) {
-    return "Gateway Timeout (504): Server atau website sumber artikel membutuhkan waktu terlalu lama untuk merespons. Silakan periksa apakah tautan dapat diakses dan coba beberapa saat lagi.";
+    return "Gateway Timeout (504): the source website or a proxy waited too long. This is a slow fetch, not missing History data. Retry; the worker will try a second HTTP pass.";
   }
   if (res.status === 502) {
     return "Bad Gateway (502): Layanan backend sedang tidak dapat dihubungi atau sedang restart. Silakan coba kembali.";
@@ -68,18 +68,61 @@ function formatApiError(res: Response, json?: any): string {
   return `API ${res.status}${text}`;
 }
 
+export function isAuthFailureMessage(message?: string | null) {
+  const text = String(message || "").toLowerCase();
+  return (
+    text.includes("authentication required") ||
+    text.includes("401") ||
+    text.includes("403") ||
+    text.includes("expired session") ||
+    text.includes("sign in")
+  );
+}
+
+export function isTimeoutFailureMessage(message?: string | null) {
+  const text = String(message || "").toLowerCase();
+  return (
+    text.includes("504") ||
+    text.includes("408") ||
+    text.includes("timed out") ||
+    text.includes("timeout") ||
+    text.includes("gateway timeout")
+  );
+}
+
+async function parseResponseJson(res: Response) {
+  return res.json().catch(() => null);
+}
+
+async function fetchLedger(path: string, init?: RequestInit): Promise<Response> {
+  const attempt = async (headers: Record<string, string>) =>
+    fetch(`${baseURL()}${path}`, {
+      cache: "no-store",
+      ...init,
+      headers: { ...headers, ...(init?.headers || {}) },
+    });
+  let res = await attempt(authHeaders());
+  if (res.status === 401 || res.status === 403) {
+    res = await attempt({});
+  }
+  return res;
+}
+
 export async function fetchFrom<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${baseURL()}${path}`, {
-    cache: "no-store",
-    ...init,
-    headers: { ...authHeaders(), ...(init?.headers || {}) },
-  });
+  const ledger = path.includes("/api/v1/crawl-history");
+  const res = ledger
+    ? await fetchLedger(path, init)
+    : await fetch(`${baseURL()}${path}`, {
+        cache: "no-store",
+        ...init,
+        headers: { ...authHeaders(), ...(init?.headers || {}) },
+      });
   if (init?.signal?.aborted) {
     const err = new Error("aborted");
     err.name = "AbortError";
     throw err;
   }
-  const json = await res.json().catch(() => null);
+  const json = await parseResponseJson(res);
   if (!res.ok) throw new Error(formatApiError(res, json));
   return (json?.data ?? json) as T;
 }
@@ -402,12 +445,9 @@ export async function downloadCrawlHistoryExport(
 ) {
   const params = crawlHistoryParams({ ...filters, page: undefined, per_page: 5000 });
   params.set('format', format);
-  const res = await fetch(`${baseURL()}/api/v1/crawl-history/rows?${params.toString()}`, {
-    cache: 'no-store',
-    headers: authHeaders(),
-  });
+  const res = await fetchLedger(`/api/v1/crawl-history/rows?${params.toString()}`);
   if (!res.ok) {
-    const json = await res.json().catch(() => null);
+    const json = await parseResponseJson(res);
     throw new Error(formatApiError(res, json));
   }
   const blob = await res.blob();
@@ -722,14 +762,14 @@ export const analyzeUrl = async (url: string, options?: {
       async: true,
       force_refresh: Boolean(options?.forceRefresh),
     }),
-    signal: options?.signal ?? AbortSignal.timeout(20000),
+    signal: options?.signal ?? AbortSignal.timeout(45000),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(formatApiError(res, json));
   const initial = (json?.data ?? json) as any;
   return waitForAnalysis(initial, async (id: string) => {
     const res = await fetch(baseURL() + "/api/v1/analysis-jobs/" + encodeURIComponent(id),
-      { cache: "no-store", headers: authHeaders(), signal: AbortSignal.timeout(30000) });
+      { cache: "no-store", headers: authHeaders(), signal: AbortSignal.timeout(45000) });
     const json = await res.json().catch(() => null);
     if (!res.ok) throw new Error(formatApiError(res, json));
     return json.data;
@@ -749,8 +789,11 @@ export const analyzeUrl = async (url: string, options?: {
 export async function fetchPaginated<T>(
   path: string,
 ): Promise<{ data: T[]; total: number; totalPages: number }> {
-  const res = await fetch(`${baseURL()}${path}`, { cache: "no-store", headers: authHeaders() });
-  const json = await res.json().catch(() => null);
+  const ledger = path.includes("/api/v1/crawl-history");
+  const res = ledger
+    ? await fetchLedger(path)
+    : await fetch(`${baseURL()}${path}`, { cache: "no-store", headers: authHeaders() });
+  const json = await parseResponseJson(res);
   if (!res.ok) throw new Error(formatApiError(res, json));
   return {
     data: (json?.data ?? []) as T[],
