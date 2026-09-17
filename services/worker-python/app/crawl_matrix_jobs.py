@@ -25,7 +25,8 @@ import psycopg
 import requests
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from .geo import coords_in_country_bbox, country_centroid
+from .geo import coords_in_country_bbox, country_centroid, st_makepoint_args
+from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
 
 logger = logging.getLogger("crawl-matrix-worker")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
@@ -451,6 +452,73 @@ def country_coordinates(conn, country: str, areas: list[str] | None = None):
     return lat, lon
 
 
+def persist_dashboard_event_from_analysis(conn, raw_id, article: dict, analysis: dict) -> bool:
+    """Copy a manual-crawl analysis into disease_events using real NLP coords only.
+
+    Country centroids used by crawl-matrix map rows are not copied here. Missing
+    geo is stored as NULL + needs_review so Mapped Locations cannot grow from
+    invented pins. KPI snapshots are marked stale after insert.
+    """
+    if not raw_id or not analysis:
+        return False
+    if analysis.get("is_health_related") is False:
+        return False
+    existing = conn.execute(
+        "SELECT 1 FROM disease_events WHERE raw_report_id=%s LIMIT 1",
+        (raw_id,),
+    ).fetchone()
+    if existing:
+        return False
+    lat = analysis.get("latitude")
+    lon = analysis.get("longitude")
+    if lat is None or lon is None:
+        lat, lon = None, None
+    title = str(article.get("title") or "").strip()
+    content = str(article.get("content") or analysis.get("content") or "")
+    original = f"{title}.\n{content}" if title else content
+    conn.execute(
+        """INSERT INTO disease_events
+           (raw_report_id, source_type, source_name, published_at, original_text,
+            language, location_name, province, city, geom, symptoms, disease_extracted,
+            disease_mentions, disease_classification, case_count, death_count,
+            confidence, outbreak_alert, sentiment, event_type, relevance_score,
+            source_credibility, source_credibility_label, is_health_related, needs_review)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                   CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
+                        ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                   END,
+                   %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s)""",
+        (
+            raw_id,
+            article.get("source_type") or "news",
+            article.get("source_name") or "Manual Crawler",
+            analysis.get("published_at") or article.get("published_at"),
+            original,
+            analysis.get("language") or "unknown",
+            analysis.get("location_name"),
+            analysis.get("province"),
+            analysis.get("city"),
+            *st_makepoint_args(lat, lon),
+            Jsonb(analysis.get("symptoms") or []),
+            Jsonb(analysis.get("disease_extracted") or []),
+            Jsonb(analysis.get("disease_mentions") or []),
+            analysis.get("disease_classification"),
+            analysis.get("case_count"),
+            analysis.get("death_count") or 0,
+            analysis.get("confidence") or 0.0,
+            analysis.get("outbreak_alert") or False,
+            analysis.get("sentiment"),
+            analysis.get("event_type"),
+            analysis.get("relevance_score"),
+            analysis.get("source_credibility") or 0.50,
+            analysis.get("source_credibility_label") or "",
+            nlp_needs_review(analysis) or lat is None or lon is None,
+        ),
+    )
+    mark_kpi_snapshots_stale(conn)
+    return True
+
+
 def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, concepts: list[dict], request: dict) -> int:
     published = safe_date(article.get("published_at") or analysis.get("published_date"))
     disease, concept = selected_concept(disease_labels(analysis), concepts)
@@ -858,6 +926,7 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
                 else:
                     with connect() as conn:
                         inserted = persist_article(conn, job_id, raw_id, article, analysis, concepts, payload)
+                        persist_dashboard_event_from_analysis(conn, raw_id, article, analysis)
                         row_count += inserted
                         conn.commit()
                     if inserted:

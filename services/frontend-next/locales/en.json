@@ -276,7 +276,7 @@
       "signalsMatrix": "Signal Distribution by Region",
       "locationsTitle": "Mapped Locations",
       "locationsMeaning": "Unique locations with a detected monitored signal and valid map coordinates.",
-      "locationsCalculation": "Location names are matched against the official ASEAN spatial database.",
+      "locationsCalculation": "Distinct ASEAN-11 place names on dashboard-valid events that already have coordinates (event geocode or gazetteer match). Missing geo stays unmapped and is never given a dummy pin. This is not the gazetteer master count.",
       "locationsMatrix": "Mapped Locations by Region",
       "activeSignalsTitle": "Active Surveillance Signals",
       "activeSignalsMeaning": "Locations where monitoring rules currently indicate elevated signal conditions.",

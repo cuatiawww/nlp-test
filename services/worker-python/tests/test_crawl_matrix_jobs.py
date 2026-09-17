@@ -12,6 +12,7 @@ from app.crawl_matrix_jobs import (
     build_news_query,
     disease_labels,
     extract_article,
+    persist_dashboard_event_from_analysis,
     prepare_text_for_nlp,
     selected_concept,
 )
@@ -163,6 +164,73 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
             self.assertEqual(payload["max_retries"], 0)
             self.assertLessEqual(payload["timeout_ms"], 15000)
             self.assertLessEqual(call.kwargs["timeout"][1], 25)
+
+    def test_dashboard_persist_uses_nlp_coords_and_marks_kpi_stale(self):
+        statements = []
+
+        class FakeCursor:
+            def fetchone(self):
+                return None
+
+        class FakeConn:
+            def execute(self, sql, params=None):
+                statements.append((sql, params))
+                return FakeCursor()
+
+        analysis = {
+            "is_health_related": True,
+            "location_name": "Kampong Thom",
+            "latitude": 12.7111,
+            "longitude": 104.8886,
+            "language": "en",
+            "disease_classification": "Avian influenza",
+            "case_count": 1,
+            "death_count": 0,
+            "confidence": 0.9,
+            "needs_review": False,
+        }
+        article = {
+            "title": "Cambodia H5N1",
+            "content": "Kampong Thom confirms a case",
+            "source_name": "CIDRAP",
+            "source_type": "news",
+        }
+        self.assertTrue(
+            persist_dashboard_event_from_analysis(FakeConn(), "raw-1", article, analysis)
+        )
+        insert_sql = next(sql for sql, _ in statements if "INSERT INTO disease_events" in sql)
+        self.assertIn("ST_MakePoint", insert_sql)
+        geo_params = next(params for sql, params in statements if params and 12.7111 in params)
+        self.assertIn(12.7111, geo_params)
+        self.assertIn(104.8886, geo_params)
+        self.assertTrue(any("kpi_snapshots" in sql for sql, _ in statements))
+
+    def test_dashboard_persist_does_not_invent_coordinates(self):
+        statements = []
+
+        class FakeCursor:
+            def fetchone(self):
+                return None
+
+        class FakeConn:
+            def execute(self, sql, params=None):
+                statements.append((sql, params))
+                return FakeCursor()
+
+        analysis = {
+            "is_health_related": True,
+            "location_name": "Unknown Hamlet",
+            "latitude": None,
+            "longitude": None,
+            "language": "en",
+            "disease_classification": "Dengue",
+            "needs_review": True,
+        }
+        persist_dashboard_event_from_analysis(
+            FakeConn(), "raw-2", {"title": "Note", "content": "Dengue"}, analysis
+        )
+        params = next(item[1] for item in statements if item[1] and "Unknown Hamlet" in item[1])
+        self.assertIn(None, params)
 
 
 if __name__ == "__main__":

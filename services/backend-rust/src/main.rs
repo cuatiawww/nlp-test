@@ -79,6 +79,9 @@ struct KpiSnapshotRow {
 }
 
 const KPI_SNAPSHOT_MIN_REFRESH_SECS: i64 = 90;
+/// Safety net: even if ingest forgot to set is_stale, do not serve a snapshot
+/// older than this. Production froze for days with is_stale=false.
+const KPI_SNAPSHOT_MAX_AGE_SECS: i64 = 300;
 
 /// Canonical 11 jurisdictions for default KPI/map/TV/reports scope.
 /// Display names Lao PDR / Viet Nam alias to Laos / Vietnam in storage.
@@ -230,7 +233,43 @@ fn pad_asean11_country_rows(rows: Vec<Value>, scope: &str) -> Vec<Value> {
 }
 
 fn snapshot_needs_refresh(is_stale: bool, age_secs: i64) -> bool {
+    if age_secs >= KPI_SNAPSHOT_MAX_AGE_SECS {
+        return true;
+    }
     is_stale && age_secs >= KPI_SNAPSHOT_MIN_REFRESH_SECS
+}
+
+/// Distinct place names that can actually be drawn on the map (event geom or
+/// gazetteer fallback). Missing coordinates stay unmapped — never a dummy pin.
+fn mapped_locations_count_sql() -> &'static str {
+    r#"COUNT(DISTINCT NULLIF(TRIM(location_name), '')) FILTER (
+              WHERE mapped_latitude IS NOT NULL AND mapped_longitude IS NOT NULL
+            )::bigint"#
+}
+
+#[cfg(test)]
+fn is_mappable_kpi_location(
+    location_name: Option<&str>,
+    mapped_latitude: Option<f64>,
+    mapped_longitude: Option<f64>,
+    resolved_country: &str,
+) -> bool {
+    let name = location_name.map(str::trim).unwrap_or("");
+    if name.is_empty() || mapped_latitude.is_none() || mapped_longitude.is_none() {
+        return false;
+    }
+    ASEAN11_MEMBERS.iter().any(|member| *member == resolved_country)
+}
+
+#[cfg(test)]
+fn mapped_location_count(events: &[(&str, Option<f64>, Option<f64>, &str)]) -> usize {
+    let mut names = std::collections::BTreeSet::new();
+    for (name, lat, lon, country) in events {
+        if is_mappable_kpi_location(Some(name), *lat, *lon, country) {
+            names.insert(name.trim().to_string());
+        }
+    }
+    names.len()
 }
 
 fn canonical_kpi_country(raw: &Option<String>) -> String {
@@ -329,7 +368,7 @@ fn kpi_snapshot_json(row: &KpiSnapshotRow) -> Value {
         "is_stale": row.is_stale,
         "kpi_source": "materialized_kpi_snapshot",
         "scope": row.country,
-        "refresh": "On ingest the previous snapshot is marked stale. The next reader recomputes under pg_advisory_lock(filter_key) and upserts. Concurrent dashboard/TV/reports widgets read that same row and never invent totals.",
+        "refresh": "On ingest (including worker/DB writes to disease_events) the previous snapshot is marked stale. The next reader recomputes under pg_advisory_lock(filter_key) after a 90s floor, or after 5 minutes even if is_stale was never set. Concurrent dashboard/TV/reports widgets read that same row and never invent totals.",
         "start_date": row.start_date.to_string(),
         "end_date": row.end_date.to_string(),
         "country": row.country,
@@ -358,7 +397,9 @@ fn dashboard_valid_cte() -> String {
                ) OR ($5::text = 'skdr' AND LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))))
            ), valid AS (
              SELECT ranked.*,
-                    {resolved} AS resolved_country
+                    {resolved} AS resolved_country,
+                    COALESCE(ST_Y(ranked.geom), l.latitude) AS mapped_latitude,
+                    COALESCE(ST_X(ranked.geom), l.longitude) AS mapped_longitude
              FROM ranked
              LEFT JOIN LATERAL (
                SELECT l0.* FROM locations l0
@@ -386,7 +427,7 @@ async fn query_shared_kpis(
             COALESCE(SUM({cases}), 0)::bigint AS cases,
             COALESCE(SUM({deaths}), 0)::bigint AS deaths,
             COUNT(*)::bigint AS events,
-            COUNT(DISTINCT NULLIF(TRIM(location_name), ''))::bigint AS active_locations,
+            {locations} AS active_locations,
             COUNT(*) FILTER (WHERE outbreak_alert = TRUE)::bigint AS alerts,
             (SELECT COUNT(*)::bigint FROM locations loc WHERE loc.is_active = TRUE AND {master_scope}) AS location_master_count
          FROM valid
@@ -395,6 +436,7 @@ async fn query_shared_kpis(
         country_scope_sql(),
         cases = security::SANE_CASES_SQL,
         deaths = security::SANE_DEATHS_SQL,
+        locations = mapped_locations_count_sql(),
         master_scope = country_scope_predicate(&asean11_fold_sql("loc.country"), 3),
     );
     let row = client
@@ -868,6 +910,7 @@ fn kpis_json(kpis: &SharedKpis) -> Value {
         "locations": kpis.active_locations,
         "active_locations": kpis.active_locations,
         "location_master_count": kpis.location_master_count,
+        "locations_definition": "distinct_mappable_location_name",
         "active_alerts": kpis.alerts,
     })
 }
@@ -1101,10 +1144,47 @@ mod analysis_contract_tests {
 
     #[test]
     fn stale_snapshot_is_served_until_min_refresh_interval() {
-        assert!(!snapshot_needs_refresh(false, 10_000));
+        assert!(!snapshot_needs_refresh(false, 90));
         assert!(!snapshot_needs_refresh(true, 30));
         assert!(snapshot_needs_refresh(true, KPI_SNAPSHOT_MIN_REFRESH_SECS));
         assert!(snapshot_needs_refresh(true, KPI_SNAPSHOT_MIN_REFRESH_SECS + 1));
+        assert!(snapshot_needs_refresh(false, KPI_SNAPSHOT_MAX_AGE_SECS));
+        assert!(snapshot_needs_refresh(false, 2 * 24 * 3600));
+    }
+
+    #[test]
+    fn mapped_locations_increase_when_new_geocoded_asean_place_is_added() {
+        let before = [("Phnom Penh", Some(11.5564), Some(104.9282), "Cambodia")];
+        assert_eq!(mapped_location_count(&before), 1);
+        let after = [
+            ("Phnom Penh", Some(11.5564), Some(104.9282), "Cambodia"),
+            ("Kampong Thom", Some(12.7111), Some(104.8886), "Cambodia"),
+        ];
+        assert_eq!(mapped_location_count(&after), 2);
+    }
+
+    #[test]
+    fn mapped_locations_ignore_missing_geo_outside_asean_and_duplicates() {
+        assert_eq!(
+            mapped_location_count(&[
+                ("Mystery Village", None, None, "Cambodia"),
+                ("Utah", Some(40.0), Some(-111.9), "OUTSIDE ASEAN"),
+                ("Jakarta", Some(-6.2), Some(106.8), "Indonesia"),
+                ("Jakarta", Some(-6.21), Some(106.81), "Indonesia"),
+                ("  ", Some(1.35), Some(103.82), "Singapore"),
+            ]),
+            1
+        );
+        assert!(!is_mappable_kpi_location(
+            Some("Mystery Village"),
+            None,
+            None,
+            "Cambodia"
+        ));
+        let sql = dashboard_valid_cte();
+        assert!(sql.contains("mapped_latitude"));
+        assert!(sql.contains("mapped_longitude"));
+        assert!(mapped_locations_count_sql().contains("mapped_latitude IS NOT NULL"));
     }
 
     #[test]
@@ -5369,6 +5449,8 @@ async fn public_dashboard(
 
     let month_resolved = resolved_country_expr("ranked", "l");
     let month_scope = country_scope_sql();
+    let cases = security::SANE_CASES_SQL;
+    let deaths = security::SANE_DEATHS_SQL;
     let trend_row = client.query_one(
         &format!(
         "WITH ranked AS (
@@ -5396,7 +5478,9 @@ async fn public_dashboard(
              ) OR ($5::text = 'skdr' AND LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api'))))
          ), valid AS (
            SELECT ranked.*, l.latitude AS resolved_latitude, l.longitude AS resolved_longitude,
-                   {month_resolved} AS resolved_country
+                   {month_resolved} AS resolved_country,
+                   COALESCE(ST_Y(ranked.geom), l.latitude) AS mapped_latitude,
+                   COALESCE(ST_X(ranked.geom), l.longitude) AS mapped_longitude
            FROM ranked
            LEFT JOIN LATERAL (
              SELECT l0.* FROM locations l0
@@ -5414,14 +5498,14 @@ async fn public_dashboard(
                    ELSE (date_trunc('month', $2) - interval '1 month')::date END AS previous_start
         )
         SELECT
-          COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
-          COALESCE(SUM(GREATEST(COALESCE(case_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
-          COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.current_start),0)::bigint,
-          COALESCE(SUM(GREATEST(COALESCE(death_count,0),0)) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
+          COALESCE(SUM({cases}) FILTER (WHERE published_at>=b.current_start),0)::bigint,
+          COALESCE(SUM({cases}) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
+          COALESCE(SUM({deaths}) FILTER (WHERE published_at>=b.current_start),0)::bigint,
+          COALESCE(SUM({deaths}) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start),0)::bigint,
           COUNT(*) FILTER (WHERE published_at>=b.current_start)::bigint,
           COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
-          COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.current_start)::bigint,
-          COUNT(DISTINCT location_name) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start)::bigint,
+          COUNT(DISTINCT NULLIF(TRIM(location_name), '')) FILTER (WHERE published_at>=b.current_start AND mapped_latitude IS NOT NULL AND mapped_longitude IS NOT NULL)::bigint,
+          COUNT(DISTINCT NULLIF(TRIM(location_name), '')) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start AND mapped_latitude IS NOT NULL AND mapped_longitude IS NOT NULL)::bigint,
            COUNT(*) FILTER (WHERE published_at>=b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
            COUNT(*) FILTER (WHERE published_at>=b.previous_start AND published_at<b.current_start AND outbreak_alert=TRUE AND COALESCE(confidence,0)>=0.35 AND NULLIF(TRIM(location_name),'') IS NOT NULL AND resolved_latitude IS NOT NULL AND resolved_longitude IS NOT NULL)::bigint,
           TO_CHAR(b.current_start,'YYYY-MM'), TO_CHAR(b.previous_start,'YYYY-MM')
@@ -8220,6 +8304,18 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_kpi_snapshots_window
             ON kpi_snapshots (start_date, end_date, country, disease);
+
+        CREATE OR REPLACE FUNCTION abvc_mark_kpi_snapshots_stale() RETURNS trigger AS $kpi$
+        BEGIN
+            UPDATE kpi_snapshots SET is_stale = TRUE WHERE is_stale = FALSE;
+            RETURN NULL;
+        END;
+        $kpi$ LANGUAGE plpgsql;
+        DROP TRIGGER IF EXISTS trg_disease_events_mark_kpi_stale ON disease_events;
+        CREATE TRIGGER trg_disease_events_mark_kpi_stale
+            AFTER INSERT OR UPDATE OR DELETE ON disease_events
+            FOR EACH STATEMENT
+            EXECUTE FUNCTION abvc_mark_kpi_snapshots_stale();
 
         CREATE TABLE IF NOT EXISTS report_issues (
             id SERIAL PRIMARY KEY,

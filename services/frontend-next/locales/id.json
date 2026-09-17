@@ -275,7 +275,7 @@
       "signalsMatrix": "Distribusi Sinyal per Wilayah",
       "locationsTitle": "Lokasi Terpetakan",
       "locationsMeaning": "Lokasi unik dengan sinyal terpantau dan koordinat peta yang valid.",
-      "locationsCalculation": "Nama lokasi dicocokkan dengan basis data spasial resmi ASEAN.",
+      "locationsCalculation": "Nama tempat ASEAN-11 yang unik pada peristiwa dashboard yang sudah punya koordinat (geocode peristiwa atau cocokan gazetir). Tanpa geo tetap tidak terpetakan dan tidak diberi pin palsu. Ini bukan jumlah master gazetir.",
       "locationsMatrix": "Lokasi Terpetakan per Wilayah",
       "activeSignalsTitle": "Sinyal Surveilans Aktif",
       "activeSignalsMeaning": "Lokasi yang saat ini menunjukkan kondisi sinyal meningkat berdasarkan aturan pemantauan.",

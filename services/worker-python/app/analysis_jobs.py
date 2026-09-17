@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from .entity_relations import disease_relation_rows, location_relation_rows
 from .geo import st_makepoint_args
+from .kpi import mark_kpi_snapshots_stale
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +379,7 @@ def save_completed(conn, job_id, result, raw_report_id=None):
             )
         logger.info("Multi-event analysis: inserted %d child events", len(sub_events))
     conn.execute("UPDATE analysis_jobs SET event_id=%s WHERE id=%s", (event["id"],job_id))
+    mark_kpi_snapshots_stale(conn)
 
 
 def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_cached: bool = True):
