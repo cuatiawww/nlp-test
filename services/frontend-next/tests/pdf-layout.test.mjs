@@ -146,3 +146,14 @@ test('long tables break between rows and repeat the header', () => {
   assert.ok(chunks.slice(1).every((chunk) => chunk.repeatHeader))
   assert.ok(chunks.every((chunk) => chunk.count >= 1))
 })
+
+test('disease matrix table chunks cleanly without slicing rows', () => {
+  // A matrix with 25 diseases and 11 AMS columns
+  const chunks = tableRowChunks(25, 261, 24, 10)
+  assert.ok(chunks.length >= 2)
+  assert.equal(chunks[0].start, 0)
+  assert.equal(chunks[0].repeatHeader, false)
+  assert.equal(chunks[1].repeatHeader, true)
+  const total = chunks.reduce((acc, c) => acc + c.count, 0)
+  assert.equal(total, 25)
+})

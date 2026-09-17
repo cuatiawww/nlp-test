@@ -1956,6 +1956,41 @@ pub async fn patch_issue(
     Ok(Json(json!({"success": true, "data": issue_from_row(&updated)})))
 }
 
+pub async fn delete_issue(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i32>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let actor = actor_username(&state, &headers).await;
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = fetch_issue(&client, id).await?;
+    let title: String = row.get("title");
+    let slug: String = row.get("slug");
+    let status: String = row.get("status");
+
+    // Execute deletion. Foreign key report_issue_events cascades automatically on delete.
+    client
+        .execute("DELETE FROM report_issues WHERE id = $1", &[&id])
+        .await
+        .map_err(internal_error)?;
+
+    tracing::info!(
+        issue_id = id,
+        slug = %slug,
+        status = %status,
+        actor = ?actor,
+        "Report issue deleted from CMS"
+    );
+
+    Ok(Json(json!({
+        "success": true,
+        "message": format!("Report issue #{} ({}) has been deleted successfully", id, title),
+        "deleted_id": id,
+        "slug": slug,
+        "status": status,
+    })))
+}
+
 pub async fn pull_kpi(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

@@ -1,4 +1,4 @@
-import { fetchFrom, patchTo, postTo } from "@/lib/api"
+import { delFrom, fetchFrom, patchTo, postTo } from "@/lib/api"
 import type { ReportIssue, ReportIssueCard, ReportIssueStatus } from "@/types/sitrep"
 
 export function listPublicReportIssues(params?: {
@@ -35,6 +35,10 @@ export function listCmsIssues(status?: string) {
 
 export function fetchCmsIssue(id: number) {
   return fetchFrom<ReportIssue>(`/api/v1/report-issues/${id}`)
+}
+
+export function deleteReportIssue(id: number) {
+  return delFrom(`/api/v1/report-issues/${id}`)
 }
 
 export function createReportIssue(body: {

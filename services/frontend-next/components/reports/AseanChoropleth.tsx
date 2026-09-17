@@ -84,7 +84,7 @@ function BurdenPopup({
     <div
       role="dialog"
       aria-label={`${pop.name} cases and deaths`}
-      className="absolute left-3 top-3 z-10 w-56 rounded-xl border border-slate-200 bg-white/95 p-3 text-xs shadow-md"
+      className="no-print absolute left-3 top-3 z-10 w-56 rounded-xl border border-slate-200 bg-white/95 p-3 text-xs shadow-md"
     >
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -315,13 +315,13 @@ export default function AseanChoropleth({
             </div>
           ))}
           <p className="mt-3 mb-1 font-bold uppercase tracking-wide text-slate-500">AMS</p>
-          <ul className="max-h-64 space-y-0.5 overflow-auto pr-1 print:max-h-none print:overflow-visible">
+          <ul className="max-h-64 space-y-0.5 overflow-auto pr-1 print:max-h-none print:overflow-visible print:space-y-0">
             {directory.map((item) => (
               <li key={item.iso3}>
                 <button
                   type="button"
                   onClick={() => select(item.iso3)}
-                  className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-slate-50 ${
+                  className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-slate-50 print:p-0.5 print:text-[9.5px] ${
                     active === item.iso3 ? 'bg-slate-100 ring-1 ring-slate-300' : ''
                   }`}
                 >

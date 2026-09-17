@@ -1785,7 +1785,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/report-issues/templates", get(reports_cms::list_templates))
         .route("/api/v1/report-issues/taxonomies", get(reports_cms::list_taxonomies))
         .route("/api/v1/report-issues", get(reports_cms::list_cms_issues).post(reports_cms::create_issue))
-        .route("/api/v1/report-issues/:id", get(reports_cms::get_cms_issue).patch(reports_cms::patch_issue))
+        .route("/api/v1/report-issues/:id", get(reports_cms::get_cms_issue).patch(reports_cms::patch_issue).delete(reports_cms::delete_issue))
         .route("/api/v1/report-issues/:id/pull-kpi", post(reports_cms::pull_kpi))
         .route("/api/v1/report-issues/:id/transition", post(reports_cms::transition_issue))
         .route("/api/v1/report-issues/:id/publish", post(reports_cms::publish_issue))

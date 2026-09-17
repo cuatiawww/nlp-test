@@ -112,6 +112,19 @@
   }
 
 @media print {
+  /* Suppress all browser scrollbars completely on print/PDF */
+  *,
+  *::before,
+  *::after {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+  }
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
   @page {
     size: A4 portrait;
     margin: 18mm 16mm 20mm 16mm;
@@ -145,6 +158,46 @@
     border: none !important;
     box-shadow: none !important;
     background: #ffffff !important;
+  }
+
+  /* Eliminate scrollize / scrollable containers across the entire document */
+  .sitrep-document,
+  .print-area,
+  .sitrep-document *,
+  .print-area * {
+    max-height: none !important;
+  }
+
+  .sitrep-document .overflow-x-auto,
+  .sitrep-document .overflow-y-auto,
+  .sitrep-document .overflow-auto,
+  .sitrep-document .overflow-hidden,
+  .print-area .overflow-x-auto,
+  .print-area .overflow-y-auto,
+  .print-area .overflow-auto,
+  .print-area .overflow-hidden,
+  .sitrep-table-wrap,
+  .sitrep-card,
+  .sitrep-chapter,
+  .custom-scrollbar {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* Disable sticky headers/columns in print to prevent displacement */
+  .sitrep-document .sticky,
+  .print-area .sticky,
+  .sitrep-document [class*="sticky"],
+  .print-area [class*="sticky"] {
+    position: static !important;
+  }
+
+  /* Guarantee tables fit width without clipping */
+  .sitrep-document table,
+  .print-area table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto !important;
   }
 
   .page-break,

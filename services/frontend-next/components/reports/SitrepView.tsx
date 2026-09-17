@@ -46,7 +46,7 @@ function KpiCard({ label, value, hint }: { label: string; value: string; hint?: 
 function AmsTable({ rows }: { rows: AmsKpiRow[] }) {
   return (
     <div className="sitrep-table-wrap overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
-      <table className="min-w-full text-left text-xs">
+      <table className="w-full min-w-full text-left text-xs print:text-[10px] print:table-fixed">
         <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
           <tr>
             <th className="px-3 py-2">AMS</th>
@@ -187,8 +187,8 @@ function AlertsTable({ snap }: { snap: SitrepKpiPackage | null }) {
     <section id="alerts">
       <h2 className="mb-2 text-sm font-extrabold uppercase tracking-wide text-slate-700">Other alerts / events</h2>
       {(snap?.alerts || []).length ? (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-          <table className="min-w-full text-left text-xs">
+        <div className="sitrep-table-wrap overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
+          <table className="w-full min-w-full text-left text-xs print:text-[10px] print:table-fixed">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-3 py-2">Status</th>
@@ -209,7 +209,7 @@ function AlertsTable({ snap }: { snap: SitrepKpiPackage | null }) {
                   </td>
                   <td className="px-3 py-2">{alert.disease}</td>
                   <td className="px-3 py-2">{alert.display_name || alert.country}</td>
-                  <td className="px-3 py-2">{alert.location_name}</td>
+                  <td className="px-3 py-2 truncate print:whitespace-normal max-w-[150px]">{alert.location_name}</td>
                   <td className="px-3 py-2 text-right">{fmt(alert.cases)}</td>
                   <td className="px-3 py-2 text-right">{fmt(alert.deaths)}</td>
                 </tr>

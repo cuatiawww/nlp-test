@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useParams } from 'next/navigation'
 import { toast } from 'sonner'
 import SitrepView from '@/components/reports/SitrepView'
@@ -11,6 +12,7 @@ import {
   patchReportIssue,
   pullReportKpis,
   publishReportIssue,
+  deleteReportIssue,
   suggestReportNotes,
   transitionReportIssue,
   uploadReportAsset,
@@ -48,6 +50,27 @@ export default function CmsIssueEditorPage() {
   const [highlightsText, setHighlightsText] = useState('')
   const [busy, setBusy] = useState(false)
   const [tab, setTab] = useState<'edit' | 'preview'>('edit')
+  const router = useRouter()
+
+  const handleDelete = async () => {
+    if (!issue) return
+    const isPublished = issue.status === 'published'
+    const warning = isPublished
+      ? `PERINGATAN: Laporan "${issue.title}" berstatus PUBLISHED.\n\nJika dihapus, edisi ini akan ditarik permanen dari publikasi umum dan arsip publik.\n\nApakah Anda benar-benar yakin ingin menghapus edisi ini?`
+      : `Hapus laporan "${issue.title}" (#${id})?\n\nTindakan ini tidak dapat dibatalkan.`
+
+    if (!window.confirm(warning)) return
+
+    setBusy(true)
+    try {
+      await deleteReportIssue(id)
+      toast.success(`Laporan "${issue.title}" berhasil dihapus`)
+      router.push('/reports/cms')
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal menghapus laporan')
+      setBusy(false)
+    }
+  }
 
   const load = () =>
     fetchCmsIssue(id)
@@ -303,7 +326,15 @@ export default function CmsIssueEditorPage() {
             Save notes & narrative
           </button>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={handleDelete}
+            className="rounded-lg border border-rose-200 bg-rose-50/50 hover:bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 disabled:opacity-50 transition-colors"
+          >
+            Delete issue
+          </button>
           {issue.status !== 'approved' && NEXT[issue.status] && NEXT[issue.status] !== 'published' ? (
             <button
               type="button"

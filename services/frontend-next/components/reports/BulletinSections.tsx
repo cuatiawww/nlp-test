@@ -45,29 +45,29 @@ export function AmsTable({ rows, caption }: { rows: AmsKpiRow[]; caption?: strin
   return (
     <div className="sitrep-table-wrap overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
       {caption ? <p className="border-b border-slate-100 px-4 py-3 text-[11px] font-semibold text-slate-500" data-pdf-caption="">{caption}</p> : null}
-      <table className="min-w-full text-left text-xs">
-        <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+      <table className="w-full min-w-full text-left text-xs print:text-[10px] print:table-fixed">
+        <thead className="bg-slate-50 text-[10px] print:text-[9px] uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-3 py-2">AMS</th>
-            <th className="px-3 py-2">ISO3</th>
-            <th className="px-3 py-2 text-right">Cases</th>
-            <th className="px-3 py-2 text-right">Deaths</th>
-            <th className="px-3 py-2 text-right">CFR %</th>
+            <th className="px-3 py-2 print:px-2 print:py-1">AMS</th>
+            <th className="px-3 py-2 print:px-2 print:py-1">ISO3</th>
+            <th className="px-3 py-2 print:px-2 print:py-1 text-right">Cases</th>
+            <th className="px-3 py-2 print:px-2 print:py-1 text-right">Deaths</th>
+            <th className="px-3 py-2 print:px-2 print:py-1 text-right">CFR %</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.iso3 || row.country} className="border-t border-slate-100">
-              <td className="px-3 py-2 font-semibold text-slate-800">{row.display_name}</td>
-              <td className="px-3 py-2 font-mono text-slate-500">{row.iso3}</td>
+              <td className="px-3 py-2 print:px-2 print:py-1 font-semibold text-slate-800">{row.display_name}</td>
+              <td className="px-3 py-2 print:px-2 print:py-1 font-mono text-slate-500">{row.iso3}</td>
               {row.has_data ? (
                 <>
-                  <td className="px-3 py-2 text-right">{fmt(row.cases)}</td>
-                  <td className="px-3 py-2 text-right">{fmt(row.deaths)}</td>
-                  <td className="px-3 py-2 text-right">{row.cfr == null ? '—' : row.cfr}</td>
+                  <td className="px-3 py-2 print:px-2 print:py-1 text-right font-mono">{fmt(row.cases)}</td>
+                  <td className="px-3 py-2 print:px-2 print:py-1 text-right font-mono">{fmt(row.deaths)}</td>
+                  <td className="px-3 py-2 print:px-2 print:py-1 text-right font-mono">{row.cfr == null ? '—' : row.cfr}</td>
                 </>
               ) : (
-                <td className="px-3 py-2 text-slate-500" colSpan={3}>
+                <td className="px-3 py-2 print:px-2 print:py-1 text-slate-500" colSpan={3}>
                   No data / Not reported
                 </td>
               )}
@@ -90,30 +90,33 @@ function DiseaseMatrix({ snap }: { snap: SitrepKpiPackage | null }) {
     matrix.find((row) => row.disease_code === code && row.iso3 === iso3)
   return (
     <div className="sitrep-table-wrap overflow-x-auto rounded-2xl border border-slate-200 bg-white print:overflow-visible">
-      <table className="min-w-full text-left text-[11px]">
-        <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+      <table className="w-full min-w-full text-left text-[11px] print:text-[9px] print:table-fixed">
+        <thead className="bg-slate-50 text-[10px] print:text-[8.5px] uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="sticky left-0 bg-slate-50 px-3 py-2">Disease</th>
+            <th className="sticky left-0 print:static bg-slate-50 px-2 py-2 text-left font-bold text-slate-600 print:w-[130px]">Disease</th>
             {ams.map((row) => (
-              <th key={row.iso3 || row.country} className="px-2 py-2 text-right">{row.display_name}</th>
+              <th key={row.iso3 || row.country} className="px-1.5 py-2 text-right font-mono" title={row.display_name}>
+                <span className="inline print:hidden xl:inline">{row.display_name}</span>
+                <span className="hidden print:inline xl:hidden">{row.iso3 || row.display_name}</span>
+              </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {diseases.map((disease) => (
             <tr key={disease.disease_code} className="border-t border-slate-100">
-              <th className="sticky left-0 bg-white px-3 py-2 text-left font-semibold text-slate-800">{disease.name}</th>
+              <th className="sticky left-0 print:static bg-white px-2 py-1.5 text-left font-semibold text-slate-800 text-[11px] print:text-[9px] print:truncate print:max-w-[130px]" title={disease.name}>{disease.name}</th>
               {ams.map((row) => {
                 const hit = cell(disease.disease_code, row.iso3)
                 const missing = !hit || hit.has_data === false
                 return (
-                  <td key={`${disease.disease_code}-${row.iso3}`} className="px-2 py-2 text-right font-mono">
+                  <td key={`${disease.disease_code}-${row.iso3}`} className="px-1.5 py-1 text-right font-mono text-[10px] print:text-[8.5px]">
                     {missing ? (
                       <span className="text-slate-400">—</span>
                     ) : (
                       <span>
                         {fmt(hit!.cases)}
-                        <span className="block text-[10px] text-slate-500">{fmt(hit!.deaths)} d</span>
+                        <span className="block text-[9px] print:text-[7.5px] text-slate-500">{fmt(hit!.deaths)} d</span>
                       </span>
                     )}
                   </td>
@@ -124,7 +127,7 @@ function DiseaseMatrix({ snap }: { snap: SitrepKpiPackage | null }) {
         </tbody>
       </table>
       <p className="px-3 py-2 text-[10px] text-slate-500" data-pdf-note="">
-        Cases (deaths). Em dash is No data / Not reported — never a zero-filled missing cell. Source: KPI snapshot / event aggregates.
+        Cases (deaths). Em dash is No data / Not reported — never a zero-filled missing cell. Columns: 11 ASEAN Member States (ISO3). Source: KPI snapshot / event aggregates.
       </p>
     </div>
   )

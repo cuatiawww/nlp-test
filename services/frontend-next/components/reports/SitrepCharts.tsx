@@ -223,13 +223,14 @@ export function AmsWeekHeatmap({
         </p>
       </figcaption>
       {weeks.length ? (
-        <table className="min-w-full border-collapse text-[10px]">
+        <table className="w-full min-w-full border-collapse text-[10px] print:text-[8.5px] print:table-fixed">
           <thead>
             <tr>
-              <th className="sticky left-0 bg-white px-2 py-1 text-left font-bold text-slate-500">AMS</th>
+              <th className="sticky left-0 print:static bg-white px-2 py-1 print:px-1 text-left font-bold text-slate-500 print:w-[90px]">AMS</th>
               {weeks.map((w) => (
-                <th key={`${w.year}-${w.week}`} className="px-1 py-1 text-center font-mono text-slate-500">
-                  {w.label}
+                <th key={`${w.year}-${w.week}`} className="px-1 py-1 print:px-0.5 text-center font-mono text-slate-500 text-[10px] print:text-[8px]">
+                  <span className="print:hidden">{w.label}</span>
+                  <span className="hidden print:inline">{w.week}</span>
                 </th>
               ))}
             </tr>
@@ -237,7 +238,7 @@ export function AmsWeekHeatmap({
           <tbody>
             {grid.map((row) => (
               <tr key={row.iso3}>
-                <th className="sticky left-0 bg-white px-2 py-1 text-left font-semibold text-slate-700">{row.display_name}</th>
+                <th className="sticky left-0 print:static bg-white px-2 py-1 print:px-1 text-left font-semibold text-slate-700 print:truncate print:max-w-[90px]" title={row.display_name}>{row.display_name}</th>
                 {row.cells.map((cell, i) => (
                   <td
                     key={`${row.iso3}-${weeks[i].year}-${weeks[i].week}`}

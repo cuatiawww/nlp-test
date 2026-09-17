@@ -60,15 +60,56 @@ function collectPdfBlocks(container: HTMLElement): { el: HTMLElement; breakBefor
 }
 
 function prepareClone(doc: Document, cloned?: HTMLElement) {
-  doc.querySelectorAll<HTMLElement>(".sitrep-choropleth ul, .sitrep-keep, .sitrep-document table, .sitrep-table-wrap").forEach((node) => {
+  // 1. Inject strict CSS into the cloned document to remove all scrollbars and force visible overflow
+  const style = doc.createElement("style")
+  style.textContent = `
+    * {
+      overflow: visible !important;
+      max-height: none !important;
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    *::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+    .sticky, [class*="sticky"] {
+      position: static !important;
+    }
+    table {
+      width: 100% !important;
+      max-width: 100% !important;
+      table-layout: auto !important;
+    }
+    .no-print, [data-sonner-toaster], .toaster {
+      display: none !important;
+    }
+  `
+  doc.head.appendChild(style)
+
+  // 2. Recursively reset scroll positions and force overflow visible on every node
+  doc.querySelectorAll<HTMLElement>("*").forEach((node) => {
+    if (node.scrollLeft) node.scrollLeft = 0
+    if (node.scrollTop) node.scrollTop = 0
     node.style.maxHeight = "none"
-    node.style.overflow = "visible"
+    if (
+      node.classList.contains("overflow-x-auto") ||
+      node.classList.contains("overflow-y-auto") ||
+      node.classList.contains("overflow-auto") ||
+      node.classList.contains("overflow-hidden") ||
+      node.classList.contains("custom-scrollbar")
+    ) {
+      node.style.overflow = "visible"
+    }
   })
+
   if (cloned) {
     cloned.style.boxSizing = "border-box"
     cloned.style.width = "178mm"
     cloned.style.maxWidth = "178mm"
     cloned.style.background = "#ffffff"
+    cloned.style.overflow = "visible"
     const alreadyPadded =
       cloned.classList.contains("sitrep-card") ||
       cloned.classList.contains("sitrep-print-page") ||
@@ -77,6 +118,15 @@ function prepareClone(doc: Document, cloned?: HTMLElement) {
     if (!alreadyPadded) {
       cloned.style.padding = "22px 24px"
     }
+
+    cloned.querySelectorAll<HTMLElement>("table").forEach((tbl) => {
+      tbl.style.width = "100%"
+      tbl.style.maxWidth = "100%"
+      if (tbl.parentElement) {
+        tbl.parentElement.style.overflow = "visible"
+        tbl.parentElement.style.maxHeight = "none"
+      }
+    })
   }
 }
 
@@ -164,7 +214,9 @@ export async function exportReportToPdf({
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff",
+        windowWidth: 794,
         onclone: (doc, cloned) => prepareClone(doc, cloned),
+        ignoreElements: (element) => element.classList.contains("no-print"),
       })
       rendered.push({
         img: canvas.toDataURL("image/jpeg", 0.96),

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { listCmsIssues, formatEpiBadge } from '@/lib/sitrep-api'
+import { listCmsIssues, deleteReportIssue, formatEpiBadge } from '@/lib/sitrep-api'
+import { toast } from 'sonner'
 import type { ReportIssue, ReportIssueStatus } from '@/types/sitrep'
 import ReportsModeNav from '@/components/reports/ReportsModeNav'
 
@@ -27,6 +28,27 @@ export default function ReportsCmsQueuePage() {
   const [status, setStatus] = useState<ReportIssueStatus | 'all'>('all')
   const [items, setItems] = useState<ReportIssue[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+
+  const handleDelete = async (item: ReportIssue) => {
+    const isPublished = item.status === 'published'
+    const warning = isPublished
+      ? `PERINGATAN: Laporan "${item.title}" (${formatEpiBadge(item.epi_year, item.epi_week)}) berstatus PUBLISHED.\n\nJika dihapus, edisi ini akan ditarik permanen dari publikasi umum dan arsip publik.\n\nApakah Anda benar-benar yakin ingin menghapus edisi ini?`
+      : `Hapus draf laporan "${item.title}" (${formatEpiBadge(item.epi_year, item.epi_week)})?\n\nTindakan ini tidak dapat dibatalkan.`
+
+    if (!window.confirm(warning)) return
+
+    setDeletingId(item.id)
+    try {
+      await deleteReportIssue(item.id)
+      toast.success(`Laporan "${item.title}" berhasil dihapus`)
+      load()
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal menghapus laporan')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const load = () => {
     listCmsIssues(status)
@@ -98,15 +120,26 @@ export default function ReportsCmsQueuePage() {
                   </span>
                 </td>
                 <td className="px-3 py-2 text-xs text-slate-500">{item.updated_at || '—'}</td>
-                <td className="px-3 py-2 text-right">
-                  <Link href={`/reports/cms/issues/${item.id}`} className="text-xs font-bold text-[#0060A9]">
-                    Edit
-                  </Link>
-                  {item.status === 'in_review' || item.status === 'approved' ? (
-                    <Link href={`/reports/cms/issues/${item.id}/review`} className="ml-3 text-xs font-bold text-slate-600">
-                      Review
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  <div className="flex items-center justify-end gap-3">
+                    <Link href={`/reports/cms/issues/${item.id}`} className="text-xs font-bold text-[#0060A9] hover:underline">
+                      Edit
                     </Link>
-                  ) : null}
+                    {item.status === 'in_review' || item.status === 'approved' ? (
+                      <Link href={`/reports/cms/issues/${item.id}/review`} className="text-xs font-bold text-slate-600 hover:underline">
+                        Review
+                      </Link>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={deletingId === item.id}
+                      onClick={() => handleDelete(item)}
+                      className="text-xs font-bold text-rose-600 hover:text-rose-800 disabled:opacity-40 transition-colors"
+                      title={item.status === 'published' ? 'Hapus edisi publikasi ini' : 'Hapus draf ini'}
+                    >
+                      {deletingId === item.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
