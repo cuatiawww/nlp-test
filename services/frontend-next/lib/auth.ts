@@ -24,6 +24,7 @@ export const SYSTEM_MODULES: SystemModule[] = [
   { id: 'sources', label: 'Data Sources', description: 'Manage news feeds and API collection sources', category: 'Surveillance & Monitoring', path: '/sources' },
   { id: 'analyze', label: 'URL Analysis', description: 'Analyze a single web article or PDF independently', category: 'Surveillance & Monitoring', path: '/analyze' },
   { id: 'manual_crawler', label: 'Manual Crawler', description: 'Run an on-demand disease and location surveillance crawl', category: 'Surveillance & Monitoring', path: '/manual-crawler' },
+  { id: 'crawl_history', label: 'Crawl History', description: 'Browse stored health-surveillance crawl results (non-health noise hidden by default)', category: 'Surveillance & Monitoring', path: '/crawl-history' },
   { id: 'processing', label: 'Processing & Queue', description: 'Monitor worker queues and collection status', category: 'Surveillance & Monitoring', path: '/processing' },
   { id: 'reports', label: 'Reports & Matrix', description: 'Epidemiological reports and summary matrices', category: 'Surveillance & Monitoring', path: '/reports' },
   { id: 'tv', label: 'TV Command Center', description: 'Wide-screen command center dashboard view', category: 'Surveillance & Monitoring', path: '/tv' },
@@ -43,19 +44,19 @@ export const SYSTEM_MODULES: SystemModule[] = [
 
 export const ROLE_PRESET_MODULES: Record<string, string[]> = {
   admin: ['*'],
-  data_analyst: ['dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'processing', 'reports', 'locations', 'disease_master'],
-  epidemiologi: ['dashboard', 'events', 'analyze', 'manual_crawler', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
+  data_analyst: ['dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'processing', 'reports', 'locations', 'disease_master'],
+  epidemiologi: ['dashboard', 'events', 'analyze', 'manual_crawler', 'crawl_history', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
   executive: ['dashboard', 'events', 'reports', 'tv'],
-  skk: ['dashboard', 'sources', 'manual_crawler', 'reports', 'processing'],
+  skk: ['dashboard', 'sources', 'manual_crawler', 'crawl_history', 'reports', 'processing'],
   // legacy fallbacks
-  operator: ['dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'reports'],
+  operator: ['dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'reports'],
   viewer: ['dashboard', 'reports'],
 };
 
 export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string): boolean {
   if (!user) return false;
   const role = user.role?.toLowerCase();
-  if (role === 'admin' || user.permissions?.includes('*')) return true;
+  if (role === 'admin' || role === 'superadmin' || role === 'webmaster' || user.permissions?.includes('*')) return true;
 
   if (user.permissions?.includes(moduleKeyOrPath)) return true;
 
@@ -69,6 +70,7 @@ export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string):
   if (moduleKeyOrPath.startsWith('/sources') && user.permissions?.includes('sources')) return true;
   if (moduleKeyOrPath.startsWith('/analyze') && user.permissions?.includes('analyze')) return true;
   if (moduleKeyOrPath.startsWith('/manual-crawler') && user.permissions?.includes('manual_crawler')) return true;
+  if (moduleKeyOrPath.startsWith('/crawl-history') && (user.permissions?.includes('crawl_history') || user.permissions?.includes('manual_crawler'))) return true;
   if (moduleKeyOrPath.startsWith('/processing') && user.permissions?.includes('processing')) return true;
   if ((moduleKeyOrPath.startsWith('/reports') || moduleKeyOrPath.startsWith('/laporan')) && user.permissions?.includes('reports')) return true;
   if (moduleKeyOrPath.startsWith('/tv') && user.permissions?.includes('tv')) return true;

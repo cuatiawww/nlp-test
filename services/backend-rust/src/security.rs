@@ -131,6 +131,7 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/crawling-stats",
         "/api/v1/events",
         "/api/v1/events/stats",
+        "/api/v1/crawl-history",
         "/api/v1/console/settings",
         "/api/v1/pipeline-health",
         "/api/v1/nlp-labels",
@@ -354,6 +355,12 @@ mod tests {
         assert!(is_public_route(&Method::GET, "/api/v1/public/report-issues/sitrep-2026-w37"));
         assert!(!is_public_route(&Method::POST, "/api/v1/report-issues"));
         assert!(!is_public_route(&Method::GET, "/api/v1/report-issues"));
+        assert!(is_public_route(&Method::GET, "/api/v1/crawl-history/rows"));
+        assert!(is_public_route(&Method::GET, "/api/v1/crawl-history/rows/abc"));
+        assert!(is_public_route(&Method::GET, "/api/v1/crawl-history/jobs"));
+        assert!(is_public_route(&Method::GET, "/api/v1/crawl-history/summary"));
+        assert!(!is_public_route(&Method::POST, "/api/v1/crawl-history/rows"));
+        assert!(!is_public_route(&Method::GET, "/api/v1/manual-crawler/jobs"));
         assert!(is_service_route("/api/v1/ingest"));
         let pred = dashboard_event_predicate("evt");
         assert!(pred.contains("evt.is_health_related"));

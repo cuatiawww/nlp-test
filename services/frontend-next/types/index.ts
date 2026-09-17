@@ -365,6 +365,112 @@ export type CrawlMatrixRow = {
   reprocessed_at?: string | null;
 };
 
+export type CrawlHistoryChannel = 'manual' | 'continuous' | 'analyze-url' | string;
+
+export type CrawlHistoryRow = {
+  id: string;
+  crawl_channel: CrawlHistoryChannel;
+  job_id?: string | null;
+  raw_report_id?: string | null;
+  disease_event_id?: string | null;
+  title?: string | null;
+  url?: string | null;
+  published_at?: string | null;
+  country?: string | null;
+  province?: string | null;
+  city?: string | null;
+  disease?: string | null;
+  icd11_code?: string | null;
+  cases?: number | null;
+  deaths?: number | null;
+  confidence?: number | null;
+  source_type?: string | null;
+  source_name?: string | null;
+  status?: string | null;
+  needs_review: boolean;
+  has_geo: boolean;
+  mapped: boolean;
+  quality_class?: string | null;
+  is_health_related?: boolean | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  created_at?: string | null;
+  evidence?: string | null;
+  snippet?: string | null;
+  language?: string | null;
+  sentiment?: string | null;
+  location_name?: string | null;
+  article_title?: string | null;
+  crawling_date?: string | null;
+  article_date?: string | null;
+  date_case?: string | null;
+  region?: string | null;
+  province_city_case?: string | null;
+  event_type?: string | null;
+  source_credibility?: number | null;
+  source_credibility_label?: string | null;
+  relevance_score?: string | null;
+  outbreak_alert?: boolean | null;
+  symptoms?: unknown;
+  disease_extracted?: unknown;
+  article_key?: string | null;
+  cases_display?: string | null;
+  deaths_display?: string | null;
+  geo_summary?: string | null;
+  event_count?: number | null;
+  location_count?: number | null;
+  children?: CrawlHistoryRow[];
+  job?: CrawlHistoryJob;
+};
+
+export type CrawlHistoryJob = {
+  job_id: string;
+  status: string;
+  disease_names?: string[] | unknown;
+  region?: string | null;
+  country?: string | null;
+  province_city?: string | null;
+  date_from?: string | null;
+  date_to?: string | null;
+  max_articles?: number;
+  query?: { url?: string | null; [key: string]: unknown };
+  discovered_count: number;
+  processed_count: number;
+  row_count: number;
+  warnings?: unknown;
+  error?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+  rows?: CrawlHistoryRow[];
+};
+
+export type CrawlHistorySummary = {
+  phase?: string;
+  note?: string;
+  jobs: number;
+  matrix_rows: number;
+  raw_reports: number;
+  disease_events: number;
+  by_channel: {
+    manual: number;
+    continuous: number;
+    analyze_url: number;
+  };
+  with_geo: number;
+  without_geo: number;
+  needs_review: number;
+  mapped: number;
+  default_quality?: string;
+  quality?: {
+    surveillance: number;
+    review: number;
+    noise: number;
+  };
+  noise_excluded?: number;
+  fields?: string[];
+};
+
 export type CrawlJobStatus = {
   job_id: string;
   status: 'queued' | 'processing' | 'completed' | 'partial' | 'failed' | string;

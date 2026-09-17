@@ -23,14 +23,14 @@ VALUES
     'data_analyst',
     'DATA ANALYST',
     'Access to data analysis, events, reports, and manual crawling',
-    '["dashboard", "events", "sources", "analyze", "manual_crawler", "processing", "reports", "locations"]'::jsonb,
+    '["dashboard", "events", "sources", "analyze", "manual_crawler", "crawl_history", "processing", "reports", "locations"]'::jsonb,
     TRUE
 ),
 (
     'epidemiologi',
     'EPIDEMIOLOGI',
     'Disease surveillance, outbreak rules, and geospatial monitoring',
-    '["dashboard", "events", "analyze", "manual_crawler", "reports", "locations", "outbreak_rules", "nlp_config"]'::jsonb,
+    '["dashboard", "events", "analyze", "manual_crawler", "crawl_history", "reports", "locations", "outbreak_rules", "nlp_config"]'::jsonb,
     TRUE
 ),
 (
@@ -44,7 +44,7 @@ VALUES
     'skk',
     'SKK',
     'Monitoring Feed Sumber Data & Pemrosesan Queue',
-    '["dashboard", "sources", "reports", "processing"]'::jsonb,
+    '["dashboard", "sources", "manual_crawler", "crawl_history", "reports", "processing"]'::jsonb,
     TRUE
 )
 ON CONFLICT (id) DO NOTHING;

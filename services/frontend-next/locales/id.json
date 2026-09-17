@@ -76,6 +76,8 @@
       "sources": "Sumber Data",
       "events": "Events",
       "analyze": "Analisis URL",
+      "manualCrawler": "Manual Crawler",
+      "crawlHistory": "Riwayat Crawl",
       "processing": "Processing",
       "locations": "Locations",
       "diseaseMaster": "Disease Master",
@@ -623,6 +625,27 @@
         "published_at": "Diekstrak dari metadata artikel web (meta tag og:published_time, JSON-LD, URL path, atau dateline artikel)",
         "is_health_related": "Diklasifikasikan oleh model AI XLM-RoBERTa apakah artikel terkait pemantauan penyakit/kesehatan"
       }
+    },
+    "crawlHistory": {
+      "title": "Crawl History / Matriks Hasil Crawl",
+      "subtitle": "Matriks surveilans gaya Phase 1 dari baris Phase 2 yang sudah tersimpan — satu baris cerdas per URL artikel, 25 per halaman. Kasus multi-negara seperti Indonesia(8278); Philippines(3734). Default negara ASEAN-11 + Timor-Leste. RSS non-kesehatan tetap di database untuk QA Events, tapi disembunyikan di sini.",
+      "matrixTab": "Matriks hasil",
+      "jobsTab": "Riwayat job",
+      "openManual": "Buka Manual Crawler",
+      "searchPlaceholder": "Cari judul, URL, sumber, penyakit...",
+      "allCountries": "Semua negara",
+      "diseasePlaceholder": "Nama penyakit",
+      "allStatuses": "Semua status",
+      "allGeo": "Geo: semua",
+      "qualitySurveillance": "Surveilans (default)",
+      "qualityReview": "Perlu review klasifikasi",
+      "qualityNoise": "Noise non-kesehatan",
+      "qualityAll": "Semua baris tersimpan",
+      "qualityHint": "Setiap baris matriks = satu artikel (URL yang sama digabung). Peristiwa per lokasi ada di laci detail. Default menyembunyikan RSS politik/ekonomi dan label UNKNOWN; baris itu tetap tersimpan untuk Events.",
+      "emptyRows": "Tidak ada hasil crawl surveilans yang cocok dengan filter ini. Artikel non-kesehatan mungkin masih tersimpan — ganti Kualitas ke Perlu review, Noise, atau Semua baris.",
+      "emptyJobs": "Belum ada job manual crawl yang tersimpan.",
+      "loadError": "Crawl History gagal memuat baris tersimpan. Masuk lagi jika sesi kedaluwarsa — ledger ini membaca inventory disease_events yang sama dengan Events.",
+      "detailTitle": "Hasil crawl tersimpan"
     },
     "processing": {
       "title": "Processing Monitor",

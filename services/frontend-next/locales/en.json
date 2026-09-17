@@ -77,6 +77,7 @@
       "events": "Events",
       "analyze": "URL Analysis",
       "manualCrawler": "Manual Crawler",
+      "crawlHistory": "Crawl History",
       "processing": "Processing",
       "reports": "Reports",
       "eventMatrix": "Event matrix",
@@ -624,6 +625,27 @@
         "published_at": "Extracted from article web metadata (og:published_time meta tag, JSON-LD, URL path, or article dateline)",
         "is_health_related": "Classified by XLM-RoBERTa AI model whether article is related to human disease/health surveillance"
       }
+    },
+    "crawlHistory": {
+      "title": "Crawl History / Matriks Hasil Crawl",
+      "subtitle": "Phase-1-style surveillance matrix from stored Phase 2 rows — one smart row per article URL, 25 per page. Multi-country cases look like Indonesia(8278); Philippines(3734). Default country is ASEAN-11 + Timor-Leste. Non-health RSS stays in the database for Events QA but is hidden here.",
+      "matrixTab": "Result matrix",
+      "jobsTab": "Job history",
+      "openManual": "Open Manual Crawler",
+      "searchPlaceholder": "Search title, URL, source, disease...",
+      "allCountries": "All countries",
+      "diseasePlaceholder": "Disease name",
+      "allStatuses": "All statuses",
+      "allGeo": "Geo: all",
+      "qualitySurveillance": "Surveillance (default)",
+      "qualityReview": "Needs classifier review",
+      "qualityNoise": "Non-health noise",
+      "qualityAll": "All stored rows",
+      "qualityHint": "Each matrix row is one article (same Source URL collapsed). Location children stay in the row detail drawer. Default hides political/economic RSS and UNKNOWN labels; those rows remain stored for Events.",
+      "emptyRows": "No surveillance crawl results match these filters. Non-health articles may still be stored — switch Quality to Needs review, Noise, or All stored.",
+      "emptyJobs": "No manual crawl jobs have been stored yet.",
+      "loadError": "Crawl History could not load stored rows. Sign in again if the session expired — this ledger reads the same disease_events inventory as Events.",
+      "detailTitle": "Stored crawl result"
     },
     "processing": {
       "title": "Processing Monitor",
