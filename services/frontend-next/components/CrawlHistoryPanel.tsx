@@ -37,18 +37,18 @@ const CHANNELS: { id: ChannelFilter; label: string }[] = [
 
 const PHASE1_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 52, sticky: true },
-  { key: 'country', label: 'Country', width: 110 },
+  { key: 'country', label: 'Country', width: 140 },
   { key: 'language', label: 'Language', width: 78 },
   { key: 'url', label: 'Source URL', width: 220 },
   { key: 'title', label: 'Article Title', width: 260 },
-  { key: 'disease', label: 'Disease Name', width: 160 },
+  { key: 'disease', label: 'Disease Name', width: 180 },
   { key: 'crawling_date', label: 'Crawling Date', width: 140 },
   { key: 'region', label: 'Region', width: 140 },
   { key: 'province_city_case', label: 'Province / City Case', width: 160 },
   { key: 'article_date', label: 'Article Date', width: 110 },
   { key: 'date_case', label: 'Date Case', width: 110 },
-  { key: 'cases', label: 'Number of Cases', width: 90 },
-  { key: 'deaths', label: 'Number of Deaths', width: 90 },
+  { key: 'cases', label: 'Number of Cases', width: 180 },
+  { key: 'deaths', label: 'Number of Deaths', width: 180 },
   { key: 'latitude', label: 'Latitude', width: 90 },
   { key: 'longitude', label: 'Longitude', width: 90 },
   { key: 'source_type', label: 'Source Type', width: 100 },
@@ -81,6 +81,36 @@ function fmtBool(value?: boolean | null) {
 function fmtText(value?: string | number | null) {
   if (value == null || value === '') return ''
   return String(value)
+}
+
+function fmtTrunc(value?: string | number | null, className = 'max-w-[150px]') {
+  const text = fmtText(value)
+  if (!text) return ''
+  return (
+    <span className={`block truncate ${className}`} title={text}>
+      {text}
+    </span>
+  )
+}
+
+function casesCell(row: CrawlHistoryRow) {
+  return fmtTrunc(row.cases_display || fmtNum(row.cases), 'max-w-[170px]')
+}
+
+function deathsCell(row: CrawlHistoryRow) {
+  return fmtTrunc(row.deaths_display || fmtNum(row.deaths), 'max-w-[170px]')
+}
+
+function latCell(row: CrawlHistoryRow) {
+  if (row.geo_summary) return fmtTrunc(row.geo_summary, 'max-w-[80px]')
+  if (row.latitude == null) return ''
+  return String(row.latitude)
+}
+
+function lonCell(row: CrawlHistoryRow) {
+  if (row.geo_summary) return ''
+  if (row.longitude == null) return ''
+  return String(row.longitude)
 }
 
 function fmtDate(value?: string | null) {
@@ -118,14 +148,10 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
         </a>
       ) : ''
     case 'title':
-      return (
-        <span className="block max-w-[240px] truncate" title={row.title || row.article_title || ''}>
-          {fmtText(row.title || row.article_title)}
-        </span>
-      )
+      return fmtTrunc(row.title || row.article_title, 'max-w-[240px]')
     case 'disease':
       return (
-        <span className="block max-w-[150px] truncate font-medium" title={row.disease || ''}>
+        <span className="block max-w-[170px] truncate font-medium" title={row.disease || ''}>
           {fmtText(row.disease)}
         </span>
       )
@@ -136,11 +162,13 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
     case 'date_case':
       return fmtDate(row.date_case)
     case 'cases':
-      return fmtNum(row.cases)
+      return casesCell(row)
     case 'deaths':
-      return fmtNum(row.deaths)
+      return deathsCell(row)
     case 'latitude':
+      return latCell(row)
     case 'longitude':
+      return lonCell(row)
     case 'confidence':
     case 'source_credibility': {
       const raw = row[key as keyof CrawlHistoryRow]
@@ -167,21 +195,13 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
         </span>
       )
     case 'country':
-      return fmtText(row.country)
+      return fmtTrunc(row.country, 'max-w-[130px]')
     case 'language':
       return fmtText(row.language)
     case 'region':
-      return (
-        <span className="block max-w-[130px] truncate" title={row.region || ''}>
-          {fmtText(row.region)}
-        </span>
-      )
+      return fmtTrunc(row.region, 'max-w-[130px]')
     case 'province_city_case':
-      return (
-        <span className="block max-w-[150px] truncate" title={row.province_city_case || ''}>
-          {fmtText(row.province_city_case)}
-        </span>
-      )
+      return fmtTrunc(row.province_city_case, 'max-w-[150px]')
     case 'source_type':
       return fmtText(row.source_type)
     case 'source_name':
@@ -567,7 +587,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                 <tbody>
                   {rows.map((row, index) => (
                     <tr
-                      key={`${row.crawl_channel}-${row.id}`}
+                      key={`${row.crawl_channel}-${row.article_key || row.id}`}
                       className="cursor-pointer hover:bg-blue-50/40"
                       onClick={() => void openRow(row)}
                     >
@@ -622,7 +642,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
         )}
       </div>
 
-      <Modal open={!!detail || detailLoading} title={t('pages.crawlHistory.detailTitle')} onClose={() => setDetail(null)} maxWidth="max-w-3xl">
+      <Modal open={!!detail || detailLoading} title={t('pages.crawlHistory.detailTitle')} onClose={() => setDetail(null)} maxWidth="max-w-4xl">
         {detailLoading && !detail ? (
           <div className="flex items-center gap-2 py-8 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading')}</div>
         ) : detail ? (
@@ -634,6 +654,12 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                   {detail.url} <ExternalLink className="h-3 w-3" />
                 </a>
               ) : null}
+              {(detail.event_count && detail.event_count > 1) || (detail.location_count && detail.location_count > 1) ? (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {fmtNum(detail.event_count) || '—'} location events collapsed into this article row
+                  {detail.location_count && detail.location_count > 1 ? ` · ${fmtNum(detail.location_count)} places` : ''}
+                </p>
+              ) : null}
             </div>
             <dl className="grid grid-cols-2 gap-3 text-xs md:grid-cols-3">
               <div><dt className="text-slate-400">Country</dt><dd className="font-medium">{fmtText(detail.country) || '—'}</dd></div>
@@ -644,15 +670,16 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               <div><dt className="text-slate-400">Date case</dt><dd className="font-medium">{fmtDate(detail.date_case) || '—'}</dd></div>
               <div><dt className="text-slate-400">Region</dt><dd className="font-medium">{fmtText(detail.region) || '—'}</dd></div>
               <div><dt className="text-slate-400">Province / city case</dt><dd className="font-medium">{fmtText(detail.province_city_case) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Cases / deaths</dt><dd className="font-medium">{fmtNum(detail.cases) || '—'} / {fmtNum(detail.deaths) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Lat / lon</dt><dd className="font-medium">{detail.latitude ?? '—'} / {detail.longitude ?? '—'}</dd></div>
+              <div><dt className="text-slate-400">Cases</dt><dd className="font-medium">{fmtText(detail.cases_display) || fmtNum(detail.cases) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Deaths</dt><dd className="font-medium">{fmtText(detail.deaths_display) || fmtNum(detail.deaths) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Lat / lon</dt><dd className="font-medium">{detail.geo_summary || `${detail.latitude ?? '—'} / ${detail.longitude ?? '—'}`}</dd></div>
               <div><dt className="text-slate-400">Source</dt><dd className="font-medium">{[detail.source_type, detail.source_name].filter(Boolean).join(' · ') || '—'}</dd></div>
-              <div><dt className="text-slate-400">Confidence</dt><dd className="font-medium">{detail.confidence ?? '—'}</dd></div>
+              <div><dt className="text-slate-400">Confidence (max)</dt><dd className="font-medium">{detail.confidence ?? '—'}</dd></div>
               <div><dt className="text-slate-400">Status</dt><dd className="font-medium">{fmtText(detail.status) || '—'}</dd></div>
               <div><dt className="text-slate-400">Channel</dt><dd className="font-medium">{channelLabel(detail.crawl_channel) || '—'}</dd></div>
               <div><dt className="text-slate-400">Health related</dt><dd className="font-medium">{fmtBool(detail.is_health_related) || '—'}</dd></div>
               <div><dt className="text-slate-400">Event type</dt><dd className="font-medium">{fmtText(detail.event_type) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Credibility</dt><dd className="font-medium">{detail.source_credibility ?? '—'} {fmtText(detail.source_credibility_label)}</dd></div>
+              <div><dt className="text-slate-400">Credibility (max)</dt><dd className="font-medium">{detail.source_credibility ?? '—'} {fmtText(detail.source_credibility_label)}</dd></div>
               <div><dt className="text-slate-400">Sentiment / relevance</dt><dd className="font-medium">{fmtText(detail.sentiment) || '—'} / {fmtText(detail.relevance_score) || '—'}</dd></div>
               <div><dt className="text-slate-400">Outbreak alert</dt><dd className="font-medium">{fmtBool(detail.outbreak_alert) || '—'}</dd></div>
               <div><dt className="text-slate-400">Needs review</dt><dd className="font-medium">{fmtBool(detail.needs_review) || '—'}</dd></div>
@@ -668,6 +695,41 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Article snippet</div>
                 <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">{detail.snippet}</p>
+              </div>
+            ) : null}
+            {detail.children && detail.children.length > 1 ? (
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Location events ({detail.children.length}{detail.event_count && detail.event_count > detail.children.length ? ` of ${fmtNum(detail.event_count)}` : ''})
+                </div>
+                <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="min-w-full text-left text-[11px]">
+                    <thead>
+                      <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                        <th className="px-2 py-1.5 font-semibold">Country</th>
+                        <th className="px-2 py-1.5 font-semibold">Place</th>
+                        <th className="px-2 py-1.5 font-semibold">Disease</th>
+                        <th className="px-2 py-1.5 font-semibold">Cases</th>
+                        <th className="px-2 py-1.5 font-semibold">Deaths</th>
+                        <th className="px-2 py-1.5 font-semibold">Lat / lon</th>
+                        <th className="px-2 py-1.5 font-semibold">Event id</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.children.map((child) => (
+                        <tr key={child.id} className="border-t border-slate-100">
+                          <td className="px-2 py-1.5">{fmtText(child.country) || '—'}</td>
+                          <td className="px-2 py-1.5">{fmtText(child.province_city_case || child.province || child.city || child.region) || '—'}</td>
+                          <td className="px-2 py-1.5">{fmtText(child.disease) || '—'}</td>
+                          <td className="px-2 py-1.5">{fmtNum(child.cases) || '—'}</td>
+                          <td className="px-2 py-1.5">{fmtNum(child.deaths) || '—'}</td>
+                          <td className="px-2 py-1.5">{child.latitude ?? '—'} / {child.longitude ?? '—'}</td>
+                          <td className="px-2 py-1.5 font-mono text-[10px]">{child.disease_event_id || child.id}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : null}
           </div>

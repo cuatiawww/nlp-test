@@ -6,6 +6,22 @@ UI: `/nlp/crawl-history` (auth module `crawl_history`, also granted to existing 
 
 This is **not** the Events dump. Default quality is **surveillance**: health-related, known disease (not `UNKNOWN` / `NEGATIVE*`), confidence ≥ 0.15. Default country is **ASEAN-11 + Timor-Leste** when a country can be resolved. Political/economic RSS stays stored for Events QA and is hidden unless Quality is Noise / All stored.
 
+**One matrix row per article**, not per `disease_event`. Events that share a normalized URL / `raw_report_id` are collapsed in SQL (`GROUP BY article_key`). Open the row drawer to QA the underlying location children.
+
+## Article collapse (multi-location)
+
+`article_key` = `COALESCE(normalized_url, url, source_url, raw_report_id, id)`.
+
+| Field | Collapsed display |
+| --- | --- |
+| Country / Region / Disease / Province-City | Unique labels, `; ` separated, ordered by descending cases then label |
+| Number of Cases / Deaths | Per country when more than one country: `Indonesia(8278); Philippines(3734)`. If a single country has several provinces, the same pattern uses province labels. A single location stays a plain number |
+| Latitude / Longitude | Primary pin when there is one location. Many pins → Latitude shows `n locations`, Longitude blank (no invented midpoint). Pins stay on child rows |
+| Confidence / source credibility | **Max** across children (not an average). Credibility label comes from the child with the highest score |
+| Needs review / outbreak / health | `BOOL_OR` — any child true keeps the flag |
+
+Detail `GET /crawl-history/rows/:id` re-collapses by `article_key` and attaches up to 80 child location events.
+
 ## Matrix columns (Phase 1 sheet order)
 
 Visible columns match the QA export (`No, Country, Language, Source URL, …, Needs Review`). Empty cell if the stored field is null — nothing is invented.
@@ -23,8 +39,8 @@ Visible columns match the QA export (`No, Country, Language, Source URL, …, Ne
 | Province / City Case | `province_city_case` or `province` / `city` |
 | Article Date | `article_date` / `published_at` |
 | Date Case | `date_case` / `event_date` |
-| Number of Cases / Deaths | `number_of_cases` / `case_count`, `number_of_deaths` / `death_count` |
-| Latitude / Longitude | matrix coords or `ST_Y`/`ST_X(geom)` |
+| Number of Cases / Deaths | collapsed `Label(n); Label(n)` when multi-location, else `number_of_cases` / `case_count`, `number_of_deaths` / `death_count` |
+| Latitude / Longitude | primary pin, or `n locations` when several child pins exist |
 | Source Type / Name | event or matrix fields |
 | Evidence | matrix `evidence`, or first JSON evidence item — **not** the full article body |
 | Confidence | stored confidence |
@@ -36,7 +52,7 @@ CSV / Excel export uses the same header names as the QA sheet.
 
 ## Performance
 
-List is a **paginated SQL ledger** (default **25** rows, max 100). Each channel branch applies quality / country / date filters **before** `ORDER BY created_at DESC LIMIT`. When both manual and pipeline rows are requested, each branch is capped at `offset+limit` then merged — the full `disease_events` table is not materialized.
+List is a **paginated SQL ledger** (default **25** **article** rows, max 100). Each channel branch filters, then `GROUP BY article_key`, then `ORDER BY sort_ts DESC LIMIT`. Counts are `COUNT(DISTINCT article_key)`, not raw event rows. When both manual and pipeline rows are requested, each collapsed branch is capped at `offset+limit` then merged — the browser never aggregates thousands of events.
 
 - Search (`q`) and disease text are **debounced 400ms**. Summary cards load once from cheap `COUNT(*)` subqueries; they do not rescan the matrix on each keystroke.
 - Row detail is a primary-key lookup (`crawl_matrix_rows.id` or `disease_events.id`), not the union.
@@ -87,8 +103,8 @@ GET /nlp/api/v1/crawl-history/rows?format=csv|xlsx
 ## Verify
 
 1. Sign in as a role that has Manual Crawler (`data_analyst`, `epidemiologi`, `skk`, or admin).
-2. Open `/nlp/crawl-history`. Default matrix columns match the QA sheet; Source URL is a clickable link; headers stay put while scrolling.
-3. First page is a 25-row SQL page (not thousands of DOM rows). Changing search does not fire until ~400ms idle.
+2. Open `/nlp/crawl-history`. Default matrix columns match the QA sheet; Source URL is a clickable link; headers stay put while scrolling. The same URL must not repeat as N location rows — cases look like `Indonesia(8278); Philippines(3734)` when an article covers more than one country.
+3. First page is a 25-article SQL page (not thousands of DOM rows). Changing search does not fire until ~400ms idle. Row detail lists child location events.
 4. Default must **not** list political/economic RSS with disease `UNKNOWN`.
 5. Summary cards still load if you type in the search box (they are a separate cheap endpoint).
 6. Export CSV headers equal: `No,Country,Language,Source URL,Article Title,...Needs Review`.

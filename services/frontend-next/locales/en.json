@@ -624,7 +624,7 @@
     },
     "crawlHistory": {
       "title": "Crawl History / Matriks Hasil Crawl",
-      "subtitle": "Phase-1-style surveillance matrix from stored Phase 2 rows — 25 per page, newest first. Default country is ASEAN-11 + Timor-Leste. Non-health RSS stays in the database for Events QA but is hidden here.",
+      "subtitle": "Phase-1-style surveillance matrix from stored Phase 2 rows — one smart row per article URL, 25 per page. Multi-country cases look like Indonesia(8278); Philippines(3734). Default country is ASEAN-11 + Timor-Leste. Non-health RSS stays in the database for Events QA but is hidden here.",
       "matrixTab": "Result matrix",
       "jobsTab": "Job history",
       "openManual": "Open Manual Crawler",
@@ -637,7 +637,7 @@
       "qualityReview": "Needs classifier review",
       "qualityNoise": "Non-health noise",
       "qualityAll": "All stored rows",
-      "qualityHint": "Default hides political/economic RSS and UNKNOWN labels. Those rows remain stored for Events; switch Quality to inspect them.",
+      "qualityHint": "Each matrix row is one article (same Source URL collapsed). Location children stay in the row detail drawer. Default hides political/economic RSS and UNKNOWN labels; those rows remain stored for Events.",
       "emptyRows": "No surveillance crawl results match these filters. Non-health articles may still be stored — switch Quality to Needs review, Noise, or All stored.",
       "emptyJobs": "No manual crawl jobs have been stored yet.",
       "detailTitle": "Stored crawl result"

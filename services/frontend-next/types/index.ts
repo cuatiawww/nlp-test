@@ -407,6 +407,13 @@ export type CrawlHistoryRow = {
   outbreak_alert?: boolean | null;
   symptoms?: unknown;
   disease_extracted?: unknown;
+  article_key?: string | null;
+  cases_display?: string | null;
+  deaths_display?: string | null;
+  geo_summary?: string | null;
+  event_count?: number | null;
+  location_count?: number | null;
+  children?: CrawlHistoryRow[];
   job?: CrawlHistoryJob;
 };
 
