@@ -11,6 +11,7 @@ import requests
 
 from .entity_relations import disease_relation_rows, location_relation_rows
 from .geo import st_makepoint_args
+from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("worker")
@@ -597,13 +598,13 @@ def callback(ch, method, properties, body):
                         case_count, death_count, event_date, confirmed_cases, suspected_cases,
                         hospitalizations, epidemiological_evidence,
                         confidence, outbreak_alert, sentiment, event_type, relevance_score,
-                         source_credibility, source_credibility_label, is_health_related)
+                         source_credibility, source_credibility_label, is_health_related, needs_review)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                                CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                     ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                                END,
                                  %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-                                 %s, %s, %s, %s, %s, %s, %s, FALSE)""",
+                                 %s, %s, %s, %s, %s, %s, %s, FALSE, %s)""",
                     (
                         raw_id,
                         msg.get("source_type"),
@@ -632,8 +633,10 @@ def callback(ch, method, properties, body):
                         nlp.get("relevance_score"),
                         nlp.get("source_credibility", 0.50),
                         nlp.get("source_credibility_label", ""),
+                        nlp_needs_review(nlp),
                     ),
                 )
+                mark_kpi_snapshots_stale(conn)
                 conn.commit()
                 logger.info("Non-health event inserted: raw_id=%s", raw_id)
                 ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -646,13 +649,13 @@ def callback(ch, method, properties, body):
                     case_count, death_count, event_date, confirmed_cases, suspected_cases,
                     hospitalizations, epidemiological_evidence, confidence, outbreak_alert,
                     sentiment, event_type, relevance_score,
-                    source_credibility, source_credibility_label, is_health_related)
+                    source_credibility, source_credibility_label, is_health_related, needs_review)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
                             %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-                            %s, %s, %s, %s, %s, %s, %s, TRUE)
+                            %s, %s, %s, %s, %s, %s, %s, TRUE, %s)
                    RETURNING id""",
                 (
                     raw_id,
@@ -683,6 +686,7 @@ def callback(ch, method, properties, body):
                     nlp.get("relevance_score"),
                     nlp.get("source_credibility", 0.50),
                     nlp.get("source_credibility_label", ""),
+                    nlp_needs_review(nlp),
                 ),
             )
             event_id = event_cursor.fetchone()["id"]
@@ -711,13 +715,13 @@ def callback(ch, method, properties, body):
                             disease_classification, case_count, death_count,
                             confidence, outbreak_alert, sentiment, event_type,
                             relevance_score, source_credibility,
-                            source_credibility_label, is_health_related,
+                            source_credibility_label, is_health_related, needs_review,
                             parent_event_id, source_url)
                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                          ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                                     END,
-                                    %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE,
+                                    %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s,
                                     %s, %s)
                            RETURNING id""",
                         (
@@ -744,6 +748,7 @@ def callback(ch, method, properties, body):
                             nlp.get("relevance_score"),
                             nlp.get("source_credibility", 0.50),
                             nlp.get("source_credibility_label", ""),
+                            nlp_needs_review(nlp) or bool(sub_location and (sub_lat is None or sub_lon is None)),
                             parent_event_id,
                             msg.get("url"),
                         ),
@@ -776,9 +781,8 @@ def callback(ch, method, properties, body):
                     len(sub_events), raw_id,
                 )
 
+            mark_kpi_snapshots_stale(conn)
             conn.commit()
-
-        logger.info("Processed successfully: raw_id=%s", raw_id)
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except json.JSONDecodeError as e:

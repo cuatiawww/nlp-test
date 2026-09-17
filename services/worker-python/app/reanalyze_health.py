@@ -22,6 +22,8 @@ from psycopg.rows import dict_row
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
+from .kpi import mark_kpi_snapshots_stale
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("reanalyze-health")
@@ -287,6 +289,7 @@ def main() -> int:
                     else:
                         with conn.transaction():
                             update_event(conn, row, result)
+                            mark_kpi_snapshots_stale(conn)
                     processed += 1
                     logger.info(
                         "Progress [%d/%d] id=%s -> %s (cases=%s, alert=%s)",
