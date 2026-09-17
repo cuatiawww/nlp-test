@@ -56,7 +56,7 @@ export const ROLE_PRESET_MODULES: Record<string, string[]> = {
 export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string): boolean {
   if (!user) return false;
   const role = user.role?.toLowerCase();
-  if (role === 'admin' || user.permissions?.includes('*')) return true;
+  if (role === 'admin' || role === 'superadmin' || role === 'webmaster' || user.permissions?.includes('*')) return true;
 
   if (user.permissions?.includes(moduleKeyOrPath)) return true;
 

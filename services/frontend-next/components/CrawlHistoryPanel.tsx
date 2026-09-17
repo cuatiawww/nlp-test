@@ -257,6 +257,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const [exporting, setExporting] = useState(false)
   const [detail, setDetail] = useState<CrawlHistoryRow | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setQ(qInput.trim()), FILTER_DEBOUNCE_MS)
@@ -288,12 +289,14 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
     try {
       setSummary(await fetchCrawlHistorySummary())
     } catch (error: any) {
+      setSummary(null)
       toast.error(error?.message || 'Crawl history totals could not be loaded')
     }
   }, [])
 
   const loadRows = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const result = await fetchCrawlHistoryRows({ ...filters, page, per_page: PAGE_SIZE })
       setRows(result.data || [])
@@ -303,7 +306,9 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       setRows([])
       setTotal(0)
       setTotalPages(1)
-      toast.error(error?.message || 'Stored crawl results could not be loaded')
+      const message = error?.message || 'Stored crawl results could not be loaded'
+      setLoadError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -542,7 +547,12 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        {tab === 'matrix' && rows.length === 0 && !loading ? (
+        {tab === 'matrix' && loadError && !loading ? (
+          <div className="p-10 text-center text-sm text-rose-600">
+            <p className="font-semibold">{t('pages.crawlHistory.loadError')}</p>
+            <p className="mt-2 text-xs text-slate-500">{loadError}</p>
+          </div>
+        ) : tab === 'matrix' && rows.length === 0 && !loading ? (
           <div className="p-10 text-center text-sm text-slate-400">{t('pages.crawlHistory.emptyRows')}</div>
         ) : tab === 'jobs' && jobs.length === 0 && !loading ? (
           <div className="p-10 text-center text-sm text-slate-400">{t('pages.crawlHistory.emptyJobs')}</div>

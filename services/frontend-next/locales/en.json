@@ -640,6 +640,7 @@
       "qualityHint": "Each matrix row is one article (same Source URL collapsed). Location children stay in the row detail drawer. Default hides political/economic RSS and UNKNOWN labels; those rows remain stored for Events.",
       "emptyRows": "No surveillance crawl results match these filters. Non-health articles may still be stored — switch Quality to Needs review, Noise, or All stored.",
       "emptyJobs": "No manual crawl jobs have been stored yet.",
+      "loadError": "Crawl History could not load stored rows. Sign in again if the session expired — this ledger reads the same disease_events inventory as Events.",
       "detailTitle": "Stored crawl result"
     },
     "processing": {

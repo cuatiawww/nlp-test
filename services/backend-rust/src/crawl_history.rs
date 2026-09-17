@@ -414,43 +414,68 @@ fn country_filter_sql(expr: &str, param: &str) -> String {
     )
 }
 
+fn event_country_lookup_sql() -> &'static str {
+    r#"(SELECT l.country FROM locations l
+            WHERE l.is_active = TRUE
+              AND (
+                    LOWER(l.name) = LOWER(NULLIF(BTRIM(de.location_name), ''))
+                 OR LOWER(l.name) = LOWER(NULLIF(BTRIM(de.province), ''))
+                 OR LOWER(l.name) = LOWER(NULLIF(BTRIM(de.city), ''))
+              )
+            ORDER BY CASE
+                WHEN LOWER(l.name) = LOWER(NULLIF(BTRIM(de.location_name), '')) THEN 0
+                WHEN LOWER(l.name) = LOWER(NULLIF(BTRIM(de.province), '')) THEN 1
+                ELSE 2
+            END, l.updated_at DESC NULLS LAST, l.created_at DESC
+            LIMIT 1)"#
+}
+
+fn event_resolved_country_sql() -> String {
+    asean11_fold_sql(&format!(
+        "COALESCE({loc}, NULLIF(BTRIM(de.location_name), ''))",
+        loc = event_country_lookup_sql()
+    ))
+}
+
 fn event_country_where(param: &str) -> String {
-    let fold_loc = asean11_fold_sql("de.location_name");
-    let fold_l = asean11_fold_sql("l.country");
-    format!(
-        r#"AND (
-              {param}::text IS NULL
-              OR (
-                LOWER({param}) IN ('asean', 'asean11')
-                AND (
-                  {fold_loc} IN ({list})
-                  OR EXISTS (
-                    SELECT 1 FROM locations l
-                    WHERE l.is_active = TRUE
-                      AND LOWER(l.name) = LOWER(de.location_name)
-                      AND {fold_l} IN ({list})
-                  )
-                )
-              )
-              OR {fold_loc} = {param}
-              OR EXISTS (
-                SELECT 1 FROM locations l
-                WHERE l.is_active = TRUE
-                  AND LOWER(l.name) = LOWER(de.location_name)
-                  AND {fold_l} = {param}
-              )
-            )"#,
-        list = ASEAN11_IN
-    )
+    country_filter_sql(&event_resolved_country_sql(), param)
 }
 
 fn event_country_select() -> String {
-    let loc = "(SELECT l.country FROM locations l WHERE l.is_active = TRUE AND LOWER(l.name) = LOWER(de.location_name) ORDER BY l.updated_at DESC NULLS LAST, l.created_at DESC LIMIT 1)";
-    asean11_fold_sql(&format!("COALESCE({loc}, de.location_name)"))
+    event_resolved_country_sql()
 }
 
 fn skip_test_skdr(alias: &str) -> String {
     format!("LOWER(COALESCE({alias}.source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')")
+}
+
+async fn matrix_tables_ready(client: &deadpool_postgres::Object) -> bool {
+    client
+        .query_one(
+            "SELECT to_regclass('public.crawl_matrix_jobs') IS NOT NULL
+                    AND to_regclass('public.crawl_matrix_rows') IS NOT NULL",
+            &[],
+        )
+        .await
+        .ok()
+        .map(|row| row.get::<_, bool>(0))
+        .unwrap_or(false)
+}
+
+fn place_or_null_sql(expr: &str) -> String {
+    format!(
+        r#"CASE
+            WHEN {expr} IS NULL OR BTRIM({expr}) = '' THEN NULL
+            WHEN LOWER(BTRIM({expr})) IN (
+                'harian','persen','tak','percent','unknown','n/a','na','null','none',
+                'the','and','of','untuk','yang','dari','pada','hari','koran','-',
+                'outside asean','n/a','tidak','bukan'
+            ) THEN NULL
+            WHEN LENGTH(BTRIM({expr})) < 3 THEN NULL
+            WHEN BTRIM({expr}) ~ '^[0-9.%]+$' THEN NULL
+            ELSE NULLIF(BTRIM({expr}), '')
+        END"#
+    )
 }
 
 fn event_article_key_sql() -> &'static str {
@@ -576,10 +601,10 @@ fn event_select_sql(evidence_chars: i32) -> String {
             COALESCE(rr.url, de.source_url) AS url,
             de.language,
             {event_country} AS country,
-            NULLIF(de.location_name, '') AS region,
-            COALESCE(NULLIF(CONCAT_WS(' / ', NULLIF(de.province, ''), NULLIF(de.city, '')), ''), NULLIF(de.location_name, '')) AS province_city_case,
-            NULLIF(de.province, '') AS province,
-            NULLIF(de.city, '') AS city,
+            COALESCE({region}, {event_country}) AS region,
+            COALESCE(NULLIF(CONCAT_WS(' / ', {province}, {city}), ''), {region}) AS province_city_case,
+            {province} AS province,
+            {city} AS city,
             NULLIF(de.disease_classification, '') AS disease,
             NULL::text AS icd11_code,
             de.created_at::text AS crawling_date,
@@ -629,6 +654,9 @@ fn event_select_sql(evidence_chars: i32) -> String {
         event_known = event_known,
         pipeline_quality = pipeline_quality,
         article_key = event_article_key_sql(),
+        province = place_or_null_sql("de.province"),
+        city = place_or_null_sql("de.city"),
+        region = place_or_null_sql("de.location_name"),
     )
 }
 
@@ -832,16 +860,21 @@ fn matrix_where_sql(quality: Quality) -> String {
     )
 }
 
-fn event_where_sql(quality: Quality) -> String {
+fn event_where_sql(quality: Quality, matrix_ready: bool) -> String {
     let known = known_disease_sql("de.disease_classification");
+    let skip_matrix = if matrix_ready {
+        r#"AND NOT EXISTS (
+              SELECT 1 FROM crawl_matrix_rows mx
+              WHERE mx.raw_report_id IS NOT NULL AND mx.raw_report_id = de.raw_report_id
+          )"#
+    } else {
+        ""
+    };
     format!(
         r#"
         WHERE {quality_where}
           AND {skip}
-          AND NOT EXISTS (
-              SELECT 1 FROM crawl_matrix_rows mx
-              WHERE mx.raw_report_id IS NOT NULL AND mx.raw_report_id = de.raw_report_id
-          )
+          {skip_matrix}
           AND ($1::text IS NULL
                OR COALESCE(de.disease_classification, '') ILIKE '%'||$1||'%'
                OR COALESCE(de.source_name, '') ILIKE '%'||$1||'%'
@@ -872,6 +905,7 @@ fn event_where_sql(quality: Quality) -> String {
         "#,
         quality_where = event_quality_where(quality),
         skip = skip_test_skdr("de"),
+        skip_matrix = skip_matrix,
         country = event_country_where("$3"),
         known = known,
     )
@@ -987,7 +1021,8 @@ async fn load_filtered_rows(
     let status = parse_status(&query.status);
     let job_id = parse_job_id(&query.job_id)?;
     let quality = parse_quality(&query.quality);
-    let include_matrix = matches!(parsed_channel, Channel::All | Channel::Manual);
+    let matrix_ready = matrix_tables_ready(&client).await;
+    let include_matrix = matrix_ready && matches!(parsed_channel, Channel::All | Channel::Manual);
     let include_events = job_id.is_none()
         && matches!(parsed_channel, Channel::All | Channel::Continuous | Channel::AnalyzeUrl);
 
@@ -1017,7 +1052,7 @@ async fn load_filtered_rows(
         collapse_article_sql(&format!(
             "{} {}",
             event_select_sql(evidence_chars),
-            event_where_sql(quality)
+            event_where_sql(quality, matrix_ready)
         ))
     );
 
@@ -1088,7 +1123,7 @@ async fn load_filtered_rows(
                 GROUP BY 1
              ) keys",
             key = event_article_key_sql(),
-            filters = event_where_sql(quality)
+            filters = event_where_sql(quality, matrix_ready)
         );
         total += client
             .query_one(&count_sql, &params)
@@ -1225,7 +1260,8 @@ pub async fn get_row(
     let uuid = parse_row_id(&id)?;
     let client = state.db.get().await.map_err(internal_error)?;
     let channel = parse_channel(&query.channel);
-    let try_matrix = matches!(channel, Channel::All | Channel::Manual);
+    let matrix_ready = matrix_tables_ready(&client).await;
+    let try_matrix = matrix_ready && matches!(channel, Channel::All | Channel::Manual);
     let try_events = matches!(channel, Channel::All | Channel::Continuous | Channel::AnalyzeUrl);
 
     let mut data = None;
@@ -1302,6 +1338,17 @@ pub async fn list_jobs(
     Query(query): Query<CrawlHistoryJobsQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    if !matrix_tables_ready(&client).await {
+        let (page, per_page, _) = build_pagination(query.page, query.per_page);
+        return Ok(Json(ApiResponse {
+            success: true,
+            data: Vec::new(),
+            total: Some(0),
+            page: Some(page),
+            per_page: Some(per_page),
+            total_pages: Some(0),
+        }));
+    }
     let (page, per_page, offset) = build_pagination(query.page, query.per_page);
     let q = opt_text(&query.q);
     let status = match opt_text(&query.status).unwrap_or_default().to_ascii_lowercase().as_str() {
@@ -1397,6 +1444,12 @@ pub async fn get_job(
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
     let job_id = parse_row_id(&id)?;
     let client = state.db.get().await.map_err(internal_error)?;
+    if !matrix_tables_ready(&client).await {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"success": false, "error": "Manual crawler job was not found"})),
+        ));
+    }
     let job = client
         .query_opt(
             "SELECT id, status, disease_names, region, country, province_city,
@@ -1473,25 +1526,51 @@ pub async fn summary(
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     let pred = surveillance_event_pred("de");
+    let matrix_ready = matrix_tables_ready(&client).await;
+    let matrix_jobs = if matrix_ready {
+        "(SELECT COUNT(*)::bigint FROM crawl_matrix_jobs)"
+    } else {
+        "0::bigint"
+    };
+    let matrix_rows = if matrix_ready {
+        "(SELECT COUNT(*)::bigint FROM crawl_matrix_rows)"
+    } else {
+        "0::bigint"
+    };
+    let matrix_surv = known_disease_sql("m.disease_name");
+    let manual_rows = if matrix_ready {
+        format!("(SELECT COUNT(*)::bigint FROM crawl_matrix_rows m WHERE {matrix_surv})")
+    } else {
+        "0::bigint".into()
+    };
+    let skip_matrix = if matrix_ready {
+        r#"AND NOT EXISTS (
+                            SELECT 1 FROM crawl_matrix_rows mx
+                            WHERE mx.raw_report_id IS NOT NULL AND mx.raw_report_id = de.raw_report_id
+                        )"#
+    } else {
+        ""
+    };
+    let surveillance_extra = if matrix_ready {
+        format!("+ (SELECT COUNT(*)::bigint FROM crawl_matrix_rows m WHERE {matrix_surv})")
+    } else {
+        String::new()
+    };
     let counts = client
         .query_one(
             &format!(
                 "SELECT
-                    (SELECT COUNT(*)::bigint FROM crawl_matrix_jobs) AS jobs,
-                    (SELECT COUNT(*)::bigint FROM crawl_matrix_rows) AS matrix_rows,
+                    {matrix_jobs} AS jobs,
+                    {matrix_rows} AS matrix_rows,
                     (SELECT COUNT(*)::bigint FROM raw_reports
                       WHERE LOWER(COALESCE(source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')) AS raw_reports,
                     (SELECT COUNT(*)::bigint FROM disease_events
                       WHERE LOWER(COALESCE(source_type, '')) NOT IN ('test', 'skdr', 'skdr_api')) AS disease_events,
-                    (SELECT COUNT(*)::bigint FROM crawl_matrix_rows m
-                      WHERE {matrix_surv}) AS manual_rows,
+                    {manual_rows} AS manual_rows,
                     (SELECT COUNT(*)::bigint FROM disease_events de
                       WHERE {pred}
                         AND LOWER(COALESCE(de.source_name, '')) <> 'url analyzer'
-                        AND NOT EXISTS (
-                            SELECT 1 FROM crawl_matrix_rows mx
-                            WHERE mx.raw_report_id IS NOT NULL AND mx.raw_report_id = de.raw_report_id
-                        )) AS continuous_rows,
+                        {skip_matrix}) AS continuous_rows,
                     (SELECT COUNT(*)::bigint FROM disease_events de
                       WHERE {pred}
                         AND LOWER(COALESCE(de.source_name, '')) = 'url analyzer') AS analyze_url_rows,
@@ -1504,7 +1583,7 @@ pub async fn summary(
                     (SELECT COUNT(*)::bigint FROM disease_events de
                       WHERE {pred} AND de.geom IS NOT NULL) AS mapped,
                     (SELECT COUNT(*)::bigint FROM disease_events de WHERE {pred})
-                      + (SELECT COUNT(*)::bigint FROM crawl_matrix_rows m WHERE {matrix_surv}) AS surveillance,
+                      {surveillance_extra} AS surveillance,
                     (SELECT COUNT(*)::bigint FROM disease_events de
                       WHERE de.is_health_related = TRUE
                         AND UPPER(BTRIM(COALESCE(de.disease_classification, ''))) NOT LIKE 'NEGATIVE%'
@@ -1514,7 +1593,6 @@ pub async fn summary(
                       WHERE COALESCE(de.is_health_related, FALSE) IS NOT TRUE
                          OR UPPER(BTRIM(COALESCE(de.disease_classification, ''))) LIKE 'NEGATIVE%') AS noise",
                 pred = pred,
-                matrix_surv = known_disease_sql("m.disease_name"),
                 known = known_disease_sql("de.disease_classification"),
                 min = SURVEILLANCE_MIN_CONFIDENCE,
                 skip = skip_test_skdr("de"),
@@ -1527,7 +1605,7 @@ pub async fn summary(
         success: true,
         data: json!({
             "phase": "phase2",
-            "note": "Default matrix is one row per article URL (location events collapsed in SQL). Health surveillance: known disease, health-related, confidence ≥ 0.15, ASEAN-11+Timor-Leste when country is known. Multi-country cases render as Indonesia(8278); Philippines(3734). Confidence is the max across child events, not an average. Non-health RSS stays stored for Events QA.",
+            "note": "Default matrix is one row per article URL, read from the same disease_events / raw_reports inventory as Events (GET is not blocked by an expired session). Health surveillance: known disease, health-related, confidence ≥ 0.15, ASEAN-11+Timor-Leste when country is known. Multi-country cases render as Indonesia(8278); Philippines(3734). Confidence is the max across child events. Non-health RSS stays stored for Events QA.",
             "default_quality": "surveillance",
             "jobs": counts.get::<_, i64>(0),
             "matrix_rows": counts.get::<_, i64>(1),
@@ -1629,7 +1707,7 @@ mod tests {
         assert_eq!(parse_quality(&Some("non-health".into())), Quality::Noise);
         assert_eq!(quality_sql(Quality::Surveillance), Some("surveillance"));
         assert_eq!(quality_sql(Quality::All), None);
-        let event_where = event_where_sql(Quality::Surveillance);
+        let event_where = event_where_sql(Quality::Surveillance, true);
         assert!(event_where.contains("is_health_related = TRUE"));
         assert!(event_where.contains("0.15"));
         assert!(!event_where.contains("DISTINCT ON"));
@@ -1651,6 +1729,13 @@ mod tests {
         assert!(collapsed.contains("location_count"));
         assert!(!collapsed.contains("__INNER__"));
         assert!(collapsed.contains("#>> '{}'"));
+        let country_sql = event_country_select();
+        assert!(country_sql.contains("de.province"));
+        assert!(country_sql.contains("de.city"));
+        let places = place_or_null_sql("de.province");
+        assert!(places.contains("harian"));
+        assert!(event_where_sql(Quality::Surveillance, false).contains("is_health_related = TRUE"));
+        assert!(!event_where_sql(Quality::Surveillance, false).contains("crawl_matrix_rows mx"));
     }
 
     #[test]

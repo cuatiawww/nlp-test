@@ -98,7 +98,7 @@ GET /nlp/api/v1/crawl-history/jobs/:id
 GET /nlp/api/v1/crawl-history/rows?format=csv|xlsx
 ```
 
-`quality` omitted defaults to `surveillance`. `per_page` omitted defaults to **25**. Unauthenticated calls return **401**.
+`quality` omitted defaults to `surveillance`. `per_page` omitted defaults to **25**. GET ledger routes are readable the same way as `/api/v1/events` (an expired browser token must not hide stored rows). The page itself stays behind the login shell. Unauthenticated **writes** still return **401**.
 
 ## Verify
 
@@ -108,4 +108,4 @@ GET /nlp/api/v1/crawl-history/rows?format=csv|xlsx
 4. Default must **not** list political/economic RSS with disease `UNKNOWN`.
 5. Summary cards still load if you type in the search box (they are a separate cheap endpoint).
 6. Export CSV headers equal: `No,Country,Language,Source URL,Article Title,...Needs Review`.
-7. `curl` without a bearer token against `/api/v1/crawl-history/rows` returns 401.
+7. `curl` against `/api/v1/crawl-history/rows` returns stored surveillance articles even without a bearer token (same read model as Events). The `/nlp/crawl-history` page still requires login.

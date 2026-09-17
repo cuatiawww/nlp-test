@@ -750,12 +750,12 @@ export async function fetchPaginated<T>(
   path: string,
 ): Promise<{ data: T[]; total: number; totalPages: number }> {
   const res = await fetch(`${baseURL()}${path}`, { cache: "no-store", headers: authHeaders() });
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  const json = await res.json();
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(formatApiError(res, json));
   return {
-    data: json.data as T[],
-    total: (json.total as number) || 0,
-    totalPages: (json.total_pages as number) || 1,
+    data: (json?.data ?? []) as T[],
+    total: (json?.total as number) || 0,
+    totalPages: (json?.total_pages as number) || 1,
   };
 }
 

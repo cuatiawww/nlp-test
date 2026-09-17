@@ -640,6 +640,7 @@
       "qualityHint": "Setiap baris matriks = satu artikel (URL yang sama digabung). Peristiwa per lokasi ada di laci detail. Default menyembunyikan RSS politik/ekonomi dan label UNKNOWN; baris itu tetap tersimpan untuk Events.",
       "emptyRows": "Tidak ada hasil crawl surveilans yang cocok dengan filter ini. Artikel non-kesehatan mungkin masih tersimpan — ganti Kualitas ke Perlu review, Noise, atau Semua baris.",
       "emptyJobs": "Belum ada job manual crawl yang tersimpan.",
+      "loadError": "Crawl History gagal memuat baris tersimpan. Masuk lagi jika sesi kedaluwarsa — ledger ini membaca inventory disease_events yang sama dengan Events.",
       "detailTitle": "Hasil crawl tersimpan"
     },
     "processing": {
