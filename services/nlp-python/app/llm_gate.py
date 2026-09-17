@@ -21,13 +21,14 @@ def should_escalate_to_llm(
     language: str = "en",
     needs_review: bool = False,
     location_missing: bool = False,
+    non_health_topic: bool = False,
 ) -> bool:
     """Return True only for high-value, low-confidence steps.
 
     Multiple extracted diseases are *not* an LLM trigger: prevention articles
     commonly list several pathogens and local ranking already handles that.
     """
-    if historical_fast or interactive or is_noisy:
+    if historical_fast or interactive or is_noisy or non_health_topic:
         return False
     if not config.AGENT_ENABLED:
         return False

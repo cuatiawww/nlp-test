@@ -10,6 +10,13 @@ from .entity_relations import disease_relation_rows, location_relation_rows
 from .geo import st_makepoint_args
 
 logger = logging.getLogger(__name__)
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.health-gate")
+
+
+def _pipeline_version_matches(row) -> bool:
+    """Stale disease_events (missing or older pipeline version) are cache misses."""
+    version = (row or {}).get("nlp_pipeline_version")
+    return bool(version) and version == NLP_PIPELINE_VERSION
 
 
 def _json_safe(value):
@@ -262,10 +269,11 @@ def save_completed(conn, job_id, result, raw_report_id=None):
         language,location_name,province,city,geom,symptoms,disease_extracted,disease_mentions,disease_classification,
         case_count,death_count,event_date,confirmed_cases,suspected_cases,hospitalizations,
         epidemiological_evidence,confidence,is_health_related,outbreak_alert,sentiment,event_type,relevance_score,
-        source_credibility,source_credibility_label,needs_review)
+        source_credibility,source_credibility_label,needs_review,nlp_pipeline_version,
+        count_period_type,event_date_start,event_date_end,date_needs_review)
         VALUES (%s,'web','URL Analyzer',%s,%s,%s,%s,%s,%s,
         CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL ELSE ST_SetSRID(ST_MakePoint(%s,%s),4326) END,
-        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (row["id"],result.get("published_at") or None,result.get("content",""),result.get("language"),
          result.get("location_name"),result.get("province"),result.get("city"),*st_makepoint_args(result.get("latitude"), result.get("longitude")),Jsonb(result.get("symptoms",[])),
          Jsonb(result.get("disease_extracted",[])),Jsonb(result.get("disease_mentions",[])),
@@ -274,7 +282,12 @@ def save_completed(conn, job_id, result, raw_report_id=None):
          result.get("hospitalizations"),Jsonb(result.get("evidence",[])),
          result.get("confidence",0),result.get("is_health_related",False),result.get("outbreak_alert",False),
          result.get("sentiment"),result.get("event_type"),result.get("relevance_score"),
-         result.get("source_credibility"),result.get("source_credibility_label"),result.get("needs_review",False))).fetchone()
+         result.get("source_credibility"),result.get("source_credibility_label"),result.get("needs_review",False),
+         result.get("nlp_pipeline_version") or NLP_PIPELINE_VERSION,
+         result.get("count_period_type") or "unknown",
+         result.get("event_date_start"),
+         result.get("event_date_end"),
+         result.get("date_needs_review", False))).fetchone()
     if ENTITY_LOCATION_STORAGE_ENABLED:
         for relation in location_relation_rows(result):
             conn.execute(
@@ -392,7 +405,8 @@ def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_ca
                   de.hospitalizations, de.epidemiological_evidence,
                   de.confidence, de.outbreak_alert, de.sentiment,
                   de.needs_review, de.event_type, de.relevance_score,
-                  de.source_credibility, de.source_credibility_label, de.is_health_related
+                  de.source_credibility, de.source_credibility_label, de.is_health_related,
+                  de.nlp_pipeline_version
            FROM raw_reports rr
            LEFT JOIN LATERAL (
                SELECT event.* FROM disease_events event
@@ -412,9 +426,7 @@ def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_ca
             extracted.get("normalized_url"), extracted.get("normalized_url"),
         ),
     ).fetchone()
-    if row and row.get("event_id") and not allow_cached:
-        row = None
-    if row and row.get("event_id"):
+    if row and row.get("event_id") and allow_cached and _pipeline_version_matches(row):
         result = {
             **extracted,
             "url": requested_url,
@@ -536,7 +548,12 @@ def process_job(job_id):
                           de.source_credibility,
                           de.source_credibility_label,
                           de.is_health_related,
-                          de.published_at AS event_published_at
+                          de.published_at AS event_published_at,
+                          de.nlp_pipeline_version,
+                          de.count_period_type,
+                          de.event_date_start,
+                          de.event_date_end,
+                          de.date_needs_review
                    FROM raw_reports rr
                    LEFT JOIN LATERAL (
                        SELECT event.*
@@ -558,7 +575,13 @@ def process_job(job_id):
                 ),
             ).fetchone()
 
-            if cached_report and cached_report.get("event_id") and not row.get("force_refresh", False):
+            cache_usable = (
+                cached_report
+                and cached_report.get("event_id")
+                and not row.get("force_refresh", False)
+                and _pipeline_version_matches(cached_report)
+            )
+            if cache_usable:
                 latest = lock_conn.execute(
                     """SELECT warnings FROM analysis_jobs
                        WHERE id <> %s
@@ -572,7 +595,7 @@ def process_job(job_id):
                 weak_nlp = "Full NLP unavailable" in warnings_text or "exceeded budget" in warnings_text
             else:
                 weak_nlp = None
-            if cached_report and cached_report.get("event_id") and not row.get("force_refresh", False) and not weak_nlp:
+            if cache_usable and not weak_nlp:
                 has_cached_event = True
                 logger.info(
                     "URL %s found in DB cache, completing job %s immediately (event=%s)",
@@ -623,6 +646,11 @@ def process_job(job_id):
                     "source_credibility_label": cached_report.get("source_credibility_label"),
                     "is_health_related": cached_report.get("is_health_related") if has_cached_event else True,
                     "needs_review": cached_report.get("needs_review") if has_cached_event else True,
+                    "nlp_pipeline_version": cached_report.get("nlp_pipeline_version") or NLP_PIPELINE_VERSION,
+                    "count_period_type": cached_report.get("count_period_type") or "unknown",
+                    "event_date_start": str(cached_report.get("event_date_start")) if cached_report.get("event_date_start") else None,
+                    "event_date_end": str(cached_report.get("event_date_end")) if cached_report.get("event_date_end") else None,
+                    "date_needs_review": bool(cached_report.get("date_needs_review")),
                     "raw_report_id": str(cached_report["raw_report_id"]),
                     "event_id": str(cached_report["event_id"]) if has_cached_event else None,
                     "cached": True,
@@ -656,7 +684,9 @@ def process_job(job_id):
 
             fetch_for_job = fetch_article
             reuse_stored_raw = cached_report and not row.get("force_refresh", False) and (
-                not cached_report.get("event_id") or weak_nlp
+                not cached_report.get("event_id")
+                or weak_nlp
+                or not _pipeline_version_matches(cached_report)
             )
             if reuse_stored_raw:
                 # RAW already exists but NLP did not finish, or the previous

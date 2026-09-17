@@ -589,53 +589,8 @@ def callback(ch, method, properties, body):
                     "UPDATE raw_reports SET processing_status='NON_HEALTH' WHERE id=%s",
                     (raw_id,),
                 )
-
-                conn.execute(
-                    """INSERT INTO disease_events
-                       (raw_report_id, source_type, source_name, published_at, original_text, language,
-                        location_name, province, city, geom, disease_extracted, disease_mentions, disease_classification,
-                        case_count, death_count, event_date, confirmed_cases, suspected_cases,
-                        hospitalizations, epidemiological_evidence,
-                        confidence, outbreak_alert, sentiment, event_type, relevance_score,
-                         source_credibility, source_credibility_label, is_health_related)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
-                                    ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
-                               END,
-                                 %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-                                 %s, %s, %s, %s, %s, %s, %s, FALSE)""",
-                    (
-                        raw_id,
-                        msg.get("source_type"),
-                        msg.get("source_name"),
-                        parse_date(msg.get("published_at")),
-                        msg.get("text"),
-                        nlp["language"],
-                        nlp.get("location_name"),
-                        nlp.get("province"),
-                        nlp.get("city"),
-                        *st_makepoint_args(nlp.get("latitude"), nlp.get("longitude")),
-                        json.dumps(nlp.get("disease_extracted", [])),
-                        json.dumps(nlp.get("disease_mentions", [])),
-                        nlp.get("disease_classification"),
-                        nlp.get("case_count", 0),
-                        nlp.get("death_count", 0),
-                        parse_date(nlp.get("event_date")),
-                        nlp.get("confirmed_cases"),
-                        nlp.get("suspected_cases"),
-                        nlp.get("hospitalizations"),
-                        json.dumps(nlp.get("evidence", [])),
-                        nlp.get("confidence", 0.0),
-                        nlp.get("outbreak_alert", False),
-                        nlp.get("sentiment"),
-                        nlp.get("event_type"),
-                        nlp.get("relevance_score"),
-                        nlp.get("source_credibility", 0.50),
-                        nlp.get("source_credibility_label", ""),
-                    ),
-                )
                 conn.commit()
-                logger.info("Non-health event inserted: raw_id=%s", raw_id)
+                logger.info("Non-health crawl retained as raw_report only: raw_id=%s", raw_id)
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 return
 
@@ -669,13 +624,13 @@ def callback(ch, method, properties, body):
                     json.dumps(nlp.get("disease_extracted", [])),
                     json.dumps(nlp.get("disease_mentions", [])),
                     nlp.get("disease_classification"),
-                    nlp.get("case_count", 1),
+                    nlp.get("case_count", 0),
                     nlp.get("death_count", 0),
                     parse_date(nlp.get("event_date")),
                     nlp.get("confirmed_cases"),
                     nlp.get("suspected_cases"),
                     nlp.get("hospitalizations"),
-                    json.dumps(nlp.get("evidence", [])),
+                    json.dumps(nlp.get("epidemiological_evidence", nlp.get("evidence", []))),
                     nlp.get("confidence", 0.0),
                     nlp.get("outbreak_alert", False),
                     nlp.get("sentiment"),

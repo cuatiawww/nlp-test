@@ -292,6 +292,12 @@ export type AnalyzeResponse = {
   source_credibility_label: string | null;
   needs_review: boolean | null;
   is_health_related: boolean | null;
+  event_date?: string | null;
+  event_date_start?: string | null;
+  event_date_end?: string | null;
+  count_period_type?: string | null;
+  date_needs_review?: boolean | null;
+  nlp_pipeline_version?: string | null;
   raw_report_id: string;
   event_id: string;
   sub_events?: {

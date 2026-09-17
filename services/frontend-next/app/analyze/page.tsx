@@ -75,6 +75,7 @@ export default function AnalyzePage() {
   const [partial, setPartial] = useState<{content?: string; job_id?: string} | null>(null)
   const [stage, setStage] = useState('')
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
+  const [forceRefresh, setForceRefresh] = useState(false)
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -170,13 +171,13 @@ export default function AnalyzePage() {
             type="url"
             value={url}
             onChange={e => setUrl(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            onKeyDown={e => e.key === 'Enter' && handleSubmit(url.trim(), forceRefresh)}
             placeholder={t('pages.analyze.placeholder')}
             className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
           />
         </div>
         <button
-          onClick={() => handleSubmit()}
+          onClick={() => handleSubmit(url.trim(), forceRefresh)}
           disabled={loading}
           className="flex items-center gap-2 rounded-xl bg-[#0060A9] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#004b85] disabled:opacity-50"
         >
@@ -184,6 +185,19 @@ export default function AnalyzePage() {
           {loading ? t('pages.analyze.analyzing') : t('pages.analyze.submit')}
         </button>
       </div>
+
+      <label className="mt-3 flex items-start gap-2 text-sm text-slate-600">
+        <input
+          type="checkbox"
+          checked={forceRefresh}
+          onChange={e => setForceRefresh(e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#0060A9] focus:ring-[#0060A9]"
+        />
+        <span>
+          <span className="font-medium text-slate-800">{t('pages.analyze.forceRefresh')}</span>
+          <span className="block text-xs text-slate-500">{t('pages.analyze.forceRefreshHint')}</span>
+        </span>
+      </label>
 
       {error && (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -313,6 +327,33 @@ export default function AnalyzePage() {
                 <span className="font-semibold text-slate-900">
                   {result.published_at || '-'}
                 </span>
+              }
+              source={getSource('published_at', result.sources?.published_at)}
+            />
+
+            <AnalyzeResultCard
+              icon={<Calendar className="h-4 w-4" />}
+              label={t('pages.analyze.caseDate')}
+              value={
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-900">
+                    {result.event_date_start && result.event_date_end
+                      ? `${result.event_date_start} – ${result.event_date_end}`
+                      : result.event_date || result.published_at || '-'}
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {result.count_period_type && result.count_period_type !== 'unknown' && (
+                      <span className="inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                        {result.count_period_type}
+                      </span>
+                    )}
+                    {result.date_needs_review && (
+                      <span className="inline-flex rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                        {t('pages.analyze.dateNeedsReview')}
+                      </span>
+                    )}
+                  </div>
+                </div>
               }
               source={getSource('published_at', result.sources?.published_at)}
             />

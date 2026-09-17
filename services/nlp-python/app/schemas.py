@@ -105,3 +105,8 @@ class AnalyzeResponse(BaseModel):
     is_health_related: bool = True
     locations: list[LocationItem] = []
     sub_events: list[SubEvent] = []
+    nlp_pipeline_version: str = ""
+    count_period_type: str = "unknown"
+    event_date_start: Optional[str] = None
+    event_date_end: Optional[str] = None
+    date_needs_review: bool = False

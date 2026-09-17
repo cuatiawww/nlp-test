@@ -1,0 +1,96 @@
+{
+  "dataset": "sheet10-teammate-qa",
+  "source": "Data Outbreak ABVC Sheet10 live teammate review",
+  "notes": "Add new ✘ Description rows here (or they are auto-loaded from sheet10.csv). Each fail needs article_text so the harness can score without HTTP.",
+  "cases": [
+    {
+      "no": "1",
+      "country": "Brunei",
+      "url": "https://www.bruneitribune.com/no-nipah-virus-cases-detected-in-brunei-darussalam/",
+      "title": "Bandar seri begawan: No cases of Nipah virus infection have been reported in Brunei Darussalam, following recent detections in India. This was confirmed by the Ministry of Health through a press relea",
+      "article_text": "Bandar Seri Begawan: No cases of Nipah virus infection have been reported in Brunei Darussalam, following recent detections in India. This was confirmed by the Ministry of Health through a press release. No Nipah virus cases detected in Brunei Darussalam. The Ministry advised the public to remain vigilant but said no cases have been detected or recorded locally.",
+      "checklist": "✘",
+      "teammate_note": "Tidak ada keterangan tentang jumlah kasus",
+      "issue_tags": ["missing_or_zero_cases_when_article_says_none"],
+      "pass": false
+    },
+    {
+      "no": "2",
+      "country": "Cambodia",
+      "url": "https://outbreaknewstoday.substack.com/p/cambodia-reports-1st-human-h5n1-avian-de9",
+      "title": "Asia Cambodia reports 1st human H5N1 avian influenza case of 2026 Robert Herriman Feb 14, 2026 1 Share The Cambodia Ministry of Health reports one case of human H5N1 avian influenza in a 30-year-old m",
+      "article_text": "Asia Cambodia reports 1st human H5N1 avian influenza case of 2026 Robert Herriman Feb 14, 2026 1 Share The Cambodia Ministry of Health reports one case of human H5N1 avian influenza in a 30-year-old man from Kampot province who had been exposed to sick poultry.",
+      "checklist": "✔",
+      "teammate_note": "",
+      "issue_tags": [],
+      "pass": true,
+      "expect": {
+        "disease_contains": ["avian"],
+        "country": "Cambodia",
+        "case_count": 1,
+        "must_not_disease": ["measles"]
+      }
+    },
+    {
+      "no": "3",
+      "country": "Cambodia",
+      "url": "https://outbreaknewstoday.substack.com/p/h5n1-avian-influenza-cambodia-reports",
+      "title": "Asia H5N1 avian influenza: Cambodia reports 2nd human case of 2026 Robert Herriman Mar 15, 2026 1 Share The Cambodia Ministry of Health reports a human H5N1 avian influenza case in a 45-year-old woman",
+      "article_text": "Asia H5N1 avian influenza: Cambodia reports 2nd human case of 2026 Robert Herriman Mar 15, 2026 1 Share The Cambodia Ministry of Health reports a human H5N1 avian influenza case in a 45-year-old woman from Banteay Meanchey province. Officials said the patient is in hospital.",
+      "checklist": "✔",
+      "teammate_note": "",
+      "issue_tags": [],
+      "pass": true,
+      "expect": {
+        "disease_contains": ["avian"],
+        "country": "Cambodia",
+        "case_count": 1,
+        "must_not_disease": ["measles"]
+      }
+    },
+    {
+      "no": "51",
+      "country": "Thailand",
+      "url": "https://www.bangkokpost.com/thailand/general/3312564/mpox-covid19-cases-continue-to-rise",
+      "title": "Thailand General Mpox, Covid-19 cases continue to rise PUBLISHED : 2 Sep 2026 at 12:56",
+      "article_text": "Thailand General Mpox, Covid-19 cases continue to rise PUBLISHED : 2 Sep 2026 at 12:56 WRITER: Post Reporters. From 1 January to 23 August 2026, the Department of Disease Control recorded 254 mpox cases nationwide. Covid-19 cases also continued to rise over the same period.",
+      "checklist": "✘",
+      "teammate_note": "Date Case 1 Januari - 23 Agustus 2026, Number of Case 254.",
+      "issue_tags": ["future_or_suspicious_date_range", "implausible_or_national_cumulative_counts"],
+      "pass": false
+    },
+    {
+      "no": "52",
+      "country": "Thailand",
+      "url": "https://www.bangkokpost.com/thailand/general/3178600/about-1000-mpox-cases-recorded-in-thailand",
+      "title": "Thailand General About 1,000 mpox cases recorded in Thailand PUBLISHED : 19 Jan 2026 at 17:02",
+      "article_text": "Thailand General About 1,000 mpox cases recorded in Thailand PUBLISHED : 19 Jan 2026 at 17:02. From September 2025, a cumulative 933 mpox cases and 13 deaths were reported as of January 2026, the Department of Disease Control said. The about 1,000 figure in the headline is a rounded total.",
+      "checklist": "✘",
+      "teammate_note": "Date Case September 2025 kumulatif dilaporkan per Januari 2026, Number of Case 933, Number of Death 13.",
+      "issue_tags": ["cumulative_vs_point_in_time", "future_or_suspicious_date_range", "implausible_or_national_cumulative_counts"],
+      "pass": false
+    },
+    {
+      "no": "53",
+      "country": "Thailand",
+      "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTE5IcHRqQ0VyVzVwTzZkYkJCOFFlR3pBaHIxWE4yRnRVeHRVZDFWMUlMdHVkanBsNjFSUnpiNW9WS2JjWWY1aVIyT1h2cFEyUlMxbHc?oc=5",
+      "title": "นิทรรศการ “โรคร้ายแลนด์” ชวนลองเผชิญโรคร้าย ก่อนวันที่โรคจะมาถึง",
+      "article_text": "นิทรรศการ “โรคร้ายแลนด์” ชวนลองเผชิญโรคร้าย ก่อนวันที่โรคจะมาถึง จะเป็นอย่างไร หากเรามีโอกาส “ ลอง ” เผชิญโรคร้าย ในวันที่เรายังแข็งแรงและยังมีเวลาเตรียมตัว ? อลิอันซ์ อยุธยา ชวนทุกคนเปิดประสบการณ์กับโรคร้ายแลนด์ Cancer, Stroke, Heart Attack exhibition in Bangkok. Insurance awareness event, not an outbreak report. Number of case 0.",
+      "checklist": "✘",
+      "teammate_note": "Disease Name Cancer, Stroke, Heart Attack, Province Bangkok, Number of Case 0.",
+      "issue_tags": ["multi_disease_split_or_reject", "zero_cases_non_outbreak"],
+      "pass": false
+    },
+    {
+      "no": "54",
+      "country": "Thailand",
+      "url": "https://news.google.com/rss/articles/CBMibEFVX3lxTE5uNmpXUHd5d0ctWmtrblM2ek0yVU9iV2NGSEJJcHV2b2dfNjloVnJFUlp0VEtKOHhRdlhlVU5qNGlVSFhGcmZIcF9EUHlsRm1aUEluU3lSTjRWU0QxWG9HdmxKZXRsTEhCSmV3RA?oc=5",
+      "title": "ซาโนฟี่ จับมือ กทม.-กรมการแพทย์ เร่งสร้างเกราะภูมิคุ้มกันรับมือ 'ไข้หวัดใหญ่-RSV'",
+      "article_text": "ซาโนฟี่ จับมือ กทม.-กรมการแพทย์ เร่งสร้างเกราะภูมิคุ้มกันรับมือ 'ไข้หวัดใหญ่-RSV' 15 กันยายน 2569 เวลา 07:30 น. Sanofi partnership with Bangkok and the Department of Medical Services to boost immunization against influenza and RSV. The campaign cited 184,276 cases and 15 deaths as national burden figures, not an incident case total. Vaccination campaign target and doses to be delivered in Bangkok.",
+      "checklist": "✘",
+      "teammate_note": "Disease Name Influenza dan RSV (Respiratory Syncytial Virus), Number of Case 184276, Number of Death 15.",
+      "issue_tags": ["multi_disease_split_or_reject", "implausible_or_national_cumulative_counts"],
+      "pass": false
+    }
+  ]
+}

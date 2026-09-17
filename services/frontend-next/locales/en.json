@@ -599,6 +599,10 @@
       "dataSaved": "Data Saved",
       "savedDescription": "Analysis result has been saved to the database and can be viewed on the Events page.",
       "publishedDate": "Published Date",
+      "caseDate": "Case / reporting date",
+      "dateNeedsReview": "Date needs review",
+      "forceRefresh": "Re-analyze (ignore cache)",
+      "forceRefreshHint": "Run Full NLP again with the current pipeline. Use after extraction fixes.",
       "articleDescription": "Article Summary / Description",
       "sources": {
         "cached": "Data retrieved from database (previous analysis result)",
