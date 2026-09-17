@@ -50,13 +50,14 @@ CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS = max(
     0.0, float(os.getenv("CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS", "0.25"))
 )
 
-# Interactive URL analysis must fail fast so reverse proxies do not return 504
-# while Scrapling stealth/browser sessions ignore their configured timeout.
+# Interactive URL analysis: finish before reverse-proxy 504s, but give slow
+# source sites a real window. Env may raise the budget up to 45s; values below
+# 20s (legacy fail-fast 12s) are clamped up so production .env cannot shrink it.
 INTERACTIVE_HTML_TIMEOUT_SECONDS = max(
-    1, min(int(os.getenv("INTERACTIVE_HTML_TIMEOUT_SECONDS", "12")), 20)
+    20, min(int(os.getenv("INTERACTIVE_HTML_TIMEOUT_SECONDS", "30")), 45)
 )
 INTERACTIVE_HTML_MAX_BOUND_MS = max(
-    1_000, min(int(os.getenv("INTERACTIVE_HTML_MAX_BOUND_MS", "20000")), 20_000)
+    20_000, min(int(os.getenv("INTERACTIVE_HTML_MAX_BOUND_MS", "35000")), 45_000)
 )
 INTERACTIVE_SKIP_STEALTH = os.getenv("INTERACTIVE_SKIP_STEALTH", "true").lower() in {
     "1", "true", "yes", "on",

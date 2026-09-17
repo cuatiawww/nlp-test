@@ -441,7 +441,7 @@ def _extract_published_at(html: str, url: str = "", text: str = "") -> str:
 class WebScraperCollector(BaseCollector):
     def _interactive_timeout_seconds(self) -> int:
         configured_ms = int(self.config.get("timeout_ms", app_config.INTERACTIVE_HTML_TIMEOUT_SECONDS * 1000))
-        return max(1, min(configured_ms // 1000, 20))
+        return max(1, min(configured_ms // 1000, 45))
 
     async def _fetch_direct_http(self, url: str, timeout_seconds: int = 12) -> FetchOutcome:
         """Fast bounded HTTP fetch with redirect SSRF checks and finite retries."""

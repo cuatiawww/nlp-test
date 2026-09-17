@@ -653,9 +653,17 @@ def extract_article(item: dict) -> dict:
 
     response = requests.post(
         COLLECTOR_URL + "/extract-url",
-        json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 15000, "max_retries": 0},
-        timeout=(5, 25),
+        json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 30000, "max_retries": 1},
+        timeout=(5, 45),
     )
+    if response.status_code in {408, 502, 503, 504}:
+        retry = requests.post(
+            COLLECTOR_URL + "/extract-url",
+            json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 40000, "max_retries": 1},
+            timeout=(5, 50),
+        )
+        if retry.status_code == 200:
+            response = retry
     response.raise_for_status()
     extracted = response.json().get("data") or {}
 
@@ -665,8 +673,8 @@ def extract_article(item: dict) -> dict:
         try:
             retry_resp = requests.post(
                 COLLECTOR_URL + "/extract-url",
-                json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 15000, "max_retries": 0},
-                timeout=(5, 20),
+                json={"url": item["url"], "fetch_mode": "http", "timeout_ms": 35000, "max_retries": 1},
+                timeout=(5, 45),
             )
             if retry_resp.status_code == 200:
                 retry_extracted = retry_resp.json().get("data") or {}

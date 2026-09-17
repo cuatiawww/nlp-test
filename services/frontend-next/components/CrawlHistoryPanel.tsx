@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import {
   Download,
@@ -16,6 +17,8 @@ import {
   fetchCrawlHistoryRow,
   fetchCrawlHistoryRows,
   fetchCrawlHistorySummary,
+  isAuthFailureMessage,
+  isTimeoutFailureMessage,
 } from '@/lib/api'
 import type { CrawlHistoryJob, CrawlHistoryRow, CrawlHistorySummary } from '@/types'
 import { ASEAN11_DISPLAY } from '@/lib/asean-scope'
@@ -549,8 +552,30 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {tab === 'matrix' && loadError && !loading ? (
           <div className="p-10 text-center text-sm text-rose-600">
-            <p className="font-semibold">{t('pages.crawlHistory.loadError')}</p>
+            <p className="font-semibold">
+              {isAuthFailureMessage(loadError)
+                ? t('pages.crawlHistory.loadErrorAuth')
+                : isTimeoutFailureMessage(loadError)
+                  ? t('pages.crawlHistory.loadErrorTimeout')
+                  : t('pages.crawlHistory.loadError')}
+            </p>
             <p className="mt-2 text-xs text-slate-500">{loadError}</p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                onClick={() => void loadRows()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Retry
+              </button>
+              {isAuthFailureMessage(loadError) ? (
+                <Link
+                  href={`/login?redirect=${encodeURIComponent('/crawl-history')}`}
+                  className="inline-flex items-center rounded-lg bg-[#0060A9] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#004b85]"
+                >
+                  {t('pages.crawlHistory.signInAgain')}
+                </Link>
+              ) : null}
+            </div>
           </div>
         ) : tab === 'matrix' && rows.length === 0 && !loading ? (
           <div className="p-10 text-center text-sm text-slate-400">{t('pages.crawlHistory.emptyRows')}</div>

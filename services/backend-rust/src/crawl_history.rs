@@ -1,5 +1,5 @@
-//! Authenticated crawl-history ledger: stored manual-job matrix rows plus
-//! continuous / analyze-url outcomes that did not come from those jobs.
+//! Crawl-history ledger GET is public like Events (HTML page still uses AuthGuard).
+//! Stored manual-job matrix rows plus continuous / analyze-url outcomes.
 //! Default quality is health surveillance (known disease, not UNKNOWN/non-health).
 //! List queries paginate in SQL (inner LIMIT per branch) — never scan the full union.
 
@@ -11,6 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -414,31 +415,61 @@ fn country_filter_sql(expr: &str, param: &str) -> String {
     )
 }
 
-fn event_country_lookup_sql() -> &'static str {
-    r#"(SELECT l.country FROM locations l
-            WHERE l.is_active = TRUE
-              AND (
-                    LOWER(l.name) = LOWER(NULLIF(BTRIM(de.location_name), ''))
-                 OR LOWER(l.name) = LOWER(NULLIF(BTRIM(de.province), ''))
-                 OR LOWER(l.name) = LOWER(NULLIF(BTRIM(de.city), ''))
-              )
-            ORDER BY CASE
-                WHEN LOWER(l.name) = LOWER(NULLIF(BTRIM(de.location_name), '')) THEN 0
-                WHEN LOWER(l.name) = LOWER(NULLIF(BTRIM(de.province), '')) THEN 1
-                ELSE 2
-            END, l.updated_at DESC NULLS LAST, l.created_at DESC
-            LIMIT 1)"#
+fn event_resolved_country_sql() -> String {
+    // Same LATERAL equality join as the ASEAN WHERE clause — do not put a
+    // 3-column ORDER BY correlated subquery in SELECT (that 504'd the ledger).
+    asean11_fold_sql(
+        "COALESCE(loc_hist.country, NULLIF(BTRIM(de.location_name), ''), NULLIF(BTRIM(de.province), ''), NULLIF(BTRIM(de.city), ''))",
+    )
 }
 
-fn event_resolved_country_sql() -> String {
-    asean11_fold_sql(&format!(
-        "COALESCE({loc}, NULLIF(BTRIM(de.location_name), ''))",
-        loc = event_country_lookup_sql()
-    ))
+fn event_from_sql() -> &'static str {
+    r#"FROM disease_events de
+        LEFT JOIN raw_reports rr ON rr.id = de.raw_report_id
+        LEFT JOIN LATERAL (
+            SELECT l.country
+            FROM locations l
+            WHERE l.is_active = TRUE
+              AND LOWER(l.name) = LOWER(NULLIF(BTRIM(de.location_name), ''))
+            LIMIT 1
+        ) loc_hist ON TRUE"#
 }
 
 fn event_country_where(param: &str) -> String {
-    country_filter_sql(&event_resolved_country_sql(), param)
+    // Equality join / LATERAL LIMIT 1 on location_name, not a 3-column
+    // ORDER BY correlated subquery in WHERE (that 504'd the ledger).
+    let expr = asean11_fold_sql(
+        "COALESCE(loc_hist.country, NULLIF(BTRIM(de.location_name), ''), NULLIF(BTRIM(de.province), ''), NULLIF(BTRIM(de.city), ''))",
+    );
+    country_filter_sql(&expr, param)
+}
+
+fn event_key_page_sql(quality: Quality, matrix_ready: bool) -> String {
+    format!(
+        r#"SELECT {key} AS article_key
+           {from}
+           {filters}
+           GROUP BY 1
+           ORDER BY MAX(de.created_at) DESC NULLS LAST, MAX(de.id::text) DESC
+           LIMIT $11"#,
+        key = event_article_key_sql(),
+        from = event_from_sql(),
+        filters = event_where_sql(quality, matrix_ready),
+    )
+}
+
+fn event_key_count_sql(quality: Quality, matrix_ready: bool) -> String {
+    format!(
+        r#"SELECT COUNT(*)::bigint FROM (
+                SELECT {key} AS article_key
+                {from}
+                {filters}
+                GROUP BY 1
+           ) keys"#,
+        key = event_article_key_sql(),
+        from = event_from_sql(),
+        filters = event_where_sql(quality, matrix_ready),
+    )
 }
 
 fn event_country_select() -> String {
@@ -774,8 +805,7 @@ fn event_select_sql(evidence_chars: i32) -> String {
             de.created_at::timestamp AS sort_ts,
             de.parent_event_id,
             {article_key} AS article_key
-        FROM disease_events de
-        LEFT JOIN raw_reports rr ON rr.id = de.raw_report_id
+        {from}
         "#,
         title = TITLE_CHARS,
         evidence = evidence_chars,
@@ -787,6 +817,7 @@ fn event_select_sql(evidence_chars: i32) -> String {
         province = place_or_null_sql("de.province"),
         city = place_or_null_sql("de.city"),
         region = place_or_null_sql("de.location_name"),
+        from = event_from_sql(),
     )
 }
 
@@ -1190,55 +1221,117 @@ async fn load_filtered_rows(
         &job_id,
     );
     let cap = (offset + limit).max(limit).min(EXPORT_CAP);
-    let matrix_sql = format!(
-        "{} ORDER BY sort_ts DESC NULLS LAST, id DESC",
-        collapse_article_sql(&format!(
-            "{} {}",
-            matrix_select_sql(evidence_chars),
-            matrix_where_sql(quality)
-        ))
-    );
-    let event_sql = format!(
-        "{} ORDER BY sort_ts DESC NULLS LAST, id DESC",
-        collapse_article_sql(&format!(
-            "{} {}",
-            event_select_sql(evidence_chars),
-            event_where_sql(quality, matrix_ready)
-        ))
-    );
+    let mut combined: Vec<Value> = Vec::new();
 
-    let select_sql = if include_matrix && include_events {
-        format!(
-            "SELECT * FROM (
-                ({matrix} LIMIT $11)
-                UNION ALL
-                ({event} LIMIT $11)
-             ) ledger
-             ORDER BY sort_ts DESC NULLS LAST, id DESC
-             LIMIT $12 OFFSET $13",
-            matrix = matrix_sql,
-            event = event_sql
-        )
-    } else if include_matrix {
-        format!("{matrix} LIMIT $11 OFFSET $12", matrix = matrix_sql)
-    } else if include_events {
-        format!("{event} LIMIT $11 OFFSET $12", event = event_sql)
-    } else {
-        return Ok((Vec::new(), 0));
-    };
+    if include_matrix {
+        let matrix_sql = format!(
+            "{} ORDER BY sort_ts DESC NULLS LAST, id DESC LIMIT $11",
+            collapse_article_sql(&format!(
+                "{} {}",
+                matrix_select_sql(evidence_chars),
+                matrix_where_sql(quality)
+            ))
+        );
+        let rows = client
+            .query(
+                &matrix_sql,
+                &[
+                    &q,
+                    &channel,
+                    &country,
+                    &disease,
+                    &date_from,
+                    &date_to,
+                    &status,
+                    &query.needs_review,
+                    &query.has_geo,
+                    &job_id,
+                    &cap,
+                ],
+            )
+            .await
+            .map_err(internal_error)?;
+        combined.extend(rows.iter().map(map_ledger_row));
+    }
 
-    let rows = if include_matrix && include_events {
-        client
-            .query(&select_sql, &[&q, &channel, &country, &disease, &date_from, &date_to, &status, &query.needs_review, &query.has_geo, &job_id, &cap, &limit, &offset])
+    if include_events {
+        let key_rows = client
+            .query(
+                &event_key_page_sql(quality, matrix_ready),
+                &[
+                    &q,
+                    &channel,
+                    &country,
+                    &disease,
+                    &date_from,
+                    &date_to,
+                    &status,
+                    &query.needs_review,
+                    &query.has_geo,
+                    &job_id,
+                    &cap,
+                ],
+            )
             .await
-            .map_err(internal_error)?
-    } else {
-        client
-            .query(&select_sql, &[&q, &channel, &country, &disease, &date_from, &date_to, &status, &query.needs_review, &query.has_geo, &job_id, &limit, &offset])
-            .await
-            .map_err(internal_error)?
-    };
-    let data: Vec<Value> = rows.iter().map(map_ledger_row).collect();
+            .map_err(internal_error)?;
+        let keys: Vec<String> = key_rows
+            .iter()
+            .filter_map(|row| row.try_get::<_, Option<String>>(0).ok().flatten())
+            .filter(|key| !key.is_empty())
+            .collect();
+        if !keys.is_empty() {
+            let event_sql = format!(
+                "{} ORDER BY sort_ts DESC NULLS LAST, id DESC",
+                collapse_article_sql(&format!(
+                    "{} {} AND {key} = ANY($11::text[])",
+                    event_select_sql(evidence_chars),
+                    event_where_sql(quality, matrix_ready),
+                    key = event_article_key_sql(),
+                ))
+            );
+            let rows = client
+                .query(
+                    &event_sql,
+                    &[
+                        &q,
+                        &channel,
+                        &country,
+                        &disease,
+                        &date_from,
+                        &date_to,
+                        &status,
+                        &query.needs_review,
+                        &query.has_geo,
+                        &job_id,
+                        &keys,
+                    ],
+                )
+                .await
+                .map_err(internal_error)?;
+            combined.extend(rows.iter().map(map_ledger_row));
+        }
+    }
+
+    let mut seen = HashSet::new();
+    combined.retain(|row| {
+        let key = row
+            .get("article_key")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| row.get("id").map(|value| value.to_string()).unwrap_or_default());
+        seen.insert(key)
+    });
+    combined.sort_by(|left, right| {
+        let left_ts = left.get("created_at").and_then(|value| value.as_str()).unwrap_or("");
+        let right_ts = right.get("created_at").and_then(|value| value.as_str()).unwrap_or("");
+        right_ts.cmp(left_ts)
+    });
+    let data: Vec<Value> = combined
+        .into_iter()
+        .skip(offset.max(0) as usize)
+        .take(limit.max(0) as usize)
+        .collect();
     if !with_total {
         let exported = data.len() as i64;
         return Ok((data, exported));
@@ -1265,19 +1358,8 @@ async fn load_filtered_rows(
             .get::<_, i64>(0);
     }
     if include_events {
-        let count_sql = format!(
-            "SELECT COUNT(*)::bigint FROM (
-                SELECT {key} AS article_key
-                FROM disease_events de
-                LEFT JOIN raw_reports rr ON rr.id = de.raw_report_id
-                {filters}
-                GROUP BY 1
-             ) keys",
-            key = event_article_key_sql(),
-            filters = event_where_sql(quality, matrix_ready)
-        );
         total += client
-            .query_one(&count_sql, &params)
+            .query_one(&event_key_count_sql(quality, matrix_ready), &params)
             .await
             .map_err(internal_error)?
             .get::<_, i64>(0);
@@ -1881,12 +1963,35 @@ mod tests {
         assert!(!collapsed.contains("__INNER__"));
         assert!(collapsed.contains("#>> '{}'"));
         let country_sql = event_country_select();
+        assert!(country_sql.contains("loc_hist.country"));
         assert!(country_sql.contains("de.province"));
         assert!(country_sql.contains("de.city"));
+        assert!(!country_sql.contains("ORDER BY CASE"));
+        assert!(!event_sql.contains("ORDER BY CASE"));
         let places = place_or_null_sql("de.province");
         assert!(places.contains("harian"));
         assert!(event_where_sql(Quality::Surveillance, false).contains("is_health_related = TRUE"));
         assert!(!event_where_sql(Quality::Surveillance, false).contains("crawl_matrix_rows mx"));
+    }
+
+    #[test]
+    fn event_list_filter_avoids_per_row_locations_lookup() {
+        let where_sql = event_where_sql(Quality::Surveillance, false);
+        assert!(
+            !where_sql.contains("ORDER BY CASE"),
+            "ASEAN filter must not correlated-scan locations per disease_events row"
+        );
+        assert!(where_sql.contains("loc_hist.country"));
+        assert!(where_sql.contains("de.location_name"));
+        let keys = event_key_page_sql(Quality::Surveillance, false);
+        assert!(keys.contains("GROUP BY 1"));
+        assert!(keys.contains("LIMIT $11"));
+        assert!(!keys.contains("original_text"));
+        assert!(!keys.contains("epidemiological_evidence"));
+        assert!(keys.contains("loc_hist"));
+        let count_sql = event_key_count_sql(Quality::Surveillance, false);
+        assert!(count_sql.contains("COUNT(*)"));
+        assert!(!count_sql.contains("ORDER BY CASE"));
     }
 
     #[test]

@@ -197,7 +197,7 @@ class InteractiveExtractTimeoutTests(unittest.IsolatedAsyncioTestCase):
         direct.assert_called()
         self.assertIn("dengue", data["content"].lower())
 
-    def test_interactive_timeout_is_capped_at_twenty_seconds(self):
+    def test_interactive_timeout_is_capped_at_forty_five_seconds(self):
         from app.collectors.web_scraper import WebScraperCollector
 
         collector = WebScraperCollector({
@@ -205,7 +205,7 @@ class InteractiveExtractTimeoutTests(unittest.IsolatedAsyncioTestCase):
             "name": "URL Analyzer",
             "config": {"timeout_ms": 120_000},
         })
-        self.assertEqual(collector._interactive_timeout_seconds(), 20)
+        self.assertEqual(collector._interactive_timeout_seconds(), 45)
 
 
 if __name__ == "__main__":
