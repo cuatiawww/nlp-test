@@ -197,12 +197,12 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   }
 
   const cards = [
-    { label: 'Manual jobs', value: summary?.jobs ?? 0 },
-    { label: 'Matrix rows', value: summary?.matrix_rows ?? 0 },
-    { label: 'Continuous', value: summary?.by_channel?.continuous ?? 0 },
-    { label: 'Analyze URL', value: summary?.by_channel?.analyze_url ?? 0 },
-    { label: 'Mapped / with geo', value: `${fmtNum(summary?.mapped)} / ${fmtNum(summary?.with_geo)}` },
-    { label: 'Needs review', value: summary?.needs_review ?? 0 },
+    { label: 'Manual jobs', value: summary ? fmtNum(summary.jobs) : '—' },
+    { label: 'Matrix rows', value: summary ? fmtNum(summary.matrix_rows) : '—' },
+    { label: 'Continuous', value: summary ? fmtNum(summary.by_channel?.continuous) : '—' },
+    { label: 'Analyze URL', value: summary ? fmtNum(summary.by_channel?.analyze_url) : '—' },
+    { label: 'Mapped / with geo', value: summary ? `${fmtNum(summary.mapped)} / ${fmtNum(summary.with_geo)}` : '—' },
+    { label: 'Needs review', value: summary ? fmtNum(summary.needs_review) : '—' },
   ]
 
   return (
@@ -211,7 +211,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
         {cards.map((card) => (
           <div key={card.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{card.label}</div>
-            <div className="mt-1 text-lg font-bold text-slate-900">{typeof card.value === 'number' ? fmtNum(card.value) : card.value}</div>
+            <div className="mt-1 text-lg font-bold text-slate-900">{card.value}</div>
           </div>
         ))}
       </div>
