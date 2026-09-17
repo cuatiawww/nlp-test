@@ -76,6 +76,8 @@
       "sources": "Sumber Data",
       "events": "Events",
       "analyze": "Analisis URL",
+      "manualCrawler": "Manual Crawler",
+      "crawlHistory": "Riwayat Crawl",
       "processing": "Processing",
       "locations": "Locations",
       "diseaseMaster": "Disease Master",
@@ -619,6 +621,21 @@
         "published_at": "Diekstrak dari metadata artikel web (meta tag og:published_time, JSON-LD, URL path, atau dateline artikel)",
         "is_health_related": "Diklasifikasikan oleh model AI XLM-RoBERTa apakah artikel terkait pemantauan penyakit/kesehatan"
       }
+    },
+    "crawlHistory": {
+      "title": "Crawl History / Matriks Hasil Crawl",
+      "subtitle": "Telusuri seluruh hasil crawl Phase 2 yang sudah tersimpan di database — baris matriks job manual plus hasil continuous dan analyze-url yang tidak berasal dari job tersebut. Filter kosong menampilkan tabel kosong; tidak ada baris dummy.",
+      "matrixTab": "Matriks hasil",
+      "jobsTab": "Riwayat job",
+      "openManual": "Buka Manual Crawler",
+      "searchPlaceholder": "Cari judul, URL, sumber, penyakit...",
+      "allCountries": "Semua negara",
+      "diseasePlaceholder": "Nama penyakit",
+      "allStatuses": "Semua status",
+      "allGeo": "Geo: semua",
+      "emptyRows": "Tidak ada hasil crawl tersimpan yang cocok dengan filter ini.",
+      "emptyJobs": "Belum ada job manual crawl yang tersimpan.",
+      "detailTitle": "Hasil crawl tersimpan"
     },
     "processing": {
       "title": "Processing Monitor",

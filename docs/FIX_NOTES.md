@@ -328,3 +328,12 @@ GET /nlp/api/v1/crawl-ops
 
 Expect `asean_outlet_sources` to include catalog rows whose **config.country** is an ASEAN-11 member (not only the 27 enabled RSS feeds). `credibility_meaning` must say ≥0.7 is a catalog heuristic. WHO `who.int` rows should leave the frozen 0.65 Google/web bucket after recompute (`domain_boost`).
 
+## Crawl History / Matriks Hasil Crawl
+
+Dedicated authenticated module at `/nlp/crawl-history` (permission `crawl_history`, granted to the same roles as `manual_crawler`). It is a Phase 1-style history + Manual Crawler matrix over **stored** Phase 2 rows only:
+
+- `crawl_matrix_rows` ⨝ `crawl_matrix_jobs` ⨝ `raw_reports` (and `disease_events` when present)
+- continuous / analyze-url `disease_events` whose `raw_report_id` is **not** from a manual job
+
+Live counts come from `GET /api/v1/crawl-history/summary`. Do not invent Phase 1 totals. Details: `docs/CRAWL_HISTORY.md`.
+

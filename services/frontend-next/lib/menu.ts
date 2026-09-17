@@ -1,4 +1,4 @@
-﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, FileSpreadsheet, Settings } from 'lucide-react'
+﻿import { Home, Radio, Database, Activity, Search, MapPin, AlertTriangle, Users, Tags, BookText, ShieldCheck, Languages, Braces, Cpu, FileText, FileSpreadsheet, Settings, History } from 'lucide-react'
 
 import { Stethoscope, Globe2 } from 'lucide-react'
 
@@ -31,6 +31,7 @@ export const sidebarMenu: SidebarGroup[] = [
       { label: 'Events', labelKey: 'sidebar.items.events', icon: Database, href: '/events' },
       { label: 'URL Analysis', labelKey: 'sidebar.items.analyze', icon: Search, href: '/analyze' },
       { label: 'Manual Crawler', labelKey: 'sidebar.items.manualCrawler', icon: FileText, href: '/manual-crawler' },
+      { label: 'Crawl History', labelKey: 'sidebar.items.crawlHistory', icon: History, href: '/crawl-history' },
       { label: 'Processing', labelKey: 'sidebar.items.processing', icon: Activity, href: '/processing' },
       { label: 'Reports', labelKey: 'sidebar.items.reports', icon: FileText, href: '/reports' },
       { label: 'Matrix & ledger', labelKey: 'sidebar.items.eventMatrix', icon: FileSpreadsheet, href: '/reports/matrix' },
