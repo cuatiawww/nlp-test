@@ -143,6 +143,7 @@ export default function TvPage() {
       <div className="absolute inset-0 z-0 isolate overflow-hidden">
         <AseanMap
           fullBleed
+          interactive={!drawer}
           baseMap={baseMap}
           showAdmin={mapMode === 'map' && admin}
           showMarkers={mapMode === 'map' && markers}

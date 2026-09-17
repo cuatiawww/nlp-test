@@ -124,27 +124,30 @@ export default function SpatialOutbreakMap({
 
   return (
     <div className="relative isolate z-0 h-full w-full overflow-hidden rounded-xl">
-      <AseanMap
-        embedded
-        baseMap={base}
-        showMarkers={markers}
-        showAdmin={admin}
-        countryData={choropleth ? countries : undefined}
-        outbreakLocations={locations}
-        markerLookbackDays={markerLookbackDays}
-        bnpbLayers={bnpb}
-        showWind={wind}
-        highlightCountry={highlightCountry}
-        hazardEvents={hazardEvents.filter((item) => {
-          const source = (item.source || "").toLowerCase();
-          if (source === "usgs") return usgs;
-          if (source === "gdacs") return gdacs;
-          return usgs || gdacs;
-        })}
-        showHazards={usgs || gdacs}
-        gibsLayers={gibs}
-        intelLayers={intel}
-      />
+      <div className={settings ? "pointer-events-none h-full w-full" : "h-full w-full"}>
+        <AseanMap
+          embedded
+          interactive={!settings}
+          baseMap={base}
+          showMarkers={markers}
+          showAdmin={admin}
+          countryData={choropleth ? countries : undefined}
+          outbreakLocations={locations}
+          markerLookbackDays={markerLookbackDays}
+          bnpbLayers={bnpb}
+          showWind={wind}
+          highlightCountry={highlightCountry}
+          hazardEvents={hazardEvents.filter((item) => {
+            const source = (item.source || "").toLowerCase();
+            if (source === "usgs") return usgs;
+            if (source === "gdacs") return gdacs;
+            return usgs || gdacs;
+          })}
+          showHazards={usgs || gdacs}
+          gibsLayers={gibs}
+          intelLayers={intel}
+        />
+      </div>
       <div className="absolute right-4 top-4 z-50 flex items-center gap-2 pointer-events-auto">
         <button
           onClick={() => setSettings(true)}
@@ -158,7 +161,7 @@ export default function SpatialOutbreakMap({
       </div>
 
       {windLegend && wind && (
-        <div className="absolute bottom-4 left-4 z-10 max-w-[320px] space-y-3 rounded-2xl border border-blue-200/90 bg-white/95 p-3.5 shadow-[0_8px_30px_rgba(0,96,169,.12)] backdrop-blur-md">
+        <div className="absolute bottom-4 left-4 z-10 max-w-[320px] space-y-3 rounded-2xl border border-blue-200/90 bg-white/95 p-3.5 shadow-[0_8px_30px_rgba(0,96,169,.12)] backdrop-blur-md pointer-events-auto">
           <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
             <div className="flex items-center gap-1.5">
               <Wind className="h-3.5 w-3.5 text-[#0060A9]" />
@@ -193,10 +196,10 @@ export default function SpatialOutbreakMap({
           <button
             type="button"
             onClick={() => setSettings(false)}
-            className="absolute inset-0 z-40 bg-black/10"
+            className="absolute inset-0 z-40 bg-black/10 pointer-events-auto"
             aria-label={t("common.close")}
           />
-          <aside className="absolute right-0 top-0 z-50 flex h-full w-72 flex-col border-l border-slate-200 bg-white/95 shadow-[-8px_0_40px_rgba(0,0,0,.08)] backdrop-blur-md">
+          <aside className="absolute right-0 top-0 z-50 flex h-full w-72 flex-col border-l border-slate-200 bg-white/95 shadow-[-8px_0_40px_rgba(0,0,0,.08)] backdrop-blur-md pointer-events-auto">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div className="flex items-center gap-2">
                 <Settings className="h-4 w-4 text-[#0060A9]" />

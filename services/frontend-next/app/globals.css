@@ -4,10 +4,14 @@
 
 /* OpenLayers canvases use the layer zIndex as a CSS z-index. Without a
    stacking context they can paint above page chrome and steal clicks.
-   Keep the viewport clipped to the map box so a canvas cannot cover the header. */
+   Keep the viewport clipped to the map box so a canvas cannot cover the header.
+   Map pointer events are bound to .ol-viewport, not the canvases — disabling
+   canvas hit-testing lets header/sidebar/settings keep receiving clicks after
+   a high-zIndex intel layer (e.g. Aedes / iNaturalist) becomes visible. */
 .ol-viewport {
   position: relative !important;
   overflow: hidden !important;
+  contain: layout paint;
   max-width: 100% !important;
   max-height: 100% !important;
 }
@@ -17,6 +21,11 @@
 .ol-overlaycontainer-stopevent {
   max-width: 100% !important;
   max-height: 100% !important;
+}
+.ol-viewport canvas,
+.ol-layer,
+.ol-layer canvas {
+  pointer-events: none !important;
 }
 .ol-viewport canvas {
   position: absolute !important;

@@ -31,10 +31,14 @@ test('OpenLayers map is isolated so canvases cannot cover chrome', () => {
   assert.match(map, /relative isolate z-0/)
   assert.doesNotMatch(map, /min-h-screen/)
   assert.match(map, /absolute inset-0 h-full w-full/)
+  assert.match(map, /interactive\?: boolean/)
+  assert.match(map, /interaction\.setActive\(interactive\)/)
+  assert.match(map, /visible: false,\s*zIndex: 22/)
 
   const css = read('app/globals.css')
   assert.match(css, /\.ol-viewport/)
   assert.match(css, /overflow: hidden !important/)
+  assert.match(css, /pointer-events: none !important/)
 })
 
 test('map settings backdrop is gated and Esc closes it', () => {
@@ -43,6 +47,9 @@ test('map settings backdrop is gated and Esc closes it', () => {
   assert.match(spatial, /absolute inset-0 z-40 bg-black\/10/)
   assert.match(spatial, /e\.key === ["']Escape["']/)
   assert.match(spatial, /z-50 flex items-center gap-2 pointer-events-auto/)
+  assert.match(spatial, /interactive=\{\!settings\}/)
+  assert.match(spatial, /settings \? "pointer-events-none h-full w-full"/)
+  assert.match(spatial, /backdrop-blur-md pointer-events-auto/)
 })
 
 test('TV map is isolated; layer drawer has backdrop and Esc', () => {
@@ -52,4 +59,5 @@ test('TV map is isolated; layer drawer has backdrop and Esc', () => {
   assert.match(tv, /drawer && \(/)
   assert.match(tv, /fixed inset-0 z-40 bg-slate-900\/25/)
   assert.match(tv, /if \(e\.key === ['"]Escape['"]\) setDrawer\(false\)/)
+  assert.match(tv, /interactive=\{\!drawer\}/)
 })

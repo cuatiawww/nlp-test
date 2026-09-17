@@ -89,6 +89,8 @@ type Props = {
   showHazards?: boolean;
   gibsLayers?: NasaGibsLayers;
   intelLayers?: ExternalIntelLayers;
+  /** When false, pan/zoom and viewport hit-testing are off so overlays stay clickable. */
+  interactive?: boolean;
 };
 
 type RegionMetric = {
@@ -174,6 +176,7 @@ export default function AseanMap({
   intelLayers,
   hazardEvents,
   showHazards = true,
+  interactive = true,
 }: Props) {
   const { t, locale, translateDisease } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
@@ -397,6 +400,7 @@ export default function AseanMap({
     // ── External Intel Vector Layers ─────────────────────────
     const vectorSightingsLayer = new VectorLayer({
       source: new VectorSource(),
+      visible: false,
       zIndex: 22,
       style: () =>
         new Style({
@@ -411,6 +415,7 @@ export default function AseanMap({
 
     const flightsLayer = new VectorLayer({
       source: new VectorSource(),
+      visible: false,
       zIndex: 23,
       style: () =>
         new Style({
@@ -425,6 +430,7 @@ export default function AseanMap({
 
     const firesLayer = new VectorLayer({
       source: new VectorSource(),
+      visible: false,
       zIndex: 24,
       style: () =>
         new Style({
@@ -439,6 +445,7 @@ export default function AseanMap({
 
     const facilitiesLayer = new VectorLayer({
       source: new VectorSource(),
+      visible: false,
       zIndex: 22,
       style: () =>
         new Style({
@@ -723,6 +730,14 @@ export default function AseanMap({
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.getInteractions().forEach((interaction) => interaction.setActive(interactive));
+    const viewport = map.getViewport();
+    if (viewport) viewport.style.pointerEvents = interactive ? "auto" : "none";
+  }, [interactive]);
 
   useEffect(() => {
     const map = mapRef.current;
