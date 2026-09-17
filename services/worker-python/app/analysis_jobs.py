@@ -162,10 +162,15 @@ def analyze_stages(
                 "warnings": warnings,
             }
     warnings.extend(analysis.pop("stage_warnings", []))
-    result = {**extracted, **analysis, "url": url}
+    result = {**extracted, **analysis, "url": url, "cached": False}
     if warnings:
         result["needs_review"] = True
-    return {"status": "partial" if warnings else "completed", "result": result, "warnings": warnings}
+    return {
+        "status": "partial" if warnings else "completed",
+        "result": result,
+        "warnings": warnings,
+        "cached": False,
+    }
 
 def connect():
     import psycopg

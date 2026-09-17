@@ -5,6 +5,28 @@ export function isWeakNlpResult(job = {}) {
   );
 }
 
+const CACHED_SOURCE_RE = /retrieved from database|database cache|diambil dari database/i;
+
+export function isCachedAnalyzeResult(result = {}) {
+  if (result == null || result.cached === false) return false;
+  if (result.cached === true) return true;
+  const source = String(result.source || '').toLowerCase();
+  if (source === 'database' || source.includes('database')) return true;
+  const warnings = result.analysis_warnings || result.warnings || [];
+  if (warnings.some((warning) => CACHED_SOURCE_RE.test(String(warning || '')))) return true;
+  const sources = result.sources && typeof result.sources === 'object' ? Object.values(result.sources) : [];
+  return sources.some((value) => CACHED_SOURCE_RE.test(String(value || '')));
+}
+
+function stampCached(result, job = null) {
+  if (result == null || typeof result !== 'object') return result;
+  const cached = job && job.cached != null
+    ? Boolean(job.cached)
+    : (result.cached != null ? Boolean(result.cached) : isCachedAnalyzeResult(result));
+  if (result.cached === cached) return result;
+  return { ...result, cached };
+}
+
 export class AnalysisJobError extends Error {
   constructor(message, {result, job_id, warnings} = {}) {
     super(message);
@@ -22,7 +44,12 @@ export async function waitForAnalysis(initial, poll, {
   onProgress,
   requireFullNlp = true,
 } = {}) {
- if (!initial?.job_id) return initial;
+ if (!initial?.job_id) {
+  if (initial && initial.cached == null && isCachedAnalyzeResult(initial)) {
+    return { ...initial, cached: true };
+  }
+  return initial;
+ }
  const deadline = Date.now() + timeout;
  while (Date.now() < deadline) {
   if (signal?.aborted) throw new Error('Analysis polling cancelled');
@@ -52,7 +79,8 @@ export async function waitForAnalysis(initial, poll, {
        {result: job.result, job_id: initial.job_id, warnings: job.warnings || []},
      );
    }
-   return {...job.result, analysis_status:job.status, analysis_warnings:job.warnings || [], job_id: initial.job_id};
+   const merged = {...job.result, analysis_status:job.status, analysis_warnings:job.warnings || [], job_id: initial.job_id};
+   return stampCached(merged, job);
   }
   await new Promise(resolve => setTimeout(resolve, interval));
  }

@@ -8,11 +8,13 @@ import Modal from '@/components/Modal'
 import AseanMap from '@/components/AseanMap'
 import type { AnalyzeResponse } from '@/types'
 import { collapseAnalyzeResult } from '@/lib/multiFactDisplay.mjs'
+import { isCachedAnalyzeResult } from '@/lib/analysis-job.mjs'
 import { toast } from 'sonner'
 import {
   Search, Globe, MapPin, Bug, Activity, Heart, MessageSquare,
   Shield, Languages, Users, Skull, TrendingUp,
-  FileText, ExternalLink, Layers, CheckCircle, Loader2, Calendar
+  FileText, ExternalLink, Layers, CheckCircle, Loader2, Calendar,
+  Database, RefreshCw
 } from 'lucide-react'
 
 // Disease labels can arrive from old records, keyword aliases, and WHO
@@ -121,6 +123,8 @@ export default function AnalyzePage() {
     return <span className="text-xs text-slate-400">-</span>
   }
 
+  const fromCache = Boolean(result && isCachedAnalyzeResult(result))
+
   async function handleSubmit(value = url.trim(), forceRefresh = false) {
     if (!value) {
       toast.error(t('pages.analyze.urlRequired'))
@@ -143,7 +147,9 @@ export default function AnalyzePage() {
         return
       }
       setResult(data)
-      toast.success(t('pages.analyze.done'))
+      toast.success(
+        isCachedAnalyzeResult(data) ? t('pages.analyze.cachedToast') : t('pages.analyze.freshToast'),
+      )
     } catch (e: any) {
       const msg = e?.message || t('pages.analyze.failed')
       setError(msg)
@@ -237,7 +243,44 @@ export default function AnalyzePage() {
       )}
       {result && (
         <div className="mt-8 space-y-6">
-          <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-700">{t('dashboard.eventModal.title')}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-700">{t('dashboard.eventModal.title')}</h2>
+            {fromCache ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
+                <Database className="h-3 w-3" />
+                {t('pages.analyze.cachedBadge')}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
+                <CheckCircle className="h-3 w-3" />
+                {t('pages.analyze.freshBadge')}
+              </span>
+            )}
+          </div>
+
+          {fromCache && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4 shrink-0 text-amber-700" />
+                    <p className="text-sm font-bold text-amber-900">{t('pages.analyze.cachedBannerTitle')}</p>
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-800">{t('pages.analyze.cachedBannerBody')}</p>
+                  <p className="mt-1 text-[11px] text-amber-700">{t('pages.analyze.reanalyzeNowHint')}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSubmit(url.trim(), true)}
+                  disabled={loading}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#004b85] disabled:opacity-50"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  {t('pages.analyze.reanalyzeNow')}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start gap-3">

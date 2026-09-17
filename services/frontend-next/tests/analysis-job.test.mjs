@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {waitForAnalysis, AnalysisJobError, isWeakNlpResult} from '../lib/analysis-job.mjs';
+import {waitForAnalysis, AnalysisJobError, isWeakNlpResult, isCachedAnalyzeResult} from '../lib/analysis-job.mjs';
 test('legacy response is returned unchanged', async () => {
  const legacy = {case_count: 10};
  assert.equal(await waitForAnalysis(legacy, () => { throw Error('unexpected poll'); }), legacy);
@@ -59,4 +59,51 @@ test('transient polling timeout is retried', async () => {
 });
 test('polling has a finite deadline', async () => {
  await assert.rejects(waitForAnalysis({job_id:'abc'},async()=>({status:'processing'}),{interval:0,timeout:0}),/timed out while still queued.*abc/);
+});
+test('isCachedAnalyzeResult detects cached flag and database source messages', () => {
+ assert.equal(isCachedAnalyzeResult({cached:true}), true);
+ assert.equal(isCachedAnalyzeResult({cached:false,sources:{title:'Data retrieved from database'}}), false);
+ assert.equal(isCachedAnalyzeResult({source:'database'}), true);
+ assert.equal(isCachedAnalyzeResult({source:'database-content-identity'}), true);
+ assert.equal(isCachedAnalyzeResult({analysis_warnings:['Data retrieved from database']}), true);
+ assert.equal(isCachedAnalyzeResult({sources:{title:'Data retrieved from database (previous analysis result)'}}), true);
+ assert.equal(isCachedAnalyzeResult({sources:{title:'Data diambil dari database'}}), true);
+ assert.equal(isCachedAnalyzeResult({sources:{title:'Classified by XLM-RoBERTa'}}), false);
+ assert.equal(isCachedAnalyzeResult({}), false);
+});
+test('completed cache hit stamps cached true from job and result', async () => {
+ const result = await waitForAnalysis(
+  {job_id:'abc',status:'queued'},
+  async () => ({
+   status:'completed',
+   cached:true,
+   result:{case_count:10,sources:{title:'Data retrieved from database'}},
+   warnings:['Equivalent content retrieved from database cache'],
+  }),
+  {interval:0},
+ );
+ assert.equal(result.cached, true);
+ assert.equal(result.case_count, 10);
+});
+test('completed full NLP stamps cached false', async () => {
+ const result = await waitForAnalysis(
+  {job_id:'abc',status:'queued'},
+  async () => ({status:'completed',result:{case_count:10,sources:{title:'Extracted by Scrapling'}}}),
+  {interval:0},
+ );
+ assert.equal(result.cached, false);
+});
+test('synchronous database payload is stamped cached without polling', async () => {
+ const payload = {case_count:3,sources:{title:'Data retrieved from database (previous analysis result)'}};
+ const result = await waitForAnalysis(payload, () => { throw Error('unexpected poll'); });
+ assert.equal(result.cached, true);
+ assert.equal(result.case_count, 3);
+});
+test('explicit cached false wins over database-looking source text', async () => {
+ const result = await waitForAnalysis(
+  {job_id:'abc'},
+  async () => ({status:'completed',cached:false,result:{sources:{title:'Data retrieved from database'}}}),
+  {interval:0},
+ );
+ assert.equal(result.cached, false);
 });

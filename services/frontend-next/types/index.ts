@@ -324,6 +324,7 @@ export type AnalyzeResponse = {
   deaths_display?: string | null;
   display_dimension?: string | null;
   sources: Record<string, string>;
+  cached?: boolean;
 };
 
 export type InteroperabilityIntegration = {
