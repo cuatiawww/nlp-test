@@ -92,11 +92,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # Keep ASEAN countries; do not promote "United States" into province.
         if extractors.extract_country_hint(text[:1500]) is None:
             location_country = extractors.country_scope(location_country)
-    mentioned_countries = [
-        country for country in config.ASEAN_COUNTRIES
-        if re.search(rf"\b{re.escape(country)}\b", text[:2000], re.I)
-    ]
-    restrict_country = location_country if len(mentioned_countries) <= 1 and location_country in config.ASEAN_COUNTRIES else None
+    mentioned_countries = extractors.extract_all_mentioned_countries(text)
+    if mentioned_countries:
+        allowed_countries = set(mentioned_countries)
+    elif location_country and location_country in config.ASEAN_COUNTRIES:
+        allowed_countries = {location_country}
+    else:
+        allowed_countries = None
+
     disease = "UNKNOWN"
     confidence = 0.40
     sentiment = "neutral"
@@ -106,13 +109,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     relevance = "medium"
     relevance_confidence = 0.0
 
-    location = facts.get("location") or extractors.extract_location(text, country=restrict_country)
-    all_locations = facts.get("locations") or extractors.extract_all_locations(text, country=restrict_country)
+    location = facts.get("location") or extractors.extract_location(text, allowed_countries=allowed_countries)
+    all_locations = facts.get("locations") or extractors.extract_all_locations(text, allowed_countries=allowed_countries)
     original_location = location
     if not location and translated_text:
-        location = extractors.extract_location(translated_text, country=restrict_country)
+        location = extractors.extract_location(translated_text, allowed_countries=allowed_countries)
         if not all_locations:
-            all_locations = extractors.extract_all_locations(translated_text, country=restrict_country)
+            all_locations = extractors.extract_all_locations(translated_text, allowed_countries=allowed_countries)
     is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text)))
     if not location and not is_noisy_early and not payload.historical_fast and not payload.interactive and not non_health_topic:
         try:

@@ -12,7 +12,7 @@ def strip_diacritics(s: str) -> str:
     return "".join(c for c in normalized if not unicodedata.combining(c))
 
 from collections import Counter
-from typing import Optional
+from typing import Optional, Any
 from . import config
 
 
@@ -569,6 +569,99 @@ def extract_country_hint(text: str) -> Optional[str]:
     return max(country_scores.keys(), key=lambda k: country_scores[k])
 
 
+def extract_all_mentioned_countries(text: str) -> list[str]:
+    """Extract all distinct ASEAN countries explicitly mentioned in text with positive evidence."""
+    lower_text = (text or "").lower()
+    if not lower_text.strip():
+        return []
+    contextual = re.compile(
+        r"(?:including|includes|compared with|compared to|higher than|lower than|"
+        r"both|between|across|regional partners|countries in|in contrast to|"
+        r"neighbouring|neighboring|unlike|versus|vs\.?|rather than|than that of)",
+        re.IGNORECASE,
+    )
+    country_scores: dict[str, float] = {}
+    for alias, standard_country in COUNTRY_ALIASES.items():
+        if standard_country not in config.ASEAN_COUNTRIES:
+            continue
+        pattern = re.compile(rf"\b{re.escape(alias)}\b", re.IGNORECASE)
+        matches = list(pattern.finditer(lower_text))
+        if not matches:
+            continue
+        score = float(len(matches) * 3)
+        if any(m.start() < 300 for m in matches):
+            score += 10.0
+        for m in matches:
+            pos = m.start()
+            if contextual.search(lower_text[max(0, pos - 80):pos]):
+                score -= 12.0
+        country_scores[standard_country] = country_scores.get(standard_country, 0.0) + score
+
+    valid = [c for c, sc in country_scores.items() if sc > 0]
+    return sorted(valid, key=lambda c: country_scores[c], reverse=True)
+
+
+def resolve_location_hierarchy(
+    name: str,
+    text: str,
+    source_country: Optional[str] = None,
+    mentioned_countries: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Score and resolve a location candidate against article context to eliminate location leakage.
+    
+    Scores:
+      3: Highest confidence (Location is an ASEAN country mentioned in text, or city with nearby parent country)
+      2: High confidence (City mentioned and its country is among explicitly mentioned countries in article)
+      1: Medium confidence (No country mentioned in article, validated via source_country or prominent city context)
+      0: Rejected / Leakage (City belongs to a country not mentioned in article, or prose stopword)
+    """
+    raw_name = (name or "").strip()
+    if not raw_name:
+        return {"name": "", "country": None, "score": 0, "is_valid": False}
+    
+    for c in config.ASEAN_COUNTRIES:
+        if raw_name.casefold() == c.casefold():
+            return {"name": c, "country": c, "score": 3, "is_valid": True}
+            
+    city_country = config.LOCATION_COUNTRIES.get(raw_name)
+    if not city_country or city_country not in config.ASEAN_COUNTRIES:
+        return {"name": raw_name, "country": city_country, "score": 0, "is_valid": False}
+    
+    lower_text = text.lower()
+    name_lower = raw_name.lower()
+    
+    # 1. Proximity Check (Score 3): City and its country mentioned in the same sentence or within 120 chars
+    country_lower = city_country.lower()
+    country_aliases = [alias for alias, std in COUNTRY_ALIASES.items() if std == city_country]
+    country_patterns = [country_lower] + [a.lower() for a in country_aliases]
+    
+    for match in re.finditer(rf"\b{re.escape(name_lower)}\b", lower_text):
+        start = max(0, match.start() - 120)
+        end = min(len(lower_text), match.end() + 120)
+        window = lower_text[start:end]
+        if any(re.search(rf"\b{re.escape(cp)}\b", window) for cp in country_patterns):
+            return {"name": raw_name, "country": city_country, "score": 3, "is_valid": True}
+            
+    # 2. Dominant / Mentioned Country Check (Score 2): City mentioned and country is in mentioned_countries
+    if mentioned_countries and city_country in mentioned_countries:
+        return {"name": raw_name, "country": city_country, "score": 2, "is_valid": True}
+        
+    # 3. Source Context / Standalone Unambiguous City (Score 1):
+    norm_source = normalize_country(source_country)
+    if not mentioned_countries:
+        if norm_source and norm_source == city_country:
+            return {"name": raw_name, "country": city_country, "score": 1, "is_valid": True}
+        # Prominent city with health or case indicator
+        for match in re.finditer(rf"\b{re.escape(name_lower)}\b", lower_text):
+            start = max(0, match.start() - 100)
+            end = min(len(lower_text), match.end() + 100)
+            window = lower_text[start:end]
+            if re.search(r"\b(?:\d+[\d.,]*\s+kasus|\d+[\d.,]*\s+cases?|dinas\s+kesehatan|kemenkes|hospital|rsud|puskesmas|dinas)\b", window):
+                return {"name": raw_name, "country": city_country, "score": 1, "is_valid": True}
+                
+    return {"name": raw_name, "country": city_country, "score": 0, "is_valid": False}
+
+
 def country_scope(country: Optional[str]) -> Optional[str]:
     """Return the display/filter country without relabeling known ASEAN data.
 
@@ -699,20 +792,27 @@ def canonical_disease_name(disease: str, concepts: Optional[list[dict]] = None) 
     matched = canonicalize_who_disease_labels([normalized], active_concepts)
     return matched[0] if matched else normalized
 
-def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
+def extract_location(
+    text: str,
+    country: Optional[str] = None,
+    allowed_countries: Optional[set[str] | list[str]] = None,
+) -> Optional[str]:
     text = repair_mojibake(text or "")
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
     hits: list[tuple[str, int]] = []
-    country_folded = _fold_location_text(country) if country else ""
+    allowed_set = {
+        _fold_location_text(c)
+        for c in (allowed_countries or ([country] if country else []))
+        if c
+    }
     allowed_names = {
         name for name in config.LOCATION_COORDS
-        if not country_folded
-        or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) == country_folded
+        if not allowed_set
+        or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) in allowed_set
+        or _fold_location_text(name) in allowed_set
     }
-    if country and not allowed_names:
-        # A country hint is a restriction, not permission to select a similarly
-        # named place from another country (e.g. Sudan, Indonesia).
+    if (country or allowed_countries) and not allowed_names:
         return None
 
     # Resolve curated publisher abbreviations before matching the generic
@@ -820,19 +920,28 @@ def extract_location(text: str, country: Optional[str] = None) -> Optional[str]:
     )
 
 
-def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict]:
+def extract_all_locations(
+    text: str,
+    country: Optional[str] = None,
+    allowed_countries: Optional[set[str] | list[str]] = None,
+) -> list[dict]:
     """Extract all distinct valid locations mentioned in the text with coordinates."""
     text = repair_mojibake(text or "")
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
     hits: list[tuple[str, int]] = []
-    country_folded = _fold_location_text(country) if country else ""
+    allowed_set = {
+        _fold_location_text(c)
+        for c in (allowed_countries or ([country] if country else []))
+        if c
+    }
     allowed_names = {
         name for name in config.LOCATION_COORDS
-        if not country_folded
-        or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) == country_folded
+        if not allowed_set
+        or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) in allowed_set
+        or _fold_location_text(name) in allowed_set
     }
-    if country and not allowed_names:
+    if (country or allowed_countries) and not allowed_names:
         return []
 
     for alias, canonical in LOCATION_ALIASES.items():
@@ -872,7 +981,7 @@ def extract_all_locations(text: str, country: Optional[str] = None) -> list[dict
     if not hits:
         return []
 
-    primary = extract_location(text, country=country)
+    primary = extract_location(text, country=country, allowed_countries=allowed_countries)
     counts = Counter(loc for loc, _ in hits)
     distinct_names = sorted(
         counts.keys(),
@@ -1247,40 +1356,58 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         text,
     )
     disease = ranked[0] if ranked else None
-    country = extract_country_hint(text) or normalize_country(source_country)
-    if country and country not in config.ASEAN_COUNTRIES and country != config.OUTSIDE_ASEAN_COUNTRY:
-        scoped = country_scope(country)
-        if extract_country_hint(text):
-            country = extract_country_hint(text)
-        elif scoped == config.OUTSIDE_ASEAN_COUNTRY and not extract_country_hint(text):
-            # Do not invent a default ASEAN country for non-ASEAN prose.
-            pass
-    mentioned_asean = [
-        name for name in config.ASEAN_COUNTRIES
-        if re.search(rf"\b{re.escape(name)}\b", text[:2000] if text else "", re.I)
-    ]
-    restrict = country if len(mentioned_asean) <= 1 and country in config.ASEAN_COUNTRIES else None
-    location = extract_location(text, country=restrict)
-    if location and not is_usable_place_name(location, text):
-        location = None
+    country = extract_country_hint(text)
+    norm_source = normalize_country(source_country)
+    mentioned_asean = extract_all_mentioned_countries(text)
+
+    # Content context beats source metadata (Scenario 3)
+    if not country and norm_source in config.ASEAN_COUNTRIES and not mentioned_asean:
+        country = norm_source
+
+    if mentioned_asean:
+        allowed = set(mentioned_asean)
+    elif country and country in config.ASEAN_COUNTRIES:
+        allowed = {country}
+    else:
+        allowed = None
+
     all_locations = [
-        item for item in extract_all_locations(text, country=restrict)
+        item for item in extract_all_locations(text, allowed_countries=allowed)
         if is_usable_place_name(str(item.get("name") or ""), text)
     ]
-    asean_hits = [
-        item for item in all_locations
-        if item.get("country") in config.ASEAN_COUNTRIES or item.get("name") in config.ASEAN_COUNTRIES
-    ]
-    if asean_hits and (not country or country not in config.ASEAN_COUNTRIES):
-        location = asean_hits[0]["name"]
-        country = asean_hits[0].get("country") or country
-    if not location:
-        location = country if country in config.ASEAN_COUNTRIES else None
-    loc_country = config.LOCATION_COUNTRIES.get(location or "")
-    if loc_country and loc_country in config.ASEAN_COUNTRIES:
-        country = loc_country
-    if location and not is_usable_place_name(location, text):
-        location = country if country in config.ASEAN_COUNTRIES else None
+
+    # Validate with resolve_location_hierarchy to eliminate leakage
+    validated_locations = []
+    for item in all_locations:
+        loc_name = str(item.get("name") or "")
+        res = resolve_location_hierarchy(
+            loc_name, text, source_country=source_country, mentioned_countries=mentioned_asean
+        )
+        if res["is_valid"]:
+            if res.get("country"):
+                item["country"] = res["country"]
+            validated_locations.append(item)
+    all_locations = validated_locations
+
+    location = None
+    if all_locations:
+        location = all_locations[0]["name"]
+        country = all_locations[0].get("country") or country
+    elif country in config.ASEAN_COUNTRIES:
+        # Scenario 4: National report with cases/deaths directly attached to Country (no city mentioned)
+        location = country
+        lat, lon, conf, needs_rev = geocode_place(country, country, text)
+        all_locations = [{
+            "name": country,
+            "latitude": lat,
+            "longitude": lon,
+            "country": country,
+            "geocode_confidence": conf,
+            "geocode_needs_review": needs_rev,
+        }]
+
+    if not location and country in config.ASEAN_COUNTRIES:
+        location = country
     cases = extract_case_count(text, disease=disease)
     explicit = has_explicit_case_count(text, disease=disease)
     if article_states_zero_cases(text):

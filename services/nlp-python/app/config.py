@@ -334,6 +334,15 @@ def load_locations_from_db():
         if "Sangatta" not in LOCATION_COORDS:
             LOCATION_COORDS["Sangatta"] = (0.49, 117.55)
             LOCATION_COUNTRIES["Sangatta"] = "Indonesia"
+        # Prioritize major territories/states over minor duplicate names
+        LOCATION_COORDS["Penang"] = (5.4141, 100.3288)
+        LOCATION_COUNTRIES["Penang"] = "Malaysia"
+        LOCATION_COORDS["Pulau Pinang"] = (5.4141, 100.3288)
+        LOCATION_COUNTRIES["Pulau Pinang"] = "Malaysia"
+        LOCATION_COORDS["Gunungkidul"] = (-7.97, 110.60)
+        LOCATION_COUNTRIES["Gunungkidul"] = "Indonesia"
+        LOCATION_COORDS["Gunung Kidul"] = (-7.97, 110.60)
+        LOCATION_COUNTRIES["Gunung Kidul"] = "Indonesia"
 
         alternatives = sorted(
             (

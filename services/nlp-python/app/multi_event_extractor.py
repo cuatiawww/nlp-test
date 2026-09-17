@@ -87,6 +87,23 @@ _RE_LOCATION_DEATHS_PARENS = re.compile(
     re.UNICODE,
 )
 
+# Pattern family 4: "Lokasi tercatat/mencatat N kasus (dan N kematian)"
+_RE_LOC_VERB_CASES_ID = re.compile(
+    r"(?:(?:di|in|pada)\s+)?([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\s-]{1,30}?)\s+"
+    r"(?:tercatat|mencatat|melaporkan|ditemukan|ada|terdapat|mengonfirmasi|konfirmasi)\s+"
+    r"(?:sebanyak\s+)?(\d[\d.,]*)\s+kasus"
+    r"(?:(?:\s+dan|,)\s+(\d[\d.,]*)\s+(?:kematian|meninggal|korban\s+jiwa))?",
+    re.UNICODE | re.IGNORECASE,
+)
+
+_RE_LOC_VERB_CASES_EN = re.compile(
+    r"(?:(?:in|at)\s+)?([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\s-]{1,30}?)\s+"
+    r"(?:recorded|reports?|reported|confirmed|logged|found)\s+"
+    r"(?:a\s+total\s+of\s+)?(\d[\d.,]*)\s+cases?"
+    r"(?:(?:\s+and|,)\s+(\d[\d.,]*)\s+(?:deaths?|fatalities))?",
+    re.UNICODE | re.IGNORECASE,
+)
+
 
 def _parse_count_value(raw: str) -> int:
     """Parse a count string like '1,234' or '10.000' to int."""
@@ -104,10 +121,14 @@ def _parse_count_value(raw: str) -> int:
 
 
 def _clean_location_name(raw: str) -> str:
-    """Strip trailing conjunctions and whitespace from a captured location name."""
+    """Strip trailing & leading conjunctions and whitespace from a captured location name."""
     name = raw.strip()
     name = re.sub(
-        r"\s+(?:dan|and|serta|with|atau|or|pada|di|in|from|dari)$",
+        r"^(?:sementara(?:\s+itu)?|sedangkan|adapun|dan|and|meanwhile|while|serta|in|di|pada|dari|from|at)\s+",
+        "", name, flags=re.IGNORECASE,
+    )
+    name = re.sub(
+        r"\s+(?:has|have|had|dan|and|serta|with|atau|or|pada|di|in|from|dari)$",
         "", name, flags=re.IGNORECASE,
     )
     return name.strip(" ,;:.-()")
@@ -154,6 +175,8 @@ def _resolve_country(location: str) -> Optional[str]:
     for alias, standard in all_aliases.items():
         if _fold_location_text(alias) == folded:
             return standard
+    if location in config.ASEAN_COUNTRIES:
+        return location
     if location in config.LOCATION_COUNTRIES:
         return config.LOCATION_COUNTRIES[location]
     for loc_name, c in config.LOCATION_COUNTRIES.items():
@@ -206,6 +229,26 @@ def _regex_extract_location_cases(text: str) -> list[dict[str, Any]]:
                 }
             elif count > pairs[key]["cases"]:
                 pairs[key]["cases"] = count
+
+    for pattern in [_RE_LOC_VERB_CASES_ID, _RE_LOC_VERB_CASES_EN]:
+        for match in pattern.finditer(text):
+            raw_loc = _clean_location_name(match.group(1))
+            canonical = _validate_location(raw_loc)
+            if not canonical:
+                continue
+            count = _parse_count_value(match.group(2))
+            death_count = _parse_count_value(match.group(3)) if match.group(3) else 0
+            key = canonical.casefold()
+            if key not in pairs:
+                pairs[key] = {
+                    "location": canonical,
+                    "cases": count,
+                    "deaths": death_count,
+                    "evidence": match.group(0).strip(),
+                }
+            else:
+                pairs[key]["cases"] = max(pairs[key]["cases"], count)
+                pairs[key]["deaths"] = max(pairs[key]["deaths"], death_count)
 
     # Attach death counts
     for pattern in [_RE_DEATHS_LOCATION_ID, _RE_DEATHS_LOCATION_EN]:
