@@ -12,7 +12,8 @@ import {
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
-import { Edit3 } from 'lucide-react'
+import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
+import { Edit3, Eye, CheckCircle2, Clock } from 'lucide-react'
 import {
   downloadCrawlHistoryExport,
   fetchCrawlHistoryJobs,
@@ -186,8 +187,18 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
       return fmtBool(row.is_health_related)
     case 'outbreak_alert':
       return fmtBool(row.outbreak_alert)
-    case 'needs_review':
-      return fmtBool(row.needs_review)
+    case 'needs_review': {
+      const isRev = row.needs_review === false || row.status === 'reviewed';
+      return isRev ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+          <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Reviewed
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+          <Clock className="h-3 w-3 text-amber-600" /> Needs Review
+        </span>
+      );
+    }
     case 'disease_event_id':
       return (
         <span className="block max-w-[130px] truncate font-mono text-[10px]" title={row.disease_event_id || ''}>
@@ -263,6 +274,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const [exporting, setExporting] = useState(false)
   const [detail, setDetail] = useState<CrawlHistoryRow | null>(null)
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
+  const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -640,20 +652,34 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                             >
                               <button
                                 type="button"
-                                onClick={() => setCorrectionTarget({
+                                onClick={() => setReviewTarget({
+                                  id: row.id,
                                   eventId: row.disease_event_id,
-                                  rawReportId: row.id,
-                                  fieldName: 'case_count',
-                                  originalValue: String(row.cases ?? 0),
-                                  textSnippet: row.evidence || row.title || '',
-                                  articleTitle: row.title || row.url,
+                                  rawReportId: row.raw_report_id || row.id,
+                                  title: row.title || row.article_title,
+                                  url: row.url,
+                                  summary: (row as any).summary,
+                                  snippet: row.snippet,
+                                  evidence: row.evidence,
+                                  disease: row.disease,
+                                  country: row.country,
+                                  locationName: row.province_city_case || row.province || row.city || row.location_name,
+                                  cases: row.cases,
+                                  deaths: row.deaths,
                                   language: row.language,
+                                  crawlingDate: row.crawling_date,
+                                  articleDate: row.article_date || row.published_at,
+                                  eventType: row.event_type,
+                                  outbreakAlert: row.outbreak_alert,
+                                  sourceType: row.source_type,
+                                  sourceName: row.source_name,
+                                  needsReview: row.needs_review,
                                 })}
-                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition"
-                                title="Koreksi data ekstraksi ini (Continuous Learning)"
+                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 transition shadow-xs"
+                                title="Review article summary & facts"
                               >
-                                <Edit3 className="h-3 w-3 text-slate-500" />
-                                <span>Koreksi</span>
+                                <Eye className="h-3.5 w-3.5 text-blue-600" />
+                                <span>Review</span>
                               </button>
                             </td>
                           )
@@ -722,20 +748,34 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               </div>
               <button
                 type="button"
-                onClick={() => setCorrectionTarget({
+                onClick={() => setReviewTarget({
+                  id: detail.id,
                   eventId: detail.disease_event_id,
-                  rawReportId: detail.id,
-                  fieldName: 'case_count',
-                  originalValue: String(detail.cases ?? 0),
-                  textSnippet: detail.evidence || detail.title || '',
-                  articleTitle: detail.title || detail.url,
+                  rawReportId: detail.raw_report_id || detail.id,
+                  title: detail.title || detail.article_title,
+                  url: detail.url,
+                  summary: (detail as any).summary,
+                  snippet: detail.snippet,
+                  evidence: detail.evidence,
+                  disease: detail.disease,
+                  country: detail.country,
+                  locationName: detail.province_city_case || detail.province || detail.city || detail.location_name,
+                  cases: detail.cases,
+                  deaths: detail.deaths,
                   language: detail.language,
+                  crawlingDate: detail.crawling_date,
+                  articleDate: detail.article_date || detail.published_at,
+                  eventType: detail.event_type,
+                  outbreakAlert: detail.outbreak_alert,
+                  sourceType: detail.source_type,
+                  sourceName: detail.source_name,
+                  needsReview: detail.needs_review,
                 })}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-xs shrink-0"
-                title="Buka dialog koreksi NLP (Continuous Learning)"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-xs font-bold text-blue-800 hover:bg-blue-100 transition shadow-xs shrink-0"
+                title="Open article review and mark as read"
               >
-                <Edit3 className="h-3.5 w-3.5 text-emerald-600" />
-                <span>Koreksi Ekstraksi</span>
+                <Eye className="h-3.5 w-3.5 text-blue-600" />
+                <span>Review Article</span>
               </button>
             </div>
               {detail.url ? (
@@ -833,6 +873,25 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           void loadRows()
         }}
       />
+      <ArticleReviewModal
+        open={!!reviewTarget}
+        target={reviewTarget}
+        onClose={() => setReviewTarget(null)}
+        onReviewed={(idKey, isRev) => {
+          setRows((prev) =>
+            prev.map((r) => {
+              if (r.id === idKey || r.disease_event_id === idKey || r.raw_report_id === idKey) {
+                return { ...r, needs_review: !isRev, status: isRev ? 'reviewed' : r.status }
+              }
+              return r
+            })
+          )
+          if (detail && (detail.id === idKey || detail.disease_event_id === idKey || detail.raw_report_id === idKey)) {
+            setDetail({ ...detail, needs_review: !isRev, status: isRev ? 'reviewed' : detail.status })
+          }
+        }}
+      />
+
     </section>
   )
 }

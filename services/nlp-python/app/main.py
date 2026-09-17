@@ -288,6 +288,68 @@ def submit_nlp_correction(payload: NLPCorrectionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class MarkReviewedRequest(BaseModel):
+    event_id: Optional[str] = None
+    raw_report_id: Optional[str] = None
+    reviewed: bool = True
+    reviewed_by: Optional[str] = "operator"
+    notes: Optional[str] = None
+
+
+@app.post("/mark-reviewed")
+@app.post("/api/nlp/mark-reviewed")
+@app.post("/nlp/mark-reviewed")
+def mark_article_reviewed(payload: MarkReviewedRequest):
+    """Mark an article / disease event as reviewed or unreviewed."""
+    import psycopg
+    from . import config
+    try:
+        conn = psycopg.connect(config.DATABASE_URL)
+        cur = conn.cursor()
+        needs_review_val = not payload.reviewed
+        status_val = "reviewed" if payload.reviewed else "processed"
+        
+        updated_events = 0
+        updated_reports = 0
+
+        if payload.event_id:
+            cur.execute(
+                "UPDATE disease_events SET needs_review = %s WHERE id = %s",
+                (needs_review_val, payload.event_id)
+            )
+            updated_events += cur.rowcount
+
+        if payload.raw_report_id:
+            cur.execute(
+                "UPDATE disease_events SET needs_review = %s WHERE raw_report_id = %s",
+                (needs_review_val, payload.raw_report_id)
+            )
+            updated_events += cur.rowcount
+            cur.execute(
+                "UPDATE raw_reports SET processing_status = %s WHERE id = %s",
+                (status_val, payload.raw_report_id)
+            )
+            updated_reports += cur.rowcount
+
+        conn.commit()
+        conn.close()
+        logger.info(
+            "Marked article reviewed=%s for event_id=%s, raw_report_id=%s (events=%d, reports=%d)",
+            payload.reviewed, payload.event_id, payload.raw_report_id, updated_events, updated_reports
+        )
+        return {
+            "status": "ok",
+            "message": "Article review status updated successfully.",
+            "reviewed": payload.reviewed,
+            "needs_review": needs_review_val,
+            "event_id": payload.event_id,
+            "raw_report_id": payload.raw_report_id,
+        }
+    except Exception as e:
+        logger.error("Failed to update review status: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/export-dataset")
 @app.get("/api/nlp/export-dataset")
 def export_training_dataset(limit: int = 5000):

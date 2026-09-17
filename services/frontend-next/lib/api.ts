@@ -1056,7 +1056,7 @@ export async function submitNLPCorrection(
   payload: NLPCorrectionPayload
 ): Promise<{ status: string; message: string; correction_id?: string }> {
   const endpoint = typeof window !== 'undefined'
-    ? `${baseURL()}/api-nlp/correct`
+    ? `${baseURL()}/api/v1/nlp/correct`
     : 'http://disease-nlp-python:8000/correct';
 
   try {
@@ -1097,7 +1097,7 @@ export async function fetchNLPTrainingDataset(
   limit: number = 5000
 ): Promise<{ total_examples: number; human_corrected_count: number; data: any[] }> {
   const endpoint = typeof window !== 'undefined'
-    ? `${baseURL()}/api-nlp/export-dataset?limit=${limit}`
+    ? `${baseURL()}/api/v1/nlp/export-dataset?limit=${limit}`
     : `http://disease-nlp-python:8000/export-dataset?limit=${limit}`;
 
   try {
@@ -1118,5 +1118,59 @@ export async function fetchNLPTrainingDataset(
   if (!fallbackRes.ok) {
     throw new Error('Gagal mengekspor dataset dari NLP service');
   }
+  return await fallbackRes.json();
+}
+
+
+export interface MarkReviewedPayload {
+  eventId?: string | null;
+  rawReportId?: string | null;
+  reviewed?: boolean;
+  reviewedBy?: string;
+  notes?: string;
+}
+
+export async function markArticleReviewed(payload: MarkReviewedPayload) {
+  const body = {
+    event_id: payload.eventId || null,
+    raw_report_id: payload.rawReportId || null,
+    reviewed: payload.reviewed !== false,
+    reviewed_by: payload.reviewedBy || 'operator',
+    notes: payload.notes || null,
+  };
+
+  const endpoint = typeof window !== 'undefined'
+    ? `${baseURL()}/api/v1/nlp/mark-reviewed`
+    : `http://disease-nlp-python:8000/mark-reviewed`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  const fallbackEndpoint = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? `http://localhost:8000/mark-reviewed`
+    : `http://disease-nlp-python:8000/mark-reviewed`;
+
+  const fallbackRes = await fetch(fallbackEndpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!fallbackRes.ok) {
+    const errData = await fallbackRes.json().catch(() => ({}));
+    throw new Error(errData?.detail || errData?.error || 'Failed to update review status');
+  }
+
   return await fallbackRes.json();
 }

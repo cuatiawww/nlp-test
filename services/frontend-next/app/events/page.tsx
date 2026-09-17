@@ -5,11 +5,22 @@ import { usePaginatedFetch } from '@/hooks/usePaginatedFetch'
 import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
 import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
-import { Edit3 } from 'lucide-react'
+import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
+import { Edit3, Eye } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 
 function extractTitle(text: string) {
-  return text.split('\n')[0].slice(0, 80) || text.slice(0, 80)
+  if (!text) return ''
+  const clean = text
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return clean.split('\n')[0].slice(0, 80) || clean.slice(0, 80)
 }
 
 export default function EventsPage() {
@@ -18,6 +29,7 @@ export default function EventsPage() {
   const apiPath = healthFilter ? `/api/v1/events?is_health_related=${healthFilter}` : '/api/v1/events'
   const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<any[]>(apiPath)
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
+  const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
 
   function sentimentBadge(s?: string) {
     if (!s || s === 'neutral') return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{locale === 'en' ? 'Neutral' : 'Netral'}</span>
@@ -139,20 +151,29 @@ export default function EventsPage() {
                     <td className="whitespace-nowrap px-3 py-2 text-center">
                       <button
                         type="button"
-                        onClick={() => setCorrectionTarget({
+                        onClick={() => setReviewTarget({
                           eventId: e.id,
                           rawReportId: e.raw_report_id,
-                          fieldName: 'case_count',
-                          originalValue: String(e.case_count ?? 0),
-                          textSnippet: e.title || '',
-                          articleTitle: e.title || e.url,
+                          title: e.title || e.url,
+                          url: e.url,
+                          disease: e.disease_extracted,
+                          country: e.country,
+                          locationName: e.location_name,
+                          cases: e.case_count,
+                          deaths: e.death_count,
                           language: e.language,
+                          articleDate: e.published_at,
+                          eventType: e.event_type,
+                          outbreakAlert: e.outbreak_alert,
+                          sourceType: e.source_type,
+                          sourceName: e.source_name,
+                          needsReview: e.needs_review,
                         })}
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition"
-                        title="Koreksi event ini (Continuous Learning)"
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition"
+                        title="Review article summary & verify facts"
                       >
-                        <Edit3 className="h-3 w-3 text-slate-500" />
-                        <span>Koreksi</span>
+                        <Eye className="h-3.5 w-3.5 text-blue-600" />
+                        <span>Review</span>
                       </button>
                     </td>
                   </tr>
@@ -171,6 +192,15 @@ export default function EventsPage() {
           void reload()
         }}
       />
+      <ArticleReviewModal
+        open={!!reviewTarget}
+        target={reviewTarget}
+        onClose={() => setReviewTarget(null)}
+        onReviewed={() => {
+          void reload()
+        }}
+      />
+
     </div>
   )
 }

@@ -7,7 +7,8 @@ import AnalyzeResultCard from '@/components/AnalyzeResultCard'
 import Modal from '@/components/Modal'
 import AseanMap from '@/components/AseanMap'
 import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
-import { Edit3 } from 'lucide-react'
+import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
+import { Edit3, Eye } from 'lucide-react'
 import type { AnalyzeResponse } from '@/types'
 import { collapseAnalyzeResult } from '@/lib/multiFactDisplay.mjs'
 import { isCachedAnalyzeResult } from '@/lib/analysis-job.mjs'
@@ -84,6 +85,7 @@ export default function AnalyzePage() {
   const [forceRefresh, setForceRefresh] = useState(false)
   const [matrixExpanded, setMatrixExpanded] = useState(true)
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
+  const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -571,20 +573,27 @@ export default function AnalyzePage() {
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-2.5 py-2 text-center">
                             <button
                               type="button"
-                              onClick={() => setCorrectionTarget({
+                              onClick={() => setReviewTarget({
                                 eventId: (result as any)?.id,
                                 rawReportId: (result as any)?.raw_report_id,
-                                fieldName: 'case_count',
-                                originalValue: String(result?.case_count ?? 0),
-                                textSnippet: evidenceSnippet || ((result as any)?.text || '').slice(0, 300),
-                                articleTitle: (result as any)?.title || url,
+                                title: (result as any)?.title || url,
+                                url: url,
+                                summary: (result as any)?.summary,
+                                snippet: evidenceSnippet || ((result as any)?.text || '').slice(0, 300),
+                                evidence: evidenceSnippet,
+                                disease: result?.disease_extracted || (result as any)?.disease,
+                                country: result?.country,
+                                locationName: result?.location_name,
+                                cases: result?.case_count,
+                                deaths: result?.death_count,
                                 language: result?.language,
+                                needsReview: (result as any)?.needs_review,
                               })}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition"
-                              title="Koreksi hasil ekstraksi ini (Continuous Learning)"
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition"
+                              title="Review article summary & facts"
                             >
-                              <Edit3 className="h-3 w-3 text-slate-500" />
-                              <span>Koreksi</span>
+                              <Eye className="h-3 w-3 text-blue-600" />
+                              <span>Review</span>
                             </button>
                           </td>
                         </tr>
@@ -1051,6 +1060,12 @@ export default function AnalyzePage() {
           }
         }}
       />
+      <ArticleReviewModal
+        open={!!reviewTarget}
+        target={reviewTarget}
+        onClose={() => setReviewTarget(null)}
+      />
+
     </div>
   )
 }
