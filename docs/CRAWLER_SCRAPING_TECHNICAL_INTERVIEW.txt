@@ -814,7 +814,7 @@ Artikel dapat dilewati karena:
 - Tidak ada sitemap crawling.
 - Tidak ada pagination website umum.
 - Tidak ada infinite scroll.
-- Manual Crawler discovery hanya Google News RSS atau URL langsung.
+- Manual Crawler tidak punya halaman history tersendiri di Phase 2 sampai modul Crawl History (`/nlp/crawl-history`) membaca `crawl_matrix_jobs` / `crawl_matrix_rows` plus hasil continuous/analyze-url dari DB.
 - Manual Crawler belum memakai seluruh collector_sources.
 - Manual Crawler maksimal 50 artikel per job.
 - Date range Manual Crawler diterapkan setelah extraction/NLP.

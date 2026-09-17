@@ -1,5 +1,6 @@
 #![recursion_limit = "512"]
 
+mod crawl_history;
 mod external_layers;
 mod region_context;
 mod report_narrative;
@@ -1839,6 +1840,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/manual-crawler/jobs", post(create_crawl_job))
         .route("/api/v1/manual-crawler/jobs/:id", get(crawl_job_status))
         .route("/api/v1/manual-crawler/jobs/:id/reprocess", post(reprocess_crawl_job))
+        .route("/api/v1/crawl-history/summary", get(crawl_history::summary))
+        .route("/api/v1/crawl-history/rows", get(crawl_history::list_rows))
+        .route("/api/v1/crawl-history/rows/:id", get(crawl_history::get_row))
+        .route("/api/v1/crawl-history/jobs", get(crawl_history::list_jobs))
+        .route("/api/v1/crawl-history/jobs/:id", get(crawl_history::get_job))
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/events/stats", get(dashboard_stats))
         .route(
@@ -8217,10 +8223,10 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
         INSERT INTO user_roles (id, name, description, permissions, is_system)
         VALUES
         ('admin', 'ADMIN', 'Akses Penuh Seluruh Modul & Konfigurasi Sistem', '["*"]'::jsonb, TRUE),
-        ('data_analyst', 'DATA ANALYST', 'Access to data analysis, events, reports, and manual crawling', '["dashboard", "events", "sources", "analyze", "manual_crawler", "processing", "reports", "locations", "disease_master"]'::jsonb, TRUE),
-        ('epidemiologi', 'EPIDEMIOLOGI', 'Disease surveillance, outbreak rules, and geospatial monitoring', '["dashboard", "events", "analyze", "manual_crawler", "reports", "locations", "disease_master", "outbreak_rules", "nlp_config"]'::jsonb, TRUE),
+        ('data_analyst', 'DATA ANALYST', 'Access to data analysis, events, reports, and manual crawling', '["dashboard", "events", "sources", "analyze", "manual_crawler", "crawl_history", "processing", "reports", "locations", "disease_master"]'::jsonb, TRUE),
+        ('epidemiologi', 'EPIDEMIOLOGI', 'Disease surveillance, outbreak rules, and geospatial monitoring', '["dashboard", "events", "analyze", "manual_crawler", "crawl_history", "reports", "locations", "disease_master", "outbreak_rules", "nlp_config"]'::jsonb, TRUE),
         ('executive', 'EXECUTIVE', 'Ringkasan Eksekutif, TV Center & Matriks Laporan', '["dashboard", "events", "reports", "tv"]'::jsonb, TRUE),
-        ('skk', 'SKK', 'Monitoring Feed Sumber Data & Pemrosesan Queue', '["dashboard", "sources", "reports", "processing"]'::jsonb, TRUE)
+        ('skk', 'SKK', 'Monitoring Feed Sumber Data & Pemrosesan Queue', '["dashboard", "sources", "manual_crawler", "crawl_history", "reports", "processing"]'::jsonb, TRUE)
         ON CONFLICT (id) DO NOTHING;
         UPDATE user_roles
         SET permissions = permissions || '["disease_master"]'::jsonb,
@@ -8233,6 +8239,12 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
             updated_at = NOW()
         WHERE id IN ('data_analyst', 'epidemiologi', 'skk')
           AND NOT (permissions ? 'manual_crawler')
+          AND NOT (permissions ? '*');
+        UPDATE user_roles
+        SET permissions = permissions || '["crawl_history"]'::jsonb,
+            updated_at = NOW()
+        WHERE id IN ('data_analyst', 'epidemiologi', 'skk')
+          AND NOT (permissions ? 'crawl_history')
           AND NOT (permissions ? '*');
         CREATE TABLE IF NOT EXISTS schema_migrations (
             filename TEXT PRIMARY KEY,

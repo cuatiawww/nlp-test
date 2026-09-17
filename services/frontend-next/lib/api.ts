@@ -9,6 +9,9 @@ import type {
   PublicDashboard,
   DiseaseEvent,
   CrawlJobStatus,
+  CrawlHistoryRow,
+  CrawlHistoryJob,
+  CrawlHistorySummary,
   InteroperabilityIntegration,
   SourceSummary,
   VectorSightingsResponse,
@@ -333,6 +336,86 @@ export const fetchCrawlJob = (id: string) =>
   fetchFrom<CrawlJobStatus>(`/api/v1/manual-crawler/jobs/${encodeURIComponent(id)}`);
 export const reprocessCrawlJob = (id: string) =>
   postTo<{ job_id: string; status: string }>(`/api/v1/manual-crawler/jobs/${encodeURIComponent(id)}/reprocess`);
+
+export type CrawlHistoryFilters = {
+  page?: number;
+  per_page?: number;
+  q?: string;
+  channel?: string;
+  country?: string;
+  disease?: string;
+  date_from?: string;
+  date_to?: string;
+  status?: string;
+  needs_review?: boolean;
+  has_geo?: boolean;
+  job_id?: string;
+};
+
+function crawlHistoryParams(filters: CrawlHistoryFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.page) params.set('page', String(filters.page));
+  if (filters.per_page) params.set('per_page', String(filters.per_page));
+  if (filters.q) params.set('q', filters.q);
+  if (filters.channel && filters.channel !== 'all') params.set('channel', filters.channel);
+  if (filters.country && filters.country !== 'all') params.set('country', filters.country);
+  if (filters.disease) params.set('disease', filters.disease);
+  if (filters.date_from) params.set('date_from', filters.date_from);
+  if (filters.date_to) params.set('date_to', filters.date_to);
+  if (filters.status && filters.status !== 'all') params.set('status', filters.status);
+  if (typeof filters.needs_review === 'boolean') params.set('needs_review', String(filters.needs_review));
+  if (typeof filters.has_geo === 'boolean') params.set('has_geo', String(filters.has_geo));
+  if (filters.job_id) params.set('job_id', filters.job_id);
+  return params;
+}
+
+export const fetchCrawlHistorySummary = () =>
+  fetchFrom<CrawlHistorySummary>('/api/v1/crawl-history/summary');
+
+export const fetchCrawlHistoryRows = (filters: CrawlHistoryFilters = {}) => {
+  const query = crawlHistoryParams(filters).toString();
+  return fetchPaginated<CrawlHistoryRow>(`/api/v1/crawl-history/rows${query ? `?${query}` : ''}`);
+};
+
+export const fetchCrawlHistoryRow = (id: string, channel?: string) => {
+  const params = new URLSearchParams();
+  if (channel && channel !== 'all') params.set('channel', channel);
+  const query = params.toString();
+  return fetchFrom<CrawlHistoryRow>(
+    `/api/v1/crawl-history/rows/${encodeURIComponent(id)}${query ? `?${query}` : ''}`,
+  );
+};
+
+export const fetchCrawlHistoryJobs = (filters: CrawlHistoryFilters = {}) => {
+  const query = crawlHistoryParams(filters).toString();
+  return fetchPaginated<CrawlHistoryJob>(`/api/v1/crawl-history/jobs${query ? `?${query}` : ''}`);
+};
+
+export const fetchCrawlHistoryJob = (id: string) =>
+  fetchFrom<CrawlHistoryJob>(`/api/v1/crawl-history/jobs/${encodeURIComponent(id)}`);
+
+export async function downloadCrawlHistoryExport(
+  filters: CrawlHistoryFilters,
+  format: 'csv' | 'xlsx',
+) {
+  const params = crawlHistoryParams({ ...filters, page: undefined, per_page: 5000 });
+  params.set('format', format);
+  const res = await fetch(`${baseURL()}/api/v1/crawl-history/rows?${params.toString()}`, {
+    cache: 'no-store',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new Error(formatApiError(res, json));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = format === 'csv' ? 'crawl-history.csv' : 'crawl-history.xls';
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
 // ── Source Credibility ──────────────────────────
 
