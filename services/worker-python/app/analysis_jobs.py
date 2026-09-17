@@ -182,19 +182,40 @@ def fetch_article(url, fallback=False):
     import requests
     endpoint = os.getenv("COLLECTOR_URL", "http://disease-collector-python:8002")
     is_pdf = urlparse(url).path.lower().endswith(".pdf")
-    timeout_ms = 120000 if is_pdf else (15000 if fallback else 12000)
+    timeout_ms = 120000 if is_pdf else (40000 if fallback else 30000)
     connect_timeout = 5
-    # The collector allows a PDF extraction window of up to 60 seconds plus
-    # its response buffer. Keep the client-side read timeout above that limit
-    # so a slow but valid surveillance report is not cancelled prematurely.
-    read_timeout = 140 if is_pdf else 20
-    response = requests.post(
-        endpoint + "/extract-url",
-        json={"url": url, "fetch_mode": "http", "timeout_ms": timeout_ms, "max_retries": 0},
-        timeout=(connect_timeout, read_timeout),
-    )
-    response.raise_for_status()
-    return response.json()["data"]
+    # Async URL jobs are not bound by the browser/gateway 60s budget. Give
+    # slow publishers a real window, then one short retry, instead of 504.
+    read_timeout = 140 if is_pdf else (55 if fallback else 40)
+    attempts = 2
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            response = requests.post(
+                endpoint + "/extract-url",
+                json={
+                    "url": url,
+                    "fetch_mode": "http",
+                    "timeout_ms": timeout_ms,
+                    "max_retries": 0 if is_pdf else 1,
+                },
+                timeout=(connect_timeout, read_timeout),
+            )
+            if response.status_code in {408, 502, 503, 504} and attempt + 1 < attempts:
+                last_error = requests.HTTPError(
+                    f"{response.status_code} {response.text[:180]}",
+                    response=response,
+                )
+                continue
+            response.raise_for_status()
+            return response.json()["data"]
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_error = exc
+            if attempt + 1 >= attempts:
+                raise
+    if last_error:
+        raise last_error
+    raise RuntimeError("Article fetch failed")
 
 def _prepare_text_for_nlp(extracted, max_chars=35000):
     title = (extracted.get("title") or "").strip()

@@ -102,6 +102,19 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(result["result"]["case_count"], 12)
         nlp.assert_not_called()
 
+    def test_fetch_article_retries_once_on_408(self):
+        timeout = Mock()
+        timeout.status_code = 408
+        timeout.text = "URL extraction timed out"
+        ok = Mock()
+        ok.status_code = 200
+        ok.json.return_value = {"data": {"content": "hello"}}
+        ok.raise_for_status.return_value = None
+        with patch("requests.post", side_effect=[timeout, ok]) as post:
+            payload = fetch_article("https://example.org/news")
+        self.assertEqual(payload["content"], "hello")
+        self.assertEqual(post.call_count, 2)
+
     def test_fetch_article_uses_fail_fast_http(self):
         response = Mock()
         response.json.return_value = {"data": {"content": "hello"}}
@@ -111,11 +124,13 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(payload["content"], "hello")
         sent = post.call_args.kwargs["json"]
         self.assertEqual(sent["fetch_mode"], "http")
-        self.assertEqual(sent["max_retries"], 0)
-        self.assertLessEqual(sent["timeout_ms"], 15000)
+        self.assertEqual(sent["max_retries"], 1)
+        self.assertGreaterEqual(sent["timeout_ms"], 25000)
+        self.assertLessEqual(sent["timeout_ms"], 45000)
         connect_timeout, read_timeout = post.call_args.kwargs["timeout"]
         self.assertEqual(connect_timeout, 5)
-        self.assertLessEqual(read_timeout, 20)
+        self.assertGreaterEqual(read_timeout, 35)
+        self.assertLessEqual(read_timeout, 60)
 
     def test_analyze_article_marks_request_interactive(self):
         response = Mock()

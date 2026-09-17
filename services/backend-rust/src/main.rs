@@ -2990,8 +2990,8 @@ async fn analyze_url(
     let resp = state
         .http
         .post(&collector_endpoint)
-        .json(&json!({ "url": url, "fetch_mode": "http", "timeout_ms": 18000, "max_retries": 0 }))
-        .timeout(std::time::Duration::from_secs(25))
+        .json(&json!({ "url": url, "fetch_mode": "http", "timeout_ms": 35000, "max_retries": 1 }))
+        .timeout(std::time::Duration::from_secs(45))
         .send()
         .await
         .map_err(|e| {
@@ -3003,7 +3003,7 @@ async fn analyze_url(
                 format!("Collector tidak dapat mengambil URL: {}", e)
             };
             (
-                StatusCode::GATEWAY_TIMEOUT,
+                StatusCode::REQUEST_TIMEOUT,
                 Json(json!({ "success": false, "error": msg })),
             )
         })?;
@@ -3015,7 +3015,9 @@ async fn analyze_url(
             .and_then(|v| v.get("detail").or_else(|| v.get("error")).and_then(|d| d.as_str()).map(String::from))
             .unwrap_or(detail);
         let mapped_status = if status.as_u16() == 408 {
-            StatusCode::GATEWAY_TIMEOUT
+            StatusCode::REQUEST_TIMEOUT
+        } else if matches!(status.as_u16(), 502 | 503 | 504) {
+            StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY)
         } else {
             StatusCode::BAD_REQUEST
         };
@@ -3087,7 +3089,7 @@ async fn analyze_url(
                 "NLP service tidak dapat dijangkau".to_string()
             };
             (
-                StatusCode::GATEWAY_TIMEOUT,
+                StatusCode::REQUEST_TIMEOUT,
                 Json(json!({ "success": false, "error": msg })),
             )
         })?

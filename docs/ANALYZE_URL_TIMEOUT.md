@@ -58,6 +58,24 @@ code (existing `.env` 90s/180s values are ignored when below the floor).
 Reverse proxies in front of the **async job POST** can stay short (job
 creation is fast). The browser polls `GET /api/v1/analysis-jobs/:id`.
 
+Article fetch (source website)
+------------------------------
+Interactive extract used to cap HTML at 12s and map collector 408 to HTTP 504.
+Slow publishers then looked like a gateway crash. Defaults now:
+
+| Control | Code floor / default | Cap |
+| --- | --- | --- |
+| Collector HTML timeout | 20s floor, 30s default | 45s |
+| Worker `/extract-url` `timeout_ms` | 30s (40s on fallback retry) | 45s read |
+| Worker extract retries | 1 extra pass on 408/502/503/504 or timeout | 2 attempts |
+| Sync analyze-url collector errors | HTTP **408**, not 504 | — |
+| Next.js rewrite `proxyTimeout` | 90s | — |
+
+Do not set production `.env` `INTERACTIVE_HTML_TIMEOUT_SECONDS=12` expecting
+fail-fast 504s; that value is clamped up. Ops still does **not** need to
+hardcode tokens. History GET is public like Events; if a browser session is
+expired, sign in again for the HTML page, not because the ledger table is empty.
+
 ASEAN URL harness
 -----------------
 Catalog: `scripts/asean_url_catalog.py` (3+ disease/health URLs × 11 ASEAN
