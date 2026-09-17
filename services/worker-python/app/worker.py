@@ -21,6 +21,7 @@ RABBITMQ_SOCIAL_QUEUE = os.getenv("RABBITMQ_SOCIAL_QUEUE", "disease.social")
 RABBITMQ_SKDR_QUEUE = os.getenv("RABBITMQ_SKDR_QUEUE", "disease.skdr")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
 CURRENT_YEAR_ONLY = os.getenv("CURRENT_YEAR_ONLY", "true").lower() in {"1", "true", "yes", "on"}
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
@@ -601,13 +602,15 @@ def callback(ch, method, properties, body):
                     case_count, death_count, event_date, confirmed_cases, suspected_cases,
                     hospitalizations, epidemiological_evidence, confidence, outbreak_alert,
                     sentiment, event_type, relevance_score,
-                    source_credibility, source_credibility_label, is_health_related)
+                    source_credibility, source_credibility_label, is_health_related,
+                    nlp_pipeline_version, count_period_type, event_date_start,
+                    event_date_end, date_needs_review)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
                             %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-                            %s, %s, %s, %s, %s, %s, %s, TRUE)
+                            %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
                     raw_id,
@@ -638,6 +641,11 @@ def callback(ch, method, properties, body):
                     nlp.get("relevance_score"),
                     nlp.get("source_credibility", 0.50),
                     nlp.get("source_credibility_label", ""),
+                    nlp.get("nlp_pipeline_version") or NLP_PIPELINE_VERSION,
+                    nlp.get("count_period_type") or "unknown",
+                    parse_date(nlp.get("event_date_start")),
+                    parse_date(nlp.get("event_date_end")),
+                    nlp.get("date_needs_review", False),
                 ),
             )
             event_id = event_cursor.fetchone()["id"]
@@ -667,13 +675,13 @@ def callback(ch, method, properties, body):
                             confidence, outbreak_alert, sentiment, event_type,
                             relevance_score, source_credibility,
                             source_credibility_label, is_health_related,
-                            parent_event_id, source_url)
+                            parent_event_id, source_url, nlp_pipeline_version)
                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                          ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                                     END,
                                     %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE,
-                                    %s, %s)
+                                    %s, %s, %s)
                            RETURNING id""",
                         (
                             raw_id,
@@ -701,6 +709,7 @@ def callback(ch, method, properties, body):
                             nlp.get("source_credibility_label", ""),
                             parent_event_id,
                             msg.get("url"),
+                            nlp.get("nlp_pipeline_version") or NLP_PIPELINE_VERSION,
                         ),
                     )
                     child_event_id = child_cursor.fetchone()["id"]
@@ -729,6 +738,12 @@ def callback(ch, method, properties, body):
                 logger.info(
                     "Multi-event: inserted %d child events for raw_id=%s",
                     len(sub_events), raw_id,
+                )
+                conn.execute(
+                    """UPDATE disease_events
+                       SET case_count = NULL, death_count = NULL
+                       WHERE id = %s""",
+                    (event_id,),
                 )
 
             conn.commit()

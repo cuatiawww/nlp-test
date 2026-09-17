@@ -488,10 +488,14 @@ fn matrix_article_key_sql() -> &'static str {
 
 /// `Indonesia(8278); Philippines(3734)` — descending count, then label A–Z.
 /// Production list uses the same ORDER BY inside `collapse_article_sql`.
-#[allow(dead_code)]
-fn format_label_counts(mut pairs: Vec<(String, i64)>) -> String {
-    pairs.retain(|(label, _)| !label.trim().is_empty());
-    pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+/// Empty labels are dropped. `omit_zero` is used for deaths / per-disease cases.
+pub fn format_label_counts(pairs: Vec<(String, i64)>) -> String {
+    format_label_counts_filtered(pairs, false)
+}
+
+fn format_label_counts_filtered(mut pairs: Vec<(String, i64)>, omit_zero: bool) -> String {
+    pairs.retain(|(label, n)| !label.trim().is_empty() && (!omit_zero || *n != 0));
+    pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
     pairs
         .into_iter()
         .map(|(label, n)| format!("{label}({n})"))
@@ -500,12 +504,136 @@ fn format_label_counts(mut pairs: Vec<(String, i64)>) -> String {
 }
 
 /// Unique labels joined with `; ` (alphabetical). SQL uses cases-desc then label.
-#[allow(dead_code)]
-fn join_unique_labels(mut labels: Vec<String>) -> String {
+pub fn join_unique_labels(mut labels: Vec<String>) -> String {
     labels.retain(|label| !label.trim().is_empty());
-    labels.sort();
-    labels.dedup();
+    labels.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    labels.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     labels.join("; ")
+}
+
+fn short_disease_label(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("UNKNOWN") {
+        return String::new();
+    }
+    match trimmed.to_lowercase().as_str() {
+        "respiratory syncytial virus infection" | "respiratory syncytial virus" | "rsv" => {
+            "RSV".into()
+        }
+        "nipah virus disease" => "Nipah".into(),
+        _ => trimmed.to_string(),
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ArticleFact {
+    pub disease: Option<String>,
+    pub location: Option<String>,
+    pub cases: Option<i64>,
+    pub deaths: Option<i64>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CollapsedArticleDisplay {
+    pub disease: String,
+    pub location: String,
+    pub cases_display: Option<String>,
+    pub deaths_display: Option<String>,
+    pub dimension: &'static str,
+}
+
+/// Collapse N atomic facts into the one-row-per-URL display contract.
+/// Location(count) wins when places vary; Disease(count) only when the place is shared.
+pub fn collapse_article_facts(facts: &[ArticleFact]) -> CollapsedArticleDisplay {
+    let diseases = join_unique_labels(
+        facts
+            .iter()
+            .filter_map(|fact| fact.disease.as_deref().map(short_disease_label))
+            .collect(),
+    );
+    let locations = join_unique_labels(
+        facts
+            .iter()
+            .filter_map(|fact| {
+                fact.location
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|label| !label.is_empty())
+                    .map(|label| label.to_string())
+            })
+            .collect(),
+    );
+    let locations_vary = locations.split("; ").filter(|part| !part.is_empty()).count() > 1;
+    let diseases_vary = diseases.split("; ").filter(|part| !part.is_empty()).count() > 1;
+
+    let mut cases_by_location: Vec<(String, i64)> = Vec::new();
+    let mut deaths_by_location: Vec<(String, i64)> = Vec::new();
+    let mut cases_by_disease: Vec<(String, i64)> = Vec::new();
+    let mut deaths_by_disease: Vec<(String, i64)> = Vec::new();
+    for fact in facts {
+        let loc = fact
+            .location
+            .as_deref()
+            .map(str::trim)
+            .filter(|label| !label.is_empty());
+        let disease = fact
+            .disease
+            .as_deref()
+            .map(short_disease_label)
+            .filter(|label| !label.is_empty());
+        if let (Some(loc), Some(n)) = (loc, fact.cases) {
+            if let Some(existing) = cases_by_location.iter_mut().find(|(name, _)| name == loc) {
+                existing.1 += n;
+            } else {
+                cases_by_location.push((loc.to_string(), n));
+            }
+        }
+        if let (Some(loc), Some(n)) = (loc, fact.deaths) {
+            if let Some(existing) = deaths_by_location.iter_mut().find(|(name, _)| name == loc) {
+                existing.1 += n;
+            } else {
+                deaths_by_location.push((loc.to_string(), n));
+            }
+        }
+        if let (Some(disease), Some(n)) = (disease.as_deref(), fact.cases) {
+            if let Some(existing) = cases_by_disease.iter_mut().find(|(name, _)| name == disease) {
+                existing.1 += n;
+            } else {
+                cases_by_disease.push((disease.to_string(), n));
+            }
+        }
+        if let (Some(disease), Some(n)) = (disease.as_deref(), fact.deaths) {
+            if let Some(existing) = deaths_by_disease.iter_mut().find(|(name, _)| name == disease) {
+                existing.1 += n;
+            } else {
+                deaths_by_disease.push((disease.to_string(), n));
+            }
+        }
+    }
+
+    let (cases_display, deaths_display, dimension) = if locations_vary {
+        (
+            Some(format_label_counts(cases_by_location)).filter(|text| !text.is_empty()),
+            Some(format_label_counts_filtered(deaths_by_location, true)).filter(|text| !text.is_empty()),
+            "location",
+        )
+    } else if diseases_vary {
+        (
+            Some(format_label_counts_filtered(cases_by_disease, true)).filter(|text| !text.is_empty()),
+            Some(format_label_counts_filtered(deaths_by_disease, true)).filter(|text| !text.is_empty()),
+            "disease",
+        )
+    } else {
+        (None, None, "single")
+    };
+
+    CollapsedArticleDisplay {
+        disease: diseases,
+        location: locations,
+        cases_display,
+        deaths_display,
+        dimension,
+    }
 }
 
 fn matrix_select_sql(evidence_chars: i32) -> String {
@@ -556,6 +684,7 @@ fn matrix_select_sql(evidence_chars: i32) -> String {
             m.created_at::text AS created_at,
             LEFT(COALESCE(rr.original_text, m.evidence, ''), {snippet}) AS snippet,
             COALESCE(m.crawling_date::timestamp, m.created_at::timestamp) AS sort_ts,
+            NULL::uuid AS parent_event_id,
             {article_key} AS article_key
         FROM crawl_matrix_rows m
         JOIN crawl_matrix_jobs j ON j.id = m.crawl_job_id
@@ -643,6 +772,7 @@ fn event_select_sql(evidence_chars: i32) -> String {
             de.created_at::text AS created_at,
             LEFT(COALESCE(rr.original_text, de.original_text, ''), {snippet}) AS snippet,
             de.created_at::timestamp AS sort_ts,
+            de.parent_event_id,
             {article_key} AS article_key
         FROM disease_events de
         LEFT JOIN raw_reports rr ON rr.id = de.raw_report_id
@@ -662,8 +792,18 @@ fn event_select_sql(evidence_chars: i32) -> String {
 
 fn collapse_article_sql(inner: &str) -> String {
     let template = r#"
-        WITH base AS (
+        WITH raw AS (
             __INNER__
+        ),
+        base AS (
+            SELECT r.*
+            FROM raw r
+            WHERE NOT EXISTS (
+                SELECT 1 FROM raw child
+                WHERE child.article_key = r.article_key
+                  AND child.parent_event_id IS NOT NULL
+            )
+            OR r.parent_event_id IS NOT NULL
         ),
         by_country AS (
             SELECT article_key, country,
@@ -686,8 +826,10 @@ fn collapse_article_sql(inner: &str) -> String {
             SELECT article_key,
                    COUNT(*)::int AS n,
                    string_agg(country, '; ' ORDER BY cases DESC, country) AS labels,
-                   string_agg(country || '(' || cases::text || ')', '; ' ORDER BY cases DESC, country) AS cases_display,
-                   string_agg(country || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, country) AS deaths_display
+                   string_agg(country || '(' || cases::text || ')', '; ' ORDER BY cases DESC, country)
+                       FILTER (WHERE cases IS NOT NULL) AS cases_display,
+                   string_agg(country || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, country)
+                       FILTER (WHERE deaths > 0) AS deaths_display
             FROM by_country
             GROUP BY article_key
         ),
@@ -695,16 +837,23 @@ fn collapse_article_sql(inner: &str) -> String {
             SELECT article_key,
                    COUNT(*)::int AS n,
                    string_agg(label, '; ' ORDER BY cases DESC, label) AS labels,
-                   string_agg(label || '(' || cases::text || ')', '; ' ORDER BY cases DESC, label) AS cases_display,
-                   string_agg(label || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, label) AS deaths_display
+                   string_agg(label || '(' || cases::text || ')', '; ' ORDER BY cases DESC, label)
+                       FILTER (WHERE cases IS NOT NULL) AS cases_display,
+                   string_agg(label || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, label)
+                       FILTER (WHERE deaths > 0) AS deaths_display
             FROM by_place
             GROUP BY article_key
         ),
         disease_txt AS (
             SELECT article_key,
-                   string_agg(disease, '; ' ORDER BY n DESC, disease) AS labels
+                   COUNT(*)::int AS n,
+                   string_agg(disease, '; ' ORDER BY n DESC, disease) AS labels,
+                   string_agg(disease || '(' || n::text || ')', '; ' ORDER BY n DESC, disease)
+                       FILTER (WHERE n > 0) AS cases_display,
+                   string_agg(disease || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, disease)
+                       FILTER (WHERE deaths > 0) AS deaths_display
             FROM (
-                SELECT article_key, disease, SUM(COALESCE(cases, 0)) AS n
+                SELECT article_key, disease, SUM(COALESCE(cases, 0)) AS n, SUM(COALESCE(deaths, 0)) AS deaths
                 FROM base
                 WHERE disease IS NOT NULL AND BTRIM(disease) <> ''
                 GROUP BY article_key, disease
@@ -817,11 +966,13 @@ fn collapse_article_sql(inner: &str) -> String {
             CASE
                 WHEN COALESCE(ct.n, 0) > 1 THEN ct.cases_display
                 WHEN COALESCE(pt.n, 0) > 1 THEN pt.cases_display
+                WHEN COALESCE(dt.n, 0) > 1 THEN dt.cases_display
                 ELSE NULL
             END AS cases_display,
             CASE
                 WHEN COALESCE(ct.n, 0) > 1 THEN ct.deaths_display
                 WHEN COALESCE(pt.n, 0) > 1 THEN pt.deaths_display
+                WHEN COALESCE(dt.n, 0) > 1 THEN dt.deaths_display
                 ELSE NULL
             END AS deaths_display,
             CASE WHEN g.location_count > 1 THEN g.location_count::text || ' locations' ELSE NULL END AS geo_summary,
@@ -1767,8 +1918,48 @@ mod tests {
         })]);
         assert!(csv.contains("Indonesia(8278); Philippines(3734)"));
         assert!(csv.contains("Indonesia(12); Philippines(3)"));
+        let flu_rsv = collapse_article_facts(&[
+            ArticleFact {
+                disease: Some("Influenza".into()),
+                location: Some("Bangkok".into()),
+                cases: Some(120),
+                deaths: Some(0),
+            },
+            ArticleFact {
+                disease: Some("Respiratory syncytial virus infection".into()),
+                location: Some("Bangkok".into()),
+                cases: Some(45),
+                deaths: Some(0),
+            },
+        ]);
+        assert_eq!(flu_rsv.disease, "Influenza; RSV");
+        assert_eq!(flu_rsv.location, "Bangkok");
+        assert_eq!(flu_rsv.cases_display.as_deref(), Some("Influenza(120); RSV(45)"));
+        assert_eq!(flu_rsv.dimension, "disease");
+        let mixed = collapse_article_facts(&[
+            ArticleFact {
+                disease: Some("Influenza".into()),
+                location: Some("Indonesia".into()),
+                cases: Some(8278),
+                deaths: Some(12),
+            },
+            ArticleFact {
+                disease: Some("RSV".into()),
+                location: Some("Philippines".into()),
+                cases: Some(3734),
+                deaths: Some(3),
+            },
+        ]);
+        assert_eq!(mixed.disease, "Influenza; RSV");
+        assert_eq!(mixed.location, "Indonesia; Philippines");
+        assert_eq!(mixed.cases_display.as_deref(), Some("Indonesia(8278); Philippines(3734)"));
+        assert_eq!(mixed.deaths_display.as_deref(), Some("Indonesia(12); Philippines(3)"));
+        assert_eq!(mixed.dimension, "location");
         assert!(csv.contains("2 locations"));
         assert!(!csv.contains("103.8"));
         assert_eq!(display_or_value(&json!({"cases_display": "", "cases": 9}), "cases_display", "cases"), json!(9));
+        let sql = collapse_article_sql("SELECT 1 AS article_key, NULL::uuid AS parent_event_id");
+        assert!(sql.contains("dt.cases_display"));
+        assert!(sql.contains("parent_event_id"));
     }
 }

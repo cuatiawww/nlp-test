@@ -7,7 +7,7 @@ from typing import Any
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.health-gate")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")

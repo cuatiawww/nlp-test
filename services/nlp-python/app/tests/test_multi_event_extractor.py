@@ -252,5 +252,86 @@ class TestExtractMultiEvents(unittest.TestCase):
         self.assertEqual(len(events), 0)
 
 
+class TestComposeStructuredEvents(unittest.TestCase):
+    def setUp(self):
+        self.location_coords_patch = patch("app.multi_event_extractor.config.LOCATION_COORDS", {
+            "Singapore": (1.3521, 103.8198),
+            "Thailand": (13.7563, 100.5018),
+            "Malaysia": (3.1390, 101.6869),
+            "Indonesia": (-6.2088, 106.8456),
+            "Vietnam": (21.0285, 105.8542),
+            "Bangkok": (13.7563, 100.5018),
+            "Philippines": (14.5995, 120.9842),
+        })
+        self.location_countries_patch = patch("app.multi_event_extractor.config.LOCATION_COUNTRIES", {
+            "Singapore": "Singapore",
+            "Thailand": "Thailand",
+            "Malaysia": "Malaysia",
+            "Indonesia": "Indonesia",
+            "Vietnam": "Vietnam",
+            "Bangkok": "Thailand",
+            "Philippines": "Philippines",
+        })
+        self.agent_patch = patch("app.multi_event_extractor.config.AGENT_ENABLED", False)
+        self.location_coords_patch.start()
+        self.location_countries_patch.start()
+        self.agent_patch.start()
+
+    def tearDown(self):
+        self.location_coords_patch.stop()
+        self.location_countries_patch.stop()
+        self.agent_patch.stop()
+
+    @patch("app.multi_event_extractor.MULTI_EVENT_ENABLED", True)
+    @patch("app.multi_event_extractor.MULTI_EVENT_LLM_FALLBACK", False)
+    def test_compose_splits_influenza_and_rsv(self):
+        from app.multi_event_extractor import compose_structured_events
+        from app.multi_fact_display import collapse_facts
+        text = (
+            "Sanofi partnership with Bangkok and the Department of Medical Services "
+            "to boost immunization against influenza and RSV. Vaccination campaign."
+        )
+        events = compose_structured_events(
+            text=text,
+            primary_disease="Influenza",
+            primary_location="Bangkok",
+            diseases_extracted=["Influenza", "Respiratory syncytial virus infection"],
+            locations=[{"name": "Bangkok"}],
+            case_count=0,
+            death_count=0,
+        )
+        names = {event["disease"] for event in events}
+        self.assertGreaterEqual(len(events), 2)
+        joined = " ".join(names).lower()
+        self.assertIn("influenza", joined)
+        self.assertTrue("rsv" in joined or "syncytial" in joined)
+        collapsed = collapse_facts(events)
+        self.assertIn("; ", collapsed["disease_display"])
+        self.assertNotIn(",", collapsed["disease_display"])
+
+    @patch("app.multi_event_extractor.MULTI_EVENT_ENABLED", True)
+    @patch("app.multi_event_extractor.MULTI_EVENT_LLM_FALLBACK", False)
+    def test_compose_keeps_per_place_counts(self):
+        from app.multi_event_extractor import compose_structured_events
+        from app.multi_fact_display import collapse_facts
+        text = (
+            "Influenza A(H3N2): Indonesia (8278 cases), Philippines (3734 cases). "
+            "12 deaths in Indonesia and 3 deaths in Philippines."
+        )
+        events = compose_structured_events(
+            text=text,
+            primary_disease="Influenza",
+            primary_location="Indonesia",
+            diseases_extracted=["Influenza"],
+            locations=[],
+            case_count=8278,
+            death_count=12,
+        )
+        self.assertGreaterEqual(len(events), 2)
+        collapsed = collapse_facts(events)
+        self.assertEqual(collapsed["cases_display"], "Indonesia(8278); Philippines(3734)")
+        self.assertEqual(collapsed["location_display"], "Indonesia; Philippines")
+
+
 if __name__ == "__main__":
     unittest.main()

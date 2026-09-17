@@ -7,6 +7,7 @@ import AnalyzeResultCard from '@/components/AnalyzeResultCard'
 import Modal from '@/components/Modal'
 import AseanMap from '@/components/AseanMap'
 import type { AnalyzeResponse } from '@/types'
+import { collapseAnalyzeResult } from '@/lib/multiFactDisplay.mjs'
 import { toast } from 'sonner'
 import {
   Search, Globe, MapPin, Bug, Activity, Heart, MessageSquare,
@@ -23,6 +24,7 @@ function diseaseIdentity(raw?: string | null): string {
   if (value.includes('covid') || value.includes('coronavirus') || value.includes('sars-cov')) return 'covid-19'
   if (value.includes('dengue') || value === 'dbd' || value.includes('demam berdarah')) return 'dengue'
   if (value.includes('hand foot') || value.includes('hfmd') || value.includes('tangan kaki') || value.includes('flu singapura')) return 'hfmd'
+  if (value.includes('rsv') || value.includes('syncytial')) return 'rsv'
   if (value.includes('influenza') || value === 'flu' || value.includes('flu burung') || value.includes('avian influenza')) return 'influenza'
   if (value.includes('mpox') || value.includes('monkeypox') || value.includes('cacar monyet')) return 'mpox'
   if (value.includes('malaria')) return 'malaria'
@@ -281,12 +283,18 @@ export default function AnalyzePage() {
             {(() => {
               const subEvents = (result as any)?.sub_events || []
               const diseaseExtracted = result?.disease_extracted || []
+              const collapsed = collapseAnalyzeResult(result)
               const diseaseTopics = uniqueDiseaseLabels([
                 result?.disease_classification,
                 ...diseaseExtracted,
+                ...subEvents.map((evt: { disease?: string }) => evt.disease),
+                ...(collapsed.diseaseDisplay ? collapsed.diseaseDisplay.split('; ') : []),
               ])
               const hasMultiDisease = diseaseTopics.length > 1
               const indicatedCount = diseaseTopics.length
+              const diseaseValue = collapsed.diseaseDisplay
+                ? collapsed.diseaseDisplay.split('; ').map((name) => translateDisease(name)).join('; ')
+                : (translateDisease(result.disease_classification) || '-')
 
               return (
                 <AnalyzeResultCard
@@ -294,12 +302,12 @@ export default function AnalyzePage() {
                   label={t('pages.analyze.diseaseClassification')}
                   value={
                     <div className="space-y-1">
-                      <span className="font-bold text-slate-900">{translateDisease(result.disease_classification) || '-'}</span>
+                      <span className="font-bold text-slate-900">{diseaseValue}</span>
                       {hasMultiDisease && (
                         <div className="flex flex-wrap gap-1 pt-0.5">
                           <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#0060A9] ring-1 ring-inset ring-[#0060A9]/20">
                             <Layers className="h-2.5 w-2.5 text-[#0060A9]" />
-                            +{indicatedCount - 1} Other Diseases Detected
+                            {indicatedCount} diseases
                           </span>
                         </div>
                       )}
@@ -364,18 +372,16 @@ export default function AnalyzePage() {
               value={
                 <div className="space-y-1">
                   <div>
-                    <span className="font-bold text-slate-900">{result.location_name || '-'}</span>
-                    {result.country && <span className="ml-1 text-xs font-normal text-slate-400">({result.country})</span>}
-                    {(result as { province?: string | null; city?: string | null }).province || (result as { city?: string | null }).city ? (
-                      <span className="ml-1 text-xs text-slate-500">
-                        province/city: {[ (result as { province?: string }).province, (result as { city?: string }).city ].filter(Boolean).join(' / ')}
-                      </span>
-                    ) : null}
+                    <span className="font-bold text-slate-900">
+                      {collapseAnalyzeResult(result).locationDisplay || result.location_name || '-'}
+                    </span>
+                    {result.country && !String(collapseAnalyzeResult(result).locationDisplay || '').includes(result.country) && (
+                      <span className="ml-1 text-xs font-normal text-slate-400">({result.country})</span>
+                    )}
                   </div>
-                  {result.locations && result.locations.length > 0 && (
+                  {result.locations && result.locations.length > 1 && (
                     <div className="flex flex-wrap gap-1 pt-1">
                       {result.locations
-                        .filter((l) => l.name !== result.location_name)
                         .slice(0, 6)
                         .map((loc, idx) => (
                           <span
@@ -403,12 +409,15 @@ export default function AnalyzePage() {
               icon={<Users className="h-4 w-4" />}
               label={t("dashboard.labelTotalCases")}
               value={
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl font-extrabold text-slate-900">
-                    {(result as { case_count_unknown?: boolean }).case_count_unknown ? 'unknown' : result.case_count}
+                <div className="space-y-1">
+                  <span className="text-lg font-extrabold text-slate-900 leading-snug">
+                    {(result as { case_count_unknown?: boolean }).case_count_unknown
+                      ? 'unknown'
+                      : collapseAnalyzeResult(result).casesDisplay || result.case_count}
                   </span>
                   <span className="flex items-center gap-1 text-sm font-medium text-red-500">
-                    <Skull className="h-3.5 w-3.5" /> {result.death_count}
+                    <Skull className="h-3.5 w-3.5" />
+                    {collapseAnalyzeResult(result).deathsDisplay || result.death_count}
                   </span>
                 </div>
               }
@@ -527,7 +536,7 @@ export default function AnalyzePage() {
               {result.disease_extracted && result.disease_extracted.length > 0 && (
                 <div>
                   <span className="text-xs text-slate-500">{t('pages.analyze.diseaseKeyword')}</span>
-                  <p className="text-sm font-semibold text-slate-900">{result.disease_extracted.join(', ')}</p>
+                  <p className="text-sm font-semibold text-slate-900">{result.disease_extracted.join('; ')}</p>
                   <p className="mt-0.5 text-xs text-slate-400">{getSource('disease_extracted', result.sources?.disease_extracted)}</p>
                 </div>
               )}

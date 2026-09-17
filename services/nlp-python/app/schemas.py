@@ -110,3 +110,9 @@ class AnalyzeResponse(BaseModel):
     event_date_start: Optional[str] = None
     event_date_end: Optional[str] = None
     date_needs_review: bool = False
+    # Collapsed one-row-per-URL summary. Atomic events stay in sub_events.
+    disease_display: Optional[str] = None
+    location_display: Optional[str] = None
+    cases_display: Optional[str] = None
+    deaths_display: Optional[str] = None
+    display_dimension: Optional[str] = None

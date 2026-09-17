@@ -318,6 +318,11 @@ export type AnalyzeResponse = {
     icd11_code?: string | null;
     evidence?: string;
   }[];
+  disease_display?: string | null;
+  location_display?: string | null;
+  cases_display?: string | null;
+  deaths_display?: string | null;
+  display_dimension?: string | null;
   sources: Record<string, string>;
 };
 
