@@ -375,8 +375,8 @@ export type CrawlHistoryRow = {
   city?: string | null;
   disease?: string | null;
   icd11_code?: string | null;
-  cases: number;
-  deaths: number;
+  cases?: number | null;
+  deaths?: number | null;
   confidence?: number | null;
   source_type?: string | null;
   source_name?: string | null;
@@ -394,6 +394,17 @@ export type CrawlHistoryRow = {
   language?: string | null;
   sentiment?: string | null;
   location_name?: string | null;
+  article_title?: string | null;
+  crawling_date?: string | null;
+  article_date?: string | null;
+  date_case?: string | null;
+  region?: string | null;
+  province_city_case?: string | null;
+  event_type?: string | null;
+  source_credibility?: number | null;
+  source_credibility_label?: string | null;
+  relevance_score?: string | null;
+  outbreak_alert?: boolean | null;
   symptoms?: unknown;
   disease_extracted?: unknown;
   job?: CrawlHistoryJob;

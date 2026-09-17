@@ -624,7 +624,7 @@
     },
     "crawlHistory": {
       "title": "Crawl History / Matriks Hasil Crawl",
-      "subtitle": "Hasil crawl surveilans kesehatan yang sudah tersimpan di Phase 2 — job manual plus continuous dan analyze-url. Artikel RSS non-kesehatan tetap ada di database untuk QA Events, tapi disembunyikan di sini secara default. Filter kosong menampilkan tabel kosong; tidak ada baris dummy.",
+      "subtitle": "Matriks surveilans gaya Phase 1 dari baris Phase 2 yang sudah tersimpan — 25 per halaman, terbaru dulu. Default negara ASEAN-11 + Timor-Leste. RSS non-kesehatan tetap di database untuk QA Events, tapi disembunyikan di sini.",
       "matrixTab": "Matriks hasil",
       "jobsTab": "Riwayat job",
       "openManual": "Buka Manual Crawler",

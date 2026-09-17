@@ -624,7 +624,7 @@
     },
     "crawlHistory": {
       "title": "Crawl History / Matriks Hasil Crawl",
-      "subtitle": "Health-surveillance crawl results already stored in Phase 2 — manual jobs plus continuous and analyze-url. Non-health RSS stays in the database for Events QA but is hidden here by default. Empty filters show empty tables; nothing is invented.",
+      "subtitle": "Phase-1-style surveillance matrix from stored Phase 2 rows — 25 per page, newest first. Default country is ASEAN-11 + Timor-Leste. Non-health RSS stays in the database for Events QA but is hidden here.",
       "matrixTab": "Result matrix",
       "jobsTab": "Job history",
       "openManual": "Open Manual Crawler",

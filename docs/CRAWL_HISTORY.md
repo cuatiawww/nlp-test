@@ -4,26 +4,55 @@ Phase 2 module for stakeholders who need Phase 1-style **history of crawl result
 
 UI: `/nlp/crawl-history` (auth module `crawl_history`, also granted to existing `manual_crawler` roles).
 
-This is **not** the Events dump. Default quality is **surveillance**: health-related, known disease (not `UNKNOWN` / `NEGATIVE*`), confidence ≥ 0.15. Political/economic RSS and other non-health rows stay stored for Events QA, but they do not appear in the default matrix.
+This is **not** the Events dump. Default quality is **surveillance**: health-related, known disease (not `UNKNOWN` / `NEGATIVE*`), confidence ≥ 0.15. Default country is **ASEAN-11 + Timor-Leste** when a country can be resolved. Political/economic RSS stays stored for Events QA and is hidden unless Quality is Noise / All stored.
 
-## What it proves versus Phase 1
+## Matrix columns (Phase 1 sheet order)
 
-Open the page while signed in. The summary cards are live `COUNT(*)` values from this Phase 2 database:
+Visible columns match the QA export (`No, Country, Language, Source URL, …, Needs Review`). Empty cell if the stored field is null — nothing is invented.
 
-| Card | Source |
+| Column | Stored source |
 | --- | --- |
-| Manual jobs | `crawl_matrix_jobs` |
-| Surveillance rows | deduped ledger rows with `quality_class = surveillance` |
-| Continuous | surveillance `disease_events` not linked to a manual job, excluding analyze-url |
-| Analyze URL | the same set when `analysis_jobs.event_id` / `source_name = 'URL Analyzer'` |
-| Mapped / with geo | surveillance rows with known disease **and** coordinates (not merely a place name) |
-| Noise excluded | non-health / `NEGATIVE*` articles still in the database, hidden by default |
+| No | page offset + row index |
+| Country | `crawl_matrix_rows.country` or `locations.country` / `disease_events.location_name` (ASEAN fold) |
+| Language | `disease_events.language` |
+| Source URL | `crawl_matrix_rows.source_url` or `raw_reports.url` / `disease_events.source_url` (rendered as a link) |
+| Article Title | `article_title` or first 220 chars of `raw_reports.original_text` |
+| Disease Name | `disease_name` / `disease_classification` |
+| Crawling Date | `crawling_date` or `disease_events.created_at` |
+| Region | `region` or `location_name` |
+| Province / City Case | `province_city_case` or `province` / `city` |
+| Article Date | `article_date` / `published_at` |
+| Date Case | `date_case` / `event_date` |
+| Number of Cases / Deaths | `number_of_cases` / `case_count`, `number_of_deaths` / `death_count` |
+| Latitude / Longitude | matrix coords or `ST_Y`/`ST_X(geom)` |
+| Source Type / Name | event or matrix fields |
+| Evidence | matrix `evidence`, or first JSON evidence item — **not** the full article body |
+| Confidence | stored confidence |
+| Processing Status | `crawl_matrix_rows.processing_status` or `raw_reports.processing_status` |
+| Event ID | `disease_events.id` |
+| Is Health Related, Event Type, Source Credibility, Credibility Label, Sentiment, Relevance Score, Outbreak Alert, Needs Review | `disease_events` columns |
 
-Do **not** invent Phase 1 numbers. Phase 1 (`https://data.aseanbiosurveillance.org/dashboard`) is login-gated. Compare a Phase 1 export against these live Phase 2 **surveillance** counts and against field richness that Phase 2 stores per row:
+CSV / Excel export uses the same header names as the QA sheet.
 
-`title`, `url`, `published_at`, `country`, `province`, `city`, `disease`, `cases`, `deaths`, `confidence`, `source`, `crawl_channel`, `job_id`, `mapped`, `needs_review`, `raw_report_id`, `evidence`, geo, `quality_class`, `is_health_related`.
+## Performance
 
-Volume + those extra fields are the coverage argument. If a table is empty, the UI stays empty.
+List is a **paginated SQL ledger** (default **25** rows, max 100). Each channel branch applies quality / country / date filters **before** `ORDER BY created_at DESC LIMIT`. When both manual and pipeline rows are requested, each branch is capped at `offset+limit` then merged — the full `disease_events` table is not materialized.
+
+- Search (`q`) and disease text are **debounced 400ms**. Summary cards load once from cheap `COUNT(*)` subqueries; they do not rescan the matrix on each keystroke.
+- Row detail is a primary-key lookup (`crawl_matrix_rows.id` or `disease_events.id`), not the union.
+- Title / evidence in the list are `LEFT(...)` truncated. Full evidence is loaded only in the detail modal.
+
+### Indexes (`database/init/085_crawl_history_ledger.sql`)
+
+| Index | Use |
+| --- | --- |
+| `idx_disease_events_crawl_history_surveillance_created` | default newest-surveillance page |
+| `idx_disease_events_crawl_history_review_created` | Quality = review |
+| `idx_disease_events_crawl_history_noise_created` | Quality = noise |
+| `idx_crawl_matrix_rows_crawling_created` | manual-job newest page |
+| `idx_disease_events_source_name_lower` | analyze-url vs continuous split |
+
+`idx_locations_lower_name_active` (from `028_dashboard_ews_indexes.sql`) supports the ASEAN country `EXISTS` lookup.
 
 ## Quality classes
 
@@ -32,40 +61,35 @@ Volume + those extra fields are the coverage argument. If a table is empty, the 
 | `surveillance` | Health-related, known disease, confidence ≥ 0.15 (manual jobs with a real disease name also qualify) | **shown** |
 | `review` | Health-related but `UNKNOWN` / empty disease or confidence &lt; 0.15 | hidden unless Quality = review |
 | `noise` | `is_health_related = false` or `NEGATIVE*` | hidden unless Quality = noise |
-| `all` | Deduped stored rows of every class | opt-in |
+| `all` | Stored rows of every class (still paginated) | opt-in |
 
-Continuous / analyze-url rows are **one per article** (`DISTINCT ON` `normalized_url` / `url` / `raw_report_id`). When several events share an article, the surveillance row wins, then review, then newest.
-
-Worker still INSERTs non-health `disease_events` (`is_health_related = FALSE`, `raw_reports.processing_status = NON_HEALTH`) so Events QA can inspect them. Crawl History just stops treating that inventory as the default ledger.
+Worker still INSERTs non-health `disease_events` so Events QA can inspect them.
 
 ## Channels
 
-- **Manual jobs** — every `crawl_matrix_rows` row joined to `crawl_matrix_jobs` + `raw_reports`, with `disease_events` when the same `raw_report_id` exists. Job history lists past `crawl_matrix_jobs` (status, counts, started/finished, disease/country filters). Opening a job filters the matrix to that `job_id`.
-- **Continuous crawl** — `disease_events` / `raw_reports` that did **not** come from a manual matrix job (`raw_report_id` not in `crawl_matrix_rows`), excluding SKDR/test, after article dedupe.
-- **Analyze URL** — the same non-manual set when an `analysis_jobs` row points at the event, or `source_name` is `URL Analyzer`.
+- **Manual jobs** — `crawl_matrix_rows` for a `crawl_matrix_jobs` row.
+- **Continuous crawl** — `disease_events` not linked to a matrix `raw_report_id`, excluding SKDR/test / URL Analyzer.
+- **Analyze URL** — `source_name = 'URL Analyzer'` or an `analysis_jobs.event_id` pointer.
 
 ## API (authenticated; not public)
 
 ```
 GET /nlp/api/v1/crawl-history/summary
-GET /nlp/api/v1/crawl-history/rows?page=1&per_page=20&quality=surveillance&channel=&country=&disease=&date_from=&date_to=&status=&has_geo=&job_id=&q=
+GET /nlp/api/v1/crawl-history/rows?page=1&per_page=25&quality=surveillance&country=ASEAN&channel=&disease=&date_from=&date_to=&status=&has_geo=&job_id=&q=
 GET /nlp/api/v1/crawl-history/rows/:id
 GET /nlp/api/v1/crawl-history/jobs
 GET /nlp/api/v1/crawl-history/jobs/:id
 GET /nlp/api/v1/crawl-history/rows?format=csv|xlsx
 ```
 
-`quality` omitted defaults to `surveillance`. Use `review`, `noise`, or `all` to inspect other stored classes.
-
-Unauthenticated calls return **401**. Empty filters return `data: []` and `total: 0`.
+`quality` omitted defaults to `surveillance`. `per_page` omitted defaults to **25**. Unauthenticated calls return **401**.
 
 ## Verify
 
 1. Sign in as a role that has Manual Crawler (`data_analyst`, `epidemiologi`, `skk`, or admin).
-2. Open `/nlp/crawl-history`. Sidebar entry: **Crawl History**.
-3. Default matrix must **not** list political/economic RSS with disease `UNKNOWN`. Those appear only under Quality = Noise or All stored.
-4. Summary **Noise excluded** matches non-health / `NEGATIVE*` ledger rows. Channel cards are surveillance counts, not the raw Events inventory.
-5. Mapped is Yes only when the row is health + known disease + coordinates.
-6. Matrix tab lists stored rows; Job history lists `crawl_matrix_jobs`. Click a job → matrix filtered to that job. Click a row → snippet, NLP fields, `raw_report_id`, quality.
-7. Export CSV / Excel uses the current filters including quality (cap 5,000).
-8. `curl` without a bearer token against `/api/v1/crawl-history/rows` returns 401.
+2. Open `/nlp/crawl-history`. Default matrix columns match the QA sheet; Source URL is a clickable link; headers stay put while scrolling.
+3. First page is a 25-row SQL page (not thousands of DOM rows). Changing search does not fire until ~400ms idle.
+4. Default must **not** list political/economic RSS with disease `UNKNOWN`.
+5. Summary cards still load if you type in the search box (they are a separate cheap endpoint).
+6. Export CSV headers equal: `No,Country,Language,Source URL,Article Title,...Needs Review`.
+7. `curl` without a bearer token against `/api/v1/crawl-history/rows` returns 401.

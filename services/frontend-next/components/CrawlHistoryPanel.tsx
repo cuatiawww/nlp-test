@@ -1,19 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import {
   Download,
   ExternalLink,
   Loader2,
-  MapPin,
   RefreshCw,
 } from 'lucide-react'
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import {
   downloadCrawlHistoryExport,
-  fetchCrawlHistoryJob,
   fetchCrawlHistoryJobs,
   fetchCrawlHistoryRow,
   fetchCrawlHistoryRows,
@@ -27,6 +25,9 @@ type Tab = 'matrix' | 'jobs'
 type ChannelFilter = 'all' | 'manual' | 'continuous' | 'analyze-url'
 type QualityFilter = 'surveillance' | 'review' | 'noise' | 'all'
 
+const PAGE_SIZE = 25
+const FILTER_DEBOUNCE_MS = 400
+
 const CHANNELS: { id: ChannelFilter; label: string }[] = [
   { id: 'all', label: 'All stored results' },
   { id: 'manual', label: 'Manual jobs' },
@@ -34,25 +35,178 @@ const CHANNELS: { id: ChannelFilter; label: string }[] = [
   { id: 'analyze-url', label: 'Analyze URL' },
 ]
 
+const PHASE1_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
+  { key: 'no', label: 'No', width: 52, sticky: true },
+  { key: 'country', label: 'Country', width: 110 },
+  { key: 'language', label: 'Language', width: 78 },
+  { key: 'url', label: 'Source URL', width: 220 },
+  { key: 'title', label: 'Article Title', width: 260 },
+  { key: 'disease', label: 'Disease Name', width: 160 },
+  { key: 'crawling_date', label: 'Crawling Date', width: 140 },
+  { key: 'region', label: 'Region', width: 140 },
+  { key: 'province_city_case', label: 'Province / City Case', width: 160 },
+  { key: 'article_date', label: 'Article Date', width: 110 },
+  { key: 'date_case', label: 'Date Case', width: 110 },
+  { key: 'cases', label: 'Number of Cases', width: 90 },
+  { key: 'deaths', label: 'Number of Deaths', width: 90 },
+  { key: 'latitude', label: 'Latitude', width: 90 },
+  { key: 'longitude', label: 'Longitude', width: 90 },
+  { key: 'source_type', label: 'Source Type', width: 100 },
+  { key: 'source_name', label: 'Source Name', width: 140 },
+  { key: 'evidence', label: 'Evidence', width: 200 },
+  { key: 'confidence', label: 'Confidence', width: 90 },
+  { key: 'status', label: 'Processing Status', width: 130 },
+  { key: 'disease_event_id', label: 'Event ID', width: 140 },
+  { key: 'is_health_related', label: 'Is Health Related', width: 110 },
+  { key: 'event_type', label: 'Event Type', width: 140 },
+  { key: 'source_credibility', label: 'Source Credibility', width: 110 },
+  { key: 'source_credibility_label', label: 'Credibility Label', width: 120 },
+  { key: 'sentiment', label: 'Sentiment', width: 90 },
+  { key: 'relevance_score', label: 'Relevance Score', width: 110 },
+  { key: 'outbreak_alert', label: 'Outbreak Alert', width: 110 },
+  { key: 'needs_review', label: 'Needs Review', width: 110 },
+]
+
 function fmtNum(value?: number | null) {
-  return Number(value || 0).toLocaleString('en-US')
+  if (value == null || Number.isNaN(Number(value))) return ''
+  return Number(value).toLocaleString('en-US')
 }
 
-function fmtPct(value?: number | null) {
-  if (value == null || Number.isNaN(Number(value))) return '—'
-  return `${Math.round(Number(value) * 100)}%`
+function fmtBool(value?: boolean | null) {
+  if (value === true) return 'True'
+  if (value === false) return 'False'
+  return ''
+}
+
+function fmtText(value?: string | number | null) {
+  if (value == null || value === '') return ''
+  return String(value)
+}
+
+function fmtDate(value?: string | null) {
+  if (!value) return ''
+  return value.length > 19 ? value.slice(0, 19).replace('T', ' ') : value.replace('T', ' ')
 }
 
 function diseaseNames(value: CrawlHistoryJob['disease_names']) {
   if (Array.isArray(value)) return value.filter(Boolean).join(', ')
-  return value ? String(value) : '—'
+  return value ? String(value) : ''
 }
 
 function channelLabel(channel?: string | null) {
   if (channel === 'manual') return 'Manual'
   if (channel === 'continuous') return 'Continuous'
   if (channel === 'analyze-url') return 'Analyze URL'
-  return channel || '—'
+  return channel || ''
+}
+
+function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number): ReactNode {
+  switch (key) {
+    case 'no':
+      return (page - 1) * PAGE_SIZE + index + 1
+    case 'url':
+      return row.url ? (
+        <a
+          href={row.url}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex max-w-[200px] items-center gap-1 truncate text-[#0060A9] hover:underline"
+          title={row.url}
+        >
+          {row.url} <ExternalLink className="h-3 w-3 shrink-0" />
+        </a>
+      ) : ''
+    case 'title':
+      return (
+        <span className="block max-w-[240px] truncate" title={row.title || row.article_title || ''}>
+          {fmtText(row.title || row.article_title)}
+        </span>
+      )
+    case 'disease':
+      return (
+        <span className="block max-w-[150px] truncate font-medium" title={row.disease || ''}>
+          {fmtText(row.disease)}
+        </span>
+      )
+    case 'crawling_date':
+      return fmtDate(row.crawling_date)
+    case 'article_date':
+      return fmtDate(row.article_date || row.published_at)
+    case 'date_case':
+      return fmtDate(row.date_case)
+    case 'cases':
+      return fmtNum(row.cases)
+    case 'deaths':
+      return fmtNum(row.deaths)
+    case 'latitude':
+    case 'longitude':
+    case 'confidence':
+    case 'source_credibility': {
+      const raw = row[key as keyof CrawlHistoryRow]
+      if (raw == null || raw === '') return ''
+      const n = Number(raw)
+      return Number.isNaN(n) ? '' : String(n)
+    }
+    case 'is_health_related':
+      return fmtBool(row.is_health_related)
+    case 'outbreak_alert':
+      return fmtBool(row.outbreak_alert)
+    case 'needs_review':
+      return fmtBool(row.needs_review)
+    case 'disease_event_id':
+      return (
+        <span className="block max-w-[130px] truncate font-mono text-[10px]" title={row.disease_event_id || ''}>
+          {fmtText(row.disease_event_id)}
+        </span>
+      )
+    case 'evidence':
+      return (
+        <span className="block max-w-[180px] truncate" title={row.evidence || ''}>
+          {fmtText(row.evidence)}
+        </span>
+      )
+    case 'country':
+      return fmtText(row.country)
+    case 'language':
+      return fmtText(row.language)
+    case 'region':
+      return (
+        <span className="block max-w-[130px] truncate" title={row.region || ''}>
+          {fmtText(row.region)}
+        </span>
+      )
+    case 'province_city_case':
+      return (
+        <span className="block max-w-[150px] truncate" title={row.province_city_case || ''}>
+          {fmtText(row.province_city_case)}
+        </span>
+      )
+    case 'source_type':
+      return fmtText(row.source_type)
+    case 'source_name':
+      return (
+        <span className="block max-w-[130px] truncate" title={row.source_name || ''}>
+          {fmtText(row.source_name)}
+        </span>
+      )
+    case 'status':
+      return fmtText(row.status)
+    case 'event_type':
+      return (
+        <span className="block max-w-[130px] truncate" title={row.event_type || ''}>
+          {fmtText(row.event_type)}
+        </span>
+      )
+    case 'source_credibility_label':
+      return fmtText(row.source_credibility_label)
+    case 'sentiment':
+      return fmtText(row.sentiment)
+    case 'relevance_score':
+      return fmtText(row.relevance_score)
+    default:
+      return ''
+  }
 }
 
 export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: string }) {
@@ -60,13 +214,15 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const [tab, setTab] = useState<Tab>('matrix')
   const [channel, setChannel] = useState<ChannelFilter>('all')
   const [quality, setQuality] = useState<QualityFilter>('surveillance')
-  const [country, setCountry] = useState('')
+  const [country, setCountry] = useState('ASEAN')
+  const [diseaseInput, setDiseaseInput] = useState('')
   const [disease, setDisease] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [status, setStatus] = useState('all')
   const [geo, setGeo] = useState('all')
   const [jobId, setJobId] = useState(initialJobId || '')
+  const [qInput, setQInput] = useState('')
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
   const [jobPage, setJobPage] = useState(1)
@@ -82,12 +238,22 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const [detail, setDetail] = useState<CrawlHistoryRow | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQ(qInput.trim()), FILTER_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [qInput])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDisease(diseaseInput.trim()), FILTER_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [diseaseInput])
+
   const filters = useMemo(
     () => ({
-      q: q.trim() || undefined,
+      q: q || undefined,
       channel: channel === 'all' ? undefined : channel,
       country: country || undefined,
-      disease: disease.trim() || undefined,
+      disease: disease || undefined,
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
       status: status === 'all' ? undefined : status,
@@ -109,7 +275,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const loadRows = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await fetchCrawlHistoryRows({ ...filters, page, per_page: 20 })
+      const result = await fetchCrawlHistoryRows({ ...filters, page, per_page: PAGE_SIZE })
       setRows(result.data || [])
       setTotal(result.total || 0)
       setTotalPages(result.totalPages || 1)
@@ -127,14 +293,14 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
     setLoading(true)
     try {
       const result = await fetchCrawlHistoryJobs({
-        q: q.trim() || undefined,
-        country: country || undefined,
-        disease: disease.trim() || undefined,
+        q: q || undefined,
+        country: country === 'ASEAN' ? undefined : country || undefined,
+        disease: disease || undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         status: status === 'all' ? undefined : status,
         page: jobPage,
-        per_page: 20,
+        per_page: PAGE_SIZE,
       })
       setJobs(result.data || [])
       setJobTotal(result.total || 0)
@@ -164,27 +330,23 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   }, [channel, quality, country, disease, dateFrom, dateTo, status, geo, jobId, q])
 
   async function openRow(row: CrawlHistoryRow) {
+    setDetail(row)
     setDetailLoading(true)
     try {
       const full = await fetchCrawlHistoryRow(row.id, row.crawl_channel)
       setDetail(full)
     } catch (error: any) {
       toast.error(error?.message || 'Row detail could not be loaded')
-      setDetail(row)
     } finally {
       setDetailLoading(false)
     }
   }
 
-  async function openJob(job: CrawlHistoryJob) {
+  function openJob(job: CrawlHistoryJob) {
     setJobId(job.job_id)
     setChannel('manual')
+    setCountry('')
     setTab('matrix')
-    try {
-      await fetchCrawlHistoryJob(job.job_id)
-    } catch {
-      // Matrix filter is enough; job fetch is only a prefetch.
-    }
   }
 
   async function exportRows(format: 'csv' | 'xlsx') {
@@ -200,13 +362,15 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   }
 
   const cards = [
-    { label: 'Manual jobs', value: summary ? fmtNum(summary.jobs) : '—' },
-    { label: 'Surveillance rows', value: summary ? fmtNum(summary.quality?.surveillance ?? summary.matrix_rows) : '—' },
-    { label: 'Continuous', value: summary ? fmtNum(summary.by_channel?.continuous) : '—' },
-    { label: 'Analyze URL', value: summary ? fmtNum(summary.by_channel?.analyze_url) : '—' },
-    { label: 'Mapped / with geo', value: summary ? `${fmtNum(summary.mapped)} / ${fmtNum(summary.with_geo)}` : '—' },
-    { label: 'Noise excluded', value: summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) : '—' },
+    { label: 'Manual jobs', value: summary ? fmtNum(summary.jobs) || '0' : '—' },
+    { label: 'Surveillance rows', value: summary ? fmtNum(summary.quality?.surveillance ?? summary.matrix_rows) || '0' : '—' },
+    { label: 'Continuous', value: summary ? fmtNum(summary.by_channel?.continuous) || '0' : '—' },
+    { label: 'Analyze URL', value: summary ? fmtNum(summary.by_channel?.analyze_url) || '0' : '—' },
+    { label: 'Mapped / with geo', value: summary ? `${fmtNum(summary.mapped) || '0'} / ${fmtNum(summary.with_geo) || '0'}` : '—' },
+    { label: 'Noise excluded', value: summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) || '0' : '—' },
   ]
+
+  const tableMinWidth = PHASE1_COLUMNS.reduce((sum, col) => sum + col.width, 0)
 
   return (
     <section className="mt-5 space-y-4">
@@ -223,8 +387,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       </p>
       {summary?.quality ? (
         <p className="text-[11px] text-slate-500">
-          Surveillance {fmtNum(summary.quality.surveillance)} · Review {fmtNum(summary.quality.review)} · Noise {fmtNum(summary.quality.noise)}
-          {typeof summary.disease_events === 'number' ? ` · Stored events ${fmtNum(summary.disease_events)}` : ''}
+          Surveillance {fmtNum(summary.quality.surveillance) || '0'} · Review {fmtNum(summary.quality.review) || '0'} · Noise {fmtNum(summary.quality.noise) || '0'}
+          {typeof summary.disease_events === 'number' ? ` · Stored events ${fmtNum(summary.disease_events) || '0'}` : ''}
         </p>
       ) : null}
 
@@ -272,8 +436,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
         )}
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
             placeholder={t('pages.crawlHistory.searchPlaceholder')}
             className="rounded-lg border border-slate-200 px-3 py-2 text-sm xl:col-span-2"
           />
@@ -286,8 +450,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
             <option value="OUTSIDE ASEAN">OUTSIDE ASEAN</option>
           </select>
           <input
-            value={disease}
-            onChange={(e) => setDisease(e.target.value)}
+            value={diseaseInput}
+            onChange={(e) => setDiseaseInput(e.target.value)}
             placeholder={t('pages.crawlHistory.diseasePlaceholder')}
             className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
           />
@@ -358,76 +522,65 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        {loading ? (
+        {tab === 'matrix' && rows.length === 0 && !loading ? (
+          <div className="p-10 text-center text-sm text-slate-400">{t('pages.crawlHistory.emptyRows')}</div>
+        ) : tab === 'jobs' && jobs.length === 0 && !loading ? (
+          <div className="p-10 text-center text-sm text-slate-400">{t('pages.crawlHistory.emptyJobs')}</div>
+        ) : tab === 'jobs' && loading && jobs.length === 0 ? (
           <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading')}
           </div>
-        ) : tab === 'matrix' && rows.length === 0 ? (
-          <div className="p-10 text-center text-sm text-slate-400">{t('pages.crawlHistory.emptyRows')}</div>
-        ) : tab === 'jobs' && jobs.length === 0 ? (
-          <div className="p-10 text-center text-sm text-slate-400">{t('pages.crawlHistory.emptyJobs')}</div>
+        ) : tab === 'matrix' && loading && rows.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-400">
+            <Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading')}
+          </div>
         ) : tab === 'matrix' ? (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-[1400px] w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+            <div className="relative max-h-[70vh] overflow-auto">
+              {loading ? (
+                <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center bg-white/50 pt-16">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 shadow-sm">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading page {page}
+                  </span>
+                </div>
+              ) : null}
+              <table className="border-separate border-spacing-0 text-left text-[11px]" style={{ minWidth: tableMinWidth }}>
+                <colgroup>
+                  {PHASE1_COLUMNS.map((col) => (
+                    <col key={col.key} style={{ width: col.width }} />
+                  ))}
+                </colgroup>
+                <thead>
                   <tr>
-                    {['Title / URL', 'Published', 'Country', 'Province / City', 'Disease', 'Cases', 'Deaths', 'Confidence', 'Source', 'Channel', 'Quality', 'Mapped', 'Review'].map((header) => (
-                      <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>
+                    {PHASE1_COLUMNS.map((col) => (
+                      <th
+                        key={col.key}
+                        className={`sticky top-0 z-10 whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600 ${
+                          col.sticky ? 'left-0 z-20 shadow-[2px_0_0_#e2e8f0]' : ''
+                        }`}
+                      >
+                        {col.label}
+                      </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {rows.map((row) => (
-                    <tr key={`${row.crawl_channel}-${row.id}`} className="cursor-pointer align-top hover:bg-blue-50/40" onClick={() => void openRow(row)}>
-                      <td className="max-w-[240px] px-3 py-3">
-                        <div className="truncate font-medium text-slate-800" title={row.title || ''}>{row.title || '—'}</div>
-                        {row.url ? (
-                          <a href={row.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[10px] text-[#0060A9] hover:underline">
-                            {row.url} <ExternalLink className="h-3 w-3 shrink-0" />
-                          </a>
-                        ) : null}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3">{row.published_at || '—'}</td>
-                      <td className="px-3 py-3 font-semibold">{row.country || '—'}</td>
-                      <td className="max-w-[160px] px-3 py-3">{[row.province, row.city].filter(Boolean).join(' / ') || '—'}</td>
-                      <td className="max-w-[160px] px-3 py-3 font-medium text-slate-800">
-                        {row.disease || '—'}
-                        {row.icd11_code ? <div className="text-[10px] font-normal text-slate-400">{row.icd11_code}</div> : null}
-                      </td>
-                      <td className="px-3 py-3 font-bold">{fmtNum(row.cases)}</td>
-                      <td className="px-3 py-3 font-bold text-red-600">{fmtNum(row.deaths)}</td>
-                      <td className="px-3 py-3">{fmtPct(row.confidence)}</td>
-                      <td className="max-w-[140px] px-3 py-3">
-                        {row.source_name || row.source_type || '—'}
-                        <div className="text-[10px] text-slate-400">{row.source_type || ''}</div>
-                      </td>
-                      <td className="px-3 py-3">{channelLabel(row.crawl_channel)}</td>
-                      <td className="px-3 py-3">
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          row.quality_class === 'surveillance'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : row.quality_class === 'review'
-                              ? 'bg-amber-50 text-amber-700'
-                              : row.quality_class === 'noise'
-                                ? 'bg-slate-100 text-slate-500'
-                                : 'text-slate-500'
-                        }`}>
-                          {row.quality_class || '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        {row.mapped ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-700"><MapPin className="h-3 w-3" /> Yes</span>
-                        ) : 'No'}
-                      </td>
-                      <td className="px-3 py-3">
-                        {row.needs_review ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Needs review</span>
-                        ) : (
-                          <span className="text-slate-500">{row.status || 'processed'}</span>
-                        )}
-                      </td>
+                <tbody>
+                  {rows.map((row, index) => (
+                    <tr
+                      key={`${row.crawl_channel}-${row.id}`}
+                      className="cursor-pointer hover:bg-blue-50/40"
+                      onClick={() => void openRow(row)}
+                    >
+                      {PHASE1_COLUMNS.map((col) => (
+                        <td
+                          key={col.key}
+                          className={`whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1.5 align-middle text-slate-800 ${
+                            col.sticky ? 'sticky left-0 z-[1]' : ''
+                          }`}
+                        >
+                          {rowCell(row, col.key, index, page)}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -438,27 +591,27 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-[1100px] w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+              <table className="min-w-[1100px] w-full border-separate border-spacing-0 text-left text-xs">
+                <thead>
                   <tr>
                     {['Job', 'Status', 'Diseases', 'Country / region', 'Dates', 'Discovered', 'Processed', 'Rows', 'Started', 'Finished'].map((header) => (
-                      <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>
+                      <th key={header} className="sticky top-0 whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{header}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody>
                   {jobs.map((job) => (
-                    <tr key={job.job_id} className="cursor-pointer hover:bg-blue-50/40" onClick={() => void openJob(job)}>
-                      <td className="px-3 py-3 font-mono text-[11px] text-slate-700">{job.job_id.slice(0, 8)}</td>
-                      <td className="px-3 py-3 font-semibold capitalize">{job.status}</td>
-                      <td className="max-w-[220px] px-3 py-3">{diseaseNames(job.disease_names)}</td>
-                      <td className="px-3 py-3">{[job.country, job.region, job.province_city].filter(Boolean).join(' · ') || '—'}</td>
-                      <td className="whitespace-nowrap px-3 py-3">{[job.date_from, job.date_to].filter(Boolean).join(' → ') || '—'}</td>
-                      <td className="px-3 py-3">{fmtNum(job.discovered_count)}</td>
-                      <td className="px-3 py-3">{fmtNum(job.processed_count)}</td>
-                      <td className="px-3 py-3 font-bold">{fmtNum(job.row_count)}</td>
-                      <td className="whitespace-nowrap px-3 py-3">{job.created_at?.slice(0, 16) || '—'}</td>
-                      <td className="whitespace-nowrap px-3 py-3">{job.completed_at?.slice(0, 16) || '—'}</td>
+                    <tr key={job.job_id} className="cursor-pointer hover:bg-blue-50/40" onClick={() => openJob(job)}>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3 font-mono text-[11px] text-slate-700">{job.job_id.slice(0, 8)}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3 font-semibold capitalize">{job.status}</td>
+                      <td className="max-w-[220px] truncate border-b border-r border-slate-100 px-3 py-3">{diseaseNames(job.disease_names)}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{[job.country, job.region, job.province_city].filter(Boolean).join(' · ') || ''}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{[job.date_from, job.date_to].filter(Boolean).join(' → ') || ''}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{fmtNum(job.discovered_count)}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{fmtNum(job.processed_count)}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3 font-bold">{fmtNum(job.row_count)}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{job.created_at?.slice(0, 16) || ''}</td>
+                      <td className="whitespace-nowrap border-b border-slate-100 px-3 py-3">{job.completed_at?.slice(0, 16) || ''}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -483,29 +636,38 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               ) : null}
             </div>
             <dl className="grid grid-cols-2 gap-3 text-xs md:grid-cols-3">
-              <div><dt className="text-slate-400">Published</dt><dd className="font-medium">{detail.published_at || '—'}</dd></div>
-              <div><dt className="text-slate-400">Country</dt><dd className="font-medium">{detail.country || '—'}</dd></div>
-              <div><dt className="text-slate-400">Province / city</dt><dd className="font-medium">{[detail.province, detail.city].filter(Boolean).join(' / ') || '—'}</dd></div>
-              <div><dt className="text-slate-400">Disease</dt><dd className="font-medium">{detail.disease || '—'}</dd></div>
-              <div><dt className="text-slate-400">Cases / deaths</dt><dd className="font-medium">{fmtNum(detail.cases)} / {fmtNum(detail.deaths)}</dd></div>
-              <div><dt className="text-slate-400">Confidence</dt><dd className="font-medium">{fmtPct(detail.confidence)}</dd></div>
-              <div><dt className="text-slate-400">Channel</dt><dd className="font-medium">{channelLabel(detail.crawl_channel)}</dd></div>
-              <div><dt className="text-slate-400">Mapped / geo</dt><dd className="font-medium">{detail.mapped ? 'Yes' : 'No'}{detail.has_geo ? ` · ${detail.latitude}, ${detail.longitude}` : ''}</dd></div>
-              <div><dt className="text-slate-400">Quality</dt><dd className="font-medium capitalize">{detail.quality_class || '—'}</dd></div>
-              <div><dt className="text-slate-400">Health related</dt><dd className="font-medium">{detail.is_health_related ? 'Yes' : 'No'}</dd></div>
-              <div><dt className="text-slate-400">Needs review</dt><dd className="font-medium">{detail.needs_review ? 'Yes' : 'No'}</dd></div>
+              <div><dt className="text-slate-400">Country</dt><dd className="font-medium">{fmtText(detail.country) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Language</dt><dd className="font-medium">{fmtText(detail.language) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Disease</dt><dd className="font-medium">{fmtText(detail.disease) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Crawling date</dt><dd className="font-medium">{fmtDate(detail.crawling_date) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Article date</dt><dd className="font-medium">{fmtDate(detail.article_date || detail.published_at) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Date case</dt><dd className="font-medium">{fmtDate(detail.date_case) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Region</dt><dd className="font-medium">{fmtText(detail.region) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Province / city case</dt><dd className="font-medium">{fmtText(detail.province_city_case) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Cases / deaths</dt><dd className="font-medium">{fmtNum(detail.cases) || '—'} / {fmtNum(detail.deaths) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Lat / lon</dt><dd className="font-medium">{detail.latitude ?? '—'} / {detail.longitude ?? '—'}</dd></div>
+              <div><dt className="text-slate-400">Source</dt><dd className="font-medium">{[detail.source_type, detail.source_name].filter(Boolean).join(' · ') || '—'}</dd></div>
+              <div><dt className="text-slate-400">Confidence</dt><dd className="font-medium">{detail.confidence ?? '—'}</dd></div>
+              <div><dt className="text-slate-400">Status</dt><dd className="font-medium">{fmtText(detail.status) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Channel</dt><dd className="font-medium">{channelLabel(detail.crawl_channel) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Health related</dt><dd className="font-medium">{fmtBool(detail.is_health_related) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Event type</dt><dd className="font-medium">{fmtText(detail.event_type) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Credibility</dt><dd className="font-medium">{detail.source_credibility ?? '—'} {fmtText(detail.source_credibility_label)}</dd></div>
+              <div><dt className="text-slate-400">Sentiment / relevance</dt><dd className="font-medium">{fmtText(detail.sentiment) || '—'} / {fmtText(detail.relevance_score) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Outbreak alert</dt><dd className="font-medium">{fmtBool(detail.outbreak_alert) || '—'}</dd></div>
+              <div><dt className="text-slate-400">Needs review</dt><dd className="font-medium">{fmtBool(detail.needs_review) || '—'}</dd></div>
+              <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Event id</dt><dd className="font-mono text-[11px]">{detail.disease_event_id || '—'}</dd></div>
               <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Raw report id</dt><dd className="font-mono text-[11px]">{detail.raw_report_id || '—'}</dd></div>
-              <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Disease event id</dt><dd className="font-mono text-[11px]">{detail.disease_event_id || '—'}</dd></div>
               {detail.job_id ? <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Job id</dt><dd className="font-mono text-[11px]">{detail.job_id}</dd></div> : null}
             </dl>
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Article snippet</div>
-              <p className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-700">{detail.snippet || detail.evidence || 'No stored snippet.'}</p>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
+              <p className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-700">{detail.evidence || '—'}</p>
             </div>
-            {detail.evidence && detail.evidence !== detail.snippet ? (
+            {detail.snippet ? (
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">NLP evidence</div>
-                <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">{detail.evidence}</p>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Article snippet</div>
+                <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">{detail.snippet}</p>
               </div>
             ) : null}
           </div>
