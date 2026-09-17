@@ -90,7 +90,38 @@ export function collapseFacts(facts) {
   let casesDisplay = ''
   let deathsDisplay = ''
   let dimension = 'single'
-  if (locationsVary) {
+  if (locationsVary && diseasesVary) {
+    const byLocCases = new Map()
+    const byLocDeaths = new Map()
+    rows.forEach((item, index) => {
+      const loc = locationLabels[index] || 'Unknown'
+      const dis = shortDiseaseLabel(item.disease || item.disease_classification)
+      const c = toInt(item.case_count ?? item.cases)
+      const d = toInt(item.death_count ?? item.deaths)
+      if (dis && c != null) {
+        if (!byLocCases.has(loc)) byLocCases.set(loc, [])
+        byLocCases.get(loc).push([dis, c])
+      }
+      if (dis && d != null && d > 0) {
+        if (!byLocDeaths.has(loc)) byLocDeaths.set(loc, [])
+        byLocDeaths.get(loc).push([dis, d])
+      }
+    })
+    const casesParts = []
+    byLocCases.forEach((pairs, loc) => {
+      pairs.sort((a, b) => b[1] - a[1])
+      casesParts.push(`${loc}: ` + pairs.map(([d, cnt]) => `${d}(${cnt})`).join(', '))
+    })
+    casesDisplay = casesParts.join(DISPLAY_SEPARATOR)
+
+    const deathsParts = []
+    byLocDeaths.forEach((pairs, loc) => {
+      pairs.sort((a, b) => b[1] - a[1])
+      deathsParts.push(`${loc}: ` + pairs.map(([d, cnt]) => `${d}(${cnt})`).join(', '))
+    })
+    deathsDisplay = deathsParts.join(DISPLAY_SEPARATOR)
+    dimension = 'multi'
+  } else if (locationsVary) {
     casesDisplay = formatLabelCounts([...casesByLocation.entries()])
     deathsDisplay = formatLabelCounts([...deathsByLocation.entries()], true)
     dimension = 'location'

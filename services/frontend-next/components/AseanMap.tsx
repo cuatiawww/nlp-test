@@ -363,78 +363,77 @@ export default function AseanMap({
     regionRef.current = regionLayer;
 
     const markerSrc = new VectorSource();
+
+    // Pre-allocated cached styles to eliminate GC pressure and main thread stalls
+    const normalExactStyle = [new Style({
+      image: new CircleStyle({
+        radius: 7,
+        fill: new Fill({ color: "#0060A9" }),
+        stroke: new Stroke({ color: "#ffffff", width: 2 }),
+      }),
+    })];
+
+    const normalApproxStyle = [new Style({
+      image: new CircleStyle({
+        radius: 5.5,
+        fill: new Fill({ color: "#0060A9" }),
+        stroke: new Stroke({ color: "#ffffff", width: 2 }),
+      }),
+    })];
+
+    const hotExactStyle = [
+      new Style({
+        image: new CircleStyle({
+          radius: 15,
+          fill: new Fill({ color: "rgba(0, 96, 169, 0.16)" }),
+          stroke: new Stroke({ color: "rgba(0, 96, 169, 0.45)", width: 1.5 }),
+        }),
+      }),
+      new Style({
+        image: new CircleStyle({
+          radius: 10,
+          fill: new Fill({ color: "rgba(0, 96, 169, 0.28)" }),
+        }),
+      }),
+      new Style({
+        image: new CircleStyle({
+          radius: 7,
+          fill: new Fill({ color: "#0060A9" }),
+          stroke: new Stroke({ color: "#ffffff", width: 2 }),
+        }),
+      }),
+    ];
+
+    const hotApproxStyle = [
+      new Style({
+        image: new CircleStyle({
+          radius: 13,
+          fill: new Fill({ color: "rgba(0, 96, 169, 0.16)" }),
+          stroke: new Stroke({ color: "rgba(0, 96, 169, 0.45)", width: 1.5 }),
+        }),
+      }),
+      new Style({
+        image: new CircleStyle({
+          radius: 9,
+          fill: new Fill({ color: "rgba(0, 96, 169, 0.28)" }),
+        }),
+      }),
+      new Style({
+        image: new CircleStyle({
+          radius: 5.5,
+          fill: new Fill({ color: "#0060A9" }),
+          stroke: new Stroke({ color: "#ffffff", width: 2 }),
+        }),
+      }),
+    ];
+
     const getMarkerStyle = (f: FeatureLike) => {
       const exact = f.get("type") === "exact";
       const isHot = f.get("isHot") === true;
-      const rgb = "0, 96, 169";
-      const coreColor = "#0060A9";
-
-      if (!isHot) {
-        return [new Style({
-          image: new CircleStyle({
-            radius: exact ? 7 : 5.5,
-            fill: new Fill({ color: coreColor }),
-            stroke: new Stroke({ color: "#ffffff", width: 2 }),
-          }),
-        })];
+      if (isHot) {
+        return exact ? hotExactStyle : hotApproxStyle;
       }
-
-      const now = Date.now();
-      // Hot signals pulse uniformly. Severity/EWS colors are intentionally not
-      // exposed on public map markers.
-      const period = 1600;
-      const wave1 = (now % period) / period;
-      const wave2 = ((now + period / 2) % period) / period;
-
-      const maxExpansion = 18;
-      const r1 = 6 + wave1 * maxExpansion;
-      const alpha1 = Math.max(0, (1 - wave1) * 0.75);
-
-      const r2 = 6 + wave2 * maxExpansion;
-      const alpha2 = Math.max(0, (1 - wave2) * 0.5);
-
-      // Outer pulsating wave 1 (Denyut gelombang 1)
-      const pulse1 = new Style({
-        image: new CircleStyle({
-          radius: r1,
-          fill: new Fill({ color: `rgba(${rgb}, ${alpha1 * 0.22})` }),
-          stroke: new Stroke({
-            color: `rgba(${rgb}, ${alpha1})`,
-            width: 1.5,
-          }),
-        }),
-      });
-
-      // Outer pulsating wave 2 (Denyut gelombang 2)
-      const pulse2 = new Style({
-        image: new CircleStyle({
-          radius: r2,
-          fill: new Fill({ color: `rgba(${rgb}, ${alpha2 * 0.16})` }),
-          stroke: new Stroke({
-            color: `rgba(${rgb}, ${alpha2 * 0.8})`,
-            width: 1,
-          }),
-        }),
-      });
-
-      // Inner soft halo
-      const halo = new Style({
-        image: new CircleStyle({
-          radius: 8,
-          fill: new Fill({ color: `rgba(${rgb}, 0.28)` }),
-        }),
-      });
-
-      // Center solid point
-      const core = new Style({
-        image: new CircleStyle({
-          radius: exact ? 7 : 5.5,
-          fill: new Fill({ color: coreColor }),
-          stroke: new Stroke({ color: "#ffffff", width: 2 }),
-        }),
-      });
-
-      return [pulse1, pulse2, halo, core];
+      return exact ? normalExactStyle : normalApproxStyle;
     };
 
     const markerLayer = new VectorLayer({
@@ -864,7 +863,7 @@ export default function AseanMap({
             zIndex: 18,
             windOptions: {
               velocityScale: 0.015,
-              paths: 1600,
+              paths: 350,
               colorScale: [
                 "rgb(15,60,140)",
                 "rgb(70,150,145)",
@@ -1248,46 +1247,20 @@ export default function AseanMap({
         feature.set("severity", item.severity);
         source.addFeature(feature);
       });
-    radiusRef.current?.setStyle((f) => {
-      const danger = f.get("severity") === "AWAS",
-        pulse = (Math.sin(Date.now() / 280) + 1) / 2;
-      return new Style({
-        fill: new Fill({
-          color: danger
-            ? `rgba(239,68,68,${0.08 + pulse * 0.08})`
-            : `rgba(249,115,22,${0.07 + pulse * 0.06})`,
-        }),
-        stroke: new Stroke({
-          color: danger ? "rgba(220,38,38,.85)" : "rgba(249,115,22,.8)",
-          width: 2 + pulse * 2,
-        }),
-      });
+    const dangerRadiusStyle = new Style({
+      fill: new Fill({ color: "rgba(239,68,68,0.12)" }),
+      stroke: new Stroke({ color: "rgba(220,38,38,0.85)", width: 2 }),
     });
-    let frame = 0;
-    const animate = () => {
-      radiusRef.current?.changed();
-      frame = requestAnimationFrame(animate);
-    };
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-  }, [outbreakLocations, ewsRadiusKm]);
+    const warningRadiusStyle = new Style({
+      fill: new Fill({ color: "rgba(249,115,22,0.10)" }),
+      stroke: new Stroke({ color: "rgba(249,115,22,0.8)", width: 1.8 }),
+    });
 
-  // Continuous smooth pulsating animation for severity markers (Denyut-denyut)
-  useEffect(() => {
-    let animId: number;
-    let lastTime = 0;
-    const animatePulse = (time: number) => {
-      if (time - lastTime >= 28) {
-        lastTime = time;
-        if (markerRef.current) {
-          markerRef.current.changed();
-        }
-      }
-      animId = requestAnimationFrame(animatePulse);
-    };
-    animId = requestAnimationFrame(animatePulse);
-    return () => cancelAnimationFrame(animId);
-  }, []);
+    radiusRef.current?.setStyle((f) => {
+      const danger = f.get("severity") === "AWAS";
+      return danger ? dangerRadiusStyle : warningRadiusStyle;
+    });
+  }, [outbreakLocations, ewsRadiusKm]);
 
   useEffect(() => {
     const layer = hazardRef.current;

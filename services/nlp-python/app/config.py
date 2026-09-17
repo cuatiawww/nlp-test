@@ -136,10 +136,23 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.i
 SYMPTOM_DICT: dict[str, str] = {}
 DISEASE_DICT: dict[str, str] = {}
 OUTBREAK_RULES: dict[str, int] = {}
-LOCATION_COORDS: dict[str, tuple[float, float]] = {}
-LOCATION_COUNTRIES: dict[str, str] = {}
+LOCATION_COORDS: dict[str, tuple[float, float]] = {
+    "Tuy Đức": (12.18, 107.50),
+    "Tuy Duc": (12.18, 107.50),
+    "Sangatta": (0.49, 117.55),
+}
+LOCATION_COUNTRIES: dict[str, str] = {
+    "Tuy Đức": "Vietnam",
+    "Tuy Duc": "Vietnam",
+    "Sangatta": "Indonesia",
+}
 LOCATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
 LOCATION_STOPWORDS = {
+    # Indonesian time/grammatical words that collide with foreign/rare gazetteer entries
+    "selama", "hingga", "sejak", "menjelang", "antara", "sejumlah", "tercatat", "banyaknya",
+    # Vietnamese common discourse markers that collide with gazetteer entries
+    "lien quan", "liên quan", "lien quan den", "liên quan đến", "thang", "thắng", "chien thang", "chiến thắng",
+    "trong do", "trong đó", "tu dau nam", "từ đầu năm", "tong so", "tổng số",
     "ada", "and", "as", "at", "bao", "baru", "bukan", "by", "dan", "dari",
     "dalam", "for", "from", "here", "hoi", "in", "into", "it", "main",
     "nam", "new", "no", "not", "of", "on", "or", "pada", "same", "satu",
@@ -304,8 +317,18 @@ def load_locations_from_db():
             r for r in rows
             if r["name"].strip().casefold() not in LOCATION_STOPWORDS
         ]
-        LOCATION_COORDS = {r["name"]: (r["latitude"], r["longitude"]) for r in usable_rows}
-        LOCATION_COUNTRIES = {r["name"]: r["country"] for r in usable_rows if r.get("country")}
+        LOCATION_COORDS.update({r["name"]: (r["latitude"], r["longitude"]) for r in usable_rows})
+        LOCATION_COUNTRIES.update({r["name"]: r["country"] for r in usable_rows if r.get("country")})
+        # Curated additions for verified surveillance localities
+        if "Tuy Đức" not in LOCATION_COORDS and "Tuy Duc" not in LOCATION_COORDS:
+            LOCATION_COORDS["Tuy Đức"] = (12.18, 107.50)
+            LOCATION_COORDS["Tuy Duc"] = (12.18, 107.50)
+            LOCATION_COUNTRIES["Tuy Đức"] = "Vietnam"
+            LOCATION_COUNTRIES["Tuy Duc"] = "Vietnam"
+        if "Sangatta" not in LOCATION_COORDS:
+            LOCATION_COORDS["Sangatta"] = (0.49, 117.55)
+            LOCATION_COUNTRIES["Sangatta"] = "Indonesia"
+
         alternatives = sorted(
             (
                 "".join(

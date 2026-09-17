@@ -77,22 +77,20 @@ _MONTH_MAP = {
     "december": 12, "desember": 12, "dec": 12, "des": 12, "ธันวาคม": 12,
 }
 
+_MONTHS_PATTERN = (
+    r"january|januari|february|februari|march|maret|april|may|mei|"
+    r"june|juni|july|juli|august|agustus|september|october|oktober|"
+    r"november|december|desember|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|"
+    r"มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|"
+    r"กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม"
+)
+
 _RANGE = re.compile(
     r"(?:from|between|sejak|dari)?\s*"
-    r"(?:(?P<d1>\d{1,2})\s+)?"
-    r"(?P<m1>january|januari|february|februari|march|maret|april|may|mei|"
-    r"june|juni|july|juli|august|agustus|september|october|oktober|"
-    r"november|december|desember|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|"
-    r"มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|"
-    r"กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)"
+    r"(?:(?P<d1>\d{1,2})\s+(?P<m1>" + _MONTHS_PATTERN + r")|(?P<m1_alt>" + _MONTHS_PATTERN + r")\.?\s+(?P<d1_alt>\d{1,2}))"
     r"(?:\s+(?P<y1>20\d{2}|25\d{2}))?"
     r"\s*(?:-|–|—|to|until|hingga|sampai|and|s/?d)\s*"
-    r"(?:(?P<d2>\d{1,2})\s+)?"
-    r"(?P<m2>january|januari|february|februari|march|maret|april|may|mei|"
-    r"june|juni|july|juli|august|agustus|september|october|oktober|"
-    r"november|december|desember|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|"
-    r"มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|"
-    r"กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)"
+    r"(?:(?P<d2>\d{1,2})\s+(?P<m2>" + _MONTHS_PATTERN + r")|(?P<m2_alt>" + _MONTHS_PATTERN + r")\.?\s+(?P<d2_alt>\d{1,2}))"
     r"(?:\s+(?P<y2>20\d{2}|25\d{2}))?",
     re.IGNORECASE,
 )
@@ -135,12 +133,17 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
     sample = text or ""
     match = _RANGE.search(sample[:2500])
     if match:
-        y2 = _calendar_year(match.group("y2"))
-        y1 = _calendar_year(match.group("y1")) or y2
-        m1 = _MONTH_MAP.get((match.group("m1") or "").lower())
-        m2 = _MONTH_MAP.get((match.group("m2") or "").lower())
-        start = _ymd(y1, m1, match.group("d1"))
-        end = _ymd(y2, m2, match.group("d2"))
+        pub_year = int(published_at[:4]) if published_at and len(published_at) >= 4 and published_at[:4].isdigit() else datetime.now().year
+        y2 = _calendar_year(match.group("y2")) or pub_year
+        y1 = _calendar_year(match.group("y1")) or y2 or pub_year
+        m1_raw = match.group("m1") or match.group("m1_alt") or ""
+        m2_raw = match.group("m2") or match.group("m2_alt") or ""
+        d1_raw = match.group("d1") or match.group("d1_alt")
+        d2_raw = match.group("d2") or match.group("d2_alt")
+        m1 = _MONTH_MAP.get(m1_raw.lower().rstrip("."))
+        m2 = _MONTH_MAP.get(m2_raw.lower().rstrip("."))
+        start = _ymd(y1, m1, d1_raw)
+        end = _ymd(y2, m2, d2_raw)
         result["event_date_start"] = start
         result["event_date_end"] = end
         result["event_date"] = end or start

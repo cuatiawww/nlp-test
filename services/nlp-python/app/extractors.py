@@ -591,22 +591,50 @@ def canonicalize_who_disease_labels(labels: list[str], concepts: list[dict]) -> 
         lbl_clean = _normalize_entity_text(label)
         if not lbl_clean:
             continue
+        # Pass 1: Strict exact match on canonical, english, or alias
+        found_canonical = None
+        for concept in concepts:
+            canonical = str(concept.get("canonical_name") or "").strip()
+            english = str(concept.get("english_name") or "").strip()
+            can_clean = _normalize_entity_text(canonical)
+            eng_clean = _normalize_entity_text(english)
+            if lbl_clean == can_clean or lbl_clean == eng_clean:
+                found_canonical = canonical
+                break
+            for alias_item in concept.get("aliases") or []:
+                alias = alias_item.get("alias") if isinstance(alias_item, dict) else alias_item
+                alias_clean = _normalize_entity_text(str(alias or ""))
+                if alias_clean and lbl_clean == alias_clean:
+                    found_canonical = canonical
+                    break
+            if found_canonical:
+                break
+        if found_canonical:
+            matched.append(found_canonical)
+            continue
+
+        # Pass 2: Boundary/substring match, strictly ignoring negation clauses ("without mention of X")
         for concept in concepts:
             canonical = str(concept.get("canonical_name") or "").strip()
             english = str(concept.get("english_name") or "").strip()
             can_clean = _normalize_entity_text(canonical)
             eng_clean = _normalize_entity_text(english)
 
-            if lbl_clean == can_clean or lbl_clean == eng_clean:
-                matched.append(canonical)
-                break
+            # Never match if the search label is part of a negation clause
+            if re.search(rf"without\s+(?:mention\s+of\s+)?{re.escape(lbl_clean)}", can_clean):
+                continue
+            if re.search(rf"without\s+(?:mention\s+of\s+)?{re.escape(lbl_clean)}", eng_clean):
+                continue
+
             if len(lbl_clean) >= 4 and (lbl_clean in can_clean or lbl_clean in eng_clean or can_clean in lbl_clean):
                 matched.append(canonical)
                 break
             for alias_item in concept.get("aliases") or []:
                 alias = alias_item.get("alias") if isinstance(alias_item, dict) else alias_item
                 alias_clean = _normalize_entity_text(str(alias or ""))
-                if alias_clean and (lbl_clean == alias_clean or (len(lbl_clean) >= 4 and lbl_clean in alias_clean)):
+                if re.search(rf"without\s+(?:mention\s+of\s+)?{re.escape(lbl_clean)}", alias_clean):
+                    continue
+                if alias_clean and (len(lbl_clean) >= 4 and (lbl_clean in alias_clean or alias_clean in lbl_clean)):
                     matched.append(canonical)
                     break
             else:
@@ -1073,20 +1101,21 @@ def disease_has_textual_evidence(disease: str, text: str) -> bool:
     if any(part in token for part in ("avian", "h5n1", "bird flu", "flu burung")):
         return any(marker in folded for marker in _AVIAN_EVIDENCE)
     aliases = {
-        "measles": ("measles", "campak", "rubella"),
-        "rabies": ("rabies", "anjing gila", "lyssavirus"),
-        "dengue": ("dengue", "dbd", "demam berdarah", "sot xuat huyet", "sốt xuất huyết"),
-        "covid-19": ("covid", "coronavirus", "sars-cov"),
-        "malaria": ("malaria",),
-        "cholera": ("cholera", "kolera"),
-        "mpox": ("mpox", "monkeypox", "cacar monyet"),
-        "hfmd": ("hfmd", "hand foot", "tangan kaki", "flu singapura"),
+        "measles": ("measles", "campak", "rubella", "sởi", "โรคหัด"),
+        "rabies": ("rabies", "anjing gila", "lyssavirus", "bệnh dại", "พิษสุนัขบ้า"),
+        "dengue": ("dengue", "dbd", "demam berdarah", "sot xuat huyet", "sốt xuất huyết", "ไข้เลือดออก"),
+        "covid-19": ("covid", "coronavirus", "sars-cov", "โควิด"),
+        "malaria": ("malaria", "sốt rét", "sot ret", "มาลาเรีย"),
+        "cholera": ("cholera", "kolera", "bệnh tả", "อหิวาตกโรค"),
+        "mpox": ("mpox", "monkeypox", "cacar monyet", "đậu mùa khỉ", "dau mua khi", "เอ็มพ็อกซ์"),
+        "hfmd": ("hfmd", "hand foot", "tangan kaki", "flu singapura", "tay chân miệng", "tay chan mieng", "มือเท้าปาก", "โรคมือเท้าปาก"),
         "poliomyelitis": ("polio", "poliovirus", "cvdpv", "poliomyelitis"),
         "hantavirus": ("hantavirus",),
         "influenza": ("influenza", "hmpv", "ไข้หวัดใหญ่"),
         "rsv": ("rsv", "respiratory syncytial"),
         "syncytial": ("rsv", "respiratory syncytial", "syncytial"),
         "nipah": ("nipah",),
+        "tuberculosis": ("tbc", "tuberculosis", "tuberkulosis", "bệnh lao", "lao", "วัณโรค"),
     }
     key = token
     for name, needles in aliases.items():
@@ -1447,6 +1476,13 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             and search_text[match.start(1) - 1] in ".,0123456789"
         ):
             return
+        # Reject digits that are part of disease / virus designation (e.g. Covid-19, SARS-CoV-2, H5N1, Clade Ib, Type 1)
+        prefix_slice = search_text[max(0, match.start(1) - 18): match.start(1)].lower()
+        if re.search(r"(?:covid[\s_-]*|sars[\s_-]*cov[\s_-]*|h\d+n|clade[\s_-]*|type[\s_-]*|ev[\s_-]*|b\d{1,2}[\s_-]*)$", prefix_slice):
+            return
+        token_str = match.group(1).strip(".,")
+        if token_str == "19" and re.search(r"covid|sars", search_text[max(0, match.start(1) - 24): min(len(search_text), match.end(1) + 24)].lower()):
+            return
         after = search_text[match.end(1): match.end(1) + 16]
         if re.match(r"\s*-?\s*(?:year|month)-olds?", after, re.I):
             return
@@ -1678,6 +1714,29 @@ def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
 
 
 DISEASE_ALIASES = {
+    "sốt xuất huyết": "Dengue",
+    "sot xuat huyet": "Dengue",
+    "sốt xuất huyết dengue": "Dengue",
+    "bệnh sốt xuất huyết": "Dengue",
+    "bệnh đậu mùa khỉ": "MPOX",
+    "đậu mùa khỉ": "MPOX",
+    "dau mua khi": "MPOX",
+    "bệnh dại": "Rabies",
+    "bệnh tả": "Cholera",
+    "bệnh lao": "Tuberculosis",
+    "sốt rét": "Malaria",
+    "sot ret": "Malaria",
+    "bạch hầu": "Diphtheria",
+    "bach hau": "Diphtheria",
+    "uốn ván": "Tetanus",
+    "viêm não nhật bản": "Japanese Encephalitis",
+    "ไข้เลือดออก": "Dengue",
+    "มาลาเรีย": "Malaria",
+    "พิษสุนัขบ้า": "Rabies",
+    "อหิวาตกโรค": "Cholera",
+    "วัณโรค": "Tuberculosis",
+    "โควิด-19": "COVID-19",
+    "โควิด": "COVID-19",
     "stroke": "Stroke",
     "cerebrovascular accident": "Stroke",
     "cerebrovascular disease": "Stroke",

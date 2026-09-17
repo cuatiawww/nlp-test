@@ -154,7 +154,12 @@ def _resolve_country(location: str) -> Optional[str]:
     for alias, standard in all_aliases.items():
         if _fold_location_text(alias) == folded:
             return standard
-    return config.LOCATION_COUNTRIES.get(location)
+    if location in config.LOCATION_COUNTRIES:
+        return config.LOCATION_COUNTRIES[location]
+    for loc_name, c in config.LOCATION_COUNTRIES.items():
+        if _fold_location_text(loc_name) == folded:
+            return c
+    return None
 
 
 def _resolve_coords(location: str) -> tuple:
@@ -384,6 +389,94 @@ def _split_sections(text: str) -> list[tuple]:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+
+def _extract_breakdown_events(text: str, default_location: Optional[str] = None) -> list[dict[str, Any]]:
+    """Parse hierarchical breakdown sentences like:
+    - 'Tuy Đức ghi nhận 68 ca bệnh truyền nhiễm, trong đó, có 46 ca sốt xuất huyết và 18 ca tay chân miệng'
+    - 'Thailand recorded 254 cases, including 193 cases of Clade Ib and 58 cases of Clade II'
+    """
+    from . import extractors as ext
+    results: list[dict[str, Any]] = []
+
+    # Vietnamese breakdown: [Location] ghi nhận [Total] ca ..., trong đó [có] [N1] ca [Disease1] và [N2] ca [Disease2]
+    vn_match = re.search(
+        r"(?:([A-ZÀ-Ỹ][a-zà-ỹA-Z\s]{1,30}?)\s+)?ghi nhận\s+(\d+[\d,.]*)\s+ca\b.*?(?:trong đó|trong do|bao gồm|bao gom)\s*,?\s*(?:có\s+)?([0-9].+)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if vn_match:
+        raw_loc = vn_match.group(1)
+        loc = _clean_location_name(raw_loc) if raw_loc else (default_location or "")
+        canonical_loc = _validate_location(loc) or loc or default_location or ""
+        breakdown_text = vn_match.group(3)
+        sub_matches = list(re.finditer(
+            r"(?:có\s+)?(\d+[\d,.]*)\s+ca\s+([A-ZÀ-Ỹa-zà-ỹ\s]+?)(?:,|và|and|;|\.|\n|$)",
+            breakdown_text,
+            re.IGNORECASE,
+        ))
+        if len(sub_matches) >= 2:
+            country = _resolve_country(canonical_loc)
+            lat, lon = _resolve_coords(canonical_loc)
+            for sm in sub_matches:
+                cnt = _parse_count_value(sm.group(1))
+                raw_d = sm.group(2).strip()
+                dis_list = ext.extract_diseases(raw_d)
+                d_name = dis_list[0] if dis_list else raw_d
+                d_display = ext.normalize_disease_display(d_name, language="vi", text=raw_d)
+                results.append({
+                    "disease": d_display,
+                    "location_name": canonical_loc,
+                    "country": country,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "case_count": cnt,
+                    "death_count": 0,
+                    "evidence": sm.group(0).strip(),
+                })
+            if len(results) >= 2:
+                return results
+
+    # English / Indonesian breakdown: [Location] recorded/reported/mencatat [Total] cases ..., including [N1] cases of [D1] and [N2] cases of [D2]
+    en_match = re.search(
+        r"(?:([A-Za-z\s]{2,30}?)\s+)?(?:recorded|reported|mencatat|melaporkan)\s+(\d+[\d,.]*)\s+(?:cases|kasus)\b.*?(?:including|consisting of|di antaranya|terdiri dari)\s+([0-9].+)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if en_match:
+        raw_loc = en_match.group(1)
+        loc = _clean_location_name(raw_loc) if raw_loc else (default_location or "")
+        canonical_loc = _validate_location(loc) or loc or default_location or ""
+        breakdown_text = en_match.group(3)
+        sub_matches = list(re.finditer(
+            r"(\d+[\d,.]*)\s+(?:cases|kasus|patients)\s+(?:of\s+)?([A-Za-z\s-]+?)(?:,|and|dan|;|\.|\n|$)",
+            breakdown_text,
+            re.IGNORECASE,
+        ))
+        if len(sub_matches) >= 2:
+            country = _resolve_country(canonical_loc)
+            lat, lon = _resolve_coords(canonical_loc)
+            for sm in sub_matches:
+                cnt = _parse_count_value(sm.group(1))
+                raw_d = sm.group(2).strip()
+                dis_list = ext.extract_diseases(raw_d)
+                d_name = dis_list[0] if dis_list else raw_d
+                d_display = ext.normalize_disease_display(d_name, text=raw_d)
+                results.append({
+                    "disease": d_display,
+                    "location_name": canonical_loc,
+                    "country": country,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "case_count": cnt,
+                    "death_count": 0,
+                    "evidence": sm.group(0).strip(),
+                })
+            if len(results) >= 2:
+                return results
+
+    return results
+
+
 def extract_multi_events(
     text: str,
     primary_disease: str,
@@ -407,6 +500,11 @@ def extract_multi_events(
 
     if not text or not text.strip():
         return []
+
+    # Check for explicit breakdown sentences (e.g. 68 ca ..., trong đó có 46 ca sốt xuất huyết và 18 ca tay chân miệng)
+    breakdown_events = _extract_breakdown_events(text, default_location=primary_location)
+    if len(breakdown_events) >= MULTI_EVENT_MIN_PAIRS:
+        return _deduplicate_events(breakdown_events)
 
     # Step 1: Try section-based multi-disease detection
     sections = _split_sections(text)

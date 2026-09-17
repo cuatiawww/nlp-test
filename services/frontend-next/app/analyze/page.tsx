@@ -14,7 +14,7 @@ import {
   Search, Globe, MapPin, Bug, Activity, Heart, MessageSquare,
   Shield, Languages, Users, Skull, TrendingUp,
   FileText, ExternalLink, Layers, CheckCircle, Loader2, Calendar,
-  Database, RefreshCw
+  Database, RefreshCw, ChevronDown, ChevronRight
 } from 'lucide-react'
 
 // Disease labels can arrive from old records, keyword aliases, and WHO
@@ -80,6 +80,7 @@ export default function AnalyzePage() {
   const [stage, setStage] = useState('')
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
   const [forceRefresh, setForceRefresh] = useState(false)
+  const [matrixExpanded, setMatrixExpanded] = useState(true)
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -322,192 +323,338 @@ export default function AnalyzePage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            {(() => {
-              const subEvents = (result as any)?.sub_events || []
-              const diseaseExtracted = result?.disease_extracted || []
-              const collapsed = collapseAnalyzeResult(result)
-              const diseaseTopics = uniqueDiseaseLabels([
-                result?.disease_classification,
-                ...diseaseExtracted,
-                ...subEvents.map((evt: { disease?: string }) => evt.disease),
-                ...(collapsed.diseaseDisplay ? collapsed.diseaseDisplay.split('; ') : []),
-              ])
-              const hasMultiDisease = diseaseTopics.length > 1
-              const indicatedCount = diseaseTopics.length
-              const diseaseValue = collapsed.diseaseDisplay
-                ? collapsed.diseaseDisplay.split('; ').map((name) => translateDisease(name)).join('; ')
-                : (translateDisease(result.disease_classification) || '-')
+          {(() => {
+            const subEvents = (result as any)?.sub_events || []
+            const diseaseExtracted = result?.disease_extracted || []
+            const collapsed = collapseAnalyzeResult(result)
+            const diseaseTopics = uniqueDiseaseLabels([
+              result?.disease_classification,
+              ...diseaseExtracted,
+              ...subEvents.map((evt: { disease?: string }) => evt.disease),
+              ...(collapsed.diseaseDisplay ? collapsed.diseaseDisplay.split('; ') : []),
+            ])
+            const hasMultiDisease = diseaseTopics.length > 1
+            const indicatedCount = diseaseTopics.length
+            const diseaseValue = collapsed.diseaseDisplay
+              ? collapsed.diseaseDisplay.split('; ').map((name) => translateDisease(name)).join('; ')
+              : (translateDisease(result.disease_classification) || '-')
+            const evidenceSnippet = ((result as any)?.evidence || [])[0] || ''
 
-              return (
-                <AnalyzeResultCard
-                  icon={<Bug className="h-4 w-4" />}
-                  label={t('pages.analyze.diseaseClassification')}
-                  value={
-                    <div className="space-y-1">
-                      <span className="font-bold text-slate-900">{diseaseValue}</span>
-                      {hasMultiDisease && (
-                        <div className="flex flex-wrap gap-1 pt-0.5">
-                          <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#0060A9] ring-1 ring-inset ring-[#0060A9]/20">
-                            <Layers className="h-2.5 w-2.5 text-[#0060A9]" />
-                            {indicatedCount} diseases
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  }
-                  source={getSource('disease_classification', result.sources?.disease_classification || result.sources?.disease)}
-                  onClick={hasMultiDisease ? () => setDiseaseMatrixOpen(true) : undefined}
-                  actionBadge={
-                    hasMultiDisease ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-[#0060A9] ring-1 ring-blue-200">
+            const ANALYZE_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
+              { key: 'no', label: 'No', width: 68, sticky: true },
+              { key: 'country', label: 'Country', width: 130 },
+              { key: 'language', label: 'Language', width: 75 },
+              { key: 'url', label: 'Source URL', width: 200 },
+              { key: 'title', label: 'Article Title', width: 240 },
+              { key: 'disease', label: 'Disease Name', width: 190 },
+              { key: 'region', label: 'Region', width: 120 },
+              { key: 'province_city_case', label: 'Province / City Case', width: 170 },
+              { key: 'published_at', label: 'Published Date', width: 120 },
+              { key: 'date_case', label: 'Date Case', width: 140 },
+              { key: 'cases', label: 'Number of Cases', width: 180 },
+              { key: 'deaths', label: 'Number of Deaths', width: 150 },
+              { key: 'event_type', label: 'Event Type', width: 130 },
+              { key: 'sentiment', label: 'Sentiment', width: 110 },
+              { key: 'relevance_score', label: 'Health Relevance', width: 130 },
+              { key: 'source_credibility', label: 'Source Reliability', width: 130 },
+              { key: 'is_health_related', label: 'Health Related', width: 110 },
+              { key: 'evidence', label: 'Evidence', width: 240 },
+            ]
+            const tableMinWidth = ANALYZE_COLUMNS.reduce((sum, col) => sum + col.width, 0)
+
+            return (
+              <div className="space-y-4">
+                {/* KPI Overview Pills */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3.5 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#0060A9]">Primary Disease</span>
+                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={diseaseValue}>
+                      {diseaseValue}
+                    </p>
+                    {hasMultiDisease && (
+                      <span className="mt-1 inline-flex items-center gap-1 rounded bg-blue-100/70 px-1.5 py-0.5 text-[10px] font-semibold text-[#0060A9]">
                         <Layers className="h-2.5 w-2.5" />
-                        Classification Matrix
-                      </span>
-                    ) : undefined
-                  }
-                      actionHint={hasMultiDisease ? "Click to view the classification matrix" : undefined}
-                />
-              )
-            })()}
-
-            <AnalyzeResultCard
-              icon={<Calendar className="h-4 w-4" />}
-              label={t('pages.analyze.publishedDate')}
-              value={
-                <span className="font-semibold text-slate-900">
-                  {result.published_at || '-'}
-                </span>
-              }
-              source={getSource('published_at', result.sources?.published_at)}
-            />
-
-            <AnalyzeResultCard
-              icon={<Calendar className="h-4 w-4" />}
-              label={t('pages.analyze.caseDate')}
-              value={
-                <div className="space-y-1">
-                  <span className="font-semibold text-slate-900">
-                    {result.event_date_start && result.event_date_end
-                      ? `${result.event_date_start} – ${result.event_date_end}`
-                      : result.event_date || result.published_at || '-'}
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {result.count_period_type && result.count_period_type !== 'unknown' && (
-                      <span className="inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                        {result.count_period_type}
+                        {indicatedCount} diseases
                       </span>
                     )}
-                    {result.date_needs_review && (
-                      <span className="inline-flex rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
-                        {t('pages.analyze.dateNeedsReview')}
-                      </span>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Location / Country</span>
+                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={collapsed.locationDisplay || result.location_name || '-'}>
+                      {collapsed.locationDisplay || result.location_name || '-'}
+                    </p>
+                    {result.country && (
+                      <span className="text-[11px] text-slate-500 font-medium">({result.country})</span>
                     )}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Number of Cases</span>
+                    <p className="mt-1 text-lg font-black text-slate-900 leading-snug truncate">
+                      {(result as any).case_count_unknown
+                        ? 'unknown'
+                        : collapsed.casesDisplay || result.case_count?.toLocaleString() || '0'}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Recorded Deaths</span>
+                    <p className={`mt-1 text-lg font-black ${result.death_count > 0 ? 'text-red-600' : 'text-slate-900'} leading-snug truncate`}>
+                      {collapsed.deathsDisplay || result.death_count?.toLocaleString() || '0'}
+                    </p>
                   </div>
                 </div>
-              }
-              source={getSource('published_at', result.sources?.published_at)}
-            />
 
-            <AnalyzeResultCard
-              icon={<MapPin className="h-4 w-4" />}
-              label={t("dashboard.labelLocation")}
-              value={
-                <div className="space-y-1">
-                  <div>
-                    <span className="font-bold text-slate-900">
-                      {collapseAnalyzeResult(result).locationDisplay || result.location_name || '-'}
-                    </span>
-                    {result.country && !String(collapseAnalyzeResult(result).locationDisplay || '').includes(result.country) && (
-                      <span className="ml-1 text-xs font-normal text-slate-400">({result.country})</span>
-                    )}
-                  </div>
-                  {result.locations && result.locations.length > 1 && (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {result.locations
-                        .slice(0, 6)
-                        .map((loc, idx) => (
-                          <span
-                            key={idx}
-                            className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-[#0060A9] ring-1 ring-inset ring-[#0060A9]/20"
-                            title={`Lat: ${loc.latitude?.toFixed(4)}, Lon: ${loc.longitude?.toFixed(4)}`}
-                          >
-                            <MapPin className="h-2.5 w-2.5 text-[#0060A9]" />
-                            {loc.name}
-                          </span>
-                        ))}
-                      {result.locations.filter((l) => l.name !== result.location_name).length > 6 && (
-                        <span className="rounded bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-400">
-                          +{result.locations.filter((l) => l.name !== result.location_name).length - 6}
-                        </span>
-                      )}
+                {/* Surveillance Extraction Matrix Table */}
+                <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+                  <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Bug className="h-4 w-4 text-[#0060A9]" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                        Surveillance Extraction Matrix
+                      </h3>
                     </div>
-                  )}
+                    <div className="flex items-center gap-2">
+                      {subEvents.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setMatrixExpanded((prev) => !prev)}
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition-colors"
+                        >
+                          {matrixExpanded ? (
+                            <>
+                              <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                              Collapse Sub-Events ({subEvents.length})
+                            </>
+                          ) : (
+                            <>
+                              <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                              Expand Sub-Events ({subEvents.length})
+                            </>
+                          )}
+                        </button>
+                      )}
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-[#0060A9] ring-1 ring-blue-200">
+                        <Layers className="h-3 w-3" />
+                        {subEvents.length > 0 ? `${subEvents.length} Decomposed Events` : '1 Event'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="border-separate border-spacing-0 text-left text-[11px] w-full" style={{ minWidth: tableMinWidth }}>
+                      <colgroup>
+                        {ANALYZE_COLUMNS.map((col) => (
+                          <col key={col.key} style={{ width: col.width }} />
+                        ))}
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          {ANALYZE_COLUMNS.map((col) => (
+                            <th
+                              key={col.key}
+                              className={`sticky top-0 z-10 whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 ${
+                                col.sticky ? 'left-0 z-20 shadow-[2px_0_0_#e2e8f0]' : ''
+                              }`}
+                            >
+                              {col.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* Parent Collapsed Article Row */}
+                        <tr className="hover:bg-blue-50/30 transition-colors">
+                          <td className="sticky left-0 z-[1] whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-bold text-slate-800 shadow-[2px_0_0_#f1f5f9]">
+                            <div className="flex items-center gap-1.5">
+                              {subEvents.length > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setMatrixExpanded((prev) => !prev)}
+                                  className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                                  title="Toggle child events"
+                                >
+                                  {matrixExpanded ? (
+                                    <ChevronDown className="h-3.5 w-3.5 text-[#0060A9]" />
+                                  ) : (
+                                    <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                                  )}
+                                </button>
+                              ) : null}
+                              <span>1</span>
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
+                            {result.country || '-'}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono uppercase">
+                            {result.language || '-'}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-700">
+                            {url ? (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 max-w-[180px] truncate text-[#0060A9] hover:underline"
+                                title={url}
+                              >
+                                <ExternalLink className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{url}</span>
+                              </a>
+                            ) : '-'}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-medium text-slate-900">
+                            <span className="block max-w-[220px] truncate" title={(result as any).title || (result as any).article_title || url}>
+                              {(result as any).title || (result as any).article_title || url || 'Analysis Result'}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-bold text-slate-900">
+                            <div className="flex items-center gap-1.5">
+                              <Bug className="h-3.5 w-3.5 text-[#0060A9] shrink-0" />
+                              <span className="truncate max-w-[160px]" title={diseaseValue}>{diseaseValue}</span>
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600">
+                            {(result as any).region || '-'}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
+                            <span className="block max-w-[150px] truncate" title={collapsed.locationDisplay || result.location_name || '-'}>
+                              {collapsed.locationDisplay || result.location_name || '-'}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono text-[10px]">
+                            {result.published_at || '-'}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono text-[10px]">
+                            {result.event_date_start && result.event_date_end
+                              ? `${result.event_date_start} – ${result.event_date_end}`
+                              : result.event_date || result.published_at || '-'}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-extrabold text-slate-900">
+                            <span className="block max-w-[160px] truncate" title={collapsed.casesDisplay || String(result.case_count)}>
+                              {(result as any).case_count_unknown
+                                ? 'unknown'
+                                : collapsed.casesDisplay || result.case_count?.toLocaleString() || '0'}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-bold">
+                            <span className={`block max-w-[130px] truncate ${result.death_count > 0 ? 'text-red-600 font-extrabold' : 'text-slate-600'}`}>
+                              {collapsed.deathsDisplay || result.death_count?.toLocaleString() || '0'}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-700 capitalize font-medium">
+                            {result.event_type?.replace(/_/g, ' ') || '-'}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5">
+                            {sentimentBadge(result.sentiment)}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5">
+                            {relevanceBadge(result.relevance_score)}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-mono text-slate-700 font-semibold">
+                            {result.source_credibility != null ? `${(result.source_credibility * 100).toFixed(0)}%` : '-'}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5">
+                            {healthBadge(result.is_health_related)}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600">
+                            <span className="block max-w-[220px] truncate" title={evidenceSnippet}>
+                              {evidenceSnippet || '-'}
+                            </span>
+                          </td>
+                        </tr>
+
+                        {/* Expandable Child Decomposed Rows */}
+                        {matrixExpanded && subEvents.length > 0 && subEvents.map((evt: any, sIdx: number) => {
+                          const childEvtSnippet = findEvidence(
+                            result,
+                            evt.disease || result.disease_classification,
+                            evt.location_name,
+                            evt.evidence,
+                          )
+                          return (
+                            <tr key={sIdx} className="bg-blue-50/20 hover:bg-blue-50/40 transition-colors text-slate-700">
+                              <td className="sticky left-0 z-[1] whitespace-nowrap border-b border-r border-slate-100 bg-blue-50/20 px-3 py-2 pl-6 font-mono text-[10px] text-[#0060A9] font-bold shadow-[2px_0_0_#f1f5f9]">
+                                1.{sIdx + 1}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-700 font-medium">
+                                {evt.country || result.country || '-'}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400 font-mono text-[10px]">
+                                {result.language || '-'}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
+                                —
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
+                                —
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-bold text-slate-900">
+                                <div className="flex items-center gap-1.5">
+                                  <Bug className="h-3 w-3 text-[#0060A9] shrink-0" />
+                                  <span>{evt.disease || result.disease_classification}</span>
+                                  {evt.disease_icd11_code && (
+                                    <span className="text-[9px] text-slate-400 font-mono">
+                                      ({evt.disease_icd11_code})
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
+                                —
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-semibold text-slate-800">
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3 text-red-500 shrink-0" />
+                                  <span>{evt.location_name || result.location_name || '-'}</span>
+                                </div>
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-500 font-mono text-[10px]">
+                                {result.published_at || '-'}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-500 font-mono text-[10px]">
+                                {evt.event_date || result.event_date || result.published_at || '-'}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-extrabold text-[#0060A9]">
+                                {evt.case_count != null ? evt.case_count.toLocaleString() : '-'}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-bold">
+                                <span className={evt.death_count > 0 ? 'text-red-600' : 'text-slate-600'}>
+                                  {evt.death_count != null ? evt.death_count.toLocaleString() : '0'}
+                                </span>
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-600 capitalize">
+                                {evt.event_type || result.event_type || '-'}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
+                                —
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
+                                —
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
+                                —
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
+                                —
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-600">
+                                <span className="block max-w-[220px] truncate" title={childEvtSnippet || evt.evidence}>
+                                  {childEvtSnippet || evt.evidence || '-'}
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              }
-              source={getSource('location_name', result.sources?.location_name)}
-            />
-
-            <AnalyzeResultCard
-              icon={<Users className="h-4 w-4" />}
-              label={t("dashboard.labelTotalCases")}
-              value={
-                <div className="space-y-1">
-                  <span className="text-lg font-extrabold text-slate-900 leading-snug">
-                    {(result as { case_count_unknown?: boolean }).case_count_unknown
-                      ? 'unknown'
-                      : collapseAnalyzeResult(result).casesDisplay || result.case_count}
-                  </span>
-                  <span className="flex items-center gap-1 text-sm font-medium text-red-500">
-                    <Skull className="h-3.5 w-3.5" />
-                    {collapseAnalyzeResult(result).deathsDisplay || result.death_count}
-                  </span>
-                </div>
-              }
-              source={getSource('case_count', result.sources?.case_count)}
-            />
-
-            <AnalyzeResultCard
-              icon={<MessageSquare className="h-4 w-4" />}
-              label={t("dashboard.labelSentiment")}
-              value={sentimentBadge(result.sentiment)}
-              source={getSource('sentiment', result.sources?.sentiment)}
-            />
-
-            <AnalyzeResultCard
-              icon={<Activity className="h-4 w-4" />}
-              label={t("dashboard.labelEventType")}
-              value={
-                <span className="capitalize">{result.event_type?.replace(/_/g, ' ') || '-'}</span>
-              }
-              source={getSource('event_type', result.sources?.event_type)}
-            />
-
-            <AnalyzeResultCard
-              icon={<TrendingUp className="h-4 w-4" />}
-              label={t('pages.analyze.healthRelevance')}
-              value={relevanceBadge(result.relevance_score)}
-              source={getSource('relevance_score', result.sources?.relevance_score)}
-            />
-
-            <AnalyzeResultCard
-              icon={<Shield className="h-4 w-4" />}
-              label={t("dashboard.labelCredibility")}
-              value={
-                <span>
-                  {result.source_credibility != null ? `${(result.source_credibility * 100).toFixed(0)}%` : '-'}
-                </span>
-              }
-              source={getSource('source_credibility', result.sources?.source_credibility)}
-            />
-
-            <AnalyzeResultCard
-              icon={<Heart className="h-4 w-4" />}
-              label={t('pages.analyze.healthRelated')}
-              value={healthBadge(result.is_health_related)}
-              source={getSource('is_health_related', result.sources?.is_health_related)}
-            />
-          </div>
+              </div>
+            )
+          })()}
 
           <AseanMap result={result} hideLegend />
 

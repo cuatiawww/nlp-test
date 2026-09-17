@@ -746,6 +746,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         logger.warning("Multi-event extraction failed: %s", exc)
         sub_events = []
 
+    if sub_events:
+        if not location and sub_events[0].location_name:
+            location = sub_events[0].location_name
+        if not country and sub_events[0].country:
+            country = sub_events[0].country
+        if lat is None and sub_events[0].latitude is not None:
+            lat = sub_events[0].latitude
+            lon = sub_events[0].longitude
+
     # Project the same high-precision relational decision into the legacy
     # response. LLM supplementation is skipped here because the main worker
     # already has its own bounded agent stages; the dedicated structured

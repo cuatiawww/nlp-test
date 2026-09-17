@@ -45,13 +45,13 @@ export default function SpatialOutbreakMap({
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState(false),
-    [windLegend, setWindLegend] = useState(true),
+    [windLegend, setWindLegend] = useState(false),
     [base, setBase] = useState<Base>("osm"),
     [markers, setMarkers] = useState(true),
     [markerLookbackDays, setMarkerLookbackDays] = useState<MarkerLookbackDays>(30),
     [admin, setAdmin] = useState(true),
     [choropleth, setChoropleth] = useState(true),
-    [wind, setWind] = useState(!regionalMode),
+    [wind, setWind] = useState(false),
     [usgs, setUsgs] = useState(false),
     [gdacs, setGdacs] = useState(false),
     [bnpb, setBnpb] = useState({
@@ -89,8 +89,8 @@ export default function SpatialOutbreakMap({
     setMarkerLookbackDays(30);
     setAdmin(true);
     setChoropleth(true);
-    setWind(!regionalMode);
-    setWindLegend(true);
+    setWind(false);
+    setWindLegend(false);
     setUsgs(false);
     setGdacs(false);
     setBnpb({
