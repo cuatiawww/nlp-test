@@ -48,7 +48,7 @@ BEGIN
             identity_column, group_count, duplicate_count;
 
         FOR duplicate_group IN EXECUTE format(
-            'SELECT %1$I AS identity_value FROM raw_reports
+            'SELECT %1$I::text AS identity_value FROM raw_reports
               WHERE NULLIF(BTRIM(%1$I), '''') IS NOT NULL
                 AND processing_status IS DISTINCT FROM ''DUPLICATE''
               GROUP BY %1$I HAVING COUNT(*) > 1', identity_column
