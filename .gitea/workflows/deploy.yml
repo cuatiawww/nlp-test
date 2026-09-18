@@ -11,14 +11,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: nlp-penyakit-deploy
-  # Hanya deploy versi terbaru: push baru membatalkan run yang antri/running
-  cancel-in-progress: true
-
 jobs:
   deploy:
-    runs-on: disease-deploy
+    runs-on: [self-hosted, disease-deploy]
+    concurrency:
+      group: nlp-penyakit-deploy
+      # Hanya deploy versi terbaru: push baru membatalkan run yang antri/running
+      cancel-in-progress: true
     steps:
       - name: Checkout
         run: |
