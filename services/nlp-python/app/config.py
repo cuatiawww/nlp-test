@@ -225,6 +225,9 @@ LOCATION_STOPWORDS = {
     "pagi", "siang", "sore", "malam", "hari", "bulan", "tahun",
     # Indonesian/English/Malay month names — "Juli" is a real village but
     # virtually always means the month in news articles.
+    # Compass directions and temporal collision words (e.g. "Kivu Utara" -> "Utara", "dua pekan")
+    "utara", "selatan", "timur", "barat", "tengah", "pusat", "tenggara", "barat daya", "barat laut", "timur laut",
+    "north", "south", "east", "west", "central", "pekan", "pekan lalu", "pekan depan", "minggu lalu",
     "januari", "februari", "maret", "april", "mei", "juni",
     "juli", "agustus", "september", "oktober", "november", "desember",
     "january", "february", "march", "may", "june",

@@ -35,9 +35,11 @@ MULTI_EVENT_MIN_PAIRS = int(os.getenv("MULTI_EVENT_MIN_PAIRS", "2"))
 # Layer 1: Regex Relational Parser
 # ---------------------------------------------------------------------------
 
+_ASEAN_CHARS = r"A-Z\u00C0-\u024F\u0E00-\u0E7F\u0E80-\u0EFF\u1000-\u109F\u1780-\u17FF"
+
 # Pattern family 1: "Lokasi (N kasus)" -- very common in Kemenkes / WHO Indonesian
 _RE_LOCATION_CASES_PARENS_ID = re.compile(
-    r"([A-Z\u00C0-\u024F][\w\s\-'.]{1,50}?)"
+    rf"([{_ASEAN_CHARS}][\w\s\-'.{_ASEAN_CHARS}]{{1,50}}?)"
     r"\s*\(\s*"
     r"(\d[\d.,]*)"
     r"\s+kasus\s*\)",
@@ -46,7 +48,7 @@ _RE_LOCATION_CASES_PARENS_ID = re.compile(
 
 # Pattern family 2: English "Location (N cases)"
 _RE_LOCATION_CASES_PARENS_EN = re.compile(
-    r"([A-Z\u00C0-\u024F][\w\s\-'.]{1,50}?)"
+    rf"([{_ASEAN_CHARS}][\w\s\-'.{_ASEAN_CHARS}]{{1,50}}?)"
     r"\s*\(\s*"
     r"(\d[\d.,]*)"
     r"\s+cases?\s*\)",
@@ -55,39 +57,39 @@ _RE_LOCATION_CASES_PARENS_EN = re.compile(
 
 # Pattern family 3: "N kasus [penyakit] di Lokasi" / "N cases [disease] in Location"
 _RE_CASES_DI_LOCATION_ID = re.compile(
-    r"(\d[\d.,]*)\s+kasus(?:\s+[a-zA-Z\u00C0-\u024F]+){0,3}\s+di\s+"
-    r"([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+(?:\s+[A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+)*)",
+    rf"(\d[\d.,]*)\s+kasus(?:\s+[a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}]+){{0,3}}\s+di\s+"
+    rf"([{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\-'.]+(?:\s+[{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\-'.]+)*)",
     re.UNICODE,
 )
 
 _RE_CASES_IN_LOCATION_EN = re.compile(
-    r"(\d[\d.,]*)\s+cases?(?:\s+[a-zA-Z\u00C0-\u024F]+){0,3}\s+in\s+"
-    r"([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+(?:\s+[A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+)*)",
+    rf"(\d[\d.,]*)\s+cases?(?:\s+[a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}]+){{0,3}}\s+in\s+"
+    rf"([{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\-'.]+(?:\s+[{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\-'.]+)*)",
     re.UNICODE,
 )
 
 # Pattern family 3b: List continuation ", N [kasus] di Lokasi" / "and N [cases] in Location"
 _RE_CASES_LIST_CONT = re.compile(
-    r"(?:,|dan|and)\s+(\d[\d.,]*)\s+(?:kasus\s+|cases?\s+)?(?:di|in)\s+"
-    r"([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+(?:\s+[A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+)*)",
+    rf"(?:,|dan|and)\s+(\d[\d.,]*)\s+(?:kasus\s+|cases?\s+)?(?:di|in)\s+"
+    rf"([{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\-'.]+(?:\s+[{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\-'.]+)*)",
     re.UNICODE,
 )
 
 # Death patterns
 _RE_DEATHS_LOCATION_ID = re.compile(
-    r"(\d[\d.,]*)\s+(?:kematian|meninggal(?:\s+dunia)?|korban\s+jiwa)\s+(?:di|pada)\s+"
-    r"([A-Z\u00C0-\u024F][\w\s\-',]{1,50})",
+    rf"(\d[\d.,]*)\s+(?:kematian|meninggal(?:\s+dunia)?|korban\s+jiwa)\s+(?:di|pada)\s+"
+    rf"([{_ASEAN_CHARS}][\w\s\-',]{{1,50}})",
     re.UNICODE,
 )
 
 _RE_DEATHS_LOCATION_EN = re.compile(
-    r"(\d[\d.,]*)\s+(?:deaths?|fatalities)\s+in\s+"
-    r"([A-Z\u00C0-\u024F][\w\s\-',]{1,50})",
+    rf"(\d[\d.,]*)\s+(?:deaths?|fatalities)\s+in\s+"
+    rf"([{_ASEAN_CHARS}][\w\s\-',]{{1,50}})",
     re.UNICODE,
 )
 
 _RE_LOCATION_DEATHS_PARENS = re.compile(
-    r"([A-Z\u00C0-\u024F][\w\s\-'.]{1,50}?)"
+    rf"([{_ASEAN_CHARS}][\w\s\-'.{_ASEAN_CHARS}]{{1,50}}?)"
     r"\s*\(\s*"
     r"(\d[\d.,]*)"
     r"\s+(?:kematian|deaths?|fatalities)\s*\)",
@@ -96,7 +98,7 @@ _RE_LOCATION_DEATHS_PARENS = re.compile(
 
 # Pattern family 4: "Lokasi tercatat/mencatat N kasus (dan N kematian)"
 _RE_LOC_VERB_CASES_ID = re.compile(
-    r"(?:(?:di|in|pada)\s+)?([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\s-]{1,30}?)\s+"
+    rf"(?:(?:di|in|pada)\s+)?([{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\s-]{{1,30}}?)\s+"
     r"(?:tercatat|mencatat|melaporkan|ditemukan|ada|terdapat|mengonfirmasi|konfirmasi)\s+"
     r"(?:sebanyak\s+)?(\d[\d.,]*)\s+kasus"
     r"(?:(?:\s+dan|,)\s+(\d[\d.,]*)\s+(?:kematian|meninggal|korban\s+jiwa))?",
@@ -104,7 +106,7 @@ _RE_LOC_VERB_CASES_ID = re.compile(
 )
 
 _RE_LOC_VERB_CASES_EN = re.compile(
-    r"(?:(?:in|at)\s+)?([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\s-]{1,30}?)\s+"
+    rf"(?:(?:in|at)\s+)?([{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\s-]{{1,30}}?)\s+"
     r"(?:recorded|reports?|reported|confirmed|logged|found)\s+"
     r"(?:a\s+total\s+of\s+)?(\d[\d.,]*)\s+cases?"
     r"(?:(?:\s+and|,)\s+(\d[\d.,]*)\s+(?:deaths?|fatalities))?",
@@ -559,6 +561,28 @@ def extract_multi_events(
     if not text or not text.strip():
         return []
 
+    # The canonical path is evidence-first: metrics are linked to a disease
+    # and location in the same local context before an event is created.  The
+    # legacy parsers below remain as a bounded fallback for formats that the
+    # relation layer cannot yet parse, but they are never allowed to split a
+    # document that the canonical layer already judged to be one event.
+    try:
+        from .intelligence import build_atomic_events
+
+        atomic_events = build_atomic_events(
+            text,
+            disease_labels=diseases_extracted,
+            primary_disease=primary_disease,
+            linker=None,
+        )
+        if len(atomic_events) >= MULTI_EVENT_MIN_PAIRS:
+            return _deduplicate_events(atomic_events)
+        # A single atomic relation does not prove that the article is
+        # multi-event, but the legacy parser may still recover a second
+        # explicit location/metric pair from a format it understands.
+    except Exception as exc:
+        logger.warning("Atomic event extraction unavailable; using legacy parser: %s", exc)
+
     # Check for explicit breakdown sentences (e.g. 68 ca ..., trong đó có 46 ca sốt xuất huyết và 18 ca tay chân miệng)
     breakdown_events = _extract_breakdown_events(text, default_location=primary_location)
     if len(breakdown_events) >= MULTI_EVENT_MIN_PAIRS:
@@ -698,6 +722,9 @@ def _event_for_disease(
     elif not ext.has_explicit_case_count(text, disease=disease):
         # Extra diseases must not inherit the article-wide total.
         per_cases = 0
+    if not ext.has_explicit_death_count(text, disease=disease):
+        # Extra diseases must not inherit the article-wide death count.
+        per_deaths = 0
     return {
         "disease": disease,
         "location_name": canonical_loc,
@@ -738,26 +765,34 @@ def compose_structured_events(
         case_count=case_count,
         death_count=death_count,
     )
-    infectious = _infectious_disease_labels(
-        [primary_disease, *(diseases_extracted or [])],
-        text,
-    )
-    present = {(evt.get("disease") or "").casefold() for evt in events}
-    for disease in infectious:
-        if disease.casefold() in present:
-            continue
-        events.append(
-            _event_for_disease(
-                disease=disease,
-                location=primary_location,
-                text=text,
-                default_cases=case_count,
-                default_deaths=death_count,
+
+    # Keep one evidence-backed atomic event as the canonical representation;
+    # the old extractor intentionally returned [] for single-event documents.
+    if not events:
+        try:
+            from .intelligence import build_atomic_events
+
+            atomic_events = build_atomic_events(
+                text,
+                disease_labels=diseases_extracted,
+                primary_disease=primary_disease,
             )
-        )
-        present.add(disease.casefold())
-    events = _deduplicate_events(events)
+            if len(atomic_events) == 1:
+                events = atomic_events
+        except Exception as exc:
+            logger.warning("Atomic single-event projection unavailable: %s", exc)
+    # A disease mention without an attributed metric is context, not a new
+    # epidemiological event.  Additional events must come from the evidence
+    # first relation layer above, never from the length of `diseases_extracted`.
     from . import extractors as ext
+
+    if len(events) == 1 and primary_disease:
+        event_disease = str(events[0].get("disease") or "")
+        if event_disease and ext.canonical_disease_name(event_disease).casefold() == ext.canonical_disease_name(primary_disease).casefold():
+            # Keep the caller's established display label for a single event;
+            # normalization still governs identity comparisons and attribution.
+            events[0]["disease"] = primary_disease
+    events = _deduplicate_events(events)
     from .epidemiology import (
         classify_epistemic_status,
         qualify_metric_type,
@@ -787,12 +822,15 @@ def compose_structured_events(
         evt["epistemic_status"] = evt_epistemic
 
         # Metric qualification per sub-event
-        m_type, m_unit = qualify_metric_type(
-            evt_evidence or text,
-            default_period=doc_period.get("period_type", "unknown"),
-            has_cases=bool((evt.get("case_count") or 0) > 0),
-            has_deaths=bool((evt.get("death_count") or 0) > 0),
-        )
+        if evt_epistemic == "negative_surveillance":
+            m_type, m_unit = "negative_surveillance", "status"
+        else:
+            m_type, m_unit = qualify_metric_type(
+                evt_evidence or text,
+                default_period=doc_period.get("period_type", "unknown"),
+                has_cases=bool((evt.get("case_count") or 0) > 0),
+                has_deaths=bool((evt.get("death_count") or 0) > 0),
+            )
         evt["metric_type"] = m_type
         evt["unit"] = m_unit
 
@@ -819,7 +857,7 @@ def compose_structured_events(
         evt["validation_flags"] = sub_flags
         evt.setdefault("confidence", 0.90)
 
-    if len(events) >= MULTI_EVENT_MIN_PAIRS:
+    if events:
         return events
 
     # Canonical single-event fallback: emit exactly 1 structured event
@@ -839,11 +877,53 @@ def compose_structured_events(
 
         # Locate single-event evidence sentence
         single_evidence = ""
-        for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text):
+        evidence_candidates: list[tuple[int, int, str]] = []
+        for sentence_index, sentence in enumerate(re.split(r"(?<=[.!?。！？])\s+|\n+", text)):
             clean_s = sentence.strip()
-            if primary_disease.lower() in clean_s.lower() and re.search(r"\d", clean_s):
-                single_evidence = clean_s
-                break
+            disease_evidence = (
+                primary_disease
+                and ext.disease_has_textual_evidence(primary_disease, clean_s)
+            )
+            if not disease_evidence:
+                disease_evidence = bool(ext.extract_diseases(clean_s))
+            if disease_evidence and ext.has_explicit_case_count(clean_s, disease=primary_disease) and re.search(
+                r"\b(?:kasus|cases?|infeksi|infections?|pasien|patients?|kematian|deaths?)\b",
+                clean_s,
+                re.IGNORECASE,
+            ):
+                approximate = bool(re.search(
+                    r"(?:-?an\b|\blebih\b|\bsekitar\b|\bhampir\b|\babout\b|\baround\b|\bnearly\b|\bmore than\b|\bover\b)",
+                    clean_s,
+                    re.IGNORECASE,
+                ))
+                evidence_candidates.append((0 if approximate else 1, -sentence_index, clean_s))
+        if evidence_candidates:
+            single_evidence = max(evidence_candidates)[2]
+        if not single_evidence:
+            for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text):
+                clean_s = sentence.strip()
+                disease_evidence = (
+                    primary_disease
+                    and ext.disease_has_textual_evidence(primary_disease, clean_s)
+                )
+                if not disease_evidence:
+                    disease_evidence = bool(ext.extract_diseases(clean_s))
+                if disease_evidence and (
+                    ext.has_explicit_case_count(clean_s, disease=primary_disease)
+                    or ext.has_explicit_death_count(clean_s, disease=primary_disease)
+                ):
+                    single_evidence = clean_s
+                    break
+        if ext.article_states_zero_cases(text):
+            single_evidence = next(
+                (
+                    " ".join(sentence.split())
+                    for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text)
+                    if ext.article_states_zero_cases(sentence)
+                ),
+                single_evidence,
+            )
+            doc_epistemic = "negative_surveillance"
         s_off, e_off = find_evidence_offsets(text, single_evidence)
         _, sub_flags = validate_surveillance_facts(
             text=text,
@@ -854,6 +934,10 @@ def compose_structured_events(
             epistemic_status=doc_epistemic,
             count_period_type=doc_period.get("period_type", "unknown"),
         )
+
+        validation_flags = list(sub_flags)
+        if doc_epistemic == "negative_surveillance" and "negative_surveillance" not in validation_flags:
+            validation_flags.append("negative_surveillance")
 
         return [{
             "disease": primary_disease,
@@ -866,27 +950,31 @@ def compose_structured_events(
             "longitude": lon,
             "case_count": max(0, case_count),
             "death_count": max(0, death_count),
-            "metric_type": m_type,
-            "unit": m_unit,
+            "metric_type": "negative_surveillance" if doc_epistemic == "negative_surveillance" else m_type,
+            "unit": "status" if doc_epistemic == "negative_surveillance" else m_unit,
             "evidence": single_evidence,
             "evidence_offset_start": s_off,
             "evidence_offset_end": e_off,
             "event_date_start": doc_period.get("event_date_start"),
             "event_date_end": doc_period.get("event_date_end"),
             "epistemic_status": doc_epistemic,
-            "validation_flags": sub_flags,
+            "validation_flags": validation_flags,
+            "relations": ([{"type": "negative_surveillance", "evidence": single_evidence}] if doc_epistemic == "negative_surveillance" else []),
+            "needs_review": False if doc_epistemic == "negative_surveillance" else True,
             "confidence": 0.90,
         }]
     return []
 
 
 def _deduplicate_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Deduplicate events by (disease, location) key, keeping the highest counts."""
+    """Deduplicate equivalent events without merging distinct time contexts."""
     merged: dict[tuple, dict[str, Any]] = {}
     for event in events:
         key = (
             (event.get("disease") or "").casefold(),
             (event.get("location_name") or "").casefold(),
+            event.get("time_frame") or "",
+            event.get("temporal_context") or "",
         )
         if key not in merged:
             merged[key] = event.copy()

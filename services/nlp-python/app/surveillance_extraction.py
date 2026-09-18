@@ -347,6 +347,22 @@ class GazetteerLinker:
     ):
         self.coords = coords if coords is not None else config.LOCATION_COORDS
         self.countries = countries if countries is not None else config.LOCATION_COUNTRIES
+        # The old linker compared every candidate against every gazetteer row.
+        # Build one folded index and one matcher per linker so article length
+        # does not multiply gazetteer work.
+        self._folded_coords: dict[str, str] = {}
+        for name in self.coords:
+            folded = extractors._fold_location_text(name)
+            if folded and folded not in self._folded_coords:
+                self._folded_coords[folded] = name
+        names = sorted(self.coords, key=len, reverse=True)
+        self._mention_pattern = (
+            re.compile(
+                rf"(?<!\w)(?:{'|'.join(re.escape(name) for name in names)})(?!\w)",
+                re.IGNORECASE,
+            )
+            if names else None
+        )
         self.geocoder = geocoder or NominatimGeocoder()
         self.allow_remote = (
             os.getenv("SURVEILLANCE_GEOCODER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
@@ -363,12 +379,25 @@ class GazetteerLinker:
         for alias, canonical in extractors.COUNTRY_ALIASES.items():
             if folded == extractors._fold_location_text(alias):
                 return canonical
-        for name in self.coords:
-            if folded == extractors._fold_location_text(name):
-                if extractors._fold_location_text(name) in NON_GEOGRAPHIC_TERMS:
-                    return None
-                return name
+        name = self._folded_coords.get(folded)
+        if name:
+            if folded in NON_GEOGRAPHIC_TERMS:
+                return None
+            return name
         return None
+
+    def local_mentions(self, text: str) -> list[tuple[int, int, LinkedLocation]]:
+        """Find validated local gazetteer mentions in one pass."""
+
+        if not self._mention_pattern:
+            return []
+        mentions: list[tuple[int, int, LinkedLocation]] = []
+        for match in self._mention_pattern.finditer(text or ""):
+            context = text[max(0, match.start() - 80):min(len(text), match.end() + 80)]
+            linked = self.link(match.group(0), context=context)
+            if linked:
+                mentions.append((match.start(), match.end(), linked))
+        return mentions
 
     def link(self, value: str, context: str = "", evidence: str = "") -> Optional[LinkedLocation]:
         value = re.sub(r"\s+", " ", (value or "").strip(" ,.;:()[]{}"))
@@ -488,7 +517,7 @@ MONTHS = {
 
 _NUMBER = r"(?:\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)"
 _CASE_BEFORE_LOCATION = re.compile(
-    rf"(?P<count>{_NUMBER})\s*(?:ribu|juta|million|thousand)?\s*"
+    rf"(?<![\w.,])(?P<count>{_NUMBER})(?![\w])\s*(?:ribu|juta|million|thousand)?\s*"
     r"(?:kasus|cases?|infeksi|infections?|pasien|patients?)\s+"
     r"(?:baru\s+)?(?:di|in|from|among)\s+"
     r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*){0,5})",
@@ -767,16 +796,12 @@ def _mentioned_locations(text: str, linker: GazetteerLinker) -> list[LinkedLocat
 
     found: dict[tuple[str, str], LinkedLocation] = {}
     spans: list[tuple[int, int, LinkedLocation]] = []
-    names = sorted(linker.coords, key=len, reverse=True)
-    for name in names:
-        for match in re.finditer(rf"(?<!\w){re.escape(name)}(?!\w)", text or "", re.IGNORECASE):
-            context = text[max(0, match.start() - 80):min(len(text), match.end() + 80)]
-            if not LOCATION_CUES.search(context):
-                continue
-            linked = linker.link(name, context=context)
-            if linked:
-                found[(linked.country.casefold(), linked.name.casefold())] = linked
-                spans.append((match.start(), match.end(), linked))
+    for start, end, linked in linker.local_mentions(text):
+        context = text[max(0, start - 80):min(len(text), end + 80)]
+        if not LOCATION_CUES.search(context):
+            continue
+        found[(linked.country.casefold(), linked.name.casefold())] = linked
+        spans.append((start, end, linked))
 
     # Gazetteers often contain both a full administrative name and its tokens
     # (e.g. "Jawa Timur", "Jawa", "Timur"). Retain only the longest span at
@@ -820,15 +845,7 @@ def _metric_is_valid(text: str, start: int, end: int) -> bool:
 
 
 def _location_spans(text: str, linker: GazetteerLinker) -> list[tuple[int, int, LinkedLocation]]:
-    spans: list[tuple[int, int, LinkedLocation]] = []
-    for name in sorted(linker.coords, key=len, reverse=True):
-        for match in re.finditer(rf"(?<!\w){re.escape(name)}(?!\w)", text or "", re.IGNORECASE):
-            linked = linker.link(
-                name,
-                context=text[max(0, match.start() - 80):min(len(text), match.end() + 80)],
-            )
-            if linked:
-                spans.append((match.start(), match.end(), linked))
+    spans = linker.local_mentions(text)
     selected: list[tuple[int, int, LinkedLocation]] = []
     for item in sorted(spans, key=lambda value: (value[0], -(value[1] - value[0]))):
         if any(item[0] < end and item[1] > start for start, end, _ in selected):
@@ -951,8 +968,10 @@ def extract_metric_relations(
     # The deterministic location patterns intentionally require a nearby
     # place. This second pass handles common narrative shorthand where the
     # country is named once and subsequent comparison values omit it.
-    for relation in _extract_narrative_relations(text or "", linker, published_date):
-        _upsert_relation(relations, relation)
+    narrative_count = len(_NARRATIVE_CASE.findall(text or "")) + len(_NARRATIVE_DEATH.findall(text or ""))
+    if not relations or narrative_count > len(relations):
+        for relation in _extract_narrative_relations(text or "", linker, published_date):
+            _upsert_relation(relations, relation)
 
     # Optional NER contributes only locations; it is not allowed to invent a
     # metric. This improves coverage for province grouping without weakening

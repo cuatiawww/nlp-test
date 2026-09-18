@@ -1,5 +1,5 @@
-from typing import Optional
-from pydantic import BaseModel
+from typing import Any, Optional
+from pydantic import BaseModel, Field
 
 
 class AnalyzeRequest(BaseModel):
@@ -72,7 +72,17 @@ class SubEvent(BaseModel):
     event_date_start: Optional[str] = None
     event_date_end: Optional[str] = None
     epistemic_status: str = "reported"
-    validation_flags: list[str] = []
+    metric_qualifier: Optional[str] = None
+    time_frame: Optional[str] = None
+    temporal_context: str = "current"
+    disease_confidence: Optional[float] = None
+    location_confidence: Optional[float] = None
+    relation_confidence: Optional[float] = None
+    needs_review: bool = False
+    relations: list[dict[str, Any]] = Field(default_factory=list)
+    metrics: list[dict[str, Any]] = Field(default_factory=list)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    validation_flags: list[str] = Field(default_factory=list)
     confidence: float = 0.90
 
 
@@ -100,14 +110,15 @@ class AnalyzeResponse(BaseModel):
     original_location_name: Optional[str] = None
     symptoms: list[str]
     disease_extracted: list[str]
-    disease_mentions: list[DiseaseMention] = []
+    disease_mentions: list[DiseaseMention] = Field(default_factory=list)
     disease_classification: str
     case_count: int
     death_count: int
     confirmed_cases: Optional[int] = None
     suspected_cases: Optional[int] = None
     hospitalizations: Optional[int] = None
-    evidence: list[str] = []
+    evidence: list[str] = Field(default_factory=list)
+    epidemiological_evidence: list[Any] = Field(default_factory=list)
     case_count_unknown: bool = False
     province: Optional[str] = None
     city: Optional[str] = None
@@ -126,15 +137,15 @@ class AnalyzeResponse(BaseModel):
     source_credibility: float = 0.5
     source_credibility_label: str = "unknown"
     is_health_related: bool = True
-    locations: list[LocationItem] = []
-    sub_events: list[SubEvent] = []
+    locations: list[LocationItem] = Field(default_factory=list)
+    sub_events: list[SubEvent] = Field(default_factory=list)
     nlp_pipeline_version: str = ""
     count_period_type: str = "unknown"
     event_date_start: Optional[str] = None
     event_date_end: Optional[str] = None
     date_needs_review: bool = False
     epistemic_status: str = "reported"
-    validation_flags: list[str] = []
+    validation_flags: list[str] = Field(default_factory=list)
     # Collapsed one-row-per-URL summary. Atomic events stay in sub_events.
     disease_display: Optional[str] = None
     location_display: Optional[str] = None

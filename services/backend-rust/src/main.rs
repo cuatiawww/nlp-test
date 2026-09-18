@@ -1574,6 +1574,8 @@ struct NlpResponse {
     geocode_needs_review: Option<bool>,
     #[serde(default)]
     evidence: Option<Vec<String>>,
+    #[serde(default)]
+    epidemiological_evidence: Vec<Value>,
     confidence: f64,
     outbreak_alert: bool,
     #[serde(default)]
@@ -1600,6 +1602,160 @@ struct NlpResponse {
     published_at: Option<String>,
     #[serde(default)]
     locations: Vec<LocationItem>,
+    #[serde(default)]
+    sub_events: Vec<Value>,
+    #[serde(default)]
+    epistemic_status: Option<String>,
+    #[serde(default)]
+    validation_flags: Option<Vec<String>>,
+    #[serde(default)]
+    count_period_type: Option<String>,
+    #[serde(default)]
+    event_date_start: Option<String>,
+    #[serde(default)]
+    event_date_end: Option<String>,
+    #[serde(default)]
+    date_needs_review: Option<bool>,
+    #[serde(default)]
+    source_country: Option<String>,
+    #[serde(default)]
+    surveillance_scope: Option<String>,
+}
+
+async fn persist_nlp_sub_events(
+    client: &deadpool_postgres::Object,
+    parent_event_id: Uuid,
+    raw_report_id: Uuid,
+    nlp: &NlpResponse,
+    source_type: &str,
+    source_name: &str,
+    original_text: &str,
+) -> Result<u64, tokio_postgres::Error> {
+    if nlp.sub_events.len() < 2 {
+        return Ok(0);
+    }
+
+    let mut inserted = 0u64;
+    for sub in &nlp.sub_events {
+        let location = sub
+            .get("location_name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let disease = sub
+            .get("disease")
+            .and_then(Value::as_str)
+            .unwrap_or(&nlp.disease_classification)
+            .to_string();
+        if location.is_empty() || disease.eq_ignore_ascii_case("unknown") {
+            continue;
+        }
+        let latitude = sub.get("latitude").and_then(Value::as_f64);
+        let longitude = sub.get("longitude").and_then(Value::as_f64);
+        let cases = sub
+            .get("case_count")
+            .and_then(Value::as_i64)
+            .map(|value| value as i32);
+        let deaths = sub
+            .get("death_count")
+            .and_then(Value::as_i64)
+            .map(|value| value as i32);
+        let confidence = sub
+            .get("confidence")
+            .and_then(Value::as_f64)
+            .or(Some(nlp.confidence));
+        let epistemic = sub
+            .get("epistemic_status")
+            .and_then(Value::as_str)
+            .or(nlp.epistemic_status.as_deref())
+            .unwrap_or("reported");
+        let metric_type = sub
+            .get("metric_type")
+            .and_then(Value::as_str)
+            .unwrap_or("cases");
+        let period_type = sub
+            .get("temporal_context")
+            .and_then(Value::as_str)
+            .or(nlp.count_period_type.as_deref())
+            .unwrap_or("unknown");
+        let evidence = sub.get("evidence").cloned().unwrap_or(Value::String(String::new()));
+        let facts = json!({
+            "text": evidence,
+            "metrics": sub.get("metrics").cloned().unwrap_or_else(|| json!([])),
+            "relations": sub.get("relations").cloned().unwrap_or_else(|| json!([])),
+            "provenance": sub.get("provenance").cloned().unwrap_or_else(|| json!({})),
+        });
+        let epi_evidence = json!([evidence, facts]);
+        let flags = sub
+            .get("validation_flags")
+            .cloned()
+            .unwrap_or_else(|| json!([]));
+        let sub_disease = json!([disease.clone()]);
+        let sub_mentions = json!(nlp.disease_mentions.clone());
+        let row_count = client
+            .execute(
+                "INSERT INTO disease_events
+                    (raw_report_id, source_type, source_name, original_text, language,
+                     location_name, geom, symptoms, disease_extracted, disease_mentions,
+                     disease_classification, case_count, death_count, confidence, outbreak_alert,
+                     parent_event_id, source_url, nlp_pipeline_version, count_period_type,
+                     event_date_start, event_date_end, date_needs_review, needs_review,
+                     epistemic_status, confirmed_cases, suspected_cases, hospitalizations,
+                     epidemiological_evidence, validation_flags)
+                 VALUES ($1, $2, $3, $4, $5, $6,
+                     CASE WHEN $7::float8 IS NULL OR $8::float8 IS NULL THEN NULL
+                          ELSE ST_SetSRID(ST_MakePoint($8, $7), 4326) END,
+                     $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, $15, $16,
+                     $17, $18, $19, $20, $21, $22, $23, $24, $25,
+                     $26, $27, $28, $29::jsonb, $30::jsonb)
+                 ON CONFLICT DO NOTHING",
+                &[
+                    &raw_report_id,
+                    &source_type,
+                    &source_name,
+                    &original_text,
+                    &nlp.language,
+                    &location,
+                    &latitude,
+                    &longitude,
+                    &json!(nlp.symptoms),
+                    &sub_disease,
+                    &sub_mentions,
+                    &disease,
+                    &cases,
+                    &deaths,
+                    &confidence,
+                    &nlp.outbreak_alert,
+                    &parent_event_id,
+                    &Option::<String>::None,
+                    &Option::<String>::None,
+                    &period_type,
+                    &parse_date(sub.get("event_date_start").and_then(|value| value.as_str())),
+                    &parse_date(sub.get("event_date_end").and_then(|value| value.as_str())),
+                    &sub.get("date_needs_review").and_then(Value::as_bool).or(nlp.date_needs_review),
+                    &sub.get("needs_review").and_then(Value::as_bool).or(nlp.needs_review),
+                    &epistemic,
+                    &sub.get("confirmed_cases").and_then(Value::as_i64).map(|value| value as i64),
+                    &sub.get("suspected_cases").and_then(Value::as_i64).map(|value| value as i64),
+                    &sub.get("hospitalizations").and_then(Value::as_i64).map(|value| value as i64),
+                    &epi_evidence,
+                    &flags,
+                ],
+            )
+            .await?;
+        inserted += row_count;
+        let _ = metric_type;
+    }
+
+    if inserted > 0 {
+        client
+            .execute(
+                "UPDATE disease_events SET case_count=NULL, death_count=NULL WHERE id=$1",
+                &[&parent_event_id],
+            )
+            .await?;
+    }
+    Ok(inserted)
 }
 
 #[derive(Debug, Serialize)]
@@ -2734,6 +2890,61 @@ async fn ingest(
                     )
                 })?;
 
+            let intelligence_evidence = json!(nlp.epidemiological_evidence.clone());
+            let intelligence_validation = json!(nlp.validation_flags.clone().unwrap_or_default());
+            client
+                .execute(
+                    "UPDATE disease_events
+                     SET epidemiological_evidence=$1,
+                         epistemic_status=COALESCE($2, epistemic_status),
+                         validation_flags=$3::jsonb,
+                         count_period_type=COALESCE($4, count_period_type),
+                         event_date_start=COALESCE($5, event_date_start),
+                         event_date_end=COALESCE($6, event_date_end),
+                         date_needs_review=COALESCE($7, date_needs_review),
+                         source_country=COALESCE($8, source_country),
+                         surveillance_scope=COALESCE($9, surveillance_scope)
+                     WHERE id=(SELECT id FROM disease_events
+                               WHERE raw_report_id=$10
+                               ORDER BY created_at DESC LIMIT 1)",
+                    &[
+                        &intelligence_evidence,
+                        &nlp.epistemic_status,
+                        &intelligence_validation,
+                        &nlp.count_period_type,
+                        &parse_date(nlp.event_date_start.as_deref()),
+                        &parse_date(nlp.event_date_end.as_deref()),
+                        &nlp.date_needs_review,
+                        &nlp.source_country,
+                        &nlp.surveillance_scope,
+                        &raw_id,
+                    ],
+                )
+                .await
+                .map_err(internal_error)?;
+
+            if let Some(parent_event_id) = client
+                .query_opt(
+                    "SELECT id FROM disease_events WHERE raw_report_id=$1 ORDER BY created_at DESC LIMIT 1",
+                    &[&raw_id],
+                )
+                .await
+                .map_err(internal_error)?
+                .map(|row| row.get::<_, Uuid>(0))
+            {
+                persist_nlp_sub_events(
+                    &client,
+                    parent_event_id,
+                    raw_id,
+                    &nlp,
+                    &payload.source_type,
+                    payload.source_name.as_deref().unwrap_or(""),
+                    &payload.text,
+                )
+                .await
+                .map_err(internal_error)?;
+            }
+
             mark_kpi_snapshots_stale(&client).await;
             mark_raw_outbox_published(&state.db, raw_id).await;
 
@@ -3702,6 +3913,49 @@ async fn analyze_url(
             )
         })?
         .get(0);
+
+    let intelligence_evidence = json!(nlp.epidemiological_evidence.clone());
+    let intelligence_validation = json!(nlp.validation_flags.clone().unwrap_or_default());
+    client
+        .execute(
+            "UPDATE disease_events
+             SET epidemiological_evidence=$1,
+                 epistemic_status=COALESCE($2, epistemic_status),
+                 validation_flags=$3::jsonb,
+                 count_period_type=COALESCE($4, count_period_type),
+                 event_date_start=COALESCE($5, event_date_start),
+                 event_date_end=COALESCE($6, event_date_end),
+                 date_needs_review=COALESCE($7, date_needs_review),
+                 source_country=COALESCE($8, source_country),
+                 surveillance_scope=COALESCE($9, surveillance_scope)
+             WHERE id=$10",
+            &[
+                &intelligence_evidence,
+                &nlp.epistemic_status,
+                &intelligence_validation,
+                &nlp.count_period_type,
+                &parse_date(nlp.event_date_start.as_deref()),
+                &parse_date(nlp.event_date_end.as_deref()),
+                &nlp.date_needs_review,
+                &nlp.source_country,
+                &nlp.surveillance_scope,
+                &event_id,
+            ],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    persist_nlp_sub_events(
+        &client,
+        event_id,
+        raw_id,
+        &nlp,
+        "web",
+        "URL Analyzer",
+        &text,
+    )
+    .await
+    .map_err(internal_error)?;
 
     if let Some(date) = published_date {
         client

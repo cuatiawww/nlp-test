@@ -387,10 +387,10 @@ export default function AnalyzePage() {
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Location / Country</span>
-                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={collapsed.locationDisplay || result.location_name || '-'}>
-                      {collapsed.locationDisplay || result.location_name || '-'}
+                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={result.location_name || result.province || result.country || '-'}>
+                      {result.location_name || result.province || result.country || '-'}
                     </p>
-                    {result.country && (
+                    {result.country && (result.location_name || result.province) !== result.country && (
                       <span className="text-[11px] text-slate-500 font-medium">({result.country})</span>
                     )}
                   </div>
@@ -400,14 +400,14 @@ export default function AnalyzePage() {
                     <p className="mt-1 text-lg font-black text-slate-900 leading-snug truncate">
                       {(result as any).case_count_unknown
                         ? 'unknown'
-                        : collapsed.casesDisplay || result.case_count?.toLocaleString() || '0'}
+                        : result.case_count != null ? result.case_count.toLocaleString() : '0'}
                     </p>
                   </div>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Recorded Deaths</span>
                     <p className={`mt-1 text-lg font-black ${result.death_count > 0 ? 'text-red-600' : 'text-slate-900'} leading-snug truncate`}>
-                      {collapsed.deathsDisplay || result.death_count?.toLocaleString() || '0'}
+                      {result.death_count != null ? result.death_count.toLocaleString() : '0'}
                     </p>
                   </div>
                 </div>
@@ -526,8 +526,8 @@ export default function AnalyzePage() {
                             {(result as any).region || '-'}
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            <span className="block max-w-[150px] truncate" title={collapsed.locationDisplay || result.location_name || '-'}>
-                              {collapsed.locationDisplay || result.location_name || '-'}
+                            <span className="block max-w-[150px] truncate" title={result.location_name || result.province || result.country || '-'}>
+                              {result.location_name || result.province || result.country || '-'}
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono text-[10px]">
@@ -539,15 +539,15 @@ export default function AnalyzePage() {
                               : result.event_date || result.published_at || '-'}
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-extrabold text-slate-900">
-                            <span className="block max-w-[160px] truncate" title={collapsed.casesDisplay || String(result.case_count)}>
+                            <span className="block max-w-[160px] truncate" title={String(result.case_count)}>
                               {(result as any).case_count_unknown
                                 ? 'unknown'
-                                : collapsed.casesDisplay || result.case_count?.toLocaleString() || '0'}
+                                : result.case_count != null ? result.case_count.toLocaleString() : '0'}
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-bold">
                             <span className={`block max-w-[130px] truncate ${result.death_count > 0 ? 'text-red-600 font-extrabold' : 'text-slate-600'}`}>
-                              {collapsed.deathsDisplay || result.death_count?.toLocaleString() || '0'}
+                              {result.death_count != null ? result.death_count.toLocaleString() : '0'}
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-700 capitalize font-medium">
@@ -640,7 +640,7 @@ export default function AnalyzePage() {
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-semibold text-slate-800">
                                 <div className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3 text-red-500 shrink-0" />
-                                  <span>{evt.location_name || result.location_name || '-'}</span>
+                                  <span>{evt.location_name || evt.province || evt.city || result.location_name || result.province || result.country || '-'}</span>
                                 </div>
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-500 font-mono text-[10px]">

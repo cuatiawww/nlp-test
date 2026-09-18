@@ -1,0 +1,482 @@
+"""Evidence-first document intelligence helpers.
+
+This module is deliberately small.  It turns the existing location/metric
+relations into atomic event candidates only after disease, location, metric,
+and temporal evidence can be attributed to the same local context.
+"""
+
+from __future__ import annotations
+
+import re
+from collections import OrderedDict
+from typing import Any, Optional
+
+from . import extractors
+from .epidemiology import classify_epistemic_status, extract_event_period, qualify_metric_type
+from .surveillance_extraction import (
+    GazetteerLinker,
+    MetricRelation,
+    _metric_context,
+    extract_metric_relations,
+)
+
+
+_SENTENCE_RE = re.compile(r".*?(?:[.!?。！？]+|$)", re.S)
+_GENERIC_METRIC_RE = re.compile(
+    r"(?P<value>\d[\d.,]*)\s*"
+    r"(?P<qualifier>more than|over|at least|nearly|about|around|approximately|"
+    r"lebih dari|setidaknya|sekitar|hampir|lebih kurang)?\s*"
+    r"(?P<metric>hospitali[sz]ed|rawat inap|dirawat|recovered|sembuh|pulih|"
+    r"tests?|tes|specimens?|spesimen|vaccinated|divaksin|vaksinasi|"
+    r"suspected|suspek|confirmed|terkonfirmasi|active|aktif|percent|persen|"
+    r"rate|rasio|ratio)\b",
+    re.IGNORECASE,
+)
+
+
+def sentence_spans(text: str) -> list[tuple[int, int, str]]:
+    """Return non-empty sentence spans while retaining original offsets."""
+
+    source = text or ""
+    spans: list[tuple[int, int, str]] = []
+    start = 0
+    for match in re.finditer(r"[.!?。！？]+|\n+", source):
+        end = match.end()
+        value = source[start:end].strip()
+        if value:
+            leading = len(source[start:end]) - len(source[start:end].lstrip())
+            spans.append((start + leading, end, value))
+        start = end
+    tail = source[start:].strip()
+    if tail:
+        leading = len(source[start:]) - len(source[start:].lstrip())
+        spans.append((start + leading, len(source), tail))
+    return spans or ([(0, len(source), source)] if source.strip() else [])
+
+
+def _canonical_labels(labels: list[str] | None) -> list[str]:
+    result: list[str] = []
+    for value in labels or []:
+        label = str(value or "").strip()
+        if not label or label.upper() == "UNKNOWN":
+            continue
+        canonical = extractors.canonical_disease_name(label)
+        if canonical.casefold() not in {item.casefold() for item in result}:
+            result.append(canonical)
+    return result
+
+
+def _disease_candidates(context: str, labels: list[str]) -> list[str]:
+    """Resolve only diseases with textual evidence in the local context."""
+
+    observed = _canonical_labels(
+        extractors.extract_diseases(context) + extractors.extract_alias_diseases(context)
+    )
+    known = _canonical_labels(labels)
+    candidates: list[str] = []
+    for label in [*observed, *known]:
+        if label.casefold() in {item.casefold() for item in candidates}:
+            continue
+        if extractors.disease_has_textual_evidence(label, context):
+            candidates.append(label)
+    return candidates
+
+
+def _nearest_disease(context: str, candidates: list[str], metric_anchor: int) -> Optional[str]:
+    if len(candidates) == 1:
+        return candidates[0]
+    scored: list[tuple[int, str]] = []
+    for candidate in candidates:
+        tokens = [candidate, *candidate.split()]
+        positions = [context.casefold().find(token.casefold()) for token in tokens if token]
+        positions = [position for position in positions if position >= 0]
+        if positions:
+            scored.append((min(abs(position - metric_anchor) for position in positions), candidate))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[0])
+    if len(scored) > 1 and scored[0][0] == scored[1][0]:
+        return None
+    if len(scored) > 1 and (scored[0][0] > 90 or scored[1][0] - scored[0][0] < 20):
+        return None
+    return scored[0][1]
+
+
+def _metric_qualifier(context: str) -> Optional[str]:
+    match = re.search(
+        r"\b(more than|over|at least|nearly|about|around|approximately|"
+        r"lebih dari|setidaknya|sekitar|hampir|lebih kurang)\b",
+        context or "",
+        re.IGNORECASE,
+    )
+    return match.group(1).lower() if match else None
+
+
+def _generic_metric_type(label: str) -> tuple[str, str]:
+    value = label.casefold()
+    if value in {"hospitalized", "hospitalised", "rawat inap", "dirawat"}:
+        return "hospitalized", "persons"
+    if value in {"recovered", "sembuh", "pulih"}:
+        return "recovered", "persons"
+    if value in {"tests", "test", "tes", "specimens", "specimen", "spesimen"}:
+        return "tests", "tests"
+    if value in {"vaccinated", "divaksin", "vaksinasi"}:
+        return "vaccinated", "persons"
+    if value in {"suspected", "suspek"}:
+        return "suspected_cases", "persons"
+    if value in {"confirmed", "terkonfirmasi"}:
+        return "confirmed_cases", "persons"
+    if value in {"active", "aktif"}:
+        return "active_cases", "persons"
+    if value in {"percent", "persen"}:
+        return "percentage", "percent"
+    if value in {"rate", "rasio", "ratio"}:
+        return "rate", "ratio"
+    return value, "persons"
+
+
+def _generic_observations(sentence: str, linker: GazetteerLinker) -> list[dict[str, Any]]:
+    """Extract non-case metrics only when a location can be linked locally."""
+
+    locations = list(linker.local_mentions(sentence))
+    observations: list[dict[str, Any]] = []
+    for match in _GENERIC_METRIC_RE.finditer(sentence):
+        metric_type, unit = _generic_metric_type(match.group("metric"))
+        raw = match.group("value").replace(" ", "")
+        try:
+            value = float(raw.replace(",", ".")) if "." in raw and raw.count(".") == 1 else int(re.sub(r"[.,]", "", raw))
+        except ValueError:
+            continue
+        nearby = [item for item in locations if abs(item[0] - match.start()) <= 180 or abs(item[1] - match.end()) <= 180]
+        if len({item[2].name.casefold() for item in nearby}) != 1:
+            continue
+        location = nearby[0][2]
+        observations.append({
+            "location": location,
+            "metric_type": metric_type,
+            "value": value,
+            "unit": unit,
+            "qualifier": match.group("qualifier"),
+            "evidence": sentence.strip(),
+            "offset_start": match.start(),
+            "offset_end": match.end(),
+        })
+    return observations
+
+
+def _relation_key(event: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(event.get("disease") or "UNKNOWN").casefold(),
+        str(event.get("location_name") or "").casefold(),
+        str(event.get("time_frame") or ""),
+    )
+
+
+def _location_level(value: dict[str, Any]) -> int:
+    """Return the loaded administrative depth without inventing hierarchy."""
+
+    level = value.get("admin_level")
+    if level is not None:
+        try:
+            return int(level)
+        except (TypeError, ValueError):
+            pass
+    name = str(value.get("canonical_name") or value.get("name") or "")
+    configured = getattr(extractors.config, "LOCATION_ADMIN_LEVEL", {}).get(name)
+    try:
+        return int(configured) if configured is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_parent_location(parent: dict[str, Any], child: dict[str, Any]) -> bool:
+    """Check only relationships supported by the resolved hierarchy."""
+
+    parent_name = str(parent.get("canonical_name") or parent.get("name") or "").casefold()
+    child_name = str(child.get("canonical_name") or child.get("name") or "").casefold()
+    if not parent_name or not child_name or parent_name == child_name:
+        return False
+    parent_country = str(parent.get("country") or "").casefold()
+    child_country = str(child.get("country") or "").casefold()
+    if not parent_country or parent_country != child_country:
+        return False
+    if _location_level(child) <= _location_level(parent):
+        return False
+    if _location_level(parent) == 0:
+        return parent_name == child_country
+    return (
+        str(parent.get("admin1_name") or "").casefold()
+        == str(child.get("admin1_name") or "").casefold()
+        and str(parent.get("admin2_name") or "").casefold()
+        != str(child.get("admin2_name") or "").casefold()
+    )
+
+
+def _same_metric_observation(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Identify parser duplicates, not distinct observations with equal values."""
+
+    if (left.get("disease") or "").casefold() != (right.get("disease") or "").casefold():
+        return False
+    if left.get("metric_type") != right.get("metric_type"):
+        return False
+    if left.get("case_count", 0) != right.get("case_count", 0):
+        return False
+    if left.get("death_count", 0) != right.get("death_count", 0):
+        return False
+    left_start, left_end = left.get("evidence_offset_start"), left.get("evidence_offset_end")
+    right_start, right_end = right.get("evidence_offset_start"), right.get("evidence_offset_end")
+    if all(isinstance(item, int) for item in (left_start, left_end, right_start, right_end)):
+        return left_start < right_end and right_start < left_end
+    return bool(left.get("evidence") and left.get("evidence") == right.get("evidence"))
+
+
+def _collapse_hierarchical_parser_duplicates(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop a parent-location duplicate when one metric has one child relation.
+
+    A national total and a provincial breakdown remain separate when their
+    values or evidence differ. This only removes overlapping parser outputs
+    for the same metric value and hierarchy.
+    """
+
+    kept: list[dict[str, Any]] = []
+    for candidate in events:
+        candidate_hierarchy = extractors.resolve_location_hierarchy(
+            candidate.get("location_name"), country_hint=candidate.get("country")
+        )
+        remove_existing: list[int] = []
+        discard_candidate = False
+        for index, existing in enumerate(kept):
+            if not _same_metric_observation(candidate, existing):
+                continue
+            existing_hierarchy = extractors.resolve_location_hierarchy(
+                existing.get("location_name"), country_hint=existing.get("country")
+            )
+            if _is_parent_location(existing_hierarchy, candidate_hierarchy):
+                remove_existing.append(index)
+            elif _is_parent_location(candidate_hierarchy, existing_hierarchy):
+                discard_candidate = True
+                break
+        if discard_candidate:
+            continue
+        for index in reversed(remove_existing):
+            kept.pop(index)
+        kept.append(candidate)
+    return kept
+
+
+def _most_specific_event_location(sentence: str, evidence: str, base_location, linker: GazetteerLinker):
+    """Prefer a supported child place when a relation initially links its parent."""
+
+    try:
+        candidates = extractors.extract_all_locations(
+            sentence,
+            country=getattr(base_location, "country", None),
+        )
+    except Exception:
+        candidates = []
+    if not candidates:
+        return base_location
+
+    base_country = str(getattr(base_location, "country", "") or "").casefold()
+    compatible = [
+        item for item in candidates
+        if not base_country or str(item.get("country") or "").casefold() == base_country
+    ]
+    if not compatible:
+        return base_location
+    anchor = sentence.find(evidence) if evidence else 0
+    compatible.sort(
+        key=lambda item: (
+            item.get("admin_level") if item.get("admin_level") is not None else -1,
+            -abs(sentence.find(str(item.get("name") or "")) - max(anchor, 0)),
+        ),
+        reverse=True,
+    )
+    selected = compatible[0]
+    linked = linker.link(
+        str(selected.get("name") or ""),
+        context=sentence,
+        evidence=evidence,
+    )
+    return linked or base_location
+
+
+def _merge_metric(event: dict[str, Any], metric: dict[str, Any]) -> None:
+    metrics = event.setdefault("metrics", [])
+    metric_key = (metric.get("metric_type"), metric.get("unit"), metric.get("value"), metric.get("time_frame"))
+    if not any((item.get("metric_type"), item.get("unit"), item.get("value"), item.get("time_frame")) == metric_key for item in metrics):
+        metrics.append(metric)
+    if metric.get("metric_type") in {"cases", "new_cases", "cumulative_cases", "active_cases", "suspected_cases", "confirmed_cases"}:
+        if metric.get("metric_type") in {"suspected_cases", "confirmed_cases", "active_cases"}:
+            event[metric["metric_type"]] = max(event.get(metric["metric_type"]) or 0, int(metric.get("value") or 0))
+        else:
+            event["case_count"] = max(event.get("case_count") or 0, int(metric.get("value") or 0))
+    if metric.get("metric_type") == "deaths":
+        event["death_count"] = max(event.get("death_count") or 0, int(metric.get("value") or 0))
+
+
+def build_atomic_events(
+    text: str,
+    *,
+    disease_labels: list[str] | None = None,
+    primary_disease: Optional[str] = None,
+    published_at: Optional[str] = None,
+    linker: Optional[GazetteerLinker] = None,
+) -> list[dict[str, Any]]:
+    """Build event candidates only from co-attributed evidence spans.
+
+    A document-level disease or location is used only as a low-confidence
+    fallback when there is exactly one unambiguous candidate.  Competing
+    diseases/locations are left unresolved instead of being silently merged.
+    """
+
+    source = text or ""
+    if not source.strip():
+        return []
+    linker = linker or GazetteerLinker(allow_remote=False)
+    labels = _canonical_labels([*(disease_labels or []), *( [primary_disease] if primary_disease else [])])
+    spans = sentence_spans(source)
+    events: "OrderedDict[tuple[str, str, str], dict[str, Any]]" = OrderedDict()
+    # Resolve metric-location relations once per document. Calling this inside
+    # every sentence repeatedly scans the full gazetteer and makes long
+    # articles degrade quadratically.
+    document_relations = extract_metric_relations(source, linker=linker, published_date=None)
+
+    for start, end, sentence in spans:
+        local_relations = [
+            relation for relation in document_relations
+            if relation.evidence and relation.evidence.casefold() in sentence.casefold()
+        ]
+        local_relations = [relation for relation in local_relations if relation.cases or relation.deaths]
+        generic = _generic_observations(sentence, linker)
+        if not local_relations and not generic:
+            continue
+        paragraph_start = source.rfind("\n\n", 0, start) + 2
+        paragraph_end = source.find("\n\n", end)
+        paragraph = source[paragraph_start:paragraph_end if paragraph_end >= 0 else len(source)]
+        context = paragraph[:1200]
+        period = extract_event_period(sentence, published_at=published_at)
+
+        sentence_candidates = _disease_candidates(sentence, labels)
+        paragraph_candidates = _disease_candidates(context, labels)
+
+        def resolve_disease(evidence: str, evidence_start: int) -> tuple[str, float]:
+            direct = _disease_candidates(evidence, labels)
+            candidates = direct or sentence_candidates or paragraph_candidates
+            if not candidates and len(labels) == 1:
+                candidates = labels
+            disease = _nearest_disease(sentence, candidates, evidence_start) if candidates else None
+            if disease is None and len(candidates) == 1:
+                disease = candidates[0]
+            if not direct and not sentence_candidates and not paragraph_candidates and primary_disease:
+                # Preserve the caller's explicit fallback label when the article
+                # provides no local disease mention to normalize.
+                disease = str(primary_disease).strip()
+            resolved = disease or "UNKNOWN"
+            explicit = bool(direct or sentence_candidates)
+            confidence = 0.92 if explicit and len(candidates) == 1 else (0.68 if candidates else 0.30)
+            return resolved, confidence
+
+        def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, event_disease="UNKNOWN", event_confidence=0.30):
+            location = _most_specific_event_location(sentence, evidence, location, linker)
+            hierarchy = extractors.resolve_location_hierarchy(location.name)
+            frame = extract_event_period(sentence, published_at=None)
+            if frame.get("event_date_start") and frame.get("event_date_end"):
+                time_frame = f"{frame['event_date_start']} to {frame['event_date_end']}"
+            else:
+                time_frame = frame.get("event_date_start") or frame.get("event_date_end") or ""
+            metric_value = value if value is not None else (deaths if metric_type == "deaths" else cases)
+            event = {
+                "disease": event_disease,
+                "location_name": hierarchy.get("canonical_name") or location.name,
+                "country": hierarchy.get("country") or location.country,
+                "admin1": hierarchy.get("admin1_name"),
+                "admin2": hierarchy.get("admin2_name"),
+                "country_iso3": hierarchy.get("country_iso3"),
+                "latitude": hierarchy.get("latitude") if hierarchy.get("latitude") is not None else location.latitude,
+                "longitude": hierarchy.get("longitude") if hierarchy.get("longitude") is not None else location.longitude,
+                "case_count": max(0, int(cases or 0)),
+                "death_count": max(0, int(deaths or 0)),
+                "metric_type": metric_type,
+                "unit": unit,
+                "metric_qualifier": qualifier,
+                "time_frame": time_frame,
+                "temporal_context": frame.get("period_type") or "current",
+                "epistemic_status": classify_epistemic_status(sentence, disease=event_disease),
+                "evidence": evidence or sentence.strip(),
+                "evidence_offset_start": start + max(0, start_offset),
+                "evidence_offset_end": start + max(0, end_offset),
+                "event_date_start": period.get("event_date_start"),
+                "event_date_end": period.get("event_date_end"),
+                "validation_flags": [],
+                "confidence": event_confidence,
+                "disease_confidence": event_confidence,
+                "location_confidence": 0.90 if hierarchy.get("country") else 0.45,
+                "relation_confidence": min(event_confidence, 0.90),
+                "needs_review": event_disease == "UNKNOWN" or not hierarchy.get("country"),
+                "relations": [{
+                    "type": "reported_in",
+                    "evidence": evidence or sentence.strip(),
+                }],
+                "metrics": [],
+                "provenance": {
+                    "method": "evidence_relation",
+                    "source": "surveillance_extraction",
+                    "offset_start": start + max(0, start_offset),
+                    "offset_end": start + max(0, end_offset),
+                },
+            }
+            metric = {
+                "metric_type": metric_type,
+                "value": metric_value,
+                "unit": unit,
+                "qualifier": qualifier,
+                "time_frame": time_frame,
+                "evidence": evidence or sentence.strip(),
+                "confidence": min(event_confidence, 0.90),
+            }
+            _merge_metric(event, metric)
+            key = _relation_key(event)
+            existing = events.get(key)
+            if existing:
+                _merge_metric(existing, metric)
+                existing["evidence"] = existing.get("evidence") or event["evidence"]
+                existing["evidence_offset_start"] = min(existing.get("evidence_offset_start") or event["evidence_offset_start"], event["evidence_offset_start"])
+                existing["evidence_offset_end"] = max(existing.get("evidence_offset_end") or event["evidence_offset_end"], event["evidence_offset_end"])
+            else:
+                events[key] = event
+
+        for relation in local_relations:
+            evidence_start = sentence.find(relation.evidence) if relation.evidence else 0
+            event_disease, event_confidence = resolve_disease(relation.evidence or sentence, max(0, evidence_start))
+            add_event(
+                relation.location,
+                cases=relation.cases,
+                deaths=relation.deaths or 0,
+                evidence=relation.evidence,
+                start_offset=max(0, evidence_start),
+                end_offset=(max(0, evidence_start) + len(relation.evidence)) if relation.evidence and evidence_start >= 0 else len(sentence),
+                metric_type="deaths" if relation.deaths and not relation.cases else qualify_metric_type(sentence, has_cases=bool(relation.cases), has_deaths=bool(relation.deaths))[0],
+                unit="persons",
+                qualifier=_metric_qualifier(relation.evidence or sentence),
+                value=relation.deaths if relation.deaths and not relation.cases else relation.cases,
+                event_disease=event_disease,
+                event_confidence=event_confidence,
+            )
+
+        for item in generic:
+            event_disease, event_confidence = resolve_disease(item["evidence"], item["offset_start"])
+            add_event(
+                item["location"],
+                evidence=item["evidence"],
+                start_offset=item["offset_start"],
+                end_offset=item["offset_end"],
+                metric_type=item["metric_type"],
+                unit=item["unit"],
+                qualifier=item["qualifier"],
+                value=item["value"],
+                event_disease=event_disease,
+                event_confidence=event_confidence,
+            )
+
+    return _collapse_hierarchical_parser_duplicates(list(events.values()))

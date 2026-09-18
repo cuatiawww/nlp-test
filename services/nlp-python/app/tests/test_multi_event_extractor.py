@@ -223,7 +223,7 @@ class TestExtractMultiEvents(unittest.TestCase):
     @patch("app.multi_event_extractor.config.AGENT_ENABLED", True)
     @patch("app.multi_event_extractor._regex_extract_location_cases", return_value=[])
     @patch("app.multi_event_extractor._llm_extract_events", return_value=[])
-    def test_multi_event_signal_keeps_llm_fallback_available(self, llm_extract, regex_mock):
+    def test_multi_event_signal_uses_evidence_relations_before_llm(self, llm_extract, regex_mock):
         from app.multi_event_extractor import extract_multi_events
 
         extract_multi_events(
@@ -236,7 +236,7 @@ class TestExtractMultiEvents(unittest.TestCase):
             death_count=0,
         )
 
-        llm_extract.assert_called_once()
+        llm_extract.assert_not_called()
 
     @patch("app.multi_event_extractor.MULTI_EVENT_ENABLED", False)
     def test_disabled_returns_empty(self):
@@ -285,7 +285,7 @@ class TestComposeStructuredEvents(unittest.TestCase):
 
     @patch("app.multi_event_extractor.MULTI_EVENT_ENABLED", True)
     @patch("app.multi_event_extractor.MULTI_EVENT_LLM_FALLBACK", False)
-    def test_compose_splits_influenza_and_rsv(self):
+    def test_compose_keeps_context_only_disease_mentions_in_one_event(self):
         from app.multi_event_extractor import compose_structured_events
         from app.multi_fact_display import collapse_facts
         text = (
@@ -302,13 +302,12 @@ class TestComposeStructuredEvents(unittest.TestCase):
             death_count=0,
         )
         names = {event["disease"] for event in events}
-        self.assertGreaterEqual(len(events), 2)
+        self.assertEqual(len(events), 1)
         joined = " ".join(names).lower()
         self.assertIn("influenza", joined)
-        self.assertTrue("rsv" in joined or "syncytial" in joined)
+        self.assertNotIn("rsv", joined)
         collapsed = collapse_facts(events)
-        self.assertIn("; ", collapsed["disease_display"])
-        self.assertNotIn(",", collapsed["disease_display"])
+        self.assertNotIn("; ", collapsed["disease_display"])
 
     @patch("app.multi_event_extractor.MULTI_EVENT_ENABLED", True)
     @patch("app.multi_event_extractor.MULTI_EVENT_LLM_FALLBACK", False)

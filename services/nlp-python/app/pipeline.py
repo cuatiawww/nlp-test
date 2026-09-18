@@ -96,11 +96,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # the article's event geography.
         if extractors.extract_country_hint(text[:1500]) is None:
             location_country = extractors.country_scope(location_country)
-    mentioned_countries = extractors.extract_all_mentioned_countries(text)
-    if mentioned_countries:
-        allowed_countries = set(mentioned_countries)
-    elif location_country and location_country in config.ASEAN_COUNTRIES:
+    mentioned_countries = extractors.extract_all_mentioned_countries(text[:1500])
+    if location_country and location_country in config.ASEAN_COUNTRIES:
         allowed_countries = {location_country}
+    elif mentioned_countries:
+        allowed_countries = set(mentioned_countries)
     else:
         allowed_countries = None
 
@@ -752,6 +752,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 event_date_start=evt.get("event_date_start"),
                 event_date_end=evt.get("event_date_end"),
                 epistemic_status=evt.get("epistemic_status", "reported"),
+                metric_qualifier=evt.get("metric_qualifier"),
+                time_frame=evt.get("time_frame"),
+                temporal_context=evt.get("temporal_context", "current"),
+                disease_confidence=evt.get("disease_confidence"),
+                location_confidence=evt.get("location_confidence"),
+                relation_confidence=evt.get("relation_confidence"),
+                needs_review=evt.get("needs_review", False),
+                relations=evt.get("relations", []),
+                metrics=evt.get("metrics", []),
+                provenance=evt.get("provenance") or {
+                    "method": "evidence_relation",
+                    "source": "surveillance_extraction",
+                },
                 validation_flags=evt.get("validation_flags", []),
                 confidence=evt.get("confidence", 0.90),
             )
@@ -841,42 +854,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     for item in relational_events
                     if extractors.is_usable_place_name(item.location.name, text)
                 ]
-                if extra_sub and not sub_events:
+                if extra_sub and not sub_events and disease != "UNKNOWN":
                     sub_events = extra_sub
     except Exception as exc:
         logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
 
-    infectious = [
-        item for item in extracted
-        if item and item.upper() != "UNKNOWN"
-        and not extractors.is_ncd_only_non_outbreak(item, [item])
-    ]
-    present_diseases = {(evt.disease or "").casefold() for evt in sub_events}
+    # Disease mentions without a metric/location/time relation remain
+    # mentions.  They must not be promoted to phantom zero-count events.
     if ncd_only:
         sub_events = []
-    elif len(infectious) >= 2:
-        for item in infectious:
-            if item.casefold() in present_diseases:
-                continue
-            sub_events.append(
-                SubEvent(
-                    disease=item,
-                    location_name=location or "",
-                    country=country,
-                    latitude=lat,
-                    longitude=lon,
-                    case_count=0 if extractors.is_vaccine_campaign_not_outbreak(text) else (
-                        extractors.extract_case_count(text, disease=item)
-                        if extractors.has_explicit_case_count(text, disease=item)
-                        else 0
-                    ),
-                    death_count=0 if extractors.is_vaccine_campaign_not_outbreak(text) else (
-                        extractors.extract_death_count(text, disease=item)
-                    ),
-                    evidence=next((span for span in evidence if item.split()[0].lower() in span.lower()), ""),
-                )
-            )
-            present_diseases.add(item.casefold())
 
     for evt in sub_events:
         resolved_sub = resolve_local_icd11_term(evt.disease)
@@ -988,7 +974,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         event_date=event_date,
         location_name=location,
         locations=all_locations,
-        original_location=original_location,
+        original_location_name=original_location,
+        source_country=source_country,
+        surveillance_scope=("ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
+        translated=bool(translated_text),
+        translation_provider=translation.get("provider") or "none",
+        translated_text=translated_text or "",
         country=country,
         latitude=lat,
         longitude=lon,
@@ -1004,6 +995,23 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         epistemic_status=doc_epistemic,
         validation_flags=doc_validation_flags,
         evidence=evidence,
+        epidemiological_evidence=[
+            *evidence,
+            *[
+                {
+                    "disease": evt.disease,
+                    "location": evt.location_name,
+                    "metrics": evt.metrics,
+                    "time_frame": evt.time_frame,
+                    "temporal_context": evt.temporal_context,
+                    "epistemic_status": evt.epistemic_status,
+                    "relations": evt.relations,
+                    "provenance": evt.provenance,
+                    "confidence": evt.confidence,
+                }
+                for evt in sub_events
+            ],
+        ],
         case_count_unknown=not explicit_case_count,
         country_iso3=final_iso3,
         admin1_name=loc_hier.get("admin1_name"),

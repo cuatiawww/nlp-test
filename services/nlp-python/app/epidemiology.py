@@ -24,7 +24,10 @@ COUNT_LABELS = {
 
 
 
-EPISTEMIC_STATUSES = ("retracted", "suspected", "confirmed", "rumor", "official_report", "reported")
+EPISTEMIC_STATUSES = (
+    "retracted", "suspected", "confirmed", "rumor", "official_report",
+    "negative_surveillance", "reported",
+)
 
 _RE_RETRACTED = re.compile(
     r"\b(?:hoaks|hoax|bantah|membantah|disproven|false\s+alarm|retracted|"
@@ -59,6 +62,14 @@ _RE_OFFICIAL = re.compile(
     re.IGNORECASE,
 )
 
+_RE_NEGATIVE_SURVEILLANCE = re.compile(
+    r"\b(?:no(?:\s+new)?(?:\s+[\w-]+){0,6}\s+cases?|no\s+case|zero\s+cases?|"
+    r"not\s+yet\s+detected|tidak\s+ada\s+kasus|belum\s+ada\s+kasus)\b"
+    r"(?:[^.!?]{0,80}\b(?:detected|reported|recorded|identified|found|"
+    r"terdeteksi|dilaporkan|tercatat|ditemukan)\b)?",
+    re.IGNORECASE,
+)
+
 
 def classify_epistemic_status(
     text: str,
@@ -82,6 +93,8 @@ def classify_epistemic_status(
         return "rumor"
     if _RE_SUSPECTED.search(sample):
         return "suspected"
+    if _RE_NEGATIVE_SURVEILLANCE.search(sample):
+        return "negative_surveillance"
     if _RE_CONFIRMED.search(sample):
         return "confirmed"
     if _RE_OFFICIAL.search(sample):
@@ -346,6 +359,26 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
         if as_of:
             result["event_date"] = normalize_publication_date(extract_date_from_text(as_of.group(0)))
             result["event_date_end"] = result["event_date"]
+            result["date_needs_review"] = True
+
+    # Annual references are periods, not publication dates.  Preserve them so
+    # two reports for different years cannot collapse into one event merely
+    # because they share a disease and location.
+    if not result["event_date_start"] and not result["event_date_end"]:
+        year_match = re.search(
+            r"\b(?P<cue>in|pada|tahun|during|sepanjang|since|sejak)\s+(?P<year>20\d{2})\b",
+            sample[:2500],
+            re.IGNORECASE,
+        )
+        if year_match:
+            year = int(year_match.group("year"))
+            result["event_date_start"] = f"{year:04d}-01-01"
+            result["event_date_end"] = f"{year:04d}-12-31"
+            result["period_type"] = (
+                "cumulative"
+                if year_match.group("cue").casefold() in {"since", "sejak", "sepanjang"}
+                else "historical"
+            )
             result["date_needs_review"] = True
 
     published = normalize_publication_date(published_at)

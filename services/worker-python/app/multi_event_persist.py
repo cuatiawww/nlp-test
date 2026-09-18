@@ -45,7 +45,15 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
         sub_confirmed = sub_cases if sub_epistemic == "confirmed" else None
         sub_suspected = sub_cases if sub_epistemic == "suspected" else None
         sub_hospitalized = sub_cases if sub_metric_type == "active_cases" else None
-        sub_evidence_json = json.dumps([sub_evidence]) if sub_evidence else json.dumps([])
+        sub_evidence_payload = {
+            "text": sub_evidence,
+            "metrics": sub_evt.get("metrics") or [],
+            "relations": sub_evt.get("relations") or [],
+            "provenance": sub_evt.get("provenance") or {},
+        }
+        sub_evidence_json = json.dumps(
+            [sub_evidence, sub_evidence_payload] if sub_evidence else [sub_evidence_payload]
+        )
         sub_validation_flags = sub_evt.get("validation_flags") or result.get("validation_flags") or []
 
         conn.execute(

@@ -194,7 +194,7 @@ export function collapseAnalyzeResult(result) {
   if (result.disease_display || result.location_display || result.cases_display || result.deaths_display) {
     return {
       diseaseDisplay: result.disease_display || '',
-      locationDisplay: result.location_display || '',
+      locationDisplay: result.location_display || result.location_name || result.province || result.country || '',
       casesDisplay: result.cases_display || null,
       deathsDisplay: result.deaths_display || null,
       dimension: result.display_dimension || 'single',

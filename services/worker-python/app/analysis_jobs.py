@@ -92,6 +92,12 @@ def is_retryable_nlp_error(exc):
     )
 
 
+def is_nlp_read_timeout(exc):
+    """A timed-out HTTP client may leave the server request still running."""
+
+    return type(exc).__name__ in {"ReadTimeout", "ConnectTimeout"} and type(exc).__module__.startswith("requests")
+
+
 def analyze_stages(
     url,
     fetch,
@@ -137,7 +143,7 @@ def analyze_stages(
             break
         except Exception as exc:
             last_error = exc
-            if attempt + 1 < attempts and is_retryable_nlp_error(exc):
+            if attempt + 1 < attempts and is_retryable_nlp_error(exc) and not is_nlp_read_timeout(exc):
                 logger.warning(
                     "Full NLP attempt %s/%s failed for %s; retrying extracted text: %s",
                     attempt + 1,
@@ -145,7 +151,14 @@ def analyze_stages(
                     url,
                     exc,
                 )
+                if "busy" in str(exc).lower() or "503" in str(exc):
+                    time.sleep(min(30, max(2, 5 * (2 ** attempt))))
                 continue
+            if is_nlp_read_timeout(exc):
+                logger.warning(
+                    "Full NLP HTTP request timed out for %s; not retrying immediately because the server request may still be running",
+                    url,
+                )
             break
     if analysis is None:
         reason = str(last_error or "unknown error").replace("\n", " ").strip()[:240]
@@ -322,7 +335,7 @@ def save_completed(conn, job_id, result, raw_report_id=None):
          Jsonb(result.get("disease_extracted",[])),Jsonb(result.get("disease_mentions",[])),
          result.get("disease_classification"),result.get("case_count",0),result.get("death_count",0),
          result.get("event_date"),result.get("confirmed_cases"),result.get("suspected_cases"),
-         result.get("hospitalizations"),Jsonb(result.get("evidence",[])),
+         result.get("hospitalizations"),Jsonb(result.get("epidemiological_evidence", result.get("evidence",[]))),
          result.get("confidence",0),result.get("is_health_related",False),result.get("outbreak_alert",False),
          result.get("sentiment"),result.get("event_type"),result.get("relevance_score"),
          result.get("source_credibility"),result.get("source_credibility_label"),result.get("needs_review",False),

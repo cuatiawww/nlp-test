@@ -51,6 +51,13 @@ def normalize_disease_display(disease: str, language: str = "unknown", text: str
         "mers cov": "Middle East Respiratory Syndrome (MERS)",
         "middle east respiratory syndrome": "Middle East Respiratory Syndrome (MERS)",
         "middle east respiratory syndrome mers": "Middle East Respiratory Syndrome (MERS)",
+        "ebola": "Ebola disease, virus unspecified",
+        "ebola disease": "Ebola disease, virus unspecified",
+        "ebola virus": "Ebola disease, virus unspecified",
+        "ebola virus disease": "Ebola disease, virus unspecified",
+        "evd": "Ebola disease, virus unspecified",
+        "virus ebola": "Ebola disease, virus unspecified",
+        "penyakit ebola": "Ebola disease, virus unspecified",
         "dengue": "Dengue",
         "dengue fever dbd": "Dengue",
         "dbd": "Dengue",
@@ -182,8 +189,18 @@ def detect_language(text: str) -> str:
             return max(scores, key=scores.get)
 
 
+# Non-Latin Southeast Asian scripts (Thai, Lao, Myanmar, Khmer) do not use whitespace between words
+_NON_LATIN_SCRIPT_RE = re.compile(r"[฀-๿຀-໿က-႟ក-៿]")
+
+def _is_native_script(text: str) -> bool:
+    """Check if text contains non-Latin Southeast Asian characters."""
+    return bool(_NON_LATIN_SCRIPT_RE.search(text))
+
+
 def _fold_location_text(value: str) -> str:
     """Make Latin locations match their local-script/diacritic variants."""
+    if _is_native_script(value):
+        return value.strip().casefold()
     decomposed = unicodedata.normalize("NFKD", value.lower())
     return "".join(char for char in decomposed if not unicodedata.combining(char))
 
@@ -192,6 +209,10 @@ def _fold_with_positions(value: str) -> tuple[str, list[int]]:
     folded: list[str] = []
     positions: list[int] = []
     for index, char in enumerate(value):
+        if _is_native_script(char):
+            folded.append(char.casefold())
+            positions.append(index)
+            continue
         decomposed = unicodedata.normalize("NFKD", char.lower())
         for part in decomposed:
             if not unicodedata.combining(part):
@@ -218,6 +239,11 @@ COUNTRY_ALIASES = {
     "philippine": "Philippines",
     "singapore": "Singapore",
     "singapura": "Singapore",
+    "ประเทศไทย": "Thailand",
+    "กម្ពុជា": "Cambodia",
+    "မြန်မာ": "Myanmar",
+    "ລາວ": "Laos",
+    "việt nam": "Vietnam",
     "s'pore": "Singapore",
     "kamboja": "Cambodia",
     "cambodian": "Cambodia",
@@ -479,11 +505,13 @@ def resolve_location_hierarchy(
     aliases = {**LOCATION_ALIASES, **getattr(config, "LOCATION_ALIASES", {})}
 
     canonical = None
-    # 1. Alias lookup
-    if folded in aliases:
-        canonical = aliases[folded]
-    elif raw.casefold() in aliases:
+    # 1. Alias lookup (prioritize exact casefold for native non-Latin scripts)
+    if raw.casefold() in aliases:
         canonical = aliases[raw.casefold()]
+    elif raw in aliases:
+        canonical = aliases[raw]
+    elif folded in aliases:
+        canonical = aliases[folded]
     elif raw.casefold() in COUNTRY_ALIASES:
         canonical = COUNTRY_ALIASES[raw.casefold()]
     elif raw in config.LOCATION_COORDS:
@@ -498,13 +526,19 @@ def resolve_location_hierarchy(
     if not canonical:
         canonical = raw
 
-    # 2. Country resolution
+    # 2. Country resolution.  A caller hint is only a disambiguation input
+    # for a known gazetteer entity; it must never manufacture a parent country
+    # for an unresolved place or override the entity's actual parent.
     country = config.LOCATION_COUNTRIES.get(canonical)
-    if not country:
-        if canonical.casefold() in config.COUNTRY_TO_ISO3:
-            country = normalize_country(canonical)
-        elif country_hint:
-            country = normalize_country(country_hint)
+    country_conflict = False
+    if not country and canonical.casefold() in config.COUNTRY_TO_ISO3:
+        country = normalize_country(canonical)
+    if country and country_hint:
+        hinted_country = normalize_country(country_hint)
+        if hinted_country and country.casefold() != hinted_country.casefold():
+            country_conflict = True
+    elif not country and canonical.casefold() in {item.casefold() for item in config.ASEAN_COUNTRIES}:
+        country = normalize_country(canonical)
 
     # 3. Country ISO3
     country_iso3 = config.LOCATION_ISO3.get(canonical)
@@ -526,9 +560,8 @@ def resolve_location_hierarchy(
         admin2_name = None
 
     lat, lon = config.LOCATION_COORDS.get(canonical, (None, None))
-    if lat is None and lon is None and (country or country_hint):
-        c_target = country or country_hint
-        lat, lon, _, _ = geocode_place(canonical, c_target)
+    if lat is None and lon is None and country:
+        lat, lon, _, _ = geocode_place(canonical, country)
 
     return {
         "canonical_name": canonical,
@@ -539,6 +572,8 @@ def resolve_location_hierarchy(
         "admin_level": admin_level,
         "latitude": lat,
         "longitude": lon,
+        "country_conflict": country_conflict,
+        "needs_review": country_conflict or not bool(country),
     }
 
 
@@ -917,9 +952,13 @@ def extract_location(
     for alias, canonical in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
         if canonical not in allowed_names:
             continue
-        is_short_code = len(alias) <= 2
-        flags = 0 if is_short_code else re.IGNORECASE
-        pattern_str = rf"\b{re.escape(alias.upper() if is_short_code else alias)}\b"
+        if _is_native_script(alias):
+            pattern_str = re.escape(alias)
+            flags = 0
+        else:
+            is_short_code = len(alias) <= 2
+            flags = 0 if is_short_code else re.IGNORECASE
+            pattern_str = rf"\b{re.escape(alias.upper() if is_short_code else alias)}\b"
         for match in re.finditer(pattern_str, compact_text, flags):
             if not is_usable_place_name(canonical, compact_text, match.start()):
                 continue
@@ -930,6 +969,10 @@ def extract_location(
         for name in config.LOCATION_COORDS
         if name in allowed_names
     }
+    for alias, canon in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
+        if canon in allowed_names:
+            folded_names[_fold_location_text(alias)] = canon
+            folded_names[alias.casefold()] = canon
     if config.LOCATION_PATTERNS:
         pattern = config.LOCATION_PATTERNS[0][1]
         for match in pattern.finditer(lower_text):
@@ -971,9 +1014,13 @@ def extract_location(
     )
     counts = Counter(loc for loc, _ in hits)
     scored: dict[str, float] = {}
+    all_loc_aliases = {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}
     alias_names = {loc for loc, _ in hits if any(
-        canonical == loc and re.search(re.escape(alias), compact_text, re.IGNORECASE)
-        for alias, canonical in LOCATION_ALIASES.items()
+        canonical == loc and (
+            re.search(re.escape(alias), compact_text) if _is_native_script(alias)
+            else re.search(rf"\b{re.escape(alias)}\b", compact_text, re.IGNORECASE)
+        )
+        for alias, canonical in all_loc_aliases.items()
     )}
 
     for loc, pos in hits:
@@ -1046,9 +1093,13 @@ def extract_all_locations(
     for alias, canonical in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
         if canonical not in allowed_names:
             continue
-        is_short_code = len(alias) <= 2
-        flags = 0 if is_short_code else re.IGNORECASE
-        pattern_str = rf"\b{re.escape(alias.upper() if is_short_code else alias)}\b"
+        if _is_native_script(alias):
+            pattern_str = re.escape(alias)
+            flags = 0
+        else:
+            is_short_code = len(alias) <= 2
+            flags = 0 if is_short_code else re.IGNORECASE
+            pattern_str = rf"\b{re.escape(alias.upper() if is_short_code else alias)}\b"
         for match in re.finditer(pattern_str, compact_text, flags):
             if not is_usable_place_name(canonical, compact_text, match.start()):
                 continue
@@ -1059,6 +1110,10 @@ def extract_all_locations(
         for name in config.LOCATION_COORDS
         if name in allowed_names
     }
+    for alias, canon in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
+        if canon in allowed_names:
+            folded_names[_fold_location_text(alias)] = canon
+            folded_names[alias.casefold()] = canon
     if config.LOCATION_PATTERNS:
         pattern = config.LOCATION_PATTERNS[0][1]
         for match in pattern.finditer(lower_text):
@@ -1463,20 +1518,22 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         text,
     )
     disease = ranked[0] if ranked else None
-    country = extract_country_hint(text)
+    # The full article may mention neighbouring countries in background or
+    # weather sections. Primary geography must start from the headline/lede;
+    # source-country and later regional mentions are not event geography.
+    country = extract_country_hint(opening)
     norm_source = normalize_country(source_country)
-    mentioned_asean = extract_all_mentioned_countries(text)
+    mentioned_asean = extract_all_mentioned_countries(opening)
 
     # Source metadata identifies the publisher, not the event geography. Do
     # not turn an Indonesian/Vietnamese outlet into a case country when the
     # article itself does not name one.
 
-    if mentioned_asean:
-        allowed = set(mentioned_asean)
-    elif country and country in config.ASEAN_COUNTRIES:
-        allowed = {country}
-    else:
-        allowed = None
+    # Do not globally filter the gazetteer by every country named anywhere in
+    # the document. A province can be the actual event location even when a
+    # later paragraph compares regional countries. Context validation below
+    # remains the authority for accepting a candidate.
+    allowed = None
 
     all_locations = [
         item for item in extract_all_locations(text, allowed_countries=allowed)
@@ -1516,6 +1573,8 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
 
     if not location and country in config.ASEAN_COUNTRIES:
         location = country
+    if not country and not location:
+        country = extract_country_hint(text)
     cases = extract_case_count(text, disease=disease)
     explicit = has_explicit_case_count(text, disease=disease)
     if article_states_zero_cases(text):
@@ -1812,12 +1871,13 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     localized_patterns = {
         "case_count": [
             rf"\b({_NUM_TOKEN})(?:\s+[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF()-]+){{0,4}}\s+(?:cases?|infections?|patients?|warga|kasus|pasien|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
-            r"(?!\s*(?:telah|sudah|yang|were|was|have|has)?\s*"
+            r"(?!\s*(?:telah|sudah|yang|were|was|have|has|of)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
             rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({_NUM_TOKEN})\s*\)",
             rf"(?:with|logged|recorded|reported|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({_NUM_TOKEN})\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
             rf"(?:cases?|infections?|kasus).{{0,90}}(?:rose|climbed|increased|jumped|naik).{{0,50}}to\s+({_NUM_TOKEN})",
             rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({_NUM_TOKEN})",
+            rf"(?:cases?|infections?|kasus|pasien)\b[^.\n;:]{{0,100}}?\b(?:reached|recorded|reported|tercatat|mencatat|melaporkan|total(?:ed)?|stood at|of)\s+({_NUM_TOKEN})",
             rf"(?:sickened|infected|affected)\s+(?:more than|over|nearly|about|around)?\s*({_NUM_TOKEN})\s+(?:children|people|persons|residents)",
             rf"\b({_NUM_TOKEN})\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
@@ -1826,6 +1886,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
         ],
         "death_count": [
+            rf"\b({_NUM_TOKEN})\s+(?:cases?|kasus)\s+(?:of\s+)?(?:deaths?|kematian|fatalities|tewas)\b",
             rf"(?:deaths?|kematian|korban jiwa|fatalities)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({_NUM_TOKEN})",
             rf"\b({_NUM_TOKEN})(?:\s+[a-z-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal)\b",
             rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({_NUM_TOKEN})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities)",
@@ -1891,6 +1952,15 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return
         period = _period_score(window, search_text)
         score = base_score + period
+        # Approximate wording must not outrank a nearby exact surveillance
+        # total. This covers Indonesian ``11.000-an`` and equivalent
+        # qualifiers without hardcoding a disease or publisher.
+        if re.match(r"\s*(?:-?an|lebih)\b", after, re.IGNORECASE) or re.search(
+            r"\b(?:sekitar|hampir|lebih dari|kurang lebih|about|around|approximately|nearly|over|more than)\b",
+            before + " " + after,
+            re.IGNORECASE,
+        ):
+            score -= 12
         if re.search(r"\b(?:about|around|nearly|approximately|roughly)\b", window_l):
             score -= 14
         if disease_terms and any(term in window_l for term in disease_terms):
@@ -2077,6 +2147,14 @@ def has_explicit_case_count(text: str, disease: Optional[str] = None) -> bool:
         return False
 
 
+def has_explicit_death_count(text: str, disease: Optional[str] = None) -> bool:
+    """Whether a death number was actually present, excluding default 0."""
+    try:
+        return _extract_count(text, "death_count", -1, disease=disease) >= 0
+    except Exception:
+        return False
+
+
 def extract_death_count(text: str, disease: Optional[str] = None) -> int:
     try:
         parsed = _extract_count(text, "death_count", 0, disease=disease)
@@ -2105,6 +2183,13 @@ def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
 
 
 DISEASE_ALIASES = {
+    "ebola": "Ebola disease, virus unspecified",
+    "ebola virus": "Ebola disease, virus unspecified",
+    "ebola virus disease": "Ebola disease, virus unspecified",
+    "virus ebola": "Ebola disease, virus unspecified",
+    "penyakit ebola": "Ebola disease, virus unspecified",
+    "penyakit virus ebola": "Ebola disease, virus unspecified",
+    "evd": "Ebola disease, virus unspecified",
     "sốt xuất huyết": "Dengue",
     "sot xuat huyet": "Dengue",
     "sốt xuất huyết dengue": "Dengue",
@@ -2268,10 +2353,31 @@ DISEASE_ALIASES = {
 }
 
 
+_ALIAS_WORD_REGEX_CACHE: dict[str, re.Pattern] = {}
+
+def _match_disease_alias(key: str, text: str, lower_text: str) -> bool:
+    """Check if alias exists in text.
+    For keys containing ASCII letters/numbers, word boundaries \b are strictly enforced
+    to avoid false positives (e.g. 'ari' matching 'dari' or 'sementara').
+    """
+    if not key:
+        return False
+    if re.search(r"[a-zA-Z0-9]", key):
+        pat = _ALIAS_WORD_REGEX_CACHE.get(key)
+        if pat is None:
+            pat = re.compile(rf"\b{re.escape(key)}\b", re.IGNORECASE)
+            _ALIAS_WORD_REGEX_CACHE[key] = pat
+        return bool(pat.search(text))
+    return key in lower_text
+
+
 def extract_diseases(text: str) -> list[str]:
     diseases = set(extract_terms(text, config.DISEASE_DICT))
     lower_text = text.lower()
-    diseases.update(value for key, value in DISEASE_ALIASES.items() if key in lower_text)
+    diseases.update(
+        value for key, value in DISEASE_ALIASES.items()
+        if _match_disease_alias(key, text, lower_text)
+    )
     
     def disease_score(d: str) -> tuple[int, int]:
         d_lower = d.lower()
@@ -2288,7 +2394,8 @@ def extract_alias_diseases(text: str) -> list[str]:
     """Return high-precision explicit aliases, primarily for title matching."""
     lower_text = text.lower()
     return sorted(set(
-        value for key, value in DISEASE_ALIASES.items() if key in lower_text
+        value for key, value in DISEASE_ALIASES.items()
+        if _match_disease_alias(key, text, lower_text)
     ))
 
 
