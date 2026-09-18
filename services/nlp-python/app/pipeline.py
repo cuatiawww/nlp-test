@@ -9,12 +9,15 @@ from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
 from .surveillance_extraction import source_reliability_score
 from .epidemiology import (
+    calibrate_outbreak_alert,
+    classify_epistemic_status,
     event_category as normalize_event_category,
     evidence_sentences,
     extract_event_date,
     extract_event_period,
     extract_labeled_counts,
     normalize_publication_date,
+    validate_surveillance_facts,
 )
 
 logger = logging.getLogger(__name__)
@@ -744,9 +747,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 metric_type=evt.get("metric_type", "cases"),
                 unit=evt.get("unit", "persons"),
                 evidence=evt.get("evidence", ""),
+                evidence_offset_start=evt.get("evidence_offset_start"),
+                evidence_offset_end=evt.get("evidence_offset_end"),
                 event_date_start=evt.get("event_date_start"),
                 event_date_end=evt.get("event_date_end"),
                 epistemic_status=evt.get("epistemic_status", "reported"),
+                validation_flags=evt.get("validation_flags", []),
                 confidence=evt.get("confidence", 0.90),
             )
             for evt in multi_events
@@ -940,6 +946,39 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     final_city = loc_hier.get("admin2_name") or admin_place[1]
     final_iso3 = loc_hier.get("country_iso3")
 
+    doc_epistemic = classify_epistemic_status(text, disease=disease, evidence=" ".join(evidence))
+    conf_cases = typed_counts.get("confirmed_cases")
+    susp_cases = typed_counts.get("suspected_cases")
+    if conf_cases is None and doc_epistemic == "confirmed" and case_count > 0:
+        conf_cases = case_count
+    if susp_cases is None and doc_epistemic == "suspected" and case_count > 0:
+        susp_cases = case_count
+
+    v_needs_review, doc_validation_flags = validate_surveillance_facts(
+        text=text,
+        disease=disease,
+        location=location,
+        case_count=case_count,
+        death_count=death_count,
+        epistemic_status=doc_epistemic,
+        count_period_type=count_period,
+        sub_events=sub_events,
+    )
+    if v_needs_review:
+        needs_review = True
+
+    outbreak_alert = calibrate_outbreak_alert(
+        disease=disease,
+        case_count=case_count,
+        death_count=death_count,
+        epistemic_status=doc_epistemic,
+        count_period_type=count_period,
+        explicit_outbreak=explicit_outbreak,
+        is_health_related=is_health_related,
+        validation_flags=doc_validation_flags,
+        base_alert=outbreak_alert,
+    )
+
     return AnalyzeResponse(
         language=language,
         normalized_text=extractors.normalize_text(text),
@@ -959,9 +998,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         disease_classification=disease,
         case_count=case_count,
         death_count=death_count,
-        confirmed_cases=typed_counts["confirmed_cases"],
-        suspected_cases=typed_counts["suspected_cases"],
+        confirmed_cases=conf_cases,
+        suspected_cases=susp_cases,
         hospitalizations=typed_counts["hospitalizations"],
+        epistemic_status=doc_epistemic,
+        validation_flags=doc_validation_flags,
         evidence=evidence,
         case_count_unknown=not explicit_case_count,
         country_iso3=final_iso3,

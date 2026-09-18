@@ -37,6 +37,17 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
         sub_admin1 = sub_evt.get("admin1") or result.get("admin1_name") or result.get("province")
         sub_admin2 = sub_evt.get("admin2") or result.get("admin2_name") or result.get("city")
         sub_iso3 = sub_evt.get("country_iso3") or result.get("country_iso3")
+        sub_epistemic = sub_evt.get("epistemic_status") or result.get("epistemic_status") or "reported"
+        sub_metric_type = sub_evt.get("metric_type") or "cases"
+        sub_start = sub_evt.get("event_date_start") or result.get("event_date_start")
+        sub_end = sub_evt.get("event_date_end") or result.get("event_date_end")
+        sub_period_type = "cumulative" if sub_metric_type == "cumulative_cases" else (result.get("count_period_type") or "unknown")
+        sub_confirmed = sub_cases if sub_epistemic == "confirmed" else None
+        sub_suspected = sub_cases if sub_epistemic == "suspected" else None
+        sub_hospitalized = sub_cases if sub_metric_type == "active_cases" else None
+        sub_evidence_json = json.dumps([sub_evidence]) if sub_evidence else json.dumps([])
+        sub_validation_flags = sub_evt.get("validation_flags") or result.get("validation_flags") or []
+
         conn.execute(
             """INSERT INTO disease_events
                (raw_report_id, source_type, source_name, published_at,
@@ -49,7 +60,9 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
                 source_credibility_label, is_health_related,
                 parent_event_id, source_url, nlp_pipeline_version,
                 count_period_type, event_date_start, event_date_end,
-                date_needs_review, needs_review)
+                date_needs_review, needs_review,
+                epistemic_status, confirmed_cases, suspected_cases, hospitalizations,
+                epidemiological_evidence, validation_flags)
                VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
@@ -59,7 +72,8 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
                     %s::jsonb, %s::jsonb, %s::jsonb,
                     %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s,
-                    TRUE, %s, %s, %s, %s, %s, %s, %s, %s
+                    TRUE, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s::jsonb, %s::jsonb
                )
                ON CONFLICT DO NOTHING""",
             (
@@ -92,11 +106,17 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
                 parent_event_id,
                 source_url or result.get("url"),
                 version,
-                result.get("count_period_type") or "unknown",
-                result.get("event_date_start"),
-                result.get("event_date_end"),
+                sub_period_type,
+                sub_start,
+                sub_end,
                 result.get("date_needs_review", False),
                 result.get("needs_review", False),
+                sub_epistemic,
+                sub_confirmed,
+                sub_suspected,
+                sub_hospitalized,
+                sub_evidence_json,
+                json.dumps(sub_validation_flags),
             ),
         )
         inserted += 1
@@ -121,6 +141,7 @@ def load_sibling_facts(conn, raw_report_id) -> list[dict[str, Any]]:
                   location_name, province, city,
                   admin1_name, admin2_name, country_iso3,
                   case_count, death_count, parent_event_id,
+                  epistemic_status, validation_flags,
                   ST_Y(geom) AS latitude, ST_X(geom) AS longitude
            FROM disease_events
            WHERE raw_report_id = %s

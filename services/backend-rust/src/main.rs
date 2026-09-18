@@ -8784,6 +8784,13 @@ fn internal_error<E: std::fmt::Debug + std::fmt::Display>(err: E) -> (StatusCode
     )
 }
 
+fn migration_is_deferred(name: &str) -> bool {
+    std::env::var("DEFER_MIGRATIONS")
+        .ok()
+        .map(|value| value.split(',').any(|item| item.trim() == name))
+        .unwrap_or(false)
+}
+
 async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
     tracing::info!("Running init SQL from {dir}");
     let client = pool.get().await?;
@@ -9022,6 +9029,10 @@ async fn run_init_sql(pool: &Pool, dir: &str) -> anyhow::Result<()> {
 
     for entry in &paths {
         let name = entry.file_name().to_string_lossy().to_string();
+        if migration_is_deferred(&name) {
+            tracing::warn!("  defer: {name} (DEFER_MIGRATIONS)");
+            continue;
+        }
         let client = pool.get().await?;
         if client.query_opt(
             "SELECT 1 FROM schema_migrations WHERE filename = $1", &[&name]

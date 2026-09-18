@@ -758,6 +758,15 @@ def compose_structured_events(
         present.add(disease.casefold())
     events = _deduplicate_events(events)
     from . import extractors as ext
+    from .epidemiology import (
+        classify_epistemic_status,
+        qualify_metric_type,
+        extract_event_period,
+        find_evidence_offsets,
+        validate_surveillance_facts,
+    )
+
+    doc_period = extract_event_period(text)
     for evt in events:
         loc = evt.get("location_name")
         hier = ext.resolve_location_hierarchy(loc, country_hint=evt.get("country")) if loc else {}
@@ -771,11 +780,43 @@ def compose_structured_events(
         if not evt.get("latitude") and hier.get("latitude"):
             evt["latitude"] = hier.get("latitude")
             evt["longitude"] = hier.get("longitude")
-        evt.setdefault("metric_type", "cases")
-        evt.setdefault("unit", "persons")
-        evt.setdefault("event_date_start", None)
-        evt.setdefault("event_date_end", None)
-        evt.setdefault("epistemic_status", "reported")
+
+        # Epistemic status qualification per sub-event
+        evt_evidence = evt.get("evidence") or ""
+        evt_epistemic = classify_epistemic_status(text, disease=evt.get("disease"), evidence=evt_evidence)
+        evt["epistemic_status"] = evt_epistemic
+
+        # Metric qualification per sub-event
+        m_type, m_unit = qualify_metric_type(
+            evt_evidence or text,
+            default_period=doc_period.get("period_type", "unknown"),
+            has_cases=bool((evt.get("case_count") or 0) > 0),
+            has_deaths=bool((evt.get("death_count") or 0) > 0),
+        )
+        evt["metric_type"] = m_type
+        evt["unit"] = m_unit
+
+        # Temporal interval per sub-event
+        evt_period = extract_event_period(evt_evidence) if evt_evidence else {}
+        evt["event_date_start"] = evt_period.get("event_date_start") or doc_period.get("event_date_start")
+        evt["event_date_end"] = evt_period.get("event_date_end") or doc_period.get("event_date_end")
+
+        # Evidence offsets
+        s_off, e_off = find_evidence_offsets(text, evt_evidence)
+        evt["evidence_offset_start"] = s_off
+        evt["evidence_offset_end"] = e_off
+
+        # Plausibility validation per sub-event
+        _, sub_flags = validate_surveillance_facts(
+            text=text,
+            disease=evt.get("disease", ""),
+            location=evt.get("location_name"),
+            case_count=evt.get("case_count", 0),
+            death_count=evt.get("death_count", 0),
+            epistemic_status=evt_epistemic,
+            count_period_type=doc_period.get("period_type", "unknown"),
+        )
+        evt["validation_flags"] = sub_flags
         evt.setdefault("confidence", 0.90)
 
     if len(events) >= MULTI_EVENT_MIN_PAIRS:
@@ -788,6 +829,32 @@ def compose_structured_events(
         lat = hier.get("latitude") or (_resolve_coords(primary_location or "")[0] if primary_location else None)
         lon = hier.get("longitude") or (_resolve_coords(primary_location or "")[1] if primary_location else None)
         country = hier.get("country") or (_resolve_country(primary_location or "") if primary_location else None)
+        m_type, m_unit = qualify_metric_type(
+            text,
+            default_period=doc_period.get("period_type", "unknown"),
+            has_cases=bool(case_count > 0),
+            has_deaths=bool(death_count > 0),
+        )
+        doc_epistemic = classify_epistemic_status(text, disease=primary_disease)
+
+        # Locate single-event evidence sentence
+        single_evidence = ""
+        for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text):
+            clean_s = sentence.strip()
+            if primary_disease.lower() in clean_s.lower() and re.search(r"\d", clean_s):
+                single_evidence = clean_s
+                break
+        s_off, e_off = find_evidence_offsets(text, single_evidence)
+        _, sub_flags = validate_surveillance_facts(
+            text=text,
+            disease=primary_disease,
+            location=hier.get("canonical_name") or primary_location,
+            case_count=case_count,
+            death_count=death_count,
+            epistemic_status=doc_epistemic,
+            count_period_type=doc_period.get("period_type", "unknown"),
+        )
+
         return [{
             "disease": primary_disease,
             "location_name": hier.get("canonical_name") or primary_location or "",
@@ -799,12 +866,15 @@ def compose_structured_events(
             "longitude": lon,
             "case_count": max(0, case_count),
             "death_count": max(0, death_count),
-            "metric_type": "cases",
-            "unit": "persons",
-            "evidence": "",
-            "event_date_start": None,
-            "event_date_end": None,
-            "epistemic_status": "reported",
+            "metric_type": m_type,
+            "unit": m_unit,
+            "evidence": single_evidence,
+            "evidence_offset_start": s_off,
+            "evidence_offset_end": e_off,
+            "event_date_start": doc_period.get("event_date_start"),
+            "event_date_end": doc_period.get("event_date_end"),
+            "epistemic_status": doc_epistemic,
+            "validation_flags": sub_flags,
             "confidence": 0.90,
         }]
     return []

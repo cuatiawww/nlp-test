@@ -67,9 +67,12 @@ class SubEvent(BaseModel):
     metric_type: str = "cases"
     unit: str = "persons"
     evidence: str = ""
+    evidence_offset_start: Optional[int] = None
+    evidence_offset_end: Optional[int] = None
     event_date_start: Optional[str] = None
     event_date_end: Optional[str] = None
     epistemic_status: str = "reported"
+    validation_flags: list[str] = []
     confidence: float = 0.90
 
 
@@ -130,6 +133,8 @@ class AnalyzeResponse(BaseModel):
     event_date_start: Optional[str] = None
     event_date_end: Optional[str] = None
     date_needs_review: bool = False
+    epistemic_status: str = "reported"
+    validation_flags: list[str] = []
     # Collapsed one-row-per-URL summary. Atomic events stay in sub_events.
     disease_display: Optional[str] = None
     location_display: Optional[str] = None
