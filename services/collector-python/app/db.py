@@ -69,18 +69,27 @@ def get_conn():
 def backfill_document_identities(batch_size: int = 500, max_batches: int = 100) -> int:
     """Safely backfill identity columns without deleting or merging old RAW."""
     total = 0
+    skipped_locked_ids = set()
+    conn = get_conn()
+    # A live worker can hold a RAW row lock while it performs durable NLP work.
+    # Do not block collector startup behind that worker; retry the row on a
+    # later backfill run instead.
+    conn.execute("SET lock_timeout = '2s'")
     for _ in range(max_batches):
-        conn = get_conn()
-        rows = conn.execute(
-            """SELECT id, url, original_text, canonical_url, final_url
+        query = """SELECT id, url, original_text, canonical_url, final_url
                FROM raw_reports
                WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
                  AND (content_hash IS NULL OR normalized_url IS NULL OR canonical_url IS NULL
                       OR final_url IS NULL OR url_hash IS NULL)
+               {skip_locked_rows}
                ORDER BY created_at, id
-               LIMIT %s""",
-            (batch_size,),
-        ).fetchall()
+               LIMIT %s""".format(
+            skip_locked_rows=(
+                "AND id <> ALL(%s)" if skipped_locked_ids else ""
+            )
+        )
+        query_params = ([*skipped_locked_ids], batch_size) if skipped_locked_ids else (batch_size,)
+        rows = conn.execute(query, query_params).fetchall()
         # Release the read transaction before computing hashes and issuing the
         # next schema operation. Keeping this SELECT open can hold an
         # ACCESS SHARE lock on raw_reports long enough to block migrations.
@@ -117,6 +126,10 @@ def backfill_document_identities(batch_size: int = 500, max_batches: int = 100) 
                        WHERE id=%s""",
                     (normalized, canonical, final, digest, content, raw_id),
                 )
+            except psycopg.errors.LockNotAvailable:
+                conn.rollback()
+                skipped_locked_ids.add(raw_id)
+                logger.info("Skipping locked RAW during identity backfill: raw_id=%s", raw_id)
             except psycopg.errors.UniqueViolation:
                 conn.rollback()
                 conflict = conn.execute(
