@@ -16,21 +16,24 @@ use axum::{
     routing::{get, patch, post, put},
     Json, Router,
 };
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Datelike, Duration as ChronoDuration, NaiveDate};
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     env,
     net::SocketAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use sha2::{Digest, Sha256};
 use tokio_postgres::{Config, NoTls};
+use url::Url;
 use lapin::{
-    options::{BasicPublishOptions, QueueDeclareOptions},
+    options::{BasicPublishOptions, ConfirmSelectOptions, QueueDeclareOptions},
+    publisher_confirm::Confirmation,
     types::FieldTable,
     BasicProperties, Connection, ConnectionProperties,
 };
@@ -305,7 +308,7 @@ fn kpi_filter_key(
 /// This matches epiweek.com: week 1 contains January 4 and weeks end on Saturday.
 fn mmwr_week_one_start(year: i32) -> NaiveDate {
     let jan4 = NaiveDate::from_ymd_opt(year, 1, 4).unwrap();
-    jan4 - Duration::days(jan4.weekday().num_days_from_sunday() as i64)
+    jan4 - ChronoDuration::days(jan4.weekday().num_days_from_sunday() as i64)
 }
 
 fn mmwr_week_for_date(date: NaiveDate) -> (i32, u32) {
@@ -321,13 +324,13 @@ fn mmwr_week_for_date(date: NaiveDate) -> (i32, u32) {
             week_one_start = next_week_one_start;
         }
     }
-    let sunday = date - Duration::days(date.weekday().num_days_from_sunday() as i64);
+    let sunday = date - ChronoDuration::days(date.weekday().num_days_from_sunday() as i64);
     let week = ((sunday - week_one_start).num_days() / 7 + 1) as u32;
     (year, week)
 }
 
 fn mmwr_week_start(year: i32, week: u32) -> NaiveDate {
-    mmwr_week_one_start(year) + Duration::days((week.saturating_sub(1) * 7) as i64)
+    mmwr_week_one_start(year) + ChronoDuration::days((week.saturating_sub(1) * 7) as i64)
 }
 
 fn default_kpi_dates(
@@ -1023,6 +1026,267 @@ struct IngestRequest {
     url: Option<String>,
 }
 
+const CRAWLER_TRACKING_PARAMETERS: [&str; 8] = [
+    "fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid", "igshid", "yclid",
+];
+
+fn crawler_is_tracking_parameter(name: &str) -> bool {
+    let lowered = name.to_ascii_lowercase();
+    lowered.starts_with("utm_")
+        || CRAWLER_TRACKING_PARAMETERS.iter().any(|item| *item == lowered)
+}
+
+fn normalize_crawler_url(raw: &str) -> Option<String> {
+    let mut parsed = Url::parse(raw.trim()).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return None;
+    }
+    if !parsed.username().is_empty() {
+        return None;
+    }
+    if matches!(parsed.port(), Some(80) if parsed.scheme() == "http")
+        || matches!(parsed.port(), Some(443) if parsed.scheme() == "https")
+    {
+        let _ = parsed.set_port(None);
+    }
+    let mut query_pairs: Vec<(String, String)> = parsed
+        .query_pairs()
+        .filter(|(key, _)| !crawler_is_tracking_parameter(key))
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    query_pairs.sort_by(|left, right| {
+        left.0
+            .to_ascii_lowercase()
+            .cmp(&right.0.to_ascii_lowercase())
+            .then_with(|| left.0.cmp(&right.0))
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    parsed.set_fragment(None);
+    parsed.set_query(None);
+    if !query_pairs.is_empty() {
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(query_pairs)
+            .finish();
+        parsed.set_query(Some(&query));
+    }
+    Some(parsed.to_string())
+}
+
+fn crawler_hash(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn crawler_content_hash(text: &str) -> Option<String> {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!normalized.is_empty()).then(|| crawler_hash(&normalized))
+}
+
+fn crawler_identity_values(
+    requested_url: Option<&str>,
+    canonical_url: Option<&str>,
+    final_url: Option<&str>,
+    text: &str,
+) -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
+    let normalized = requested_url.and_then(normalize_crawler_url);
+    let canonical = canonical_url
+        .and_then(normalize_crawler_url)
+        .or_else(|| normalized.clone());
+    let final_value = final_url
+        .and_then(normalize_crawler_url)
+        .or_else(|| canonical.clone());
+    let url_digest = canonical.as_deref().map(crawler_hash);
+    let content_digest = crawler_content_hash(text);
+    (normalized, canonical, final_value, url_digest, content_digest)
+}
+
+fn crawler_identity_lock_keys(
+    url: Option<&str>,
+    normalized_url: Option<&str>,
+    canonical_url: Option<&str>,
+    final_url: Option<&str>,
+    url_hash: Option<&str>,
+    content_hash: Option<&str>,
+    raw_id: Option<Uuid>,
+) -> Vec<String> {
+    let mut keys = BTreeSet::new();
+    for (field, value) in [
+        ("url", url),
+        ("normalized_url", normalized_url),
+        ("canonical_url", canonical_url),
+        ("final_url", final_url),
+        ("url_hash", url_hash),
+        ("content_hash", content_hash),
+    ] {
+        if let Some(value) = value.filter(|item| !item.trim().is_empty()) {
+            keys.insert(format!("crawler-document:{field}:{value}"));
+        }
+    }
+    if keys.is_empty() {
+        if let Some(raw_id) = raw_id {
+            keys.insert(format!("crawler-raw:{raw_id}"));
+        }
+    }
+    keys.into_iter().collect()
+}
+
+async fn mark_raw_outbox_published(pool: &Pool, raw_report_id: Uuid) {
+    match pool.get().await {
+        Ok(client) => {
+            if let Err(error) = client
+                .execute(
+                    "UPDATE raw_report_outbox
+                        SET status='published', published_at=NOW(), updated_at=NOW()
+                      WHERE raw_report_id=$1",
+                    &[&raw_report_id],
+                )
+                .await
+            {
+                tracing::warn!(raw_report_id = %raw_report_id, %error, "Could not mark RAW outbox row published; recovery will retry idempotently");
+            }
+        }
+        Err(error) => tracing::warn!(raw_report_id = %raw_report_id, %error, "Could not obtain DB client to mark RAW outbox row published"),
+    }
+}
+
+async fn publish_raw_report(channel: &lapin::Channel, message: &[u8]) -> Result<(), anyhow::Error> {
+    let publisher_confirm = channel
+        .basic_publish(
+            "",
+            "disease.raw",
+            BasicPublishOptions { mandatory: true, ..Default::default() },
+            message,
+            BasicProperties::default()
+                .with_delivery_mode(2)
+                .with_content_type("application/json".into()),
+        )
+        .await?;
+
+    match publisher_confirm.await? {
+        Confirmation::Ack(None) => Ok(()),
+        Confirmation::Ack(Some(_)) => Err(anyhow::anyhow!(
+            "RabbitMQ returned the mandatory disease.raw message"
+        )),
+        Confirmation::Nack(_) => Err(anyhow::anyhow!(
+            "RabbitMQ negatively acknowledged the disease.raw message"
+        )),
+        Confirmation::NotRequested => Err(anyhow::anyhow!(
+            "RabbitMQ publisher confirms were not requested for disease.raw"
+        )),
+    }
+}
+
+async fn raw_report_outbox_once(
+    pool: &Pool,
+    channel: &lapin::Channel,
+) -> Result<(), anyhow::Error> {
+    let mut client = pool.get().await?;
+    let transaction = client.transaction().await?;
+    let rows = transaction
+        .query(
+            "SELECT o.id AS outbox_id, o.raw_report_id, o.attempts,
+                    rr.processing_status, rr.source_type, rr.source_name,
+                    rr.published_at::text AS published_at, rr.original_text,
+                    rr.url, rr.object_path, rr.normalized_url, rr.canonical_url,
+                    rr.url_hash, rr.content_hash, rr.final_url, rr.author
+               FROM raw_report_outbox o
+               JOIN raw_reports rr ON rr.id=o.raw_report_id
+              WHERE o.status='pending' AND o.next_attempt_at <= NOW()
+              ORDER BY o.next_attempt_at, o.created_at
+              LIMIT 50
+              FOR UPDATE OF o SKIP LOCKED",
+            &[],
+        )
+        .await?;
+    for row in &rows {
+        let outbox_id: Uuid = row.get("outbox_id");
+        transaction
+            .execute(
+                "UPDATE raw_report_outbox
+                    SET attempts=attempts+1,
+                        next_attempt_at=NOW()+INTERVAL '30 seconds',
+                        updated_at=NOW()
+                  WHERE id=$1",
+                &[&outbox_id],
+            )
+            .await?;
+    }
+    transaction.commit().await?;
+
+    for row in rows {
+        let outbox_id: Uuid = row.get("outbox_id");
+        let raw_report_id: Uuid = row.get("raw_report_id");
+        let status = row
+            .get::<_, Option<String>>("processing_status")
+            .unwrap_or_default();
+        if status == "DUPLICATE" {
+            client
+                .execute(
+                    "UPDATE raw_report_outbox
+                        SET status='published', published_at=COALESCE(published_at,NOW()), updated_at=NOW()
+                      WHERE id=$1",
+                    &[&outbox_id],
+                )
+                .await?;
+            continue;
+        }
+
+        let message = json!({
+            "raw_report_id": raw_report_id,
+            "source_type": row.get::<_, Option<String>>("source_type"),
+            "source_name": row.get::<_, Option<String>>("source_name"),
+            "published_at": row.get::<_, Option<String>>("published_at"),
+            "text": row.get::<_, Option<String>>("original_text").unwrap_or_default(),
+            "url": row.get::<_, Option<String>>("url"),
+            "object_path": row.get::<_, Option<String>>("object_path"),
+            "normalized_url": row.get::<_, Option<String>>("normalized_url"),
+            "canonical_url": row.get::<_, Option<String>>("canonical_url"),
+            "url_hash": row.get::<_, Option<String>>("url_hash"),
+            "content_hash": row.get::<_, Option<String>>("content_hash"),
+            "final_url": row.get::<_, Option<String>>("final_url"),
+            "author": row.get::<_, Option<String>>("author"),
+        });
+        let message_body = message.to_string();
+        let publish_result = publish_raw_report(channel, message_body.as_bytes()).await;
+        match publish_result {
+            Ok(_) => {
+                client
+                    .execute(
+                        "UPDATE raw_report_outbox
+                            SET status='published', published_at=NOW(), updated_at=NOW(), last_error=NULL
+                          WHERE id=$1",
+                        &[&outbox_id],
+                    )
+                    .await?;
+            }
+            Err(error) => {
+                let detail = error.to_string();
+                client
+                    .execute(
+                        "UPDATE raw_report_outbox
+                            SET next_attempt_at=NOW()+INTERVAL '30 seconds',
+                                last_error=$2, updated_at=NOW()
+                          WHERE id=$1",
+                        &[&outbox_id, &detail],
+                    )
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn raw_report_outbox_loop(pool: Pool, channel: lapin::Channel) {
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    loop {
+        interval.tick().await;
+        if let Err(error) = raw_report_outbox_once(&pool, &channel).await {
+            tracing::warn!(%error, "RAW report outbox recovery pass failed");
+        }
+    }
+}
+
 fn default_analyze_async() -> bool {
     true
 }
@@ -1237,6 +1501,18 @@ struct CollectorExtractData {
     source_country: Option<String>,
     #[serde(default)]
     published_at: Option<String>,
+    #[serde(default)]
+    normalized_url: Option<String>,
+    #[serde(default)]
+    canonical_url: Option<String>,
+    #[serde(default)]
+    url_hash: Option<String>,
+    #[serde(default)]
+    content_hash: Option<String>,
+    #[serde(default)]
+    final_url: Option<String>,
+    #[serde(default)]
+    author: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1496,7 +1772,7 @@ fn resolve_dashboard_dates(
         .or_else(|| NaiveDate::from_ymd_opt(start_year, 1, 1))
         .unwrap();
     let end_date = end_week
-        .map(|week| mmwr_week_start(end_year, week) + Duration::days(6))
+        .map(|week| mmwr_week_start(end_year, week) + ChronoDuration::days(6))
         .or_else(|| NaiveDate::from_ymd_opt(end_year, 12, 31))
         .unwrap();
     (start_date, end_date)
@@ -1837,6 +2113,9 @@ async fn main() -> anyhow::Result<()> {
     let amqp_conn = Connection::connect(&amqp_url, ConnectionProperties::default()).await?;
     let amqp_channel = amqp_conn.create_channel().await?;
     amqp_channel
+        .confirm_select(ConfirmSelectOptions::default())
+        .await?;
+    amqp_channel
         .queue_declare(
             "disease.raw",
             QueueDeclareOptions { durable: true, ..Default::default() },
@@ -1853,6 +2132,10 @@ async fn main() -> anyhow::Result<()> {
         amqp_channel,
         dashboard_api_token,
     });
+    tokio::spawn(raw_report_outbox_loop(
+        state.db.clone(),
+        state.amqp_channel.clone(),
+    ));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -2223,22 +2506,121 @@ async fn ingest(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<IngestRequest>,
 ) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
-    let client = state.db.get().await.map_err(internal_error)?;
-    let raw_id: Uuid = client
-        .query_one(
-            "INSERT INTO raw_reports (source_type, source_name, published_at, original_text, url, processing_status)
-             VALUES ($1, $2, $3, $4, $5, 'NEW') RETURNING id",
+    let (normalized_url, canonical_url, final_url, url_hash, content_hash) =
+        crawler_identity_values(payload.url.as_deref(), None, None, &payload.text);
+    let identity_keys = crawler_identity_lock_keys(
+        payload.url.as_deref(),
+        normalized_url.as_deref(),
+        canonical_url.as_deref(),
+        final_url.as_deref(),
+        url_hash.as_deref(),
+        content_hash.as_deref(),
+        None,
+    );
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    client.batch_execute("BEGIN").await.map_err(internal_error)?;
+    for key in &identity_keys {
+        client
+            .query_one("SELECT pg_advisory_xact_lock(hashtext($1))", &[key])
+            .await
+            .map_err(internal_error)?;
+    }
+    let existing = client
+        .query_opt(
+            "SELECT id, processing_status FROM raw_reports
+               WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
+                 AND (url=$1 OR normalized_url=$2 OR canonical_url=$3
+                      OR final_url=$4 OR url_hash=$5 OR content_hash=$6)
+               ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE",
             &[
-                &payload.source_type,
-                &payload.source_name,
-                &parse_date(payload.published_at.as_deref()),
-                &payload.text,
-                &payload.url,
+                &payload.url, &normalized_url, &canonical_url,
+                &final_url, &url_hash, &content_hash,
             ],
         )
         .await
-        .map_err(internal_error)?
-        .get(0);
+        .map_err(internal_error)?;
+    let (raw_id, should_publish, current_status): (Uuid, bool, String) = if let Some(row) = existing {
+        let raw_id: Uuid = row.get(0);
+        let status: String = row
+            .get::<_, Option<String>>(1)
+            .unwrap_or_else(|| "NEW".to_string());
+        let should_publish = matches!(status.as_str(), "NEW" | "FAILED");
+        if should_publish {
+            client
+                .execute(
+                    "UPDATE raw_reports SET source_type=$1, source_name=$2, published_at=$3,
+                        original_text=$4, url=$5, processing_status='NEW', normalized_url=$6,
+                        canonical_url=$7, url_hash=$8, content_hash=$9, final_url=$10
+                     WHERE id=$11",
+                    &[
+                        &payload.source_type, &payload.source_name,
+                        &parse_date(payload.published_at.as_deref()), &payload.text, &payload.url,
+                        &normalized_url, &canonical_url, &url_hash, &content_hash, &final_url,
+                        &raw_id,
+                    ],
+                )
+                .await
+                .map_err(internal_error)?;
+        }
+        (raw_id, should_publish, if should_publish { "NEW".to_string() } else { status })
+    } else {
+        let inserted = client
+            .query_opt(
+                "INSERT INTO raw_reports
+                    (source_type, source_name, published_at, original_text, url, processing_status,
+                     normalized_url, canonical_url, url_hash, content_hash, final_url)
+                 VALUES ($1, $2, $3, $4, $5, 'NEW', $6, $7, $8, $9, $10)
+                 ON CONFLICT DO NOTHING RETURNING id",
+                &[
+                    &payload.source_type, &payload.source_name,
+                    &parse_date(payload.published_at.as_deref()), &payload.text, &payload.url,
+                    &normalized_url, &canonical_url, &url_hash, &content_hash, &final_url,
+                ],
+            )
+            .await
+            .map_err(internal_error)?;
+        let raw_id: Uuid = if let Some(row) = inserted {
+            row.get(0)
+        } else {
+            client
+                .query_one(
+                    "SELECT id FROM raw_reports
+                       WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
+                         AND (url=$1 OR normalized_url=$2 OR canonical_url=$3
+                              OR final_url=$4 OR url_hash=$5 OR content_hash=$6)
+                       ORDER BY created_at ASC, id ASC LIMIT 1",
+                    &[
+                        &payload.url, &normalized_url, &canonical_url,
+                        &final_url, &url_hash, &content_hash,
+                    ],
+                )
+                .await
+                .map_err(internal_error)?
+                .get(0)
+        };
+        (raw_id, true, "NEW".to_string())
+    };
+    if should_publish {
+        client
+            .execute(
+                "INSERT INTO raw_report_outbox(raw_report_id, status, next_attempt_at, updated_at)
+                 VALUES ($1, 'pending', NOW(), NOW())
+                 ON CONFLICT (raw_report_id) DO UPDATE SET
+                     status='pending', next_attempt_at=NOW(), last_error=NULL, updated_at=NOW()",
+                &[&raw_id],
+            )
+            .await
+            .map_err(internal_error)?;
+    }
+    client.batch_execute("COMMIT").await.map_err(internal_error)?;
+
+    if !should_publish {
+        return Ok(Json(ApiResponse {
+            success: true,
+            data: json!({ "raw_report_id": raw_id, "status": current_status }),
+            total: None, page: None, per_page: None, total_pages: None,
+        }));
+    }
 
     let message = json!({
         "raw_report_id": raw_id,
@@ -2247,26 +2629,26 @@ async fn ingest(
         "published_at": payload.published_at,
         "text": payload.text,
         "url": payload.url,
+        "normalized_url": normalized_url,
+        "canonical_url": canonical_url,
+        "url_hash": url_hash,
+        "content_hash": content_hash,
+        "final_url": final_url,
         "object_path": Value::Null,
     });
 
-    let publish_result = state
-        .amqp_channel
-        .basic_publish(
-            "",
-            "disease.raw",
-            BasicPublishOptions::default(),
-            &message.to_string().as_bytes(),
-            BasicProperties::default(),
-        )
-        .await;
+    let message_body = message.to_string();
+    let publish_result = publish_raw_report(&state.amqp_channel, message_body.as_bytes()).await;
 
     match publish_result {
-        Ok(_) => Ok(Json(ApiResponse {
-            success: true,
-            data: json!({ "raw_report_id": raw_id, "status": "queued" }),
-            total: None, page: None, per_page: None, total_pages: None,
-        })),
+        Ok(_) => {
+            mark_raw_outbox_published(&state.db, raw_id).await;
+            Ok(Json(ApiResponse {
+                success: true,
+                data: json!({ "raw_report_id": raw_id, "status": "queued" }),
+                total: None, page: None, per_page: None, total_pages: None,
+            }))
+        }
         Err(e) => {
             tracing::warn!("RabbitMQ unavailable, processing synchronously: {:?}", e);
             let nlp_url = format!("{}/nlp/analyze/raw", state.nlp_service_url.trim_end_matches('/'));
@@ -2353,6 +2735,7 @@ async fn ingest(
                 })?;
 
             mark_kpi_snapshots_stale(&client).await;
+            mark_raw_outbox_published(&state.db, raw_id).await;
 
             Ok(Json(ApiResponse {
                 success: true,
@@ -3067,6 +3450,12 @@ async fn analyze_url(
         http_status,
         source_country,
         published_at,
+        normalized_url: extracted_normalized_url,
+        canonical_url: extracted_canonical_url,
+        url_hash: extracted_url_hash,
+        content_hash: extracted_content_hash,
+        final_url: extracted_final_url,
+        author: extracted_author,
     } = extracted.data;
     let published_date: Option<NaiveDate> = published_at
         .as_deref()
@@ -3134,26 +3523,113 @@ async fn analyze_url(
         nlp.published_at.as_deref().and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
     });
 
-    let client = state.db.get().await.map_err(internal_error)?;
+    let normalized_url = extracted_normalized_url.or_else(|| normalize_crawler_url(&url));
+    let canonical_url = extracted_canonical_url
+        .or_else(|| normalized_url.clone());
+    let final_url = extracted_final_url
+        .or_else(|| canonical_url.clone());
+    let url_hash = extracted_url_hash
+        .or_else(|| canonical_url.as_deref().map(crawler_hash));
+    let content_hash = extracted_content_hash
+        .or_else(|| crawler_content_hash(&text));
+    let identity_keys = crawler_identity_lock_keys(
+        Some(&url),
+        normalized_url.as_deref(),
+        canonical_url.as_deref(),
+        final_url.as_deref(),
+        url_hash.as_deref(),
+        content_hash.as_deref(),
+        None,
+    );
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    client.batch_execute("BEGIN").await.map_err(internal_error)?;
+    for key in &identity_keys {
+        client
+            .query_one("SELECT pg_advisory_xact_lock(hashtext($1))", &[key])
+            .await
+            .map_err(internal_error)?;
+    }
 
-    // Clean any prior incomplete/stale record for this URL before writing the fresh analysis
-    let _ = client
-        .execute(
-            "DELETE FROM disease_events WHERE raw_report_id IN (SELECT id FROM raw_reports WHERE url = $1);
-             DELETE FROM raw_reports WHERE url = $1;",
-            &[&url],
-        )
-        .await;
-
-    let raw_id: Uuid = client
-        .query_one(
-            "INSERT INTO raw_reports (source_type, source_name, original_text, summary, url, processing_status)
-             VALUES ($1, $2, $3, $4, $5, 'PROCESSED') RETURNING id",
-            &[&"web", &"URL Analyzer", &text, &nlp.summary, &url],
+    let existing_raw = client
+        .query_opt(
+            "SELECT id FROM raw_reports
+               WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
+                 AND (url=$1 OR normalized_url=$2 OR canonical_url=$3
+                      OR final_url=$4 OR url_hash=$5 OR content_hash=$6)
+               ORDER BY CASE UPPER(COALESCE(processing_status, ''))
+                          WHEN 'PROCESSED' THEN 0
+                          WHEN 'NON_HEALTH' THEN 1
+                          WHEN 'PROCESSING' THEN 2
+                          WHEN 'NEW' THEN 3
+                          WHEN 'FAILED' THEN 4
+                          ELSE 5
+                        END, created_at ASC, id ASC
+               LIMIT 1 FOR UPDATE",
+            &[
+                &Some(url.clone()), &normalized_url, &canonical_url,
+                &final_url, &url_hash, &content_hash,
+            ],
         )
         .await
-        .map_err(internal_error)?
-        .get(0);
+        .map_err(internal_error)?;
+
+    let raw_id: Uuid = if let Some(row) = existing_raw {
+        let raw_id: Uuid = row.get(0);
+        client
+            .execute("DELETE FROM disease_events WHERE raw_report_id=$1", &[&raw_id])
+            .await
+            .map_err(internal_error)?;
+        client
+            .query_one(
+                "UPDATE raw_reports SET source_type=$1, source_name=$2, original_text=$3,
+                    summary=$4, url=$5, processing_status='PROCESSED', normalized_url=$6,
+                    canonical_url=$7, url_hash=$8, content_hash=$9, final_url=$10, author=$11
+                 WHERE id=$12 RETURNING id",
+                &[
+                    &"web", &"URL Analyzer", &text, &nlp.summary, &url,
+                    &normalized_url, &canonical_url, &url_hash, &content_hash,
+                    &final_url, &extracted_author, &raw_id,
+                ],
+            )
+            .await
+            .map_err(internal_error)?
+            .get(0)
+    } else {
+        let inserted = client
+            .query_opt(
+                "INSERT INTO raw_reports
+                    (source_type, source_name, original_text, summary, url, processing_status,
+                     normalized_url, canonical_url, url_hash, content_hash, final_url, author)
+                 VALUES ($1, $2, $3, $4, $5, 'PROCESSED', $6, $7, $8, $9, $10, $11)
+                 ON CONFLICT DO NOTHING RETURNING id",
+                &[
+                    &"web", &"URL Analyzer", &text, &nlp.summary, &url,
+                    &normalized_url, &canonical_url, &url_hash, &content_hash,
+                    &final_url, &extracted_author,
+                ],
+            )
+            .await
+            .map_err(internal_error)?;
+        if let Some(row) = inserted {
+            row.get(0)
+        } else {
+            client
+                .query_one(
+                    "SELECT id FROM raw_reports
+                       WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
+                         AND (url=$1 OR normalized_url=$2 OR canonical_url=$3
+                              OR final_url=$4 OR url_hash=$5 OR content_hash=$6)
+                       ORDER BY created_at ASC, id ASC LIMIT 1",
+                    &[
+                        &Some(url.clone()), &normalized_url, &canonical_url,
+                        &final_url, &url_hash, &content_hash,
+                    ],
+                )
+                .await
+                .map_err(internal_error)?
+                .get(0)
+        }
+    };
 
     if let Some(date) = published_date {
         client
@@ -3460,6 +3936,7 @@ async fn analyze_url(
     }
 
     mark_kpi_snapshots_stale(&client).await;
+    client.batch_execute("COMMIT").await.map_err(internal_error)?;
 
     let mut sources = serde_json::Map::new();
     sources.insert("title".to_string(), json!("Extracted by Scrapling/Trafilatura from article title"));

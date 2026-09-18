@@ -47,6 +47,16 @@ class SurveillanceExtractionTest(unittest.TestCase):
         self.countries_patch.stop()
         self.coords_patch.stop()
 
+    def test_source_country_is_not_event_country(self):
+        from app.extractors import predict_surveillance_facts
+
+        facts = predict_surveillance_facts(
+            "Thailand reported 12 dengue cases.",
+            source_country="Indonesia",
+        )
+
+        self.assertEqual(facts["country"], "Thailand")
+
     def test_country_metric_and_time_are_bound_to_the_correct_country(self):
         from app.surveillance_extraction import GazetteerLinker, build_surveillance_output
 

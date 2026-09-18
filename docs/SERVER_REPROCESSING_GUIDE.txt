@@ -1,0 +1,149 @@
+SERVER REPROCESSING GUIDE
+Disease Surveillance NLP
+
+Tujuan
+------
+Panduan ini digunakan untuk menjalankan reprocess NLP secara aman pada server
+Docker. Reprocess membaca artikel RAW yang sudah tersimpan di database dan
+tidak melakukan crawling ulang ke website sumber.
+
+PENTING
+-------
+1. Git push atau deployment tidak otomatis menjalankan reprocess data lama.
+2. Jangan langsung memproses seluruh data sekitar 44.000 record.
+3. Jalankan dry-run terlebih dahulu.
+4. Jalankan pilot dalam jumlah kecil dan verifikasi dashboard sebelum batch
+   berikutnya.
+5. Jangan menjalankan reprocess bersamaan lebih dari satu proses.
+
+Persiapan Server
+----------------
+Masuk ke server dan pindah ke folder project:
+
+    cd /path/ke/NLP-PENYAKIT
+
+Periksa status container:
+
+    docker compose ps
+
+Pastikan minimal service berikut aktif:
+
+    disease-nlp-python
+    analysis-job-worker
+    disease-backend-rust
+    disease-postgres
+
+Jika NLP service belum aktif atau belum healthy, jangan mulai reprocess.
+
+Tahap 1: Dry-run Tanpa Mengubah Database
+-----------------------------------------
+Jalankan simulasi untuk 10 data:
+
+    docker compose exec analysis-job-worker \
+      python -m app.reanalyze_health \
+      --limit 10 \
+      --batch-size 5 \
+      --dry-run \
+      --skip-who-sync
+
+Dry-run hanya mengirim data ke NLP dan menampilkan hasil. Database tidak
+di-update.
+
+Periksa hasil dan pastikan:
+
+    - country kasus terbaca benar
+    - disease classification tidak kosong secara tidak wajar
+    - jumlah kasus dan kematian tidak berubah menjadi angka yang tidak masuk akal
+    - artikel tidak mengalami error berulang
+
+Tahap 2: Pilot Update 10 Data
+-----------------------------
+Jika dry-run sudah benar, jalankan update sungguhan untuk 10 data:
+
+    docker compose exec analysis-job-worker \
+      python -m app.reanalyze_health \
+      --limit 10 \
+      --batch-size 5 \
+      --skip-who-sync
+
+Perintah ini memperbarui hasil NLP pada disease_events dan status pemrosesan
+RAW terkait. Artikel sumber tidak di-fetch ulang.
+
+Monitoring
+----------
+Pantau proses melalui terminal tempat perintah reprocess dijalankan.
+
+Periksa status service:
+
+    docker compose ps
+
+Periksa log NLP:
+
+    docker compose logs --tail=100 disease-nlp-python
+
+Periksa log worker:
+
+    docker compose logs --tail=100 analysis-job-worker
+
+Hentikan proses dengan CTRL+C hanya jika ditemukan error berulang atau hasil
+yang tidak sesuai. Jangan mematikan PostgreSQL atau RabbitMQ secara paksa.
+
+Tahap 3: Batch Bertahap
+------------------------
+Jika pilot sudah diverifikasi, proses dalam batch kecil. Contoh:
+
+    docker compose exec analysis-job-worker \
+      python -m app.reanalyze_health \
+      --limit 100 \
+      --batch-size 10 \
+      --skip-who-sync
+
+Setelah batch selesai, verifikasi dashboard dan database sebelum melanjutkan.
+Jangan menggunakan --limit 0 sebelum ada persetujuan dan monitoring yang jelas.
+
+Batasan Utility Saat Ini
+------------------------
+Utility reanalyze_health saat ini terutama memperbarui hasil pada tabel
+disease_events. Utility ini belum menjadi migrasi massal lengkap untuk seluruh
+derived data berikut:
+
+    - crawl_matrix_rows
+    - source country lama yang sebelumnya kosong
+    - seluruh province/city lama
+    - semua hasil agregasi turunan dashboard
+
+Karena itu, jangan menganggap seluruh 44.000 record sudah bersih hanya karena
+perintah reprocess selesai.
+
+Dampak Ke Database
+------------------
+    - RAW article tidak dihapus.
+    - URL tidak di-crawl ulang.
+    - Hasil NLP pada event dapat diperbarui.
+    - KPI snapshot dapat ditandai perlu dihitung ulang.
+    - Data lama tidak otomatis memiliki source country jika metadata tersebut
+      memang tidak pernah tersimpan.
+
+Verifikasi Setelah Pilot
+------------------------
+Periksa minimal:
+
+    1. Dashboard masih dapat dibuka.
+    2. Jumlah cases dan deaths tidak melonjak secara tidak wajar.
+    3. Country kasus tidak tertukar dengan country sumber artikel.
+    4. Province/city kosong jika artikel tidak menyebutkannya.
+    5. Tidak ada duplicate article atau duplicate case.
+    6. Container backend tetap healthy.
+
+Jika hasil pilot bermasalah, hentikan proses dan simpan log error sebelum
+melanjutkan batch berikutnya.
+
+Catatan Deployment
+------------------
+Migration database berjalan ketika backend container melakukan startup.
+Migration bukan proses reprocess NLP. Pastikan log backend menampilkan migration
+berhasil, lalu jalankan reprocess secara terpisah menggunakan panduan ini.
+
+Jangan menjalankan reprocess seluruh database sebelum utility diperluas agar
+dapat memperbarui disease_events dan crawl_matrix_rows secara konsisten,
+memiliki pipeline version, status progress, dan mekanisme resume.

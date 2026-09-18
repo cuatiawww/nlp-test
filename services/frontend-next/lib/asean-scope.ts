@@ -30,8 +30,8 @@ export const ASEAN11_DISPLAY = [
   { value: "Vietnam", label: "Viet Nam" },
 ] as const;
 
-export const ASEAN_SCOPE_FILTER_LABEL = "All 11 ASEAN jurisdictions";
-export const ASEAN_SCOPE_BANNER = "Scope: 11 ASEAN jurisdictions";
+export const ASEAN_SCOPE_FILTER_LABEL = "ASEAN";
+export const ASEAN_SCOPE_BANNER = "Scope: ASEAN";
 export const ASEAN_SCOPE_HINT =
   "Includes Brunei, Cambodia, Indonesia, Lao PDR, Malaysia, Myanmar, Philippines, Singapore, Thailand, Timor-Leste, and Viet Nam. Outside-ASEAN events are excluded unless Global is selected.";
 

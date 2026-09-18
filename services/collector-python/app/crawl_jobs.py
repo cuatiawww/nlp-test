@@ -19,7 +19,7 @@ from psycopg.types.json import Jsonb
 
 from . import config
 from .collectors.web_scraper import WebScraperCollector
-from .crawler_identity import UnsafeUrlError, validate_public_url
+from .crawler_identity import UnsafeUrlError, identity_fields, validate_public_url
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -193,15 +193,74 @@ def _article_matches(analysis: dict, disease_names: list[str], country: str | No
     return True
 
 
+def _ensure_raw_report(conn, article: dict):
+    identity = identity_fields(
+        article.get("url", ""), article.get("content", ""),
+        canonical_url=article.get("canonical_url", ""),
+        final_url=article.get("final_url", ""),
+    )
+    candidates = [
+        (field, value)
+        for field, value in (("url", article.get("url")), *identity.items())
+        if str(value or "").strip()
+    ]
+    lock_keys = sorted({f"crawler-document:{field}:{value}" for field, value in candidates})
+    for key in lock_keys:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (key,))
+    where = " OR ".join(f"{field}=%s" for field, _ in candidates) or "FALSE"
+    params = [value for _, value in candidates]
+    row = conn.execute(
+        f"""SELECT id FROM raw_reports
+            WHERE processing_status IS DISTINCT FROM 'DUPLICATE' AND ({where})
+            ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE""",
+        params,
+    ).fetchone()
+    if row:
+        raw_id = row["id"]
+        conn.execute("DELETE FROM disease_events WHERE raw_report_id=%s", (raw_id,))
+        conn.execute(
+            """UPDATE raw_reports
+               SET source_type='news', source_name=%s, published_at=%s,
+                   original_text=%s, url=%s, processing_status='PROCESSED',
+                   normalized_url=%s, canonical_url=%s, url_hash=%s,
+                   content_hash=%s, final_url=%s
+             WHERE id=%s""",
+            (
+                article.get("source_name"), article.get("published_at"), article.get("content", ""),
+                article.get("url"), identity["normalized_url"], identity["canonical_url"],
+                identity["url_hash"], identity["content_hash"], identity["final_url"], raw_id,
+            ),
+        )
+        return raw_id
+    raw = conn.execute(
+        """INSERT INTO raw_reports
+           (source_type, source_name, published_at, original_text, url, processing_status,
+            normalized_url, canonical_url, url_hash, content_hash, final_url)
+           VALUES ('news',%s,%s,%s,%s,'PROCESSED',%s,%s,%s,%s,%s)
+           ON CONFLICT DO NOTHING RETURNING id""",
+        (
+            article.get("source_name"), article.get("published_at"), article.get("content", ""),
+            article.get("url"), identity["normalized_url"], identity["canonical_url"],
+            identity["url_hash"], identity["content_hash"], identity["final_url"],
+        ),
+    ).fetchone()
+    if not raw:
+        raw = conn.execute(
+            f"""SELECT id FROM raw_reports
+                WHERE processing_status IS DISTINCT FROM 'DUPLICATE' AND ({where})
+                ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE""",
+            params,
+        ).fetchone()
+    if not raw:
+        raise RuntimeError("RAW identity conflict did not resolve to a database row")
+    return raw["id"]
+
+
 def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts: list[dict], request: dict) -> int:
     from psycopg.types.json import Jsonb
     published = _safe_date(article.get("published_at") or analysis.get("published_date"))
-    raw = conn.execute(
-        """INSERT INTO raw_reports(source_type, source_name, published_at, original_text, url, processing_status)
-           VALUES (%s,%s,%s,%s,%s,'PROCESSED') RETURNING id""",
-        ("news", article.get("source_name"), published, article.get("content", ""), article.get("url")),
-    ).fetchone()
-    raw_id = raw["id"]
+    article = {**article, "published_at": published}
+    raw_id = _ensure_raw_report(conn, article)
     rows = 0
     selected = concepts
     disease_labels = _disease_labels(analysis)

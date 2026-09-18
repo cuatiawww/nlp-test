@@ -16,8 +16,10 @@ import logging
 import os
 import queue
 import re
+import socket
 import threading
 import time
+import uuid
 import xml.etree.ElementTree as ET
 from urllib.parse import quote_plus, urlparse
 
@@ -26,7 +28,13 @@ import requests
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from .geo import coords_in_country_bbox, country_centroid, st_makepoint_args
+from .document_identity import identity_lock_keys, identity_where_clause
 from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
+from .queue_reliability import (
+    declare_queue_topology,
+    settle_malformed_delivery,
+    settle_transient_delivery,
+)
 
 logger = logging.getLogger("crawl-matrix-worker")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
@@ -37,8 +45,11 @@ STALE_MINUTES = max(5, int(os.getenv("CRAWL_MATRIX_STALE_MINUTES", "15")))
 CRAWL_QUEUE = os.getenv("CRAWL_MATRIX_QUEUE", "disease.crawl-matrix")
 ARTICLE_WORKERS = max(1, min(int(os.getenv("CRAWL_MATRIX_ARTICLE_WORKERS", "3")), 6))
 SURVEILLANCE_PIPELINE = "analyze-raw-v1"
+MATRIX_WORKER_ID = os.getenv("CRAWL_MATRIX_WORKER_ID") or (
+    f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4()}"
+)
 _job_lock = threading.Lock()
-_pending_job_ids: queue.SimpleQueue[str] = queue.SimpleQueue()
+_pending_jobs: queue.SimpleQueue[tuple[str, dict, str]] = queue.SimpleQueue()
 _wake = threading.Event()
 
 ASEAN_COUNTRIES = {
@@ -59,6 +70,13 @@ def clean_province_names(provinces) -> list[str]:
             continue
         cleaned.append(name)
     return cleaned
+
+
+def surveillance_scope_for_country(country: str | None) -> str | None:
+    value = str(country or '').strip().casefold()
+    if not value:
+        return None
+    return 'ASEAN' if value in {item.casefold() for item in ASEAN_COUNTRIES} else 'Outside ASEAN'
 
 
 def split_province_city(names: list[str]) -> tuple[str | None, str | None]:
@@ -345,44 +363,71 @@ def ensure_raw_report(conn, article: dict):
     """Reuse a global RAW identity or create one source-of-truth record."""
     explicit_id = article.get("raw_report_id")
     if explicit_id:
-        row = conn.execute("SELECT id FROM raw_reports WHERE id=%s", (explicit_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id FROM raw_reports WHERE id=%s AND processing_status IS DISTINCT FROM 'DUPLICATE'",
+            (explicit_id,),
+        ).fetchone()
         if row:
+            if article.get("source_country"):
+                conn.execute(
+                    "UPDATE raw_reports SET source_country=COALESCE(NULLIF(BTRIM(source_country), ''), %s) WHERE id=%s",
+                    (article.get("source_country"), row["id"]),
+                )
             return row["id"]
 
+    identity_clause, identity_params = identity_where_clause(article)
     row = conn.execute(
-        """SELECT id FROM raw_reports
-           WHERE (%s::text IS NOT NULL AND content_hash=%s)
-              OR (%s::text IS NOT NULL AND canonical_url=%s)
-              OR (%s::text IS NOT NULL AND url_hash=%s)
-              OR (%s::text IS NOT NULL AND normalized_url=%s)
-              OR (%s::text IS NOT NULL AND url=%s)
-           ORDER BY created_at DESC LIMIT 1""",
-        (
-            article.get("content_hash"), article.get("content_hash"),
-            article.get("canonical_url"), article.get("canonical_url"),
-            article.get("url_hash"), article.get("url_hash"),
-            article.get("normalized_url"), article.get("normalized_url"),
-            article.get("url"), article.get("url"),
-        ),
+        f"""SELECT id FROM raw_reports
+            WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
+              AND ({identity_clause})
+            ORDER BY CASE UPPER(COALESCE(processing_status, ''))
+                       WHEN 'PROCESSED' THEN 0
+                       WHEN 'NON_HEALTH' THEN 1
+                       WHEN 'PROCESSING' THEN 2
+                       WHEN 'NEW' THEN 3
+                       WHEN 'FAILED' THEN 4
+                       ELSE 5
+                     END, created_at ASC, id ASC
+            LIMIT 1 FOR UPDATE""",
+        identity_params,
     ).fetchone()
     if row:
+        if article.get("source_country"):
+            conn.execute(
+                "UPDATE raw_reports SET source_country=COALESCE(NULLIF(BTRIM(source_country), ''), %s) WHERE id=%s",
+                (article.get("source_country"), row["id"]),
+            )
         return row["id"]
 
     published = safe_date(article.get("published_at"))
     row = conn.execute(
         """INSERT INTO raw_reports(
                source_type, source_name, published_at, original_text, url, processing_status,
-               normalized_url, canonical_url, url_hash, content_hash, final_url, author, object_path)
-           VALUES ('news',%s,%s,%s,%s,'NEW',%s,%s,%s,%s,%s,%s,%s)
+               normalized_url, canonical_url, url_hash, content_hash, final_url, author, object_path,
+               source_country)
+           VALUES ('news',%s,%s,%s,%s,'NEW',%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT DO NOTHING
            RETURNING id""",
         (
             article.get("source_name"), published, article.get("content", ""), article.get("url"),
             article.get("normalized_url"), article.get("canonical_url"), article.get("url_hash"),
             article.get("content_hash"), article.get("final_url"), article.get("author"),
-            article.get("object_path"),
+            article.get("object_path"), article.get("source_country"),
         ),
     ).fetchone()
-    logger.info("RAW created for manual crawl: raw_id=%s url=%s", row["id"], article.get("url"))
+    if not row:
+        identity_clause, identity_params = identity_where_clause(article)
+        row = conn.execute(
+            f"""SELECT id FROM raw_reports
+                WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
+                  AND ({identity_clause})
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1 FOR UPDATE""",
+            identity_params,
+        ).fetchone()
+    if not row:
+        raise RuntimeError("RAW identity conflict did not resolve to a database row")
+    logger.info("RAW reused or created for manual crawl: raw_id=%s url=%s", row["id"], article.get("url"))
     return row["id"]
 
 
@@ -478,12 +523,12 @@ def persist_dashboard_event_from_analysis(conn, raw_id, article: dict, analysis:
     original = f"{title}.\n{content}" if title else content
     conn.execute(
         """INSERT INTO disease_events
-           (raw_report_id, source_type, source_name, published_at, original_text,
+           (raw_report_id, source_type, source_name, source_country, surveillance_scope, published_at, original_text,
             language, location_name, province, city, geom, symptoms, disease_extracted,
             disease_mentions, disease_classification, case_count, death_count,
             confidence, outbreak_alert, sentiment, event_type, relevance_score,
-            source_credibility, source_credibility_label, is_health_related, needs_review)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+           source_credibility, source_credibility_label, is_health_related, needs_review)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                    CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                         ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                    END,
@@ -492,6 +537,8 @@ def persist_dashboard_event_from_analysis(conn, raw_id, article: dict, analysis:
             raw_id,
             article.get("source_type") or "news",
             article.get("source_name") or "Manual Crawler",
+            analysis.get("source_country") or article.get("source_country"),
+            analysis.get("surveillance_scope") or surveillance_scope_for_country(analysis.get("country")),
             analysis.get("published_at") or article.get("published_at"),
             original,
             analysis.get("language") or "unknown",
@@ -568,21 +615,29 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
         )
         latitude, longitude = country_coordinates(conn, country, provinces)
         province, city = split_province_city(provinces)
+        province_city_case = ", ".join(provinces) or None
+        date_case = item.get("time_frame") or ""
+        if _matrix_row_exists(
+            conn, job_id, raw_id, disease, country, province_city_case, published, date_case
+        ):
+            rows += 1
+            continue
         conn.execute(
             """INSERT INTO crawl_matrix_rows
                (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
                 crawling_date, region, country, province_city_case, province, city, article_date, date_case,
-                number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name,
-                source_url, article_title, evidence, confidence, processing_status)
-               VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+               number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name, source_country,
+               source_url, article_title, evidence, confidence, processing_status)
+               VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 job_id, raw_id, concept["id"] if concept else None, disease,
                 concept.get("ontology_code") if concept else None,
                 "ASEAN" if country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
-                country, ", ".join(provinces) or None, province, city, published, item.get("time_frame") or "",
+                country, province_city_case, province, city, published, date_case,
                 0 if analysis.get("case_count_unknown") else int(item.get("reported_cases") or 0),
                 int(item.get("deaths") or 0),
-                latitude, longitude, "news", article.get("source_name"), article.get("url"),
+                latitude, longitude, "news", article.get("source_name"),
+                analysis.get("source_country") or article.get("source_country"), article.get("url"),
                 article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.0),
                 "needs_review" if (not evidence or analysis.get("case_count_unknown") or analysis.get("needs_review")) else "processed",
             ),
@@ -613,22 +668,30 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             )
             cases = 0 if analysis.get("case_count_unknown") else int(analysis.get("case_count") or analysis.get("confirmed_cases") or 0)
             deaths = int(analysis.get("death_count") or 0)
+            province_city_case = analysis.get("province")
+            date_case = analysis.get("time_frame") or analysis.get("event_date") or ""
+            if _matrix_row_exists(
+                conn, job_id, raw_id, disease, detected_country,
+                province_city_case, published, date_case,
+            ):
+                rows += 1
+                return rows
             conn.execute(
                 """INSERT INTO crawl_matrix_rows
                    (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
                     crawling_date, region, country, province_city_case, province, city, article_date, date_case,
-                    number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name,
-                    source_url, article_title, evidence, confidence, processing_status)
-                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name, source_country,
+                   source_url, article_title, evidence, confidence, processing_status)
+                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     job_id, raw_id, concept["id"] if concept else None, disease,
                     concept.get("ontology_code") if concept else None,
                     "ASEAN" if detected_country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
-                    detected_country, analysis.get("province") or analysis.get("city") or detected_country,
-                    analysis.get("province"), analysis.get("city"), published,
-                    analysis.get("time_frame") or analysis.get("event_date") or "",
+                    detected_country,
+                    province_city_case, analysis.get("city"), published, date_case,
                     cases, deaths,
-                    latitude, longitude, "news", article.get("source_name"), article.get("url"),
+                    latitude, longitude, "news", article.get("source_name"),
+                    analysis.get("source_country") or article.get("source_country"), article.get("url"),
                     article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.65),
                     "needs_review" if (not evidence or analysis.get("case_count_unknown") or analysis.get("needs_review")) else "processed",
                 ),
@@ -726,7 +789,7 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
     locations = []
     seen: set[str] = set()
 
-    def add(country, provinces, cases, deaths, time_frame=""):
+    def add(country, provinces, cases, deaths, time_frame="", cities=None):
         name = str(country or "").strip()
         if not name:
             return
@@ -734,9 +797,14 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
         if key in seen:
             return
         seen.add(key)
+        subplaces = [
+            str(item).strip()
+            for item in [*(provinces or []), *(cities or [])]
+            if str(item).strip() and str(item).strip().casefold() != key
+        ]
         locations.append({
             "country": name,
-            "provinces": [str(item).strip() for item in (provinces or []) if str(item).strip()],
+            "provinces": list(dict.fromkeys(subplaces)),
             "reported_cases": int(cases or 0),
             "deaths": int(deaths or 0),
             "time_frame": time_frame or out.get("event_date") or "",
@@ -765,55 +833,146 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
     for item in out.get("locations") or []:
         if not isinstance(item, dict):
             continue
-        add(item.get("country"), [item.get("name")], 0, 0)
+        add(
+            item.get("country"),
+            [item.get("name")],
+            item.get("reported_cases"),
+            item.get("deaths"),
+            item.get("time_frame") or "",
+            item.get("cities") or [],
+        )
     out["locations"] = locations
+    out["source_country"] = out.get("source_country") or ""
+    out["surveillance_scope"] = out.get("surveillance_scope") or (
+        "ASEAN" if any(item.get("country") in ASEAN_COUNTRIES for item in locations)
+        else "Outside ASEAN" if locations else None
+    )
     if "source_reliability_score" not in out:
         out["source_reliability_score"] = out.get("source_credibility") or 0.65
     return out
 
 
-def claim_job() -> tuple[str, dict] | None:
+class LeaseLost(RuntimeError):
+    """The database lease was replaced by another matrix worker."""
+
+
+def _renew_job_lease(conn, job_id: str, lease_token: str | None) -> None:
+    if not lease_token:
+        return
+    row = conn.execute(
+        """UPDATE crawl_matrix_jobs
+           SET lease_expires_at=NOW() + (%s * INTERVAL '1 minute'), updated_at=NOW()
+           WHERE id=%s::uuid AND lease_owner=%s AND lease_token=%s::uuid
+             AND status='processing' AND lease_expires_at > NOW()
+           RETURNING id""",
+        (STALE_MINUTES, job_id, MATRIX_WORKER_ID, lease_token),
+    ).fetchone()
+    if not row:
+        raise LeaseLost(f"Matrix job lease lost: {job_id}")
+
+
+def _matrix_row_exists(
+    conn,
+    job_id: str,
+    raw_id,
+    disease_name: str,
+    country: str,
+    province_city_case: str | None,
+    article_date,
+    date_case: str | None,
+) -> bool:
+    """Serialize and deduplicate matrix rows across redelivery and stale workers."""
+    identity = json.dumps(
+        [job_id, raw_id, disease_name, country, province_city_case, article_date, date_case],
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"matrix-row:{identity}",))
+    return bool(
+        conn.execute(
+            """SELECT 1 FROM crawl_matrix_rows
+               WHERE crawl_job_id=%s AND raw_report_id IS NOT DISTINCT FROM %s
+                 AND disease_name=%s AND country=%s
+                 AND province_city_case IS NOT DISTINCT FROM %s
+                 AND article_date IS NOT DISTINCT FROM %s
+                 AND date_case IS NOT DISTINCT FROM %s
+               LIMIT 1""",
+            (job_id, raw_id, disease_name, country, province_city_case, article_date, date_case),
+        ).fetchone()
+    )
+
+
+def _fenced_job_update(conn, statement: str, values: tuple, job_id: str, lease_token: str | None) -> None:
+    if lease_token:
+        row = conn.execute(
+            statement + " AND lease_owner=%s AND lease_token=%s::uuid AND lease_expires_at > NOW()",
+            (*values, MATRIX_WORKER_ID, lease_token),
+        )
+        if row.rowcount != 1:
+            raise LeaseLost(f"Matrix job lease lost: {job_id}")
+        return
+    conn.execute(statement, values)
+
+
+def claim_job() -> tuple[str, dict, str] | None:
     with connect() as conn:
         row = conn.execute(
             """SELECT id, query
                FROM crawl_matrix_jobs
                WHERE status='queued'
-                  OR (status='processing' AND updated_at < NOW() - (%s * INTERVAL '1 minute'))
+               OR (status='processing' AND (
+                        lease_expires_at IS NULL OR lease_expires_at <= NOW()
+                     ))
                ORDER BY CASE WHEN status='queued' THEN 0 ELSE 1 END, created_at
                LIMIT 1 FOR UPDATE SKIP LOCKED""",
-            (STALE_MINUTES,),
         ).fetchone()
         if not row:
             return None
-        conn.execute(
+        claimed = conn.execute(
             """UPDATE crawl_matrix_jobs
-               SET status='processing', error=NULL, updated_at=NOW()
-               WHERE id=%s""",
-            (row["id"],),
-        )
+               SET status='processing', error=NULL, updated_at=NOW(),
+                   lease_owner=%s, lease_token=gen_random_uuid(),
+                   lease_expires_at=NOW() + (%s * INTERVAL '1 minute')
+               WHERE id=%s
+               RETURNING id, query, lease_token""",
+            (MATRIX_WORKER_ID, STALE_MINUTES, row["id"]),
+        ).fetchone()
+        if not claimed:
+            conn.rollback()
+            return None
         conn.commit()
-        return str(row["id"]), dict(row["query"] or {})
+        return str(claimed["id"]), dict(claimed["query"] or {}), str(claimed["lease_token"])
 
 
-def claim_job_by_id(job_id: str) -> tuple[str, dict] | None:
+def claim_job_by_id(job_id: str) -> tuple[str, dict, str] | None:
     with connect() as conn:
         row = conn.execute(
             """UPDATE crawl_matrix_jobs
-               SET status='processing', error=NULL, updated_at=NOW()
+               SET status='processing', error=NULL, updated_at=NOW(),
+                   lease_owner=%s, lease_token=gen_random_uuid(),
+                   lease_expires_at=NOW() + (%s * INTERVAL '1 minute')
                WHERE id=%s::uuid AND (
                     status='queued'
-                    OR (status='processing' AND updated_at < NOW() - (%s * INTERVAL '1 minute'))
+                    OR (status='processing' AND (
+                        lease_expires_at IS NULL OR lease_expires_at <= NOW()
+                    ))
                )
-               RETURNING id, query""",
-            (job_id, STALE_MINUTES),
+               RETURNING id, query, lease_token""",
+            (MATRIX_WORKER_ID, STALE_MINUTES, job_id),
         ).fetchone()
         conn.commit()
         if not row:
             return None
-        return str(row["id"]), dict(row["query"] or {})
+        return str(row["id"]), dict(row["query"] or {}), str(row["lease_token"])
 
 
-def _prepare_matrix_article(item: dict, reprocess: bool = False):
+def _prepare_matrix_article(
+    item: dict,
+    reprocess: bool = False,
+    job_id: str | None = None,
+    lease_token: str | None = None,
+):
     """Fetch or reuse one article and run NLP. Persistence stays serial."""
     try:
         article = item if reprocess else extract_article(item)
@@ -822,10 +981,12 @@ def _prepare_matrix_article(item: dict, reprocess: bool = False):
         identity_hash = article_identity_hash(article)
         identity_lock = connect()
         identity_lock.autocommit = True
-        identity_lock.execute(
-            "SELECT pg_advisory_lock(hashtext(%s))",
-            (f"manual-crawl:{identity_hash}",),
-        )
+        lock_keys = identity_lock_keys(article)
+        for lock_key in lock_keys:
+            identity_lock.execute(
+                "SELECT pg_advisory_lock(hashtext(%s))",
+                (lock_key,),
+            )
         try:
             cached = None if reprocess else load_cached_analysis(identity_lock, identity_hash)
             if cached:
@@ -834,35 +995,45 @@ def _prepare_matrix_article(item: dict, reprocess: bool = False):
                 logger.info("NLP cache hit: pipeline=%s identity=%s", SURVEILLANCE_PIPELINE, identity_hash)
             else:
                 with connect() as conn:
+                    _renew_job_lease(conn, job_id, lease_token)
                     raw_id = ensure_raw_report(conn, article)
+                    _renew_job_lease(conn, job_id, lease_token)
                     conn.commit()
                 logger.info("NLP started: pipeline=%s url=%s", SURVEILLANCE_PIPELINE, article.get("url"))
                 analysis = analyze_article(article)
                 with connect() as conn:
+                    _renew_job_lease(conn, job_id, lease_token)
                     store_cached_analysis(conn, identity_hash, raw_id, analysis)
+                    _renew_job_lease(conn, job_id, lease_token)
                     conn.commit()
                 logger.info("NLP success: pipeline=%s url=%s", SURVEILLANCE_PIPELINE, article.get("url"))
             if not raw_id:
                 with connect() as conn:
+                    _renew_job_lease(conn, job_id, lease_token)
                     raw_id = ensure_raw_report(conn, article)
+                    _renew_job_lease(conn, job_id, lease_token)
                     conn.commit()
         finally:
-            identity_lock.execute(
-                "SELECT pg_advisory_unlock(hashtext(%s))",
-                (f"manual-crawl:{identity_hash}",),
-            )
+            for lock_key in reversed(lock_keys):
+                identity_lock.execute(
+                    "SELECT pg_advisory_unlock(hashtext(%s))",
+                    (lock_key,),
+                )
             identity_lock.close()
         return item, article, analysis, raw_id, None
+    except LeaseLost:
+        raise
     except Exception as exc:
         logger.warning("Matrix article prepare failed: %s", exc)
         return item, None, {}, None, f"{item.get('url', 'article')}: {str(exc)[:180]}"
 
 
-def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
+def run_job(job_id: str, payload: dict, reprocess: bool = False, lease_token: str | None = None) -> None:
     warnings: list[str] = []
     direct_url_mode = bool(str(payload.get("url") or "").strip())
     try:
         with connect() as conn:
+            _renew_job_lease(conn, job_id, lease_token)
             concepts = matching_concepts(conn, payload.get("disease_concept_ids") or [])
             disease_names = [str(row["canonical_name"]) for row in concepts]
 
@@ -877,7 +1048,9 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
                        WHERE m.crawl_job_id=%s GROUP BY r.id""",
                     (job_id,),
                 ).fetchall()
+                _renew_job_lease(conn, job_id, lease_token)
                 conn.execute("DELETE FROM crawl_matrix_rows WHERE crawl_job_id=%s", (job_id,))
+                _renew_job_lease(conn, job_id, lease_token)
                 conn.commit()
             discovered = [dict(row) for row in articles]
             if not discovered:
@@ -901,7 +1074,11 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
             warnings.extend(discovery_warnings)
 
         with connect() as conn:
-            conn.execute("UPDATE crawl_matrix_jobs SET discovered_count=%s, updated_at=NOW() WHERE id=%s", (len(discovered), job_id))
+            _fenced_job_update(
+                conn,
+                "UPDATE crawl_matrix_jobs SET discovered_count=%s, updated_at=NOW() WHERE id=%s",
+                (len(discovered), job_id), job_id, lease_token,
+            )
             conn.commit()
 
         processed = 0
@@ -909,7 +1086,9 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         def prepare(item):
-            return _prepare_matrix_article(item, reprocess=reprocess)
+            return _prepare_matrix_article(
+                item, reprocess=reprocess, job_id=job_id, lease_token=lease_token,
+            )
 
         workers = 1 if reprocess else ARTICLE_WORKERS
         prepared = []
@@ -923,6 +1102,10 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
                 warnings.append(item_warning)
                 continue
             try:
+                if article is not None:
+                    with connect() as conn:
+                        _renew_job_lease(conn, job_id, lease_token)
+                        conn.commit()
                 if not article_matches(article, analysis, disease_names, payload.get("country")):
                     if direct_url_mode:
                         warnings.append(
@@ -933,59 +1116,68 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False) -> None:
                         warnings.append(f"{item.get('url', 'article')}: disease or location did not match the filter")
                 else:
                     with connect() as conn:
+                        _renew_job_lease(conn, job_id, lease_token)
                         inserted = persist_article(conn, job_id, raw_id, article, analysis, concepts, payload)
                         persist_dashboard_event_from_analysis(conn, raw_id, article, analysis)
                         row_count += inserted
+                        _renew_job_lease(conn, job_id, lease_token)
                         conn.commit()
                     if inserted:
                         processed += 1
                     else:
                         warnings.append(f"{item.get('url', 'article')}: no validated country/province relation and case metric")
+            except LeaseLost:
+                raise
             except Exception as exc:
                 warnings.append(f"{item.get('url', 'article')}: {str(exc)[:180]}")
                 logger.warning("Matrix article failed: %s", exc)
             with connect() as conn:
-                conn.execute(
+                _fenced_job_update(
+                    conn,
                     """UPDATE crawl_matrix_jobs
                        SET processed_count=%s, row_count=%s, warnings=%s, updated_at=NOW()
                        WHERE id=%s""",
-                    (processed, row_count, Jsonb(warnings), job_id),
+                    (processed, row_count, Jsonb(warnings), job_id), job_id, lease_token,
                 )
                 conn.commit()
 
         final_status = "partial" if warnings and row_count else ("failed" if warnings and not row_count else "completed")
         with connect() as conn:
-            conn.execute(
+            _fenced_job_update(
+                conn,
                 """UPDATE crawl_matrix_jobs
                    SET status=%s, processed_count=%s, row_count=%s, warnings=%s,
                        updated_at=NOW(), completed_at=NOW()
                    WHERE id=%s""",
-                (final_status, processed, row_count, Jsonb(warnings), job_id),
+                (final_status, processed, row_count, Jsonb(warnings), job_id), job_id, lease_token,
             )
             conn.commit()
+    except LeaseLost:
+        logger.warning("Matrix job %s lease was replaced; stopping without further writes", job_id)
     except Exception as exc:
         logger.exception("Matrix job %s failed", job_id)
         with connect() as conn:
-            conn.execute(
+            _fenced_job_update(
+                conn,
                 """UPDATE crawl_matrix_jobs
                    SET status='failed', error=%s, warnings=%s, updated_at=NOW(), completed_at=NOW()
                    WHERE id=%s""",
-                (str(exc)[:500], Jsonb(warnings), job_id),
+                (str(exc)[:500], Jsonb(warnings), job_id), job_id, lease_token,
             )
             conn.commit()
 
 
-def _execute_claimed(claimed: tuple[str, dict] | None) -> bool:
+def _execute_claimed(claimed: tuple[str, dict, str] | None) -> bool:
     if not claimed:
         return False
-    job_id, payload = claimed
+    job_id, payload, lease_token = claimed
     reprocess = bool(payload.pop("_reprocess", False))
     logger.info("Processing matrix job %s (reprocess=%s)", job_id, reprocess)
-    run_job(job_id, payload, reprocess=reprocess)
+    run_job(job_id, payload, reprocess=reprocess, lease_token=lease_token)
     return True
 
 
-def _run_claimed_exclusive(claimed: tuple[str, dict] | None) -> bool:
+def _run_claimed_exclusive(claimed: tuple[str, dict, str] | None) -> bool:
     """Only one matrix job runs in this process at a time."""
     if not claimed:
         return False
@@ -993,15 +1185,11 @@ def _run_claimed_exclusive(claimed: tuple[str, dict] | None) -> bool:
         return _execute_claimed(claimed)
 
 
-def _next_claimed_job() -> tuple[str, dict] | None:
+def _next_claimed_job() -> tuple[str, dict, str] | None:
     try:
-        job_id = _pending_job_ids.get_nowait()
+        return _pending_jobs.get_nowait()
     except queue.Empty:
-        job_id = None
-    if job_id:
-        claimed = claim_job_by_id(job_id)
-        if claimed:
-            return claimed
+        pass
     return claim_job()
 
 
@@ -1018,22 +1206,49 @@ def _consume_crawl_queue() -> None:
             params.blocked_connection_timeout = 5
             with pika.BlockingConnection(params) as broker:
                 channel = broker.channel()
-                channel.queue_declare(queue=CRAWL_QUEUE, durable=True)
+                channel.confirm_delivery()
+                declare_queue_topology(channel, (CRAWL_QUEUE,))
                 channel.basic_qos(prefetch_count=1)
 
                 def on_message(_ch, method, _properties, body):
                     try:
                         payload = json.loads(body)
-                        job_id = str(payload.get("job_id") or "")
-                        if job_id:
-                            _pending_job_ids.put(job_id)
-                            _wake.set()
-                    except Exception:
-                        logger.exception("Crawl matrix AMQP handler failed")
+                        if not isinstance(payload, dict):
+                            raise ValueError("Crawl matrix message payload must be an object")
+                        job_id = str(uuid.UUID(str(payload.get("job_id") or "")))
+                    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+                        logger.warning("Rejecting malformed crawl matrix message")
+                        settle_malformed_delivery(channel, method, _properties, body, CRAWL_QUEUE)
+                        return
+
                     try:
-                        channel.basic_ack(method.delivery_tag)
+                        # ACK only after the database has claimed the job. If
+                        # the process dies after this point, the processing
+                        # lease is recovered by the normal stale-job poller.
+                        claimed = claim_job_by_id(job_id)
+                        if claimed:
+                            _pending_jobs.put(claimed)
+                            _wake.set()
+                        else:
+                            with connect() as conn:
+                                state = conn.execute(
+                                    "SELECT status FROM crawl_matrix_jobs WHERE id=%s",
+                                    (job_id,),
+                                ).fetchone()
+                            if not state:
+                                raise ValueError(f"Unknown crawl matrix job: {job_id}")
+                            if state["status"] not in {"processing", "completed", "partial", "failed"}:
+                                raise RuntimeError(f"Crawl matrix job was not claimable: {job_id}")
+                        channel.basic_ack(delivery_tag=method.delivery_tag)
+                    except ValueError as exc:
+                        logger.warning("Rejecting crawl matrix message: %s", exc)
+                        settle_malformed_delivery(channel, method, _properties, body, CRAWL_QUEUE)
                     except Exception:
-                        logger.exception("Failed to ack crawl matrix message")
+                        logger.exception("Crawl matrix AMQP handler failed; requeueing")
+                        settle_transient_delivery(
+                            channel, method, _properties, body, CRAWL_QUEUE,
+                            "crawl matrix callback failure",
+                        )
 
                 channel.basic_consume(queue=CRAWL_QUEUE, on_message_callback=on_message, auto_ack=False)
                 logger.info("Crawl matrix AMQP consumer on %s", CRAWL_QUEUE)

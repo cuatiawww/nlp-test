@@ -114,9 +114,11 @@ class NarrativeIntelligenceTest(unittest.TestCase):
         )
         by_country = {item.country: item for item in output.locations}
         self.assertEqual(by_country["Thailand"].reported_cases, 20)
-        self.assertEqual(by_country["Thailand"].provinces, ["Bangkok"])
+        self.assertEqual(by_country["Thailand"].provinces, [])
+        self.assertEqual(by_country["Thailand"].cities, ["Bangkok"])
         self.assertEqual(by_country["Vietnam"].reported_cases, 30)
-        self.assertEqual(by_country["Vietnam"].provinces, ["Ho Chi Minh City"])
+        self.assertEqual(by_country["Vietnam"].provinces, [])
+        self.assertEqual(by_country["Vietnam"].cities, ["Ho Chi Minh City"])
 
 
 if __name__ == "__main__":

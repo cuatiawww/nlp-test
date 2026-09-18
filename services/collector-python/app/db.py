@@ -33,10 +33,11 @@ def is_url_already_processed(url: str) -> bool:
         conn = get_conn()
         row = conn.execute(
             """SELECT 1 FROM raw_reports
-               WHERE (url = %s OR normalized_url = %s OR canonical_url = %s OR url_hash = %s)
-                 AND processing_status IN ('PROCESSED', 'NON_HEALTH')
+               WHERE processing_status IN ('PROCESSED', 'NON_HEALTH')
+                 AND (url = %s OR normalized_url = %s OR canonical_url = %s
+                      OR final_url = %s OR url_hash = %s)
                LIMIT 1""",
-            (candidate, normalized, normalized, candidate_hash),
+            (candidate, normalized, normalized, normalized, candidate_hash),
         ).fetchone()
         conn.commit()
         return row is not None
@@ -71,9 +72,11 @@ def backfill_document_identities(batch_size: int = 500, max_batches: int = 100) 
     for _ in range(max_batches):
         conn = get_conn()
         rows = conn.execute(
-            """SELECT id, url, original_text
+            """SELECT id, url, original_text, canonical_url, final_url
                FROM raw_reports
-               WHERE content_hash IS NULL
+               WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
+                 AND (content_hash IS NULL OR normalized_url IS NULL OR canonical_url IS NULL
+                      OR final_url IS NULL OR url_hash IS NULL)
                ORDER BY created_at, id
                LIMIT %s""",
             (batch_size,),
@@ -87,23 +90,68 @@ def backfill_document_identities(batch_size: int = 500, max_batches: int = 100) 
         updates = []
         for row in rows:
             normalized = None
+            canonical = None
+            final = None
             digest = None
             if row.get("url"):
                 try:
                     normalized = normalize_url(row["url"])
-                    digest = url_hash(normalized)
+                    canonical = normalize_url(row.get("canonical_url") or normalized)
+                    final = normalize_url(row.get("final_url") or canonical)
+                    digest = url_hash(canonical or normalized)
                 except ValueError:
                     logger.warning("Historical RAW has an invalid URL: raw_id=%s", row["id"])
-            updates.append((normalized, digest, content_fingerprint(row.get("original_text") or ""), row["id"]))
-        with conn.cursor() as cursor:
-            cursor.executemany(
-                """UPDATE raw_reports
-                   SET normalized_url=COALESCE(normalized_url,%s),
-                       url_hash=COALESCE(url_hash,%s),
-                       content_hash=COALESCE(content_hash,%s)
-                   WHERE id=%s""",
-                updates,
-            )
+            updates.append((
+                normalized, canonical, final, digest,
+                content_fingerprint(row.get("original_text") or ""), row["id"],
+            ))
+        for normalized, canonical, final, digest, content, raw_id in updates:
+            try:
+                conn.execute(
+                    """UPDATE raw_reports
+                       SET normalized_url=COALESCE(normalized_url,%s),
+                           canonical_url=COALESCE(canonical_url,%s),
+                           final_url=COALESCE(final_url,%s),
+                           url_hash=COALESCE(url_hash,%s),
+                           content_hash=COALESCE(content_hash,%s)
+                       WHERE id=%s""",
+                    (normalized, canonical, final, digest, content, raw_id),
+                )
+            except psycopg.errors.UniqueViolation:
+                conn.rollback()
+                conflict = conn.execute(
+                    """SELECT id FROM raw_reports
+                       WHERE id <> %s
+                         AND processing_status IS DISTINCT FROM 'DUPLICATE'
+                         AND (
+                              (%s::text IS NOT NULL AND normalized_url=%s)
+                           OR (%s::text IS NOT NULL AND canonical_url=%s)
+                           OR (%s::text IS NOT NULL AND final_url=%s)
+                           OR (%s::text IS NOT NULL AND url_hash=%s)
+                           OR (%s::text IS NOT NULL AND content_hash=%s)
+                         )
+                       ORDER BY CASE UPPER(COALESCE(processing_status, ''))
+                                  WHEN 'PROCESSED' THEN 0
+                                  WHEN 'NON_HEALTH' THEN 1
+                                  WHEN 'PROCESSING' THEN 2
+                                  WHEN 'NEW' THEN 3
+                                  WHEN 'FAILED' THEN 4
+                                  ELSE 5
+                                END,
+                                created_at ASC, id ASC
+                       LIMIT 1""",
+                    (
+                        raw_id, normalized, normalized, canonical, canonical,
+                        final, final, digest, digest, content, content,
+                    ),
+                ).fetchone()
+                if conflict:
+                    conn.execute(
+                        """UPDATE raw_reports
+                           SET processing_status='DUPLICATE', duplicate_of_raw_report_id=%s
+                         WHERE id=%s""",
+                        (conflict["id"], raw_id),
+                    )
         conn.commit()
         total += len(rows)
         logger.info("Crawler identity backfill progress: updated=%d", total)

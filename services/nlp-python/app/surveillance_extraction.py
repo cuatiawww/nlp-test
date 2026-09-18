@@ -60,6 +60,7 @@ class SurveillanceLocation(BaseModel):
 
     country: str
     provinces: list[str] = Field(default_factory=list)
+    cities: list[str] = Field(default_factory=list)
     areas: list[SurveillanceArea] = Field(default_factory=list)
     reported_cases: int = Field(ge=0)
     deaths: Optional[int] = Field(default=None, ge=0)
@@ -72,6 +73,7 @@ class HistoricalComparison(BaseModel):
 
     country: str
     provinces: list[str] = Field(default_factory=list)
+    cities: list[str] = Field(default_factory=list)
     reported_cases: int = Field(default=0, ge=0)
     deaths: Optional[int] = Field(default=None, ge=0)
     time_frame: str = ""
@@ -236,6 +238,27 @@ def _is_subnational_location(name: str, country: str) -> bool:
         return False
     return True
 
+
+KNOWN_CITY_NAMES = frozenset({
+    "bandar seri begawan", "bangkok", "bandung", "cebu", "chiang mai",
+    "dili", "hanoi", "ho chi minh city", "jakarta", "kuala lumpur",
+    "manila", "naypyidaw", "phnom penh", "singapore", "surabaya",
+    "vientiane", "yangon",
+})
+
+
+def _is_city_location(name: str, country: str) -> bool:
+    """Classify only explicit city aliases/cues; do not guess unknown places."""
+
+    if not name or not country or name.casefold() == country.casefold():
+        return False
+    folded = extractors._fold_location_text(name)
+    city_hints = (
+        " city", "kota ", "town", "municipality", "kabupaten", "district",
+        "kecamatan", "village", "kelurahan",
+    )
+    return folded in KNOWN_CITY_NAMES or any(hint in folded for hint in city_hints)
+
 LOCATION_CUES = re.compile(
     r"(?:\bdi\b|\bke\b|\bdari\b|\bhingga\b|\bse-?Indonesia\b|"
     r"\bin\b|\bfrom\b|\bto\b|\bacross\b|\bwithin\b|\bprovince\b|"
@@ -308,6 +331,7 @@ class LinkedLocation:
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     is_province: bool = False
+    is_city: bool = False
     evidence: str = ""
 
 
@@ -370,7 +394,8 @@ class GazetteerLinker:
                 name=canonical,
                 country=country,
                 latitude=coords[0], longitude=coords[1],
-                is_province=_is_subnational_location(canonical, country),
+                is_province=_is_subnational_location(canonical, country) and not _is_city_location(canonical, country),
+                is_city=_is_city_location(canonical, country),
                 evidence=evidence,
             )
 
@@ -385,7 +410,8 @@ class GazetteerLinker:
             name=value,
             country=str(result["country"]),
             latitude=result.get("latitude"), longitude=result.get("longitude"),
-            is_province=_is_subnational_location(value, str(result["country"])),
+            is_province=_is_subnational_location(value, str(result["country"])) and not _is_city_location(value, str(result["country"])),
+            is_city=_is_city_location(value, str(result["country"])),
             evidence=evidence,
         )
 
@@ -1125,18 +1151,22 @@ def _project_period(
 ) -> tuple[SurveillanceLocation, list[MetricRelation], list[HistoricalComparison]]:
     primary, _, primary_frame = _select_primary_period(relations, published_date)
     country_level = [item for item in primary if item.location.name.casefold() == country.casefold()]
-    province_level = [item for item in primary if item.location.is_province]
+    subnational_level = [item for item in primary if item.location.is_province or item.location.is_city]
+    province_level = [item for item in subnational_level if item.location.is_province]
+    city_level = [item for item in subnational_level if item.location.is_city]
     if country_level:
         # A country total is authoritative over its province breakdown.
         selected_case = max((item.cases for item in country_level), default=0)
         death_values = [item.deaths for item in country_level if item.deaths is not None]
         selected_deaths = max(death_values) if death_values else None
         selected_provinces = [item.location.name for item in province_level]
+        selected_cities = [item.location.name for item in city_level]
     else:
-        selected_case = sum(item.cases for item in province_level)
-        death_values = [item.deaths for item in province_level if item.deaths is not None]
+        selected_case = sum(item.cases for item in subnational_level)
+        death_values = [item.deaths for item in subnational_level if item.deaths is not None]
         selected_deaths = sum(death_values) if death_values else None
         selected_provinces = [item.location.name for item in province_level]
+        selected_cities = [item.location.name for item in city_level]
 
     primary_ids = {id(item) for item in primary}
     historical_groups: dict[tuple[Optional[int], str], list[MetricRelation]] = {}
@@ -1149,8 +1179,10 @@ def _project_period(
         historical_groups.items(), key=lambda item: (item[0][0] or 0, _period_sort_key(item[0][1])), reverse=True
     ):
         country_total = [item for item in period_relations if item.location.name.casefold() == country.casefold()]
-        provinces = [item for item in period_relations if item.location.is_province]
-        source = country_total or provinces
+        subnational = [item for item in period_relations if item.location.is_province or item.location.is_city]
+        provinces = [item for item in subnational if item.location.is_province]
+        cities = [item for item in subnational if item.location.is_city]
+        source = country_total or subnational
         if country_total:
             cases = max((item.cases for item in source), default=0)
             death_values = [item.deaths for item in source if item.deaths is not None]
@@ -1162,6 +1194,7 @@ def _project_period(
         historical.append(HistoricalComparison(
             country=country,
             provinces=list(dict.fromkeys(item.location.name for item in provinces)),
+            cities=list(dict.fromkeys(item.location.name for item in cities)),
             reported_cases=cases,
             deaths=deaths,
             time_frame=frame or (_year_frame(year) if year else ""),
@@ -1178,10 +1211,11 @@ def _project_period(
         time_frame=item.time_frame,
         latitude=item.location.latitude,
         longitude=item.location.longitude,
-    ) for item in province_level]
+    ) for item in subnational_level]
     location = SurveillanceLocation(
         country=country,
         provinces=list(dict.fromkeys(selected_provinces)),
+        cities=list(dict.fromkeys(selected_cities)),
         areas=areas,
         reported_cases=selected_case,
         deaths=selected_deaths,
@@ -1241,6 +1275,12 @@ def build_surveillance_output(
         ]
         location, selected_relations, historical = _project_period(country, country_relations, published_date)
         location.provinces = list(dict.fromkeys([*mentioned_provinces, *location.provinces]))
+        location.cities = list(dict.fromkeys(
+            item.name for item in mentioned_locations
+            if item.country.casefold() == country.casefold()
+            and item.is_city
+            and item.name.casefold() != country.casefold()
+        ))
         output_locations.append(location)
         primary_relations.extend(selected_relations)
         historical_comparisons.extend(historical)

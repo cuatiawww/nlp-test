@@ -7,9 +7,15 @@ from decimal import Decimal
 from urllib.parse import urlparse
 
 from .entity_relations import disease_relation_rows, location_relation_rows
+from .document_identity import identity_lock_keys, identity_where_clause
 from .geo import st_makepoint_args
 from .kpi import mark_kpi_snapshots_stale
 from .multi_event_persist import load_sibling_facts, persist_child_facts
+from .queue_reliability import (
+    declare_queue_topology,
+    settle_malformed_delivery,
+    settle_transient_delivery,
+)
 
 logger = logging.getLogger(__name__)
 NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
@@ -31,6 +37,10 @@ def _json_safe(value):
         return [_json_safe(item) for item in value]
     return value
 QUEUE = os.getenv("RABBITMQ_ANALYSIS_URL_QUEUE", "disease.analysis-url")
+
+
+class UnknownAnalysisJob(ValueError):
+    """The message references no durable analysis job."""
 
 
 def _seconds_at_least(name, default):
@@ -266,6 +276,10 @@ def analyze_article(extracted, fallback=False):
     return response.json()
 def save_completed(conn, job_id, result, raw_report_id=None):
     """Add a new version without deleting any existing report or event."""
+    if not raw_report_id:
+        raw_report_id, _ = retain_raw_or_get_cached(
+            conn, result["url"], result, allow_cached=False
+        )
     values = (
         result.get("published_at") or None,
         result.get("content", ""),
@@ -274,6 +288,7 @@ def save_completed(conn, job_id, result, raw_report_id=None):
         result.get("object_path"),
         result.get("normalized_url"), result.get("canonical_url"), result.get("url_hash"),
         result.get("content_hash"), result.get("final_url"), result.get("author"),
+        result.get("source_country"),
     )
     if raw_report_id:
         row = conn.execute(
@@ -281,15 +296,15 @@ def save_completed(conn, job_id, result, raw_report_id=None):
                  source_type='web', source_name='URL Analyzer', published_at=%s,
                  original_text=%s, summary=%s, url=%s, object_path=%s,
                  processing_status='PROCESSED', normalized_url=%s, canonical_url=%s,
-                 url_hash=%s, content_hash=%s, final_url=%s, author=%s
+                 url_hash=%s, content_hash=%s, final_url=%s, author=%s, source_country=%s
                WHERE id=%s RETURNING id""",
             (*values, raw_report_id),
         ).fetchone()
     else:
         row = conn.execute("""INSERT INTO raw_reports(
                 source_type,source_name,published_at,original_text,summary,url,object_path,processing_status,
-                normalized_url,canonical_url,url_hash,content_hash,final_url,author)
-            VALUES ('web','URL Analyzer',%s,%s,%s,%s,%s,'PROCESSED',%s,%s,%s,%s,%s,%s)
+                normalized_url,canonical_url,url_hash,content_hash,final_url,author,source_country)
+            VALUES ('web','URL Analyzer',%s,%s,%s,%s,%s,'PROCESSED',%s,%s,%s,%s,%s,%s,%s)
             RETURNING id""", values).fetchone()
     from psycopg.types.json import Jsonb
     event = conn.execute(
@@ -316,6 +331,10 @@ def save_completed(conn, job_id, result, raw_report_id=None):
          result.get("event_date_start"),
          result.get("event_date_end"),
          result.get("date_needs_review", False))).fetchone()
+    conn.execute(
+        "UPDATE disease_events SET source_country=%s, surveillance_scope=%s WHERE id=%s",
+        (result.get("source_country"), result.get("surveillance_scope"), event["id"]),
+    )
     if ENTITY_LOCATION_STORAGE_ENABLED:
         for relation in location_relation_rows(result):
             conn.execute(
@@ -391,8 +410,11 @@ def save_completed(conn, job_id, result, raw_report_id=None):
 
 def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_cached: bool = True):
     """Deduplicate canonical/content identity after fetch and retain RAW before NLP."""
+    identity_clause, identity_params = identity_where_clause(
+        {**extracted, "url": requested_url}
+    )
     row = conn.execute(
-        """SELECT rr.id AS raw_report_id, rr.summary AS raw_summary,
+        f"""SELECT rr.id AS raw_report_id, rr.summary AS raw_summary,
                   rr.published_at AS raw_published_at, de.id AS event_id,
                   de.language, de.location_name, ST_X(de.geom) AS longitude,
                   ST_Y(de.geom) AS latitude, de.symptoms, de.disease_extracted,
@@ -411,18 +433,12 @@ def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_ca
                         event.created_at DESC
                LIMIT 1
            ) de ON TRUE
-           WHERE (%s::text IS NOT NULL AND rr.content_hash=%s)
-              OR (%s::text IS NOT NULL AND rr.canonical_url=%s)
-              OR (%s::text IS NOT NULL AND rr.url_hash=%s)
-              OR (%s::text IS NOT NULL AND rr.normalized_url=%s)
-           ORDER BY CASE WHEN de.id IS NOT NULL THEN 0 ELSE 1 END, rr.created_at DESC
-           LIMIT 1""",
-        (
-            extracted.get("content_hash"), extracted.get("content_hash"),
-            extracted.get("canonical_url"), extracted.get("canonical_url"),
-            extracted.get("url_hash"), extracted.get("url_hash"),
-            extracted.get("normalized_url"), extracted.get("normalized_url"),
-        ),
+            WHERE rr.processing_status IS DISTINCT FROM 'DUPLICATE'
+              AND ({identity_clause})
+            ORDER BY CASE WHEN de.id IS NOT NULL THEN 0 ELSE 1 END,
+                     rr.created_at ASC, rr.id ASC
+            LIMIT 1""",
+         identity_params,
     ).fetchone()
     if row and row.get("event_id") and allow_cached and _pipeline_version_matches(row):
         result = {
@@ -461,26 +477,30 @@ def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_ca
         }
         return row["raw_report_id"], _json_safe(result)
     if row:
-        raw_id = row["raw_report_id"]
+        raw_id = row.get("raw_report_id") or row.get("id")
+        if not raw_id:
+            raise RuntimeError("identity lookup returned a row without a raw report id")
         conn.execute(
             """UPDATE raw_reports SET processing_status='PROCESSING', original_text=%s,
                  normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
                  url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
-                 final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
+                 final_url=COALESCE(final_url,%s), author=COALESCE(author,%s),
+                 source_country=COALESCE(source_country,%s)
                WHERE id=%s""",
             (
                 extracted.get("content", ""), extracted.get("normalized_url"), extracted.get("canonical_url"),
                 extracted.get("url_hash"), extracted.get("content_hash"), extracted.get("final_url"),
-                extracted.get("author"), raw_id,
+                extracted.get("author"), extracted.get("source_country"), raw_id,
             ),
         )
         return raw_id, None
     raw = conn.execute(
         """INSERT INTO raw_reports(
              source_type,source_name,published_at,original_text,url,object_path,processing_status,
-             normalized_url,canonical_url,url_hash,content_hash,final_url,author)
-           VALUES ('web','URL Analyzer',%s,%s,%s,%s,'PROCESSING',%s,%s,%s,%s,%s,%s)
-           RETURNING id""",
+             normalized_url,canonical_url,url_hash,content_hash,final_url,author,source_country)
+            VALUES ('web','URL Analyzer',%s,%s,%s,%s,'PROCESSING',%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT DO NOTHING
+            RETURNING id""",
         (
             extracted.get("published_at"), extracted.get("content", ""), requested_url,
             extracted.get("object_path"), extracted.get("normalized_url"), extracted.get("canonical_url"),
@@ -488,6 +508,18 @@ def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_ca
             extracted.get("author"),
         ),
     ).fetchone()
+    if not raw:
+        resolved = conn.execute(
+            f"""SELECT rr.id FROM raw_reports rr
+                WHERE rr.processing_status IS DISTINCT FROM 'DUPLICATE'
+                  AND ({identity_clause})
+                ORDER BY rr.created_at ASC, rr.id ASC
+                LIMIT 1 FOR UPDATE""",
+            identity_params,
+        ).fetchone()
+        if not resolved:
+            raise RuntimeError("RAW identity conflict did not resolve to a database row")
+        raw = resolved
     logger.info("RAW retained before URL NLP: raw_id=%s url=%s", raw["id"], requested_url)
     return raw["id"], None
 
@@ -497,11 +529,14 @@ def process_job(job_id):
         lock_conn.autocommit = True
         locked = lock_conn.execute("SELECT pg_try_advisory_lock(hashtext(%s)) AS locked",(job_id,)).fetchone()["locked"]
         if not locked:
-            return
+            # Another delivery is already processing this durable job state.
+            return True
         try:
             row = lock_conn.execute("SELECT * FROM analysis_jobs WHERE id=%s",(job_id,)).fetchone()
-            if not row or row["status"] in {"completed","partial","failed"}:
-                return
+            if not row:
+                raise UnknownAnalysisJob(f"Analysis job was not found: {job_id}")
+            if row["status"] in {"completed","partial","failed"}:
+                return True
 
             # Check raw_reports first. Any existing URL is a cache hit, even
             # when the previous run was partial or did not create an event.
@@ -683,12 +718,12 @@ def process_job(job_id):
                         job_id,
                     ),
                 )
-                return
+                return True
 
             def progress(stage):
                 lock_conn.execute("UPDATE analysis_jobs SET status='processing',stage=%s,updated_at=NOW() WHERE id=%s",
                                   (stage, job_id))
-            retained = {"raw_id": None, "lock_conn": None, "lock_key": ""}
+            retained = {"raw_id": None, "lock_conn": None, "lock_keys": ()}
 
             fetch_for_job = fetch_article
             reuse_stored_raw = cached_report and not row.get("force_refresh", False) and (
@@ -717,18 +752,14 @@ def process_job(job_id):
                 logger.info("Reusing stored RAW for Full NLP: raw_id=%s", cached_report["raw_report_id"])
 
             def before_nlp(extracted):
-                identity_field = next(
-                    (field for field in ("content_hash", "canonical_url", "url_hash", "normalized_url") if extracted.get(field)),
-                    "",
-                )
-                identity = extracted.get(identity_field) if identity_field else None
-                if identity:
-                    retained["lock_key"] = f"crawler-document:{identity_field}:{identity}"
+                retained["lock_keys"] = identity_lock_keys({**extracted, "url": row["url"]})
+                if retained["lock_keys"]:
                     retained["lock_conn"] = connect()
                     retained["lock_conn"].autocommit = True
-                    retained["lock_conn"].execute(
-                        "SELECT pg_advisory_lock(hashtext(%s))", (retained["lock_key"],)
-                    )
+                    for lock_key in retained["lock_keys"]:
+                        retained["lock_conn"].execute(
+                            "SELECT pg_advisory_lock(hashtext(%s))", (lock_key,)
+                        )
                 with connect() as raw_conn:
                     raw_id, cached_result = retain_raw_or_get_cached(
                         raw_conn,
@@ -772,13 +803,32 @@ def process_job(job_id):
                         (outcome["status"],Jsonb(result if result is not None else {}),Jsonb(outcome["warnings"]),outcome.get("error"),job_id))
             finally:
                 if retained["lock_conn"] is not None:
-                    retained["lock_conn"].execute(
-                        "SELECT pg_advisory_unlock(hashtext(%s))", (retained["lock_key"],)
-                    )
+                    for lock_key in reversed(retained["lock_keys"]):
+                        retained["lock_conn"].execute(
+                            "SELECT pg_advisory_unlock(hashtext(%s))", (lock_key,)
+                        )
                     retained["lock_conn"].close()
+            return True
+        except UnknownAnalysisJob:
+            raise
         except Exception:
             logger.exception("Analysis job failed: %s", job_id)
-            lock_conn.execute("UPDATE analysis_jobs SET status='failed',error='Analysis storage failed; please retry',updated_at=NOW() WHERE id=%s",(job_id,))
+            try:
+                failed = lock_conn.execute(
+                    "UPDATE analysis_jobs SET status='failed',error='Analysis storage failed; please retry',updated_at=NOW() WHERE id=%s",
+                    (job_id,),
+                )
+                if failed.rowcount != 1:
+                    raise RuntimeError(f"Analysis job failure state was not persisted: {job_id}")
+                state = lock_conn.execute(
+                    "SELECT status FROM analysis_jobs WHERE id=%s", (job_id,)
+                ).fetchone()
+                if not state or state["status"] != "failed":
+                    raise RuntimeError(f"Analysis job failure state was not durable: {job_id}")
+                return True
+            except Exception:
+                logger.exception("Could not persist failed analysis job state: %s", job_id)
+                raise
         finally:
             lock_conn.execute("SELECT pg_advisory_unlock(hashtext(%s))",(job_id,))
 
@@ -791,8 +841,13 @@ def dispatch(channel):
             AND (dispatched_at IS NULL OR dispatched_at < NOW()-INTERVAL '5 minutes')
             ORDER BY created_at LIMIT 50 FOR UPDATE SKIP LOCKED""").fetchall()
         for row in rows:
-            channel.basic_publish("",QUEUE,json.dumps({"job_id":str(row["id"])}),
-                properties=pika.BasicProperties(delivery_mode=2),mandatory=True)
+            confirmed = channel.basic_publish(
+                "", QUEUE, json.dumps({"job_id": str(row["id"])}),
+                properties=pika.BasicProperties(delivery_mode=2, content_type="application/json"),
+                mandatory=True,
+            )
+            if confirmed is False:
+                raise RuntimeError(f"RabbitMQ rejected analysis job {row['id']}")
             conn.execute("UPDATE analysis_jobs SET dispatched_at=NOW() WHERE id=%s",(row["id"],))
 
 
@@ -821,19 +876,32 @@ def _handle_analysis_message(channel, method, _properties, body):
     try:
         payload = json.loads(body)
         job_id = str(__import__("uuid").UUID(payload["job_id"]))
-        process_job(job_id)
     except (ValueError, KeyError, json.JSONDecodeError, TypeError):
-        logger.warning("Discarding malformed analysis job message")
+        logger.warning("Rejecting malformed analysis job message")
+        settle_malformed_delivery(channel, method, _properties, body, QUEUE)
+        return
+
+    try:
+        processed = process_job(job_id)
+        if processed is not True:
+            raise RuntimeError("Analysis job did not reach a durable terminal or active state")
+    except UnknownAnalysisJob:
+        logger.warning("Rejecting analysis message for unknown durable job: %s", job_id)
+        settle_malformed_delivery(channel, method, _properties, body, QUEUE)
+        return
     except Exception:
         logger.exception("Analysis job callback failed")
+        settle_transient_delivery(channel, method, _properties, body, QUEUE, "analysis callback failure")
+        return
+
     try:
-        channel.basic_ack(method.delivery_tag)
+        channel.basic_ack(delivery_tag=method.delivery_tag)
     except Exception:
         logger.exception("Failed to ack analysis job message")
 
 
 def consume_analysis_queue(channel):
-    channel.queue_declare(queue=QUEUE, durable=True)
+    declare_queue_topology(channel, (QUEUE,))
     channel.basic_qos(prefetch_count=analysis_prefetch())
     channel.basic_consume(queue=QUEUE, on_message_callback=_handle_analysis_message, auto_ack=False)
 

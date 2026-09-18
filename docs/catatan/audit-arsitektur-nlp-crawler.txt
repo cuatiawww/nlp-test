@@ -1,0 +1,167 @@
+NLP-PENYAKIT Crawling Architecture Audit
+
+The system is a hybrid architecture with three ingestion lanes.
+
+1. Current crawling flow
+
+Continuous source crawling:
+The collector scheduler loads enabled sources, selects a collector by source_type, fetches articles, stores raw artifacts in MinIO, and publishes processing messages to RabbitMQ.
+
+Relevant files:
+- services/collector-python/app/main.py:44
+- services/collector-python/app/scheduler.py:53
+- services/collector-python/app/collectors/rss_news.py:51
+- services/collector-python/app/collectors/web_scraper.py:643
+- services/collector-python/app/rabbitmq.py:34
+- services/collector-python/app/minio_client.py:27
+
+Manual filtered crawling:
+POST /crawl-jobs creates a database job and publishes its ID. The matrix worker claims jobs with FOR UPDATE SKIP LOCKED, discovers URLs or processes a direct URL, extracts content through the collector API, calls NLP, and writes raw_reports, disease_events, and crawl_matrix_rows.
+
+Relevant files:
+- services/collector-python/app/crawl_jobs.py:336
+- services/worker-python/app/crawl_matrix_jobs.py:814
+- services/worker-python/app/crawl_matrix_jobs.py:900
+
+Direct URL analysis:
+POST /analysis-jobs inserts an analysis job, uses an advisory lock for active duplicate submissions, and dispatches through the analysis queue.
+
+Relevant files:
+- services/collector-python/app/analysis_jobs.py:24
+- services/worker-python/app/analysis_jobs.py:791
+
+2. URL deduplication and already-processed logic
+
+- URL normalization lowercases scheme/host, removes tracking parameters and fragments, sorts query parameters, and generates URL hashes.
+- Canonical URL, final URL, normalized URL, URL hash, and content hash are stored on raw_reports.
+- Collector prechecks only consider PROCESSED and NON_HEALTH reports. Failed reports remain retryable.
+- The bulk worker performs the final duplicate check under a PostgreSQL advisory lock.
+- The matrix worker additionally uses crawler_nlp_cache keyed by identity hash and pipeline version.
+
+Relevant files:
+- services/collector-python/app/crawler_identity.py:51
+- services/collector-python/app/db.py:16
+- services/worker-python/app/worker.py:64
+- services/worker-python/app/crawl_matrix_jobs.py:328
+- database/init/060_crawler_document_identity.sql:5
+
+Main weaknesses:
+- Database identity fields have indexes but no unique constraints.
+- Collector prechecks are fail-open on database errors and are not atomic with publishing.
+- URL aliases can pass the collector precheck before the worker resolves their final/canonical identity.
+- The legacy manual runner inserts raw records directly without the worker's full identity pipeline.
+
+3. Worker and job flow
+
+- disease.raw and disease.social are consumed by worker.py.
+- Messages are marked PROCESSING, sent to /nlp/analyze/raw, then persisted as raw reports and disease events.
+- Retryable failures are republished to retry queues with TTL and dead-letter routing.
+- disease.analysis-url is handled by the dedicated analysis worker.
+- disease.crawl-matrix is handled by the matrix worker, which also polls PostgreSQL for queued/stale jobs.
+
+Relevant files:
+- services/worker-python/app/worker.py:419
+- services/worker-python/app/analysis_jobs.py:826
+- services/worker-python/app/crawl_matrix_jobs.py:1047
+
+Notable issue:
+Matrix RabbitMQ messages are acknowledged before the job is claimed or processed. PostgreSQL polling provides some recovery, but broker delivery is not coupled to successful execution.
+
+SKDR is currently detached:
+- Scheduler skips SKDR sources.
+- RabbitMQ publisher skips SKDR messages.
+- The NLP SKDR endpoint returns 410 Gone.
+- The worker acknowledges and drops SKDR messages.
+
+Relevant files:
+- services/collector-python/app/scheduler.py:59
+- services/collector-python/app/rabbitmq.py:44
+- services/worker-python/app/worker.py:426
+- services/nlp-python/app/main.py:134
+
+4. Article extraction and normalization
+
+- RSS extraction parses feed metadata and optionally fetches full articles.
+- Web extraction supports direct HTTP, stealth/browser fallback, PDFs, canonical links, OpenGraph metadata, JSON-LD, authors, publication dates, and trafilatura/HTML selector extraction.
+- CSV and social collectors construct normalized article text and metadata.
+- Raw HTML, PDF, CSV, and social artifacts are written to MinIO before publishing processing messages.
+- Identity metadata is attached to messages for downstream deduplication.
+
+Relevant files:
+- services/collector-python/app/collectors/rss_news.py:102
+- services/collector-python/app/collectors/web_scraper.py:212
+- services/collector-python/app/collectors/pdf_document.py:84
+- services/collector-python/app/collectors/csv_ingest.py:11
+- services/collector-python/app/collectors/social_csv_ingest.py:146
+
+5. Disease and country detection
+
+The NLP pipeline:
+- Repairs mojibake and normalizes text.
+- Detects language and optionally translates non-Latin ASEAN languages.
+- Extracts disease aliases, symptoms, WHO concepts, and disease mentions.
+- Extracts locations and countries using aliases, gazetteer data, country boundaries, and optional geocoding.
+- Separates article/event country from publisher/source country.
+- Produces primary classification plus disease mentions and structured sub-events.
+
+Relevant files:
+- services/nlp-python/app/pipeline.py:73
+- services/nlp-python/app/extractors.py:159
+- services/nlp-python/app/surveillance_extraction.py:1227
+- services/nlp-python/app/translator.py:150
+- services/nlp-python/app/models/classifier.py:144
+- services/worker-python/app/crawl_matrix_jobs.py:244
+
+Reliability concern:
+The language-marker fallback in extractors.py has an unreachable return, so Latin-script multilingual content can become unknown when langdetect fails.
+
+6. Storage and database flow
+
+- raw_reports is the raw/source-of-truth record.
+- MinIO stores fetched source artifacts.
+- RabbitMQ carries processing jobs.
+- NLP results become disease_events.
+- Manual crawl-specific output becomes crawl_matrix_rows.
+- crawler_nlp_cache prevents repeated NLP work.
+- collector_runs, analysis_jobs, and crawl_matrix_jobs track execution state.
+
+Relevant schema files:
+- database/init/001_schema.sql:4
+- database/init/002_collector.sql:1
+- database/init/041_analysis_jobs.sql:1
+- database/init/058_crawl_matrix_jobs.sql:4
+- database/init/060_crawler_document_identity.sql:37
+- database/init/087_normalize_case_scope_and_source_country.sql:4
+
+Rust exposes/proxies ingestion and crawl APIs. Its synchronous URL path has a separate persistence implementation from the Python workers.
+
+Relevant file:
+- services/backend-rust/src/main.rs:2222
+- services/backend-rust/src/main.rs:3137
+
+7. Current reliability problems
+
+1. Continuous collection has no transactional outbox. MinIO upload occurs before RabbitMQ publish, so crashes or broker failures can create orphaned objects or lose processing messages.
+
+2. Matrix queue acknowledgements occur before processing. A worker crash after ACK can leave execution dependent on the database poller.
+
+3. Deduplication is distributed across collector prechecks, worker locks, matrix cache, and Rust persistence, with no database uniqueness constraint.
+
+4. Identity locking is inconsistent: the worker initially locks by strongest identity, but later persistence may lock by the raw URL, allowing alternate URL forms to race.
+
+5. The legacy manual runner, matrix worker, analysis worker, and Rust synchronous path implement overlapping persistence logic, creating behavior and schema drift.
+
+6. Non-social worker messages without a current-year date are silently dropped. RSS collection also excludes undated/non-current records by default.
+
+7. SKDR collection is effectively disabled and messages are dropped.
+
+8. MinIO uploads are single-attempt operations, and collector publishing is best-effort.
+
+9. Rate limiting and concurrency controls are process-local, so multiple collector replicas can exceed configured per-domain limits.
+
+10. Existing PROCESSING raw reports have no clearly visible stale-record recovery equivalent to stale collector/job recovery.
+
+11. The Rust synchronous URL path deletes existing raw/event data before reinserting the new result, creating data-loss risk if extraction, NLP, or persistence fails afterward.
+
+Audit scope:
+Read-only inspection of relevant crawler, collector, worker, NLP, backend integration, and database schema files. No files were modified. No tests were run.

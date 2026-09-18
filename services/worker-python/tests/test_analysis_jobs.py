@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -7,6 +8,56 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.analysis_jobs import analyze_article, analyze_stages, fetch_article, validate_url
 
 class AnalysisJobTests(unittest.TestCase):
+    def test_analysis_delivery_acks_only_after_durable_processing(self):
+        from app import analysis_jobs
+
+        channel = Mock()
+        method = Mock(delivery_tag=7)
+        with patch.object(analysis_jobs, "process_job", return_value=True):
+            analysis_jobs._handle_analysis_message(
+                channel, method, None,
+                json.dumps({"job_id": "00000000-0000-0000-0000-000000000001"}),
+            )
+        channel.basic_ack.assert_called_once_with(delivery_tag=7)
+        channel.basic_nack.assert_not_called()
+
+    def test_analysis_delivery_requeues_when_durable_processing_fails(self):
+        from app import analysis_jobs
+
+        channel = Mock()
+        channel.basic_publish.return_value = True
+        method = Mock(delivery_tag=8)
+        with patch.object(analysis_jobs, "process_job", side_effect=RuntimeError("database down")):
+            analysis_jobs._handle_analysis_message(
+                channel, method, None,
+                json.dumps({"job_id": "00000000-0000-0000-0000-000000000001"}),
+            )
+        channel.basic_ack.assert_called_once_with(delivery_tag=8)
+        channel.basic_nack.assert_not_called()
+        self.assertEqual(channel.basic_publish.call_args.kwargs["routing_key"], "disease.analysis-url.retry")
+
+    def test_unknown_analysis_job_is_sent_to_dlq(self):
+        from app import analysis_jobs
+
+        channel = Mock()
+        channel.basic_publish.return_value = True
+        method = Mock(delivery_tag=11)
+        with patch.object(
+            analysis_jobs,
+            "process_job",
+            side_effect=analysis_jobs.UnknownAnalysisJob("missing"),
+        ):
+            analysis_jobs._handle_analysis_message(
+                channel, method, None,
+                json.dumps({"job_id": "00000000-0000-0000-0000-000000000001"}),
+            )
+
+        self.assertEqual(
+            channel.basic_publish.call_args.kwargs["routing_key"],
+            "disease.analysis-url.dlq",
+        )
+        channel.basic_reject.assert_called_once_with(delivery_tag=11, requeue=False)
+
     def test_rejects_non_http_urls(self):
         for url in ("file:///etc/passwd", "javascript:alert(1)", ""):
             with self.assertRaises(ValueError):
@@ -184,4 +235,3 @@ class AnalysisJobTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

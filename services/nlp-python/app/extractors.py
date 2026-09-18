@@ -1360,9 +1360,9 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
     norm_source = normalize_country(source_country)
     mentioned_asean = extract_all_mentioned_countries(text)
 
-    # Content context beats source metadata (Scenario 3)
-    if not country and norm_source in config.ASEAN_COUNTRIES and not mentioned_asean:
-        country = norm_source
+    # Source metadata identifies the publisher, not the event geography. Do
+    # not turn an Indonesian/Vietnamese outlet into a case country when the
+    # article itself does not name one.
 
     if mentioned_asean:
         allowed = set(mentioned_asean)
@@ -1394,7 +1394,8 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         location = all_locations[0]["name"]
         country = all_locations[0].get("country") or country
     elif country in config.ASEAN_COUNTRIES:
-        # Scenario 4: National report with cases/deaths directly attached to Country (no city mentioned)
+        # National report with cases/deaths directly attached to the named
+        # country. This is still article evidence, not source metadata.
         location = country
         lat, lon, conf, needs_rev = geocode_place(country, country, text)
         all_locations = [{

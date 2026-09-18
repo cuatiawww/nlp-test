@@ -71,6 +71,10 @@ class AnalyzeResponse(BaseModel):
     latitude: Optional[float]
     longitude: Optional[float]
     country: Optional[str] = None
+    # Publisher/source metadata is deliberately separate from the country
+    # where the epidemiological event occurred.
+    source_country: Optional[str] = None
+    surveillance_scope: Optional[str] = None
     translated: bool = False
     translation_provider: str = "none"
     translated_text: str = ""

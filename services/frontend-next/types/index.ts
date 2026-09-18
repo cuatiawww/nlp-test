@@ -382,7 +382,9 @@ export type CrawlHistoryRow = {
   title?: string | null;
   url?: string | null;
   published_at?: string | null;
+  source_country?: string | null;
   country?: string | null;
+  case_country?: string | null;
   province?: string | null;
   city?: string | null;
   disease?: string | null;
@@ -411,6 +413,7 @@ export type CrawlHistoryRow = {
   article_date?: string | null;
   date_case?: string | null;
   region?: string | null;
+  surveillance_scope?: string | null;
   province_city_case?: string | null;
   event_type?: string | null;
   source_credibility?: number | null;

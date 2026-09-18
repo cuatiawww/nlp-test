@@ -83,13 +83,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     non_health_topic = bool(facts.get("non_health_topic")) or extractors.is_clearly_non_health_topic(
         text
     ) or extractors.is_clearly_non_health_topic(analysis_text)
-    location_country = (
-        facts.get("country")
-        or extractors.extract_country_hint(text[:1500])
-        or extractors.normalize_country(payload.source_country)
-    )
+    source_country = extractors.normalize_country(payload.source_country)
+    location_country = facts.get("country") or extractors.extract_country_hint(text[:1500])
     if location_country and location_country not in config.ASEAN_COUNTRIES:
-        # Keep ASEAN countries; do not promote "United States" into province.
+        # Keep ASEAN countries; do not promote a source/publisher country into
+        # the article's event geography.
         if extractors.extract_country_hint(text[:1500]) is None:
             location_country = extractors.country_scope(location_country)
     mentioned_countries = extractors.extract_all_mentioned_countries(text)
@@ -130,12 +128,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         except Exception as e:
             logger.info("DeepSeek location fallback unavailable: %s", e)
 
-    if not location:
-        # Preserve a verified country-level location when no city/province is
-        # present in the local gazetteer. Never fabricate a capital city,
-        # Indonesia-from-language, or coordinates for a national report.
-        if location_country in config.ASEAN_COUNTRIES:
-            location = location_country
+    # Missing city/province remains missing. A country-level location is only
+    # retained when the article explicitly names that country.
     if location and not extractors.is_usable_place_name(location, text):
         location = extractors.extract_country_hint(text) or None
     asean_hits = [
@@ -897,6 +891,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         disease=disease,
         location=location,
         country=country,
+        source_country=source_country,
+        surveillance_scope=("ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
         case_count=case_count,
         death_count=death_count,
     )

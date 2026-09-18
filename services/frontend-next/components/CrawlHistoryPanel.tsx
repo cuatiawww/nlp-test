@@ -56,16 +56,15 @@ const CHANNELS: { id: ChannelFilter; label: string }[] = [
 
 const PHASE1_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 52, sticky: true },
-  { key: 'action', label: 'Action', width: 105 },
-  { key: 'needs_review', label: 'Review Status', width: 125 },
-  { key: 'country', label: 'Country', width: 130 },
+  { key: 'source_country', label: 'Source Country', width: 130 },
+  { key: 'surveillance_scope', label: 'Scope', width: 110 },
+  { key: 'country', label: 'Case Country', width: 150 },
   { key: 'disease', label: 'Disease Name', width: 180 },
   { key: 'title', label: 'Article Title', width: 280 },
   { key: 'cases', label: 'Cases', width: 90 },
   { key: 'deaths', label: 'Deaths', width: 90 },
   { key: 'crawling_date', label: 'Crawling Date', width: 140 },
-  { key: 'region', label: 'Region', width: 130 },
-  { key: 'province_city_case', label: 'Province / City Case', width: 160 },
+  { key: 'province_city_case', label: 'Province / City', width: 180 },
   { key: 'language', label: 'Language', width: 78 },
   { key: 'url', label: 'Source URL', width: 220 },
   { key: 'article_date', label: 'Article Date', width: 110 },
@@ -85,6 +84,8 @@ const PHASE1_COLUMNS: { key: string; label: string; width: number; sticky?: bool
   { key: 'sentiment', label: 'Sentiment', width: 90 },
   { key: 'relevance_score', label: 'Relevance Score', width: 110 },
   { key: 'outbreak_alert', label: 'Outbreak Alert', width: 110 },
+  { key: 'needs_review', label: 'Review Status', width: 125 },
+  { key: 'action', label: 'Actions', width: 105 },
 ]
 
 function fmtNum(value?: number | null) {
@@ -226,6 +227,10 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
       )
     case 'country':
       return fmtTrunc(row.country, 'max-w-[130px]')
+    case 'source_country':
+      return fmtTrunc(row.source_country, 'max-w-[130px]')
+    case 'surveillance_scope':
+      return fmtTrunc(row.surveillance_scope || row.region, 'max-w-[110px]')
     case 'language':
       return fmtText(row.language)
     case 'region':
@@ -500,7 +505,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           />
           <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
             <option value="">{t('pages.crawlHistory.allCountries')}</option>
-            <option value="ASEAN">All 11 ASEAN jurisdictions</option>
+            <option value="ASEAN">ASEAN</option>
             {ASEAN11_DISPLAY.map((item) => (
               <option key={item.value} value={item.value}>{item.label}</option>
             ))}

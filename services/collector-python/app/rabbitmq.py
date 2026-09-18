@@ -18,12 +18,14 @@ def _get_channel():
         params = pika.URLParameters(config.RABBITMQ_URL)
         _connection = pika.BlockingConnection(params)
         _channel = _connection.channel()
+        _channel.confirm_delivery()
         _ensure_queue(_channel, config.RABBITMQ_QUEUE)
         _ensure_queue(_channel, config.RABBITMQ_SOCIAL_QUEUE)
         _ensure_queue(_channel, config.RABBITMQ_ANALYSIS_URL_QUEUE)
         _ensure_queue(_channel, config.RABBITMQ_CRAWL_MATRIX_QUEUE)
     elif _channel is None or _channel.is_closed:
         _channel = _connection.channel()
+        _channel.confirm_delivery()
         _ensure_queue(_channel, config.RABBITMQ_QUEUE)
         _ensure_queue(_channel, config.RABBITMQ_SOCIAL_QUEUE)
         _ensure_queue(_channel, config.RABBITMQ_ANALYSIS_URL_QUEUE)
@@ -48,12 +50,15 @@ def publish(message: dict):
                     if message.get("source_type") == "social_media"
                     else config.RABBITMQ_QUEUE
                 )
-                channel.basic_publish(
+                confirmed = channel.basic_publish(
                     exchange="",
                     routing_key=routing_queue,
                     body=json.dumps(message, default=str),
                     properties=pika.BasicProperties(delivery_mode=2),
+                    mandatory=True,
                 )
+                if confirmed is False:
+                    raise RuntimeError(f"RabbitMQ rejected publish to {routing_queue}")
                 return
             except Exception:
                 try:
@@ -77,12 +82,15 @@ def publish_to_queue(queue: str, message: dict) -> bool:
             try:
                 channel = _get_channel()
                 _ensure_queue(channel, queue)
-                channel.basic_publish(
+                confirmed = channel.basic_publish(
                     exchange="",
                     routing_key=queue,
                     body=json.dumps(message, default=str),
                     properties=pika.BasicProperties(delivery_mode=2, content_type="application/json"),
+                    mandatory=True,
                 )
+                if confirmed is False:
+                    raise RuntimeError(f"RabbitMQ rejected publish to {queue}")
                 return True
             except Exception:
                 try:

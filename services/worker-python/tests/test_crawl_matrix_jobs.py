@@ -12,6 +12,7 @@ from app.crawl_matrix_jobs import (
     build_news_query,
     disease_labels,
     extract_article,
+    LeaseLost,
     persist_dashboard_event_from_analysis,
     prepare_text_for_nlp,
     selected_concept,
@@ -82,19 +83,62 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         jobs._job_lock.release()
         self.assertIs(jobs._run_claimed_exclusive(None), False)
 
-    def test_amqp_wakeup_queues_job_id_without_running_nlp(self):
+    def test_amqp_wakeup_queues_claimed_job_without_running_nlp(self):
         import queue
         from app import crawl_matrix_jobs as jobs
-        while True:
-            try:
-                jobs._pending_job_ids.get_nowait()
-            except queue.Empty:
-                break
+        while not jobs._pending_jobs.empty():
+            jobs._pending_jobs.get_nowait()
         jobs._wake.clear()
-        jobs._pending_job_ids.put("11111111-1111-1111-1111-111111111111")
+        claimed = ("11111111-1111-1111-1111-111111111111", {"url": "https://example.org"}, "22222222-2222-2222-2222-222222222222")
+        jobs._pending_jobs.put(claimed)
         jobs._wake.set()
         self.assertTrue(jobs._wake.is_set())
-        self.assertEqual(jobs._pending_job_ids.get_nowait(), "11111111-1111-1111-1111-111111111111")
+        self.assertEqual(jobs._pending_jobs.get_nowait(), claimed)
+
+    def test_replaced_matrix_lease_blocks_further_writes(self):
+        from app import crawl_matrix_jobs as jobs
+
+        class EmptyCursor:
+            rowcount = 0
+
+            def fetchone(self):
+                return None
+
+        class FakeConn:
+            def execute(self, sql, params=None):
+                self.sql = sql
+                self.params = params
+                return EmptyCursor()
+
+        with self.assertRaises(LeaseLost):
+            jobs._renew_job_lease(
+                FakeConn(),
+                "11111111-1111-1111-1111-111111111111",
+                "22222222-2222-2222-2222-222222222222",
+            )
+
+    def test_matrix_row_identity_is_serialized_before_duplicate_check(self):
+        from app import crawl_matrix_jobs as jobs
+
+        calls = []
+
+        class Cursor:
+            def fetchone(self):
+                return {"id": "existing"}
+
+        class FakeConn:
+            def execute(self, sql, params=None):
+                calls.append((sql, params))
+                return Cursor()
+
+        self.assertTrue(
+            jobs._matrix_row_exists(
+                FakeConn(), "job", "raw", "Dengue", "Indonesia",
+                "Jakarta", "2026-09-18", "week 38",
+            )
+        )
+        self.assertIn("pg_advisory_xact_lock", calls[0][0])
+        self.assertIn("IS NOT DISTINCT FROM", calls[1][0])
 
     def test_pipeline_analysis_to_matrix_keeps_primary_country(self):
         from app.crawl_matrix_jobs import pipeline_analysis_to_matrix

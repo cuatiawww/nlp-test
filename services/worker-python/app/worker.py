@@ -11,7 +11,14 @@ import requests
 
 from .entity_relations import disease_relation_rows, location_relation_rows
 from .geo import st_makepoint_args
+from .document_identity import identity_lock_keys, identity_where_clause
 from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
+from .queue_reliability import (
+    declare_queue_topology,
+    publish_dlq,
+    publish_dlq_retry,
+    publish_retry,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("worker")
@@ -71,18 +78,125 @@ def document_identity_key(msg: dict) -> str:
     return f"crawler-raw:{raw_id}" if raw_id else ""
 
 
+def lock_document_identities(conn, msg: dict, transaction: bool = False) -> tuple[str, ...]:
+    """Lock every identity that final RAW persistence can claim."""
+    keys = identity_lock_keys(msg)
+    function = "pg_advisory_xact_lock" if transaction else "pg_advisory_lock"
+    for key in keys:
+        conn.execute(f"SELECT {function}(hashtext(%s))", (key,))
+    return keys
+
+
+def find_raw_identity(conn, msg: dict, exclude_id=None, for_update: bool = False):
+    clause, params = identity_where_clause(msg)
+    filters = ["rr.processing_status IS DISTINCT FROM 'DUPLICATE'", f"({clause})"]
+    if exclude_id:
+        filters.append("rr.id <> %s")
+        params.append(str(exclude_id))
+    lock = " FOR UPDATE" if for_update else ""
+    return conn.execute(
+        f"""SELECT rr.id, rr.processing_status
+             FROM raw_reports rr
+            WHERE {' AND '.join(filters)}
+            ORDER BY CASE UPPER(COALESCE(rr.processing_status, ''))
+                       WHEN 'PROCESSED' THEN 0
+                       WHEN 'NON_HEALTH' THEN 1
+                       WHEN 'PROCESSING' THEN 2
+                       WHEN 'NEW' THEN 3
+                       WHEN 'FAILED' THEN 4
+                       ELSE 5
+                     END,
+                     rr.created_at ASC, rr.id ASC
+            LIMIT 1{lock}""",
+        params,
+    ).fetchone()
+
+
+def insert_raw_report(conn, msg: dict, status: str):
+    """Insert one RAW row or return the row winning a concurrent identity race."""
+    row = conn.execute(
+        """INSERT INTO raw_reports
+           (source_type, source_name, published_at, original_text, url, object_path, processing_status,
+            normalized_url, canonical_url, url_hash, content_hash, final_url, author)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT DO NOTHING
+           RETURNING id""",
+        (
+            msg.get("source_type"), msg.get("source_name"), parse_date(msg.get("published_at")),
+            msg.get("text", ""), msg.get("url"), msg.get("object_path"), status,
+            msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
+            msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
+        ),
+    ).fetchone()
+    if row:
+        return row["id"]
+    existing = find_raw_identity(conn, msg, for_update=True)
+    if existing:
+        return existing["id"]
+    raise RuntimeError("RAW identity conflict did not resolve to a database row")
+
+
+def prepare_raw_for_persistence(conn, msg: dict):
+    """Resolve one durable RAW row before replacing its NLP event."""
+    supplied_id = msg.get("raw_report_id")
+    raw_id = supplied_id
+    if supplied_id:
+        existing = find_raw_identity(
+            conn,
+            {**msg, "raw_report_id": None},
+            exclude_id=supplied_id,
+            for_update=True,
+        )
+        if existing:
+            conn.execute(
+                """UPDATE raw_reports
+                   SET processing_status='DUPLICATE', duplicate_of_raw_report_id=%s,
+                       normalized_url=COALESCE(normalized_url,%s),
+                       canonical_url=COALESCE(canonical_url,%s),
+                       url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
+                       final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
+                 WHERE id=%s""",
+                (
+                    existing["id"], msg.get("normalized_url"), msg.get("canonical_url"),
+                    msg.get("url_hash"), msg.get("content_hash"), msg.get("final_url"),
+                    msg.get("author"), supplied_id,
+                ),
+            )
+            raw_id = existing["id"]
+    else:
+        existing = find_raw_identity(conn, msg, for_update=True)
+        raw_id = existing["id"] if existing else insert_raw_report(conn, msg, "PROCESSED")
+
+    conn.execute("DELETE FROM disease_events WHERE raw_report_id=%s", (raw_id,))
+    conn.execute(
+        """UPDATE raw_reports
+           SET source_type=%s, source_name=%s, published_at=COALESCE(%s, published_at),
+               original_text=%s, object_path=%s, processing_status='PROCESSED',
+               normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
+               url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
+               final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
+         WHERE id=%s""",
+        (
+            msg.get("source_type"), msg.get("source_name"), parse_date(msg.get("published_at")),
+            msg.get("text"), msg.get("object_path"), msg.get("normalized_url"),
+            msg.get("canonical_url"), msg.get("url_hash"), msg.get("content_hash"),
+            msg.get("final_url"), msg.get("author"), raw_id,
+        ),
+    )
+    return raw_id
+
+
 def find_completed_duplicate(conn, msg: dict):
     """Find an already analyzed report using layered, database-backed identity."""
-    content_hash = str(msg.get("content_hash") or "").strip() or None
-    canonical_url = str(msg.get("canonical_url") or "").strip() or None
-    url_digest = str(msg.get("url_hash") or "").strip() or None
-    normalized_url = str(msg.get("normalized_url") or "").strip() or None
-    url = str(msg.get("url") or "").strip() or None
-    raw_id = msg.get("raw_report_id")
-    if not any((content_hash, canonical_url, url_digest, normalized_url, url, raw_id)):
+    clause, params = identity_where_clause(msg)
+    raw_id = str(msg.get("raw_report_id") or "").strip()
+    if raw_id:
+        clause = f"({clause}) OR rr.id = %s"
+        params.append(raw_id)
+    if clause == "FALSE":
         return None
     return conn.execute(
-        """SELECT rr.id, de.id AS event_id
+        f"""SELECT rr.id, de.id AS event_id
            FROM raw_reports rr
            JOIN LATERAL (
                SELECT event.id
@@ -92,38 +206,18 @@ def find_completed_duplicate(conn, msg: dict):
                LIMIT 1
            ) de ON TRUE
            WHERE rr.processing_status IN ('PROCESSED', 'NON_HEALTH')
-             AND (
-                 (%s::uuid IS NOT NULL AND rr.id=%s::uuid)
-                 OR (%s::text IS NOT NULL AND rr.content_hash=%s)
-                 OR (%s::text IS NOT NULL AND rr.canonical_url=%s)
-                 OR (%s::text IS NOT NULL AND rr.url_hash=%s)
-                 OR (%s::text IS NOT NULL AND rr.normalized_url=%s)
-                 OR (%s::text IS NOT NULL AND rr.url=%s)
-             )
-           ORDER BY
-             CASE WHEN %s::text IS NOT NULL AND rr.content_hash=%s THEN 0
-                  WHEN %s::text IS NOT NULL AND rr.canonical_url=%s THEN 1
-                  ELSE 2 END,
-             rr.created_at DESC
-           LIMIT 1""",
-        (
-            raw_id, raw_id,
-            content_hash, content_hash,
-            canonical_url, canonical_url,
-            url_digest, url_digest,
-            normalized_url, normalized_url,
-            url, url,
-            content_hash, content_hash,
-            canonical_url, canonical_url,
-        ),
+              AND ({clause})
+            ORDER BY rr.created_at ASC, rr.id ASC
+            LIMIT 1""",
+         params,
     ).fetchone()
 
 
-def mark_duplicate_input(msg: dict, duplicate_raw_id) -> None:
+def mark_duplicate_input(msg: dict, duplicate_raw_id) -> bool:
     """Close an already-created RAW row while retaining its duplicate lineage."""
     raw_id = msg.get("raw_report_id")
     if not raw_id or str(raw_id) == str(duplicate_raw_id):
-        return
+        return True
     with get_db() as conn:
         conn.execute(
             """UPDATE raw_reports
@@ -143,6 +237,7 @@ def mark_duplicate_input(msg: dict, duplicate_raw_id) -> None:
             ),
         )
         conn.commit()
+    return True
 
 
 def persist_location_relations(conn, event_id, nlp: dict) -> None:
@@ -228,6 +323,29 @@ def mark_message_processing(msg: dict) -> None:
 
     with get_db() as conn:
         if raw_id:
+            existing = find_raw_identity(
+                conn,
+                {**msg, "raw_report_id": None},
+                exclude_id=raw_id,
+                for_update=True,
+            )
+            if existing:
+                conn.execute(
+                    """UPDATE raw_reports
+                       SET processing_status='DUPLICATE', duplicate_of_raw_report_id=%s,
+                           normalized_url=COALESCE(normalized_url,%s),
+                           canonical_url=COALESCE(canonical_url,%s),
+                           url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
+                           final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
+                     WHERE id=%s""",
+                    (
+                        existing["id"], msg.get("normalized_url"), msg.get("canonical_url"),
+                        msg.get("url_hash"), msg.get("content_hash"), msg.get("final_url"),
+                        msg.get("author"), raw_id,
+                    ),
+                )
+                conn.commit()
+                return
             conn.execute(
                 """UPDATE raw_reports SET processing_status='PROCESSING',
                      normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
@@ -240,27 +358,12 @@ def mark_message_processing(msg: dict) -> None:
                 ),
             )
         elif url:
-            existing = conn.execute(
-                """SELECT id FROM raw_reports
-                   WHERE (url=%s
-                          OR (%s::text IS NOT NULL AND normalized_url=%s)
-                          OR (%s::text IS NOT NULL AND canonical_url=%s)
-                          OR (%s::text IS NOT NULL AND url_hash=%s)
-                          OR (%s::text IS NOT NULL AND content_hash=%s))
-                   ORDER BY created_at DESC
-                   LIMIT 1
-                   FOR UPDATE""",
-                (
-                    url,
-                    msg.get("normalized_url"), msg.get("normalized_url"),
-                    msg.get("canonical_url"), msg.get("canonical_url"),
-                    msg.get("url_hash"), msg.get("url_hash"),
-                    msg.get("content_hash"), msg.get("content_hash"),
-                ),
-            ).fetchone()
+            existing = find_raw_identity(conn, msg, for_update=True)
             if existing:
                 conn.execute(
-                    """UPDATE raw_reports SET processing_status='PROCESSING',
+                    """UPDATE raw_reports SET processing_status=CASE
+                             WHEN processing_status IN ('PROCESSED','NON_HEALTH') THEN processing_status
+                             ELSE 'PROCESSING' END,
                          normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
                          url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
                          final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
@@ -271,11 +374,13 @@ def mark_message_processing(msg: dict) -> None:
                     ),
                 )
             else:
-                conn.execute(
+                inserted = conn.execute(
                     """INSERT INTO raw_reports
                        (source_type, source_name, published_at, original_text, url, object_path, processing_status,
                         normalized_url, canonical_url, url_hash, content_hash, final_url, author)
-                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSING', %s, %s, %s, %s, %s, %s)""",
+                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSING', %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT DO NOTHING
+                       RETURNING id""",
                     (
                         msg.get("source_type"),
                         msg.get("source_name"),
@@ -286,33 +391,96 @@ def mark_message_processing(msg: dict) -> None:
                         msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
                         msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
                     ),
-                )
+                ).fetchone()
+                if not inserted:
+                    existing = find_raw_identity(conn, msg, for_update=True)
+                    if existing:
+                        conn.execute(
+                            "UPDATE raw_reports SET processing_status='PROCESSING' WHERE id=%s",
+                            (existing["id"],),
+                        )
         conn.commit()
 
 
-def mark_message_failed(msg: dict) -> None:
+def mark_message_failed(msg: dict) -> bool:
     """Remove a permanently failed message from the in-flight NLP count."""
+    if not isinstance(msg, dict):
+        return False
     raw_id = msg.get("raw_report_id")
     url = msg.get("url")
     if not raw_id and not url:
-        return
+        return False
 
     try:
         with get_db() as conn:
             if raw_id:
-                conn.execute(
-                    "UPDATE raw_reports SET processing_status='FAILED' WHERE id=%s",
+                cursor = conn.execute(
+                    "UPDATE raw_reports SET processing_status='FAILED' "
+                    "WHERE id=%s AND processing_status IN ('NEW', 'PROCESSING', 'FAILED')",
                     (raw_id,),
                 )
+                if cursor.rowcount != 1:
+                    conn.rollback()
+                    return False
+                state = conn.execute(
+                    "SELECT processing_status FROM raw_reports WHERE id=%s",
+                    (raw_id,),
+                ).fetchone()
+                if not state or state["processing_status"] != "FAILED":
+                    conn.rollback()
+                    return False
             elif url:
-                conn.execute(
-                    """UPDATE raw_reports SET processing_status='FAILED'
-                       WHERE id=(SELECT id FROM raw_reports WHERE url=%s ORDER BY created_at DESC LIMIT 1)""",
-                    (url,),
+                existing = find_raw_identity(conn, msg, for_update=True)
+                if not existing:
+                    conn.rollback()
+                    return False
+                cursor = conn.execute(
+                    "UPDATE raw_reports SET processing_status='FAILED' "
+                    "WHERE id=%s AND processing_status IN ('NEW', 'PROCESSING', 'FAILED')",
+                    (existing["id"],),
                 )
+                if cursor.rowcount != 1:
+                    conn.rollback()
+                    return False
+                state = conn.execute(
+                    "SELECT processing_status FROM raw_reports WHERE id=%s",
+                    (existing["id"],),
+                ).fetchone()
+                if not state or state["processing_status"] != "FAILED":
+                    conn.rollback()
+                    return False
             conn.commit()
+        return True
     except Exception:
         logger.exception("Could not mark failed NLP message")
+        return False
+
+
+def is_valid_raw_message(msg: object) -> bool:
+    """Reject malformed queue payloads before they can be silently skipped."""
+    if not isinstance(msg, dict):
+        return False
+    if not isinstance(msg.get("source_type"), str) or not msg["source_type"].strip():
+        return False
+    if not isinstance(msg.get("text"), str):
+        return False
+    for field in (
+        "source_name", "published_at", "url", "object_path", "source_language",
+        "source_country", "normalized_url", "canonical_url", "final_url",
+        "url_hash", "content_hash", "author",
+    ):
+        if field in msg and msg[field] is not None and not isinstance(msg[field], str):
+            return False
+    raw_id = msg.get("raw_report_id")
+    if raw_id is not None:
+        if not isinstance(raw_id, str):
+            return False
+        try:
+            import uuid
+            uuid.UUID(raw_id)
+        except (ValueError, AttributeError):
+            return False
+    return True
 
 
 def parse_date(val: str) -> str | None:
@@ -383,50 +551,72 @@ def retry_delay_milliseconds(retry_count: int) -> int:
 
 def schedule_rabbit_retry(ch, method, properties, body, reason: str) -> bool:
     """Ack the delivery only after a durable delayed retry has been published."""
-    headers = dict(getattr(properties, "headers", None) or {})
-    retry_count = int(headers.get("x-retry-count", 0)) + 1
-    if retry_count > MAX_DELIVERY_RETRIES:
-        return False
     queue = str(getattr(method, "routing_key", "") or RABBITMQ_QUEUE)
-    retry_queue = f"{queue}.retry"
-    delay_ms = retry_delay_milliseconds(retry_count)
-    headers.update({
-        "x-retry-count": retry_count,
-        "x-last-error": reason.replace("\n", " ")[:180],
-    })
-    published = ch.basic_publish(
-        exchange="",
-        routing_key=retry_queue,
-        body=body,
-        properties=pika.BasicProperties(
-            delivery_mode=2,
-            content_type="application/json",
-            headers=headers,
-            expiration=str(delay_ms),
-        ),
-        mandatory=True,
-    )
-    if published is False:
+    try:
+        if not publish_retry(ch, queue, properties, body, reason):
+            return False
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+        logger.warning("Scheduled durable RabbitMQ retry: queue=%s error=%s", queue, reason[:180])
+        return True
+    except Exception:
+        logger.exception("Could not publish durable RabbitMQ retry: queue=%s", queue)
         return False
-    ch.basic_ack(delivery_tag=method.delivery_tag)
-    logger.warning(
-        "Scheduled durable RabbitMQ retry: queue=%s attempt=%d delay_ms=%d error=%s",
-        queue, retry_count, delay_ms, reason[:180],
-    )
-    return True
+
+
+def settle_failed_delivery(ch, method, properties, body: bytes, msg: dict | None) -> None:
+    """Persist failure and DLQ the delivery before settling it."""
+    source_queue = str(getattr(method, "routing_key", "") or RABBITMQ_QUEUE)
+    failed = msg is not None and mark_message_failed(msg)
+    try:
+        if publish_dlq(ch, source_queue, properties, body, reason="worker failure"):
+            if failed:
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+            else:
+                ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
+            return
+    except Exception:
+        logger.exception("Could not publish failed delivery to DLQ: queue=%s", source_queue)
+    try:
+        if publish_dlq_retry(ch, source_queue, properties, body, reason="DLQ unavailable"):
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+    except Exception:
+        logger.exception("Could not defer failed delivery for DLQ retry: queue=%s", source_queue)
+    raise RuntimeError(f"Could not durably settle failed delivery for {source_queue}; leaving it unacknowledged")
+
+
+def settle_malformed_delivery(ch, method, properties, body: bytes) -> None:
+    """Preserve malformed deliveries in a confirmed DLQ before rejecting them."""
+    source_queue = str(getattr(method, "routing_key", "") or RABBITMQ_QUEUE)
+    try:
+        if publish_dlq(ch, source_queue, properties, body, reason="malformed message"):
+            ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
+            return
+    except Exception:
+        logger.exception("Could not publish malformed delivery to DLQ: queue=%s", source_queue)
+    try:
+        if publish_dlq_retry(ch, source_queue, properties, body, reason="DLQ unavailable"):
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+    except Exception:
+        logger.exception("Could not defer malformed delivery for DLQ retry: queue=%s", source_queue)
+    raise RuntimeError(f"Could not route malformed delivery for {source_queue}; leaving it unacknowledged")
 
 
 def callback(ch, method, properties, body):
     identity_lock_conn = None
-    identity_lock_key = ""
+    identity_lock_keys_held: tuple[str, ...] = ()
     try:
         msg = json.loads(body)
-        published_at = msg.get("published_at", "")
-        source_type = msg.get("source_type", "")
-        if source_type == "skdr_api":
+        if isinstance(msg, dict) and msg.get("source_type", "") == "skdr_api":
             logger.info("SKDR processing is disabled. Dropping SKDR message %s", method.delivery_tag)
             ch.basic_ack(delivery_tag=method.delivery_tag)
             return
+        if not is_valid_raw_message(msg):
+            settle_malformed_delivery(ch, method, properties, body)
+            return
+        published_at = msg.get("published_at", "")
+        source_type = msg.get("source_type", "")
         if source_type != "social_media" and not is_allowed_processing_year(published_at):
             logger.info(
                 "Skipping non-current/undated message: published_at=%s current_year=%s",
@@ -441,18 +631,16 @@ def callback(ch, method, properties, body):
             len(msg.get("text", "")),
         )
 
-        identity_lock_key = document_identity_key(msg)
-        if identity_lock_key:
+        identity_lock_keys_held = identity_lock_keys(msg)
+        if identity_lock_keys_held:
             identity_lock_conn = get_db()
             identity_lock_conn.autocommit = True
-            identity_lock_conn.execute(
-                "SELECT pg_advisory_lock(hashtext(%s))", (identity_lock_key,)
-            )
+            lock_document_identities(identity_lock_conn, msg)
             duplicate = find_completed_duplicate(identity_lock_conn, msg)
             if duplicate:
                 logger.info(
-                    "Skipping duplicate before NLP: identity=%s duplicate_raw_id=%s",
-                    identity_lock_key, duplicate["id"],
+                    "Skipping duplicate before NLP: identities=%s duplicate_raw_id=%s",
+                    ",".join(identity_lock_keys_held), duplicate["id"],
                 )
                 mark_duplicate_input(msg, duplicate["id"])
                 ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -476,17 +664,7 @@ def callback(ch, method, properties, body):
             raw_id = msg.get("raw_report_id")
             if raw_id:
                 # Rust backend already inserted raw_reports — update status
-                conn.execute(
-                    """UPDATE raw_reports SET processing_status='PROCESSED',
-                         normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
-                         url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
-                         final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
-                       WHERE id=%s""",
-                    (
-                        msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
-                        msg.get("content_hash"), msg.get("final_url"), msg.get("author"), raw_id,
-                    ),
-                )
+                raw_id = prepare_raw_for_persistence(conn, msg)
             elif msg.get("url"):
                 # RSS and social feeds are replayed on every scheduled run.
                 # Reuse the latest report for the URL so repeated collection
@@ -494,28 +672,7 @@ def callback(ch, method, properties, body):
                 # raw_reports/disease_events. The transaction-scoped lock
                 # also protects against duplicate URL messages with multiple
                 # workers.
-                conn.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
-                    (msg.get("url"),),
-                )
-                existing = conn.execute(
-                    """SELECT id FROM raw_reports
-                       WHERE (url=%s
-                              OR (%s::text IS NOT NULL AND normalized_url=%s)
-                              OR (%s::text IS NOT NULL AND canonical_url=%s)
-                              OR (%s::text IS NOT NULL AND url_hash=%s)
-                              OR (%s::text IS NOT NULL AND content_hash=%s))
-                       ORDER BY created_at DESC
-                       LIMIT 1
-                       FOR UPDATE""",
-                    (
-                        msg.get("url"),
-                        msg.get("normalized_url"), msg.get("normalized_url"),
-                        msg.get("canonical_url"), msg.get("canonical_url"),
-                        msg.get("url_hash"), msg.get("url_hash"),
-                        msg.get("content_hash"), msg.get("content_hash"),
-                    ),
-                ).fetchone()
+                existing = find_raw_identity(conn, msg, for_update=True)
                 if existing:
                     raw_id = existing["id"]
                     conn.execute(
@@ -552,7 +709,7 @@ def callback(ch, method, properties, body):
                            (source_type, source_name, published_at, original_text, url, object_path, processing_status,
                             normalized_url, canonical_url, url_hash, content_hash, final_url, author)
                            VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSED', %s, %s, %s, %s, %s, %s)
-                           RETURNING id""",
+                           ON CONFLICT DO NOTHING RETURNING id""",
                         (
                             msg.get("source_type"),
                             msg.get("source_name"),
@@ -564,27 +721,17 @@ def callback(ch, method, properties, body):
                             msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
                         ),
                     )
-                    raw_id = cur.fetchone()["id"]
+                    inserted = cur.fetchone()
+                    if inserted:
+                        raw_id = inserted["id"]
+                    else:
+                        existing = find_raw_identity(conn, msg, for_update=True)
+                        if not existing:
+                            raise RuntimeError("RAW identity conflict did not resolve to a database row")
+                        raw_id = existing["id"]
             else:
                 # Collector message — insert raw_reports now
-                cur = conn.execute(
-                    """INSERT INTO raw_reports
-                       (source_type, source_name, published_at, original_text, url, object_path, processing_status,
-                        normalized_url, canonical_url, url_hash, content_hash, final_url, author)
-                       VALUES (%s, %s, %s, %s, %s, %s, 'PROCESSED', %s, %s, %s, %s, %s, %s)
-                       RETURNING id""",
-                    (
-                        msg.get("source_type"),
-                        msg.get("source_name"),
-                        parse_date(msg.get("published_at")),
-                        msg.get("text"),
-                        msg.get("url"),
-                        msg.get("object_path"),
-                        msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
-                        msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
-                    ),
-                )
-                raw_id = cur.fetchone()["id"]
+                raw_id = prepare_raw_for_persistence(conn, msg)
 
             if not nlp.get("is_health_related", True):
                 conn.execute(
@@ -801,14 +948,12 @@ def callback(ch, method, properties, body):
 
     except json.JSONDecodeError as e:
         logger.error("Invalid JSON message: %s", e)
-        ch.basic_ack(delivery_tag=method.delivery_tag)
+        settle_malformed_delivery(ch, method, properties, body)
     except requests.RequestException as e:
         logger.error("NLP service error: %s", e)
         if not schedule_rabbit_retry(ch, method, properties, body, str(e)):
             logger.error("NLP retry budget exhausted; marking message failed")
-            if "msg" in locals():
-                mark_message_failed(msg)
-            ch.basic_ack(delivery_tag=method.delivery_tag)
+            settle_failed_delivery(ch, method, properties, body, msg if "msg" in locals() else None)
     except psycopg.Error as e:
         diagnostic = getattr(e, "diag", None)
         table_name = getattr(diagnostic, "table_name", None) if diagnostic else None
@@ -820,21 +965,18 @@ def callback(ch, method, properties, body):
         )
         if not schedule_rabbit_retry(ch, method, properties, body, str(e)):
             logger.error("Database retry budget exhausted; marking message failed")
-            if "msg" in locals():
-                mark_message_failed(msg)
-            ch.basic_ack(delivery_tag=method.delivery_tag)
+            settle_failed_delivery(ch, method, properties, body, msg if "msg" in locals() else None)
     except Exception as e:
         logger.exception("Unexpected worker error: %s", e)
         if not schedule_rabbit_retry(ch, method, properties, body, str(e)):
-            if "msg" in locals():
-                mark_message_failed(msg)
-            ch.basic_ack(delivery_tag=method.delivery_tag)
+            settle_failed_delivery(ch, method, properties, body, msg if "msg" in locals() else None)
     finally:
         if identity_lock_conn is not None:
             try:
-                identity_lock_conn.execute(
-                    "SELECT pg_advisory_unlock(hashtext(%s))", (identity_lock_key,)
-                )
+                for key in reversed(identity_lock_keys_held):
+                    identity_lock_conn.execute(
+                        "SELECT pg_advisory_unlock(hashtext(%s))", (key,)
+                    )
             except Exception:
                 logger.exception("Could not release crawler identity lock")
             finally:
@@ -847,19 +989,9 @@ def main():
             params = pika.URLParameters(RABBITMQ_URL)
             conn = pika.BlockingConnection(params)
             channel = conn.channel()
-            channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
-            if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
-                channel.queue_declare(queue=RABBITMQ_SOCIAL_QUEUE, durable=True)
-            queues = list(dict.fromkeys((RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE)))
-            for queue in queues:
-                channel.queue_declare(
-                    queue=f"{queue}.retry",
-                    durable=True,
-                    arguments={
-                        "x-dead-letter-exchange": "",
-                        "x-dead-letter-routing-key": queue,
-                    },
-                )
+            channel.confirm_delivery()
+            queues = tuple(dict.fromkeys((RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE)))
+            declare_queue_topology(channel, queues)
             # SKDR queue disabled
             # if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
             #     channel.queue_declare(queue=RABBITMQ_SKDR_QUEUE, durable=True)

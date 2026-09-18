@@ -662,17 +662,32 @@ class WebScraperCollector(BaseCollector):
                 if not url:
                     continue
                 result.records_found += 1
-                if url in published_urls or db.is_url_already_processed(url):
+                try:
+                    normalized_candidate = normalize_url(url)
+                except ValueError:
+                    normalized_candidate = url
+                if normalized_candidate in published_urls or db.is_url_already_processed(normalized_candidate):
                     logger.info("Skipping already processed web URL: %s", url)
                     continue
                 try:
                     url = await asyncio.to_thread(validate_public_url, url)
+                    normalized_candidate = normalize_url(url)
                     from .pdf_document import try_pdf
                     pdf = await asyncio.to_thread(try_pdf, url) if urlparse(url).path.lower().endswith(".pdf") else None
                     if pdf is not None:
                         from .. import rabbitmq
                         if not pdf["content"].strip():
                             raise ValueError("Table-only PDF retained; structured table review required")
+                        pdf_identity = {
+                            "canonical_url": normalize_url(pdf.get("url") or url),
+                            "final_url": normalize_url(pdf.get("url") or url),
+                        }
+                        if (
+                            db.is_url_already_processed(pdf_identity["canonical_url"])
+                            or db.is_url_already_processed(pdf_identity["final_url"])
+                        ):
+                            logger.info("Skipping already processed PDF URL: %s", url)
+                            continue
                         await asyncio.to_thread(rabbitmq.publish, {
                             **pdf, "text": pdf["content"], "source_type": "web",
                             "source_name": self.source.get("name", ""),
@@ -685,7 +700,7 @@ class WebScraperCollector(BaseCollector):
                             "final_url": normalize_url(pdf.get("url") or url),
                             "author": "",
                         })
-                        published_urls.add(url)
+                        published_urls.add(normalized_candidate)
                         result.records_ingested += 1
                         continue
                     outcome, stealth_session = await self._fetch(
@@ -697,6 +712,12 @@ class WebScraperCollector(BaseCollector):
                     published_at = _extract_published_at(outcome.html, url=url, text=body_text)
                     text = f"{title}\n\n{body_text}" if title else body_text
                     identity = _identity_payload(url, outcome, body_text)
+                    if (
+                        db.is_url_already_processed(identity.get("canonical_url", ""))
+                        or db.is_url_already_processed(identity.get("final_url", ""))
+                    ):
+                        logger.info("Skipping already processed canonical URL: %s", url)
+                        continue
                     obj_path = f"web/{self.source['id']}/{identity['url_hash']}.html"
                     from .. import rabbitmq
                     from ..minio_client import upload_file
@@ -719,7 +740,7 @@ class WebScraperCollector(BaseCollector):
                         "source_country": self.config.get("country") or _country_hint_from_url(url),
                         **identity,
                     })
-                    published_urls.add(url)
+                    published_urls.add(normalized_candidate)
                     result.records_ingested += 1
                     logger.info("Scraped %s mode=%s status=%d", url, outcome.mode, outcome.status)
                 except Exception as exc:

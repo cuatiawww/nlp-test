@@ -28,6 +28,18 @@ const SURVEILLANCE_MIN_CONFIDENCE: &str = "0.15";
 const ASEAN11_IN: &str = "'Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Timor-Leste','Vietnam'";
 const DEFAULT_PAGE_SIZE: i64 = 25;
 
+fn scope_sql(country_expr: &str) -> String {
+    format!(
+        "CASE WHEN {country} IN ({members}) THEN 'ASEAN' WHEN NULLIF(BTRIM({country}), '') IS NOT NULL THEN 'Outside ASEAN' ELSE NULL END",
+        country = asean11_fold_sql(country_expr),
+        members = ASEAN11_IN,
+    )
+}
+
+fn source_country_sql() -> &'static str {
+    "NULLIF(BTRIM(COALESCE(rr.source_country, '')), '')"
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct CrawlHistoryQuery {
     pub page: Option<i64>,
@@ -272,10 +284,12 @@ fn display_or_value(row: &Value, display_key: &str, fallback_key: &str) -> Value
     }
 }
 
-fn export_headers() -> [&'static str; 29] {
+fn export_headers() -> [&'static str; 31] {
     [
         "No",
-        "Country",
+        "Source Country",
+        "Surveillance Scope",
+        "Case Country",
         "Language",
         "Source URL",
         "Article Title",
@@ -309,6 +323,8 @@ fn export_headers() -> [&'static str; 29] {
 fn row_export_values(row: &Value, no: i64) -> Vec<Value> {
     vec![
         json!(no),
+        row["source_country"].clone(),
+        row["surveillance_scope"].clone(),
         row["country"].clone(),
         row["language"].clone(),
         row["url"].clone(),
@@ -669,6 +685,7 @@ pub fn collapse_article_facts(facts: &[ArticleFact]) -> CollapsedArticleDisplay 
 
 fn matrix_select_sql(evidence_chars: i32) -> String {
     let matrix_country = asean11_fold_sql("m.country");
+    let matrix_scope = scope_sql("m.country");
     let matrix_known = known_disease_sql("m.disease_name");
     let matrix_quality = matrix_quality_sql();
     format!(
@@ -682,9 +699,15 @@ fn matrix_select_sql(evidence_chars: i32) -> String {
             COALESCE(NULLIF(m.article_title, ''), NULLIF(LEFT(rr.original_text, {title}), ''), m.source_url) AS title,
             COALESCE(m.source_url, rr.url) AS url,
             de.language,
+            NULLIF(BTRIM(COALESCE(m.source_country, rr.source_country, '')), '') AS source_country,
             {matrix_country} AS country,
-            NULLIF(m.region, '') AS region,
-            COALESCE(NULLIF(m.province_city_case, ''), NULLIF(CONCAT_WS(' / ', NULLIF(m.province, ''), NULLIF(m.city, '')), '')) AS province_city_case,
+            {matrix_scope} AS region,
+            CASE
+                WHEN NULLIF(BTRIM(m.province_city_case), '') IS NULL THEN NULL
+                WHEN LOWER(BTRIM(m.province_city_case)) = LOWER(BTRIM(COALESCE(m.country, ''))) THEN NULL
+                WHEN LOWER(BTRIM(m.province_city_case)) IN ('asean', 'asean11', 'asean + timor-leste', 'asean + timor leste', 'outside asean', 'global') THEN NULL
+                ELSE NULLIF(BTRIM(m.province_city_case), '')
+            END AS province_city_case,
             NULLIF(m.province, '') AS province,
             NULLIF(m.city, '') AS city,
             m.disease_name AS disease,
@@ -734,6 +757,7 @@ fn matrix_select_sql(evidence_chars: i32) -> String {
         evidence = evidence_chars,
         snippet = SNIPPET_CHARS,
         matrix_country = matrix_country,
+        matrix_scope = matrix_scope,
         matrix_known = matrix_known,
         matrix_quality = matrix_quality,
         article_key = matrix_article_key_sql(),
@@ -742,6 +766,7 @@ fn matrix_select_sql(evidence_chars: i32) -> String {
 
 fn event_select_sql(evidence_chars: i32) -> String {
     let event_country = event_country_select();
+    let event_scope = scope_sql(&event_country);
     let event_known = known_disease_sql("de.disease_classification");
     let pipeline_quality = pipeline_quality_sql();
     format!(
@@ -760,9 +785,10 @@ fn event_select_sql(evidence_chars: i32) -> String {
             COALESCE(NULLIF(LEFT(rr.original_text, {title}), ''), COALESCE(rr.url, de.source_url), de.location_name) AS title,
             COALESCE(rr.url, de.source_url) AS url,
             de.language,
+            {source_country} AS source_country,
             {event_country} AS country,
-            COALESCE({region}, {event_country}) AS region,
-            COALESCE(NULLIF(CONCAT_WS(' / ', {province}, {city}), ''), {region}) AS province_city_case,
+            {event_scope} AS region,
+            NULLIF(CONCAT_WS(' / ', {province}, {city}), '') AS province_city_case,
             {province} AS province,
             {city} AS city,
             NULLIF(de.disease_classification, '') AS disease,
@@ -811,12 +837,13 @@ fn event_select_sql(evidence_chars: i32) -> String {
         evidence = evidence_chars,
         snippet = SNIPPET_CHARS,
         event_country = event_country,
+        event_scope = event_scope,
+        source_country = source_country_sql(),
         event_known = event_known,
         pipeline_quality = pipeline_quality,
         article_key = event_article_key_sql(),
         province = place_or_null_sql("de.province"),
         city = place_or_null_sql("de.city"),
-        region = place_or_null_sql("de.location_name"),
         from = event_from_sql(),
     )
 }
@@ -846,11 +873,11 @@ fn collapse_article_sql(inner: &str) -> String {
         ),
         by_place AS (
             SELECT article_key,
-                   COALESCE(NULLIF(BTRIM(province), ''), NULLIF(BTRIM(city), ''), NULLIF(BTRIM(region), '')) AS label,
+                   COALESCE(NULLIF(BTRIM(province), ''), NULLIF(BTRIM(city), '')) AS label,
                    SUM(COALESCE(cases, 0)) AS cases,
                    SUM(COALESCE(deaths, 0)) AS deaths
             FROM base
-            WHERE COALESCE(NULLIF(BTRIM(province), ''), NULLIF(BTRIM(city), ''), NULLIF(BTRIM(region), '')) IS NOT NULL
+            WHERE COALESCE(NULLIF(BTRIM(province), ''), NULLIF(BTRIM(city), '')) IS NOT NULL
             GROUP BY 1, 2
         ),
         country_txt AS (
@@ -902,6 +929,13 @@ fn collapse_article_sql(inner: &str) -> String {
             ) r
             GROUP BY article_key
         ),
+        source_txt AS (
+            SELECT article_key,
+                   string_agg(DISTINCT source_country, '; ' ORDER BY source_country) AS labels
+            FROM base
+            WHERE source_country IS NOT NULL AND BTRIM(source_country) <> ''
+            GROUP BY article_key
+        ),
         grouped AS (
             SELECT
                 b.article_key,
@@ -913,6 +947,7 @@ fn collapse_article_sql(inner: &str) -> String {
                 (ARRAY_AGG(b.title ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS title,
                 (ARRAY_AGG(b.url ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS url,
                 (ARRAY_AGG(b.language ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS language,
+                (ARRAY_AGG(b.source_country ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS source_country,
                 (ARRAY_AGG(b.icd11_code ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS icd11_code,
                 (ARRAY_AGG(b.crawling_date ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS crawling_date,
                 (ARRAY_AGG(b.article_date ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS article_date,
@@ -960,6 +995,7 @@ fn collapse_article_sql(inner: &str) -> String {
             g.title,
             g.url,
             g.language,
+            st.labels AS source_country,
             ct.labels AS country,
             rt.labels AS region,
             COALESCE(pt.labels, g.province) AS province_city_case,
@@ -1011,6 +1047,7 @@ fn collapse_article_sql(inner: &str) -> String {
             g.location_count
         FROM grouped g
         LEFT JOIN country_txt ct ON ct.article_key = g.article_key
+        LEFT JOIN source_txt st ON st.article_key = g.article_key
         LEFT JOIN place_txt pt ON pt.article_key = g.article_key
         LEFT JOIN disease_txt dt ON dt.article_key = g.article_key
         LEFT JOIN region_txt rt ON rt.article_key = g.article_key
@@ -1121,8 +1158,11 @@ fn map_ledger_row(row: &tokio_postgres::Row) -> Value {
         "article_title": title,
         "url": map_opt_string(row, "url"),
         "language": map_opt_string(row, "language"),
+        "source_country": map_opt_string(row, "source_country"),
         "country": map_opt_string(row, "country"),
+        "case_country": map_opt_string(row, "country"),
         "region": map_opt_string(row, "region"),
+        "surveillance_scope": map_opt_string(row, "region"),
         "province_city_case": map_opt_string(row, "province_city_case"),
         "province": map_opt_string(row, "province"),
         "city": map_opt_string(row, "city"),
