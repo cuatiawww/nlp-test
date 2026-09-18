@@ -23,6 +23,7 @@ DECLARE
     survivor_id UUID;
     duplicate_count BIGINT;
     group_count BIGINT;
+    identity_value_text TEXT;
     columns TEXT[] := ARRAY[
         'url', 'normalized_url', 'canonical_url', 'final_url', 'url_hash', 'content_hash'
     ];
@@ -53,9 +54,10 @@ BEGIN
                 AND processing_status IS DISTINCT FROM ''DUPLICATE''
               GROUP BY %1$I HAVING COUNT(*) > 1', identity_column
         ) LOOP
+            identity_value_text := duplicate_group.identity_value::text;
             EXECUTE format(
                 'SELECT id FROM raw_reports
-                WHERE %1$I::text = $1::text
+                WHERE %1$I::text = %2$L::text
                     AND processing_status IS DISTINCT FROM ''DUPLICATE''
                   ORDER BY CASE UPPER(COALESCE(processing_status, ''''))
                              WHEN ''PROCESSED'' THEN 0
@@ -66,17 +68,18 @@ BEGIN
                              ELSE 5
                            END,
                            created_at ASC, id ASC
-                  LIMIT 1', identity_column
-            ) INTO survivor_id USING duplicate_group.identity_value::text;
+                  LIMIT 1', identity_column, identity_value_text
+            ) INTO survivor_id;
 
             EXECUTE format(
                 'UPDATE raw_reports
                     SET processing_status = ''DUPLICATE'',
-                        duplicate_of_raw_report_id = $1
-                  WHERE %1$I::text = $2::text
-                    AND id <> $1
-                    AND processing_status IS DISTINCT FROM ''DUPLICATE''', identity_column
-            ) USING survivor_id, duplicate_group.identity_value::text;
+                        duplicate_of_raw_report_id = %2$L::uuid
+                  WHERE %1$I::text = %3$L::text
+                    AND id <> %2$L::uuid
+                    AND processing_status IS DISTINCT FROM ''DUPLICATE''',
+                identity_column, survivor_id, identity_value_text
+            );
         END LOOP;
     END LOOP;
 END $$;
