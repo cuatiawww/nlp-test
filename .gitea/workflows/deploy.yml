@@ -75,8 +75,8 @@ jobs:
 
       - name: Healthcheck collector sebelum backend
         run: |
-          echo "Menunggu collector sehat (timeout: 120 detik)..."
-          for i in $(seq 1 60); do
+          echo "Menunggu collector sehat (timeout: 900 detik)..."
+          for i in $(seq 1 450); do
             if docker compose -f docker-compose.yml -f docker-compose-prod.override.yml exec -T disease-collector-python \
               python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=5)" >/dev/null 2>&1; then
               echo "✅ Collector sehat (percobaan ke-$i)"
