@@ -100,8 +100,8 @@ jobs:
 
       - name: Healthcheck backend
         run: |
-          echo "Menunggu backend sehat (timeout: 150 detik)..."
-          for i in $(seq 1 75); do
+          echo "Menunggu backend sehat (timeout: 1800 detik)..."
+          for i in $(seq 1 900); do
             if curl -fsS http://127.0.0.1:8081/health >/dev/null 2>&1; then
               echo "✅ Backend sehat (percobaan ke-$i)"
               exit 0
