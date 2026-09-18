@@ -53,15 +53,22 @@ _RE_LOCATION_CASES_PARENS_EN = re.compile(
     re.UNICODE,
 )
 
-# Pattern family 3: "N kasus di Lokasi" / "N cases in Location"
+# Pattern family 3: "N kasus [penyakit] di Lokasi" / "N cases [disease] in Location"
 _RE_CASES_DI_LOCATION_ID = re.compile(
-    r"(\d[\d.,]*)\s+kasus\s+di\s+"
+    r"(\d[\d.,]*)\s+kasus(?:\s+[a-zA-Z\u00C0-\u024F]+){0,3}\s+di\s+"
     r"([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+(?:\s+[A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+)*)",
     re.UNICODE,
 )
 
 _RE_CASES_IN_LOCATION_EN = re.compile(
-    r"(\d[\d.,]*)\s+cases?\s+in\s+"
+    r"(\d[\d.,]*)\s+cases?(?:\s+[a-zA-Z\u00C0-\u024F]+){0,3}\s+in\s+"
+    r"([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+(?:\s+[A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+)*)",
+    re.UNICODE,
+)
+
+# Pattern family 3b: List continuation ", N [kasus] di Lokasi" / "and N [cases] in Location"
+_RE_CASES_LIST_CONT = re.compile(
+    r"(?:,|dan|and)\s+(\d[\d.,]*)\s+(?:kasus\s+|cases?\s+)?(?:di|in)\s+"
     r"([A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+(?:\s+[A-Z\u00C0-\u024F][a-zA-Z\u00C0-\u024F\-'.]+)*)",
     re.UNICODE,
 )
@@ -123,8 +130,12 @@ def _parse_count_value(raw: str) -> int:
 def _clean_location_name(raw: str) -> str:
     """Strip trailing & leading conjunctions and whitespace from a captured location name."""
     name = raw.strip()
+    if ":" in name:
+        name = name.rsplit(":", 1)[-1].strip()
+    if ";" in name:
+        name = name.rsplit(";", 1)[-1].strip()
     name = re.sub(
-        r"^(?:sementara(?:\s+itu)?|sedangkan|adapun|dan|and|meanwhile|while|serta|in|di|pada|dari|from|at)\s+",
+        r"^(?:sementara(?:\s+itu)?|sedangkan|adapun|dan|and|meanwhile|while|serta|in|di|pada|dari|from|at|wilayah|provinsi|daerah)\s+",
         "", name, flags=re.IGNORECASE,
     )
     name = re.sub(
@@ -138,13 +149,17 @@ def _validate_location(name: str) -> Optional[str]:
     """Validate against the loaded gazetteer; return canonical name or None."""
     if not name:
         return None
-    from .extractors import _fold_location_text, COUNTRY_ALIASES
+    from .extractors import _fold_location_text, COUNTRY_ALIASES, resolve_location_hierarchy
+    hier = resolve_location_hierarchy(name)
+    if hier.get("canonical_name") and (hier.get("country") or hier.get("latitude") is not None):
+        return hier["canonical_name"]
     folded = _fold_location_text(name)
     all_aliases = {
         "singapura": "Singapore",
         "kamboja": "Cambodia",
         "filipina": "Philippines",
         **COUNTRY_ALIASES,
+        **getattr(config, "LOCATION_ALIASES", {}),
     }
     # Check country aliases first
     for alias, standard in all_aliases.items():
@@ -154,6 +169,18 @@ def _validate_location(name: str) -> Optional[str]:
     for gaz_name in config.LOCATION_COORDS:
         if _fold_location_text(gaz_name) == folded:
             return gaz_name
+    # Check suffix sub-phrase if multi-word prefix (e.g. "wilayah Jakarta" -> "Jakarta")
+    words = name.split()
+    if len(words) > 1:
+        for i in range(1, len(words)):
+            sub_name = " ".join(words[i:])
+            sub_folded = _fold_location_text(sub_name)
+            for alias, standard in all_aliases.items():
+                if _fold_location_text(alias) == sub_folded:
+                    return standard
+            for gaz_name in config.LOCATION_COORDS:
+                if _fold_location_text(gaz_name) == sub_folded:
+                    return gaz_name
     # Partial match for longer names
     for gaz_name in config.LOCATION_COORDS:
         gf = _fold_location_text(gaz_name)
@@ -164,24 +191,12 @@ def _validate_location(name: str) -> Optional[str]:
 
 def _resolve_country(location: str) -> Optional[str]:
     """Resolve a location name to its country."""
-    from .extractors import COUNTRY_ALIASES, _fold_location_text
-    folded = _fold_location_text(location)
-    all_aliases = {
-        "singapura": "Singapore",
-        "kamboja": "Cambodia",
-        "filipina": "Philippines",
-        **COUNTRY_ALIASES,
-    }
-    for alias, standard in all_aliases.items():
-        if _fold_location_text(alias) == folded:
-            return standard
-    if location in config.ASEAN_COUNTRIES:
-        return location
-    if location in config.LOCATION_COUNTRIES:
-        return config.LOCATION_COUNTRIES[location]
-    for loc_name, c in config.LOCATION_COUNTRIES.items():
-        if _fold_location_text(loc_name) == folded:
-            return c
+    if not location:
+        return None
+    from .extractors import resolve_location_hierarchy
+    hier = resolve_location_hierarchy(location)
+    if hier.get("country"):
+        return hier["country"]
     return None
 
 
@@ -212,7 +227,7 @@ def _regex_extract_location_cases(text: str) -> list[dict[str, Any]]:
             elif count > pairs[key]["cases"]:
                 pairs[key]["cases"] = count
 
-    for pattern in [_RE_CASES_DI_LOCATION_ID, _RE_CASES_IN_LOCATION_EN]:
+    for pattern in [_RE_CASES_DI_LOCATION_ID, _RE_CASES_IN_LOCATION_EN, _RE_CASES_LIST_CONT]:
         for match in pattern.finditer(text):
             count = _parse_count_value(match.group(1))
             raw_loc = _clean_location_name(match.group(2))
@@ -665,8 +680,14 @@ def _event_for_disease(
     from . import extractors as ext
 
     loc = location or ""
-    country = _resolve_country(loc) if loc else None
-    lat, lon = _resolve_coords(loc) if loc else (None, None)
+    hier = ext.resolve_location_hierarchy(loc) if loc else {}
+    country = hier.get("country") or (_resolve_country(loc) if loc else None)
+    admin1 = hier.get("admin1_name")
+    admin2 = hier.get("admin2_name")
+    iso3 = hier.get("country_iso3")
+    lat = hier.get("latitude") or (_resolve_coords(loc)[0] if loc else None)
+    lon = hier.get("longitude") or (_resolve_coords(loc)[1] if loc else None)
+    canonical_loc = hier.get("canonical_name") or loc
     per_cases = ext.extract_case_count(text, disease=disease)
     per_deaths = ext.extract_death_count(text, disease=disease)
     if ext.article_states_zero_cases(text):
@@ -679,8 +700,11 @@ def _event_for_disease(
         per_cases = 0
     return {
         "disease": disease,
-        "location_name": loc,
+        "location_name": canonical_loc,
         "country": country,
+        "admin1": admin1,
+        "admin2": admin2,
+        "country_iso3": iso3,
         "latitude": lat,
         "longitude": lon,
         "case_count": per_cases,
@@ -733,7 +757,57 @@ def compose_structured_events(
         )
         present.add(disease.casefold())
     events = _deduplicate_events(events)
-    return events if len(events) >= MULTI_EVENT_MIN_PAIRS else []
+    from . import extractors as ext
+    for evt in events:
+        loc = evt.get("location_name")
+        hier = ext.resolve_location_hierarchy(loc, country_hint=evt.get("country")) if loc else {}
+        if hier.get("canonical_name"):
+            evt["location_name"] = hier["canonical_name"]
+        evt["admin1"] = evt.get("admin1") or hier.get("admin1_name")
+        evt["admin2"] = evt.get("admin2") or hier.get("admin2_name")
+        evt["country_iso3"] = evt.get("country_iso3") or hier.get("country_iso3")
+        if not evt.get("country") and hier.get("country"):
+            evt["country"] = hier.get("country")
+        if not evt.get("latitude") and hier.get("latitude"):
+            evt["latitude"] = hier.get("latitude")
+            evt["longitude"] = hier.get("longitude")
+        evt.setdefault("metric_type", "cases")
+        evt.setdefault("unit", "persons")
+        evt.setdefault("event_date_start", None)
+        evt.setdefault("event_date_end", None)
+        evt.setdefault("epistemic_status", "reported")
+        evt.setdefault("confidence", 0.90)
+
+    if len(events) >= MULTI_EVENT_MIN_PAIRS:
+        return events
+
+    # Canonical single-event fallback: emit exactly 1 structured event
+    # representing the primary disease and location fact
+    if primary_disease and primary_disease.upper() not in {"UNKNOWN", "NEGATIVE - NOT HEALTH RELATED"}:
+        hier = ext.resolve_location_hierarchy(primary_location, country_hint=None) if primary_location else {}
+        lat = hier.get("latitude") or (_resolve_coords(primary_location or "")[0] if primary_location else None)
+        lon = hier.get("longitude") or (_resolve_coords(primary_location or "")[1] if primary_location else None)
+        country = hier.get("country") or (_resolve_country(primary_location or "") if primary_location else None)
+        return [{
+            "disease": primary_disease,
+            "location_name": hier.get("canonical_name") or primary_location or "",
+            "country": country,
+            "admin1": hier.get("admin1_name"),
+            "admin2": hier.get("admin2_name"),
+            "country_iso3": hier.get("country_iso3"),
+            "latitude": lat,
+            "longitude": lon,
+            "case_count": max(0, case_count),
+            "death_count": max(0, death_count),
+            "metric_type": "cases",
+            "unit": "persons",
+            "evidence": "",
+            "event_date_start": None,
+            "event_date_end": None,
+            "epistemic_status": "reported",
+            "confidence": 0.90,
+        }]
+    return []
 
 
 def _deduplicate_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

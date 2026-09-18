@@ -221,8 +221,9 @@ class TestExtractMultiEvents(unittest.TestCase):
 
     @patch("app.multi_event_extractor.MULTI_EVENT_LLM_FALLBACK", True)
     @patch("app.multi_event_extractor.config.AGENT_ENABLED", True)
+    @patch("app.multi_event_extractor._regex_extract_location_cases", return_value=[])
     @patch("app.multi_event_extractor._llm_extract_events", return_value=[])
-    def test_multi_event_signal_keeps_llm_fallback_available(self, llm_extract):
+    def test_multi_event_signal_keeps_llm_fallback_available(self, llm_extract, regex_mock):
         from app.multi_event_extractor import extract_multi_events
 
         extract_multi_events(

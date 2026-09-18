@@ -146,6 +146,68 @@ LOCATION_COUNTRIES: dict[str, str] = {
     "Tuy Duc": "Vietnam",
     "Sangatta": "Indonesia",
 }
+LOCATION_ADMIN1: dict[str, str] = {}
+LOCATION_ADMIN2: dict[str, str] = {}
+LOCATION_ISO3: dict[str, str] = {}
+LOCATION_ADMIN_LEVEL: dict[str, int] = {}
+COUNTRY_TO_ISO3: dict[str, str] = {
+    "indonesia": "IDN",
+    "philippines": "PHL",
+    "vietnam": "VNM",
+    "thailand": "THA",
+    "malaysia": "MYS",
+    "myanmar": "MMR",
+    "cambodia": "KHM",
+    "laos": "LAO",
+    "singapore": "SGP",
+    "brunei": "BRN",
+    "timor-leste": "TLS",
+}
+LOCATION_ALIASES: dict[str, str] = {
+    "tp.hcm": "Ho Chi Minh City",
+    "tp hcm": "Ho Chi Minh City",
+    "tphcm": "Ho Chi Minh City",
+    "hồ chí minh": "Ho Chi Minh City",
+    "ho chi minh": "Ho Chi Minh City",
+    "thành phố hồ chí minh": "Ho Chi Minh City",
+    "thanh pho ho chi minh": "Ho Chi Minh City",
+    "jabar": "Jawa Barat",
+    "jateng": "Jawa Tengah",
+    "jatim": "Jawa Timur",
+    "dki": "DKI Jakarta",
+    "jogja": "DI Yogyakarta",
+    "jogjakarta": "DI Yogyakarta",
+    "yogyakarta": "DI Yogyakarta",
+    "sumut": "Sumatera Utara",
+    "sumbar": "Sumatera Barat",
+    "sumsel": "Sumatera Selatan",
+    "sulsel": "Sulawesi Selatan",
+    "sulut": "Sulawesi Utara",
+    "kalbar": "Kalimantan Barat",
+    "kaltim": "Kalimantan Timur",
+    "ntb": "Nusa Tenggara Barat",
+    "ntt": "Nusa Tenggara Timur",
+    "kepri": "Kepulauan Riau",
+    "babel": "Kepulauan Bangka Belitung",
+    "singapura": "Singapore",
+    "filipina": "Philippines",
+    "pilipinas": "Philippines",
+    "kamboja": "Cambodia",
+    "viet nam": "Vietnam",
+    "việt nam": "Vietnam",
+    "muang thai": "Thailand",
+    "krung thep": "Bangkok",
+    "krung thep maha nakhon": "Bangkok",
+    "hà nội": "Hanoi",
+    "ha noi": "Hanoi",
+    "đà nẵng": "Da Nang",
+    "da nang": "Da Nang",
+    "saigon": "Ho Chi Minh City",
+    "sài gòn": "Ho Chi Minh City",
+    "burma": "Myanmar",
+    "rangoon": "Yangon",
+    "nay pyi taw": "Naypyidaw",
+}
 LOCATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
 LOCATION_STOPWORDS = {
     # Indonesian time/grammatical words that collide with foreign/rare gazetteer entries
@@ -311,13 +373,30 @@ def build_location_patterns():
 
 def load_locations_from_db():
     global LOCATION_COORDS, LOCATION_COUNTRIES, LOCATION_PATTERNS
+    global LOCATION_ADMIN1, LOCATION_ADMIN2, LOCATION_ISO3, LOCATION_ADMIN_LEVEL, LOCATION_ALIASES
     try:
         import psycopg
         from psycopg.rows import dict_row
         conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
         rows = conn.execute(
-            "SELECT name, latitude, longitude, country FROM locations WHERE is_active = TRUE"
+            """SELECT name, latitude, longitude, country, country_iso3,
+                      admin1_name, admin2_name, admin_level
+               FROM locations
+               WHERE is_active = TRUE"""
         ).fetchall()
+
+        alias_rows = []
+        try:
+            alias_rows = conn.execute(
+                """SELECT a.alias_name, l.name as canonical_name
+                   FROM location_aliases a
+                   JOIN locations l ON a.location_id = l.id
+                   WHERE l.is_active = TRUE"""
+            ).fetchall()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Could not load location_aliases: %s", e)
+
         conn.close()
         usable_rows = [
             r for r in rows
@@ -325,32 +404,60 @@ def load_locations_from_db():
         ]
         LOCATION_COORDS.update({r["name"]: (r["latitude"], r["longitude"]) for r in usable_rows})
         LOCATION_COUNTRIES.update({r["name"]: r["country"] for r in usable_rows if r.get("country")})
+        for r in usable_rows:
+            name = r["name"]
+            if r.get("admin1_name"):
+                LOCATION_ADMIN1[name] = r["admin1_name"]
+            if r.get("admin2_name"):
+                LOCATION_ADMIN2[name] = r["admin2_name"]
+            if r.get("country_iso3"):
+                LOCATION_ISO3[name] = r["country_iso3"]
+            if r.get("admin_level") is not None:
+                LOCATION_ADMIN_LEVEL[name] = r["admin_level"]
+
+        for ar in alias_rows:
+            alias = ar["alias_name"].strip().casefold()
+            canon = ar["canonical_name"]
+            if alias and canon:
+                LOCATION_ALIASES[alias] = canon
+
         # Curated additions for verified surveillance localities
         if "Tuy Đức" not in LOCATION_COORDS and "Tuy Duc" not in LOCATION_COORDS:
             LOCATION_COORDS["Tuy Đức"] = (12.18, 107.50)
             LOCATION_COORDS["Tuy Duc"] = (12.18, 107.50)
             LOCATION_COUNTRIES["Tuy Đức"] = "Vietnam"
             LOCATION_COUNTRIES["Tuy Duc"] = "Vietnam"
+            LOCATION_ISO3["Tuy Đức"] = "VNM"
+            LOCATION_ISO3["Tuy Duc"] = "VNM"
         if "Sangatta" not in LOCATION_COORDS:
             LOCATION_COORDS["Sangatta"] = (0.49, 117.55)
             LOCATION_COUNTRIES["Sangatta"] = "Indonesia"
+            LOCATION_ISO3["Sangatta"] = "IDN"
         # Prioritize major territories/states over minor duplicate names
         LOCATION_COORDS["Penang"] = (5.4141, 100.3288)
         LOCATION_COUNTRIES["Penang"] = "Malaysia"
+        LOCATION_ISO3["Penang"] = "MYS"
         LOCATION_COORDS["Pulau Pinang"] = (5.4141, 100.3288)
         LOCATION_COUNTRIES["Pulau Pinang"] = "Malaysia"
+        LOCATION_ISO3["Pulau Pinang"] = "MYS"
         LOCATION_COORDS["Gunungkidul"] = (-7.97, 110.60)
         LOCATION_COUNTRIES["Gunungkidul"] = "Indonesia"
+        LOCATION_ISO3["Gunungkidul"] = "IDN"
         LOCATION_COORDS["Gunung Kidul"] = (-7.97, 110.60)
         LOCATION_COUNTRIES["Gunung Kidul"] = "Indonesia"
+        LOCATION_ISO3["Gunung Kidul"] = "IDN"
 
+        all_names_to_match = set(LOCATION_COORDS.keys()) | {
+            alias for alias, canon in LOCATION_ALIASES.items() if canon in LOCATION_COORDS
+        }
         alternatives = sorted(
             (
                 "".join(
                     char for char in unicodedata.normalize("NFKD", name.lower())
                     if not unicodedata.combining(char)
                 )
-                for name in LOCATION_COORDS
+                for name in all_names_to_match
+                if name.casefold() not in LOCATION_STOPWORDS
             ),
             key=len,
             reverse=True,
@@ -365,7 +472,7 @@ def load_locations_from_db():
             LOCATION_PATTERNS = []
         import logging
         logging.getLogger(__name__).info(
-            "Loaded %d locations from DB", len(LOCATION_COORDS),
+            "Loaded %d locations, %d aliases from DB", len(LOCATION_COORDS), len(LOCATION_ALIASES),
         )
     except Exception as e:
         import logging

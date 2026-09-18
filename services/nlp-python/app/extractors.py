@@ -453,12 +453,101 @@ def coords_in_country_bbox(lat: Optional[float], lon: Optional[float], country: 
     return south <= float(lat) <= north and west <= float(lon) <= east
 
 
-def split_admin_place(location: Optional[str], country: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-    """Return (province, city). Country-level events leave both empty."""
+def resolve_location_hierarchy(
+    location_name: Optional[str],
+    country_hint: Optional[str] = None,
+) -> dict[str, Any]:
+    """Resolve a location name into its canonical administrative hierarchy:
+    locality -> admin2 (city/regency) -> admin1 (province/state) -> country (iso3).
+    """
+    if not location_name or not str(location_name).strip():
+        norm_c = normalize_country(country_hint) if country_hint else None
+        iso3 = config.COUNTRY_TO_ISO3.get((norm_c or "").lower()) if norm_c else None
+        return {
+            "canonical_name": "",
+            "country": norm_c,
+            "country_iso3": iso3,
+            "admin1_name": None,
+            "admin2_name": None,
+            "admin_level": 3,
+            "latitude": None,
+            "longitude": None,
+        }
+
+    raw = str(location_name).strip()
+    folded = _fold_location_text(raw)
+    aliases = {**LOCATION_ALIASES, **getattr(config, "LOCATION_ALIASES", {})}
+
+    canonical = None
+    # 1. Alias lookup
+    if folded in aliases:
+        canonical = aliases[folded]
+    elif raw.casefold() in aliases:
+        canonical = aliases[raw.casefold()]
+    elif raw.casefold() in COUNTRY_ALIASES:
+        canonical = COUNTRY_ALIASES[raw.casefold()]
+    elif raw in config.LOCATION_COORDS:
+        canonical = raw
+    else:
+        # Match folded against LOCATION_COORDS
+        for c_name in config.LOCATION_COORDS:
+            if _fold_location_text(c_name) == folded:
+                canonical = c_name
+                break
+
+    if not canonical:
+        canonical = raw
+
+    # 2. Country resolution
+    country = config.LOCATION_COUNTRIES.get(canonical)
+    if not country:
+        if canonical.casefold() in config.COUNTRY_TO_ISO3:
+            country = normalize_country(canonical)
+        elif country_hint:
+            country = normalize_country(country_hint)
+
+    # 3. Country ISO3
+    country_iso3 = config.LOCATION_ISO3.get(canonical)
+    if not country_iso3 and country:
+        country_iso3 = config.COUNTRY_TO_ISO3.get(country.casefold())
+
+    # 4. Admin level, admin1, admin2
+    admin_level = config.LOCATION_ADMIN_LEVEL.get(canonical, 3)
+    admin1_name = config.LOCATION_ADMIN1.get(canonical)
+    admin2_name = config.LOCATION_ADMIN2.get(canonical)
+
+    if country and canonical.casefold() == country.casefold():
+        admin_level = 0
+        admin1_name = None
+        admin2_name = None
+    elif admin_level == 1 or (admin1_name and canonical.casefold() == admin1_name.casefold()):
+        admin_level = 1
+        admin1_name = canonical
+        admin2_name = None
+
+    lat, lon = config.LOCATION_COORDS.get(canonical, (None, None))
+    if lat is None and lon is None and (country or country_hint):
+        c_target = country or country_hint
+        lat, lon, _, _ = geocode_place(canonical, c_target)
+
+    return {
+        "canonical_name": canonical,
+        "country": country,
+        "country_iso3": country_iso3,
+        "admin1_name": admin1_name,
+        "admin2_name": admin2_name,
+        "admin_level": admin_level,
+        "latitude": lat,
+        "longitude": lon,
+    }
+
+
+def split_admin_place(location: Optional[str], country: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    """Return (province, city) using hierarchical location intelligence."""
     name = (location or "").strip()
-    mapped = normalize_country(country)
     if not name:
         return None, None
+    mapped = normalize_country(country)
     if mapped and name.casefold() == mapped.casefold():
         return None, None
     if name in config.ASEAN_COUNTRIES:
@@ -468,6 +557,13 @@ def split_admin_place(location: Optional[str], country: Optional[str]) -> tuple[
         return None, None
     if not is_usable_place_name(name):
         return None, None
+
+    hier = resolve_location_hierarchy(name, country_hint=country)
+    if hier["admin_level"] == 0:
+        return None, None
+    if hier.get("admin1_name") or hier.get("admin2_name"):
+        return hier.get("admin1_name"), hier.get("admin2_name")
+
     folded = name.casefold()
     if any(token in folded for token in _PROVINCE_HINTS):
         return name, None
@@ -601,7 +697,7 @@ def extract_all_mentioned_countries(text: str) -> list[str]:
     return sorted(valid, key=lambda c: country_scores[c], reverse=True)
 
 
-def resolve_location_hierarchy(
+def validate_location_context(
     name: str,
     text: str,
     source_country: Optional[str] = None,
@@ -818,10 +914,13 @@ def extract_location(
     # Resolve curated publisher abbreviations before matching the generic
     # gazetteer regex. The canonical target still has to exist in the loaded
     # location table and match the country restriction.
-    for alias, canonical in LOCATION_ALIASES.items():
+    for alias, canonical in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
         if canonical not in allowed_names:
             continue
-        for match in re.finditer(re.escape(alias), compact_text, re.IGNORECASE):
+        is_short_code = len(alias) <= 2
+        flags = 0 if is_short_code else re.IGNORECASE
+        pattern_str = rf"\b{re.escape(alias.upper() if is_short_code else alias)}\b"
+        for match in re.finditer(pattern_str, compact_text, flags):
             if not is_usable_place_name(canonical, compact_text, match.start()):
                 continue
             hits.append((canonical, match.start()))
@@ -944,10 +1043,13 @@ def extract_all_locations(
     if (country or allowed_countries) and not allowed_names:
         return []
 
-    for alias, canonical in LOCATION_ALIASES.items():
+    for alias, canonical in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
         if canonical not in allowed_names:
             continue
-        for match in re.finditer(re.escape(alias), compact_text, re.IGNORECASE):
+        is_short_code = len(alias) <= 2
+        flags = 0 if is_short_code else re.IGNORECASE
+        pattern_str = rf"\b{re.escape(alias.upper() if is_short_code else alias)}\b"
+        for match in re.finditer(pattern_str, compact_text, flags):
             if not is_usable_place_name(canonical, compact_text, match.start()):
                 continue
             hits.append((canonical, match.start()))
@@ -1001,11 +1103,16 @@ def extract_all_locations(
     for name in distinct_names:
         c = config.LOCATION_COUNTRIES.get(name, country)
         lat, lon, conf, needs_review = geocode_place(name, c)
+        hier = resolve_location_hierarchy(name, country_hint=c)
         results.append({
             "name": name,
             "latitude": lat,
             "longitude": lon,
             "country": c,
+            "admin1": hier.get("admin1_name"),
+            "admin2": hier.get("admin2_name"),
+            "country_iso3": hier.get("country_iso3"),
+            "admin_level": hier.get("admin_level"),
             "geocode_confidence": conf,
             "geocode_needs_review": needs_review,
         })
@@ -1376,11 +1483,11 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         if is_usable_place_name(str(item.get("name") or ""), text)
     ]
 
-    # Validate with resolve_location_hierarchy to eliminate leakage
+    # Validate with validate_location_context to eliminate leakage
     validated_locations = []
     for item in all_locations:
         loc_name = str(item.get("name") or "")
-        res = resolve_location_hierarchy(
+        res = validate_location_context(
             loc_name, text, source_country=source_country, mentioned_countries=mentioned_asean
         )
         if res["is_valid"]:

@@ -32,6 +32,10 @@ class LocationItem(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     country: Optional[str] = None
+    country_iso3: Optional[str] = None
+    admin1: Optional[str] = None
+    admin2: Optional[str] = None
+    admin_level: Optional[int] = None
     geocode_confidence: Optional[float] = None
     geocode_needs_review: bool = False
 
@@ -53,11 +57,20 @@ class SubEvent(BaseModel):
     disease_icd11_code: Optional[str] = None
     location_name: str
     country: Optional[str] = None
+    admin1: Optional[str] = None
+    admin2: Optional[str] = None
+    country_iso3: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     case_count: int = 0
     death_count: int = 0
+    metric_type: str = "cases"
+    unit: str = "persons"
     evidence: str = ""
+    event_date_start: Optional[str] = None
+    event_date_end: Optional[str] = None
+    epistemic_status: str = "reported"
+    confidence: float = 0.90
 
 
 class AnalyzeResponse(BaseModel):
@@ -71,6 +84,9 @@ class AnalyzeResponse(BaseModel):
     latitude: Optional[float]
     longitude: Optional[float]
     country: Optional[str] = None
+    country_iso3: Optional[str] = None
+    admin1_name: Optional[str] = None
+    admin2_name: Optional[str] = None
     # Publisher/source metadata is deliberately separate from the country
     # where the epidemiological event occurred.
     source_country: Optional[str] = None

@@ -26,7 +26,7 @@ use std::{
     env,
     net::SocketAddr,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::{Duration as StdDuration, Instant},
 };
 use sha2::{Digest, Sha256};
 use tokio_postgres::{Config, NoTls};
@@ -1278,7 +1278,7 @@ async fn raw_report_outbox_once(
 }
 
 async fn raw_report_outbox_loop(pool: Pool, channel: lapin::Channel) {
-    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    let mut interval = tokio::time::interval(StdDuration::from_secs(5));
     loop {
         interval.tick().await;
         if let Err(error) = raw_report_outbox_once(&pool, &channel).await {
@@ -2297,7 +2297,7 @@ async fn map_layer_json(
     fut: impl std::future::Future<Output = Value>,
     timeout_body: Value,
 ) -> Json<Value> {
-    let data = match tokio::time::timeout(Duration::from_secs(14), fut).await {
+    let data = match tokio::time::timeout(StdDuration::from_secs(14), fut).await {
         Ok(value) => value,
         Err(_) => timeout_body,
     };
@@ -2426,7 +2426,7 @@ async fn pipeline_health(
     let nlp = match state
         .http
         .get(&nlp_url)
-        .timeout(Duration::from_secs(3))
+        .timeout(StdDuration::from_secs(3))
         .send()
         .await
     {
@@ -2967,7 +2967,7 @@ async fn collector_post_retry(
 ) -> Result<reqwest::Response, String> {
     let mut last_error = String::from("collector is unavailable");
     for attempt in 0..attempts.max(1) {
-        let mut request = client.post(&url).timeout(Duration::from_secs(8));
+        let mut request = client.post(&url).timeout(StdDuration::from_secs(8));
         if let Some(value) = body {
             request = request.json(value);
         }
@@ -2976,7 +2976,7 @@ async fn collector_post_retry(
             Err(error) => {
                 last_error = error.to_string();
                 if attempt + 1 < attempts.max(1) {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    tokio::time::sleep(StdDuration::from_secs(2)).await;
                 }
             }
         }
@@ -2991,12 +2991,12 @@ async fn collector_get_retry(
 ) -> Result<reqwest::Response, String> {
     let mut last_error = String::from("collector is unavailable");
     for attempt in 0..attempts.max(1) {
-        match client.get(&url).timeout(Duration::from_secs(8)).send().await {
+        match client.get(&url).timeout(StdDuration::from_secs(8)).send().await {
             Ok(response) => return Ok(response),
             Err(error) => {
                 last_error = error.to_string();
                 if attempt + 1 < attempts.max(1) {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tokio::time::sleep(StdDuration::from_secs(1)).await;
                 }
             }
         }
@@ -6330,7 +6330,7 @@ async fn public_dashboard(
     if let Ok(mut guard) = PUBLIC_DASH_CACHE.lock() {
         *guard = Some(PublicDashCache {
             key: cache_key,
-            expires_at: Instant::now() + Duration::from_secs(15),
+            expires_at: Instant::now() + StdDuration::from_secs(15),
             payload: payload.clone(),
         });
     }
@@ -8450,7 +8450,7 @@ async fn reload_nlp_runtime(state: &Arc<AppState>) {
     if let Err(error) = state
         .http
         .post(url)
-        .timeout(Duration::from_secs(3))
+        .timeout(StdDuration::from_secs(3))
         .send()
         .await
     {

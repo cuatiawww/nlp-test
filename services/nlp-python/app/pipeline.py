@@ -1,6 +1,6 @@
 ﻿import logging
 import re
-from typing import Optional
+from typing import Optional, Any
 
 from . import config, extractors
 from .llm_gate import should_escalate_to_llm
@@ -27,6 +27,9 @@ def _build_article_summary(
     country: Optional[str],
     case_count: int,
     death_count: int,
+    source_country: Optional[str] = None,
+    surveillance_scope: Optional[str] = None,
+    **kwargs: Any,
 ) -> str:
     """Build a short evidence-preserving summary for the URL analysis view.
 
@@ -731,11 +734,20 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 disease=evt.get("disease", disease),
                 location_name=evt.get("location_name", ""),
                 country=evt.get("country"),
+                admin1=evt.get("admin1"),
+                admin2=evt.get("admin2"),
+                country_iso3=evt.get("country_iso3"),
                 latitude=evt.get("latitude"),
                 longitude=evt.get("longitude"),
                 case_count=evt.get("case_count", 0),
                 death_count=evt.get("death_count", 0),
+                metric_type=evt.get("metric_type", "cases"),
+                unit=evt.get("unit", "persons"),
                 evidence=evt.get("evidence", ""),
+                event_date_start=evt.get("event_date_start"),
+                event_date_end=evt.get("event_date_end"),
+                epistemic_status=evt.get("epistemic_status", "reported"),
+                confidence=evt.get("confidence", 0.90),
             )
             for evt in multi_events
         ]
@@ -903,6 +915,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             "disease": evt.disease,
             "location_name": evt.location_name,
             "country": evt.country,
+            "province": evt.admin1 or extractors.split_admin_place(evt.location_name, evt.country)[0],
+            "city": evt.admin2 or extractors.split_admin_place(evt.location_name, evt.country)[1],
             "case_count": evt.case_count,
             "death_count": evt.death_count,
         }
@@ -919,6 +933,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         }
     ]
     collapsed = collapse_facts(display_facts)
+
+    loc_hier = extractors.resolve_location_hierarchy(location, country_hint=country)
+    admin_place = extractors.split_admin_place(location, country)
+    final_province = loc_hier.get("admin1_name") or admin_place[0]
+    final_city = loc_hier.get("admin2_name") or admin_place[1]
+    final_iso3 = loc_hier.get("country_iso3")
 
     return AnalyzeResponse(
         language=language,
@@ -944,8 +964,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         hospitalizations=typed_counts["hospitalizations"],
         evidence=evidence,
         case_count_unknown=not explicit_case_count,
-        province=(admin_place := extractors.split_admin_place(location, country))[0],
-        city=admin_place[1],
+        country_iso3=final_iso3,
+        admin1_name=loc_hier.get("admin1_name"),
+        admin2_name=loc_hier.get("admin2_name"),
+        province=final_province,
+        city=final_city,
         geocode_confidence=geocode_confidence,
         geocode_needs_review=geocode_needs_review,
         confidence=confidence,

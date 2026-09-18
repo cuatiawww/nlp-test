@@ -34,10 +34,14 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
         sub_lat = sub_evt.get("latitude")
         sub_lon = sub_evt.get("longitude")
         sub_evidence = sub_evt.get("evidence") or ""
+        sub_admin1 = sub_evt.get("admin1") or result.get("admin1_name") or result.get("province")
+        sub_admin2 = sub_evt.get("admin2") or result.get("admin2_name") or result.get("city")
+        sub_iso3 = sub_evt.get("country_iso3") or result.get("country_iso3")
         conn.execute(
             """INSERT INTO disease_events
                (raw_report_id, source_type, source_name, published_at,
                 original_text, language, location_name, province, city, geom,
+                admin1_name, admin2_name, country_iso3,
                 symptoms, disease_extracted, disease_mentions,
                 disease_classification, case_count, death_count,
                 confidence, outbreak_alert, sentiment, event_type,
@@ -51,6 +55,7 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
                     CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                          ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                     END,
+                    %s, %s, %s,
                     %s::jsonb, %s::jsonb, %s::jsonb,
                     %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s,
@@ -65,9 +70,12 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
                 sub_evidence or result.get("content") or "",
                 result.get("language") or "id",
                 sub_location,
-                result.get("province"),
-                result.get("city"),
+                sub_admin1,
+                sub_admin2,
                 *st_makepoint_args(sub_lat, sub_lon),
+                sub_admin1,
+                sub_admin2,
+                sub_iso3,
                 json.dumps(result.get("symptoms") or []),
                 json.dumps([sub_disease] if sub_disease else []),
                 json.dumps(result.get("disease_mentions") or []),
@@ -111,6 +119,7 @@ def load_sibling_facts(conn, raw_report_id) -> list[dict[str, Any]]:
     rows = conn.execute(
         """SELECT disease_classification AS disease,
                   location_name, province, city,
+                  admin1_name, admin2_name, country_iso3,
                   case_count, death_count, parent_event_id,
                   ST_Y(geom) AS latitude, ST_X(geom) AS longitude
            FROM disease_events
@@ -128,8 +137,11 @@ def load_sibling_facts(conn, raw_report_id) -> list[dict[str, Any]]:
         facts.append({
             "disease": row.get("disease"),
             "location_name": row.get("location_name"),
-            "province": row.get("province"),
-            "city": row.get("city"),
+            "province": row.get("province") or row.get("admin1_name"),
+            "city": row.get("city") or row.get("admin2_name"),
+            "admin1_name": row.get("admin1_name"),
+            "admin2_name": row.get("admin2_name"),
+            "country_iso3": row.get("country_iso3"),
             "case_count": row.get("case_count"),
             "death_count": row.get("death_count"),
             "latitude": row.get("latitude"),
