@@ -377,7 +377,7 @@ def ensure_raw_report(conn, article: dict):
 
     identity_clause, identity_params = identity_where_clause(article)
     row = conn.execute(
-        f"""SELECT id FROM raw_reports
+        f"""SELECT rr.id FROM raw_reports rr
             WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
               AND ({identity_clause})
             ORDER BY CASE UPPER(COALESCE(processing_status, ''))
@@ -418,7 +418,7 @@ def ensure_raw_report(conn, article: dict):
     if not row:
         identity_clause, identity_params = identity_where_clause(article)
         row = conn.execute(
-            f"""SELECT id FROM raw_reports
+            f"""SELECT rr.id FROM raw_reports rr
                 WHERE processing_status IS DISTINCT FROM 'DUPLICATE'
                   AND ({identity_clause})
                 ORDER BY created_at ASC, id ASC

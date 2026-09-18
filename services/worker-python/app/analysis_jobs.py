@@ -505,7 +505,7 @@ def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_ca
             extracted.get("published_at"), extracted.get("content", ""), requested_url,
             extracted.get("object_path"), extracted.get("normalized_url"), extracted.get("canonical_url"),
             extracted.get("url_hash"), extracted.get("content_hash"), extracted.get("final_url"),
-            extracted.get("author"),
+            extracted.get("author"), extracted.get("source_country"),
         ),
     ).fetchone()
     if not raw:
