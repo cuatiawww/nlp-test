@@ -29,6 +29,7 @@ def as_interactive(payload: "AnalyzeRequest") -> "AnalyzeRequest":
 
 class LocationItem(BaseModel):
     name: str
+    original_name: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     country: Optional[str] = None
@@ -38,6 +39,9 @@ class LocationItem(BaseModel):
     admin_level: Optional[int] = None
     geocode_confidence: Optional[float] = None
     geocode_needs_review: bool = False
+    evidence: str = ""
+    evidence_offset_start: Optional[int] = None
+    evidence_offset_end: Optional[int] = None
 
 
 class DiseaseMention(BaseModel):
@@ -66,6 +70,8 @@ class SubEvent(BaseModel):
     death_count: int = 0
     metric_type: str = "cases"
     unit: str = "persons"
+    metric_value_min: Optional[float] = None
+    metric_value_max: Optional[float] = None
     evidence: str = ""
     evidence_offset_start: Optional[int] = None
     evidence_offset_end: Optional[int] = None
@@ -84,10 +90,21 @@ class SubEvent(BaseModel):
     provenance: dict[str, Any] = Field(default_factory=dict)
     validation_flags: list[str] = Field(default_factory=list)
     confidence: float = 0.90
+    source_language: Optional[str] = None
+    source_script: Optional[str] = None
+    source_sentence_id: Optional[str] = None
+    source_evidence: str = ""
+    evidence_is_translated: bool = False
+    evidence_offset_space: str = "original"
 
 
 class AnalyzeResponse(BaseModel):
     language: str
+    language_confidence: float = 0.0
+    language_detection_method: str = "unknown"
+    script: str = "Latin"
+    original_text: str = ""
+    evidence_offset_space: str = "original"
     normalized_text: str
     summary: str = ""
     published_at: Optional[str] = None
@@ -107,6 +124,7 @@ class AnalyzeResponse(BaseModel):
     translated: bool = False
     translation_provider: str = "none"
     translated_text: str = ""
+    translation_alignment: str = "sentence_id_only"
     original_location_name: Optional[str] = None
     symptoms: list[str]
     disease_extracted: list[str]

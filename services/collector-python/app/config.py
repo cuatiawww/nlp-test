@@ -38,6 +38,11 @@ SKDR_FETCH_TIME = os.getenv("SKDR_FETCH_TIME", "00:00")
 # Shared crawler safety and reliability policy. These defaults remain modest
 # so scheduled collection cannot become an uncontrolled crawler.
 CRAWLER_TLS_VERIFY = os.getenv("CRAWLER_TLS_VERIFY", "true").lower() in ("true", "1", "yes", "on")
+CRAWLER_INSECURE_TLS_HOSTS = frozenset(
+    host.strip().lower()
+    for host in os.getenv("CRAWLER_INSECURE_TLS_HOSTS", "").split(",")
+    if host.strip()
+)
 CRAWLER_MAX_HTML_MB = max(1, int(os.getenv("CRAWLER_MAX_HTML_MB", "10")))
 CRAWLER_MAX_REDIRECTS = max(0, int(os.getenv("CRAWLER_MAX_REDIRECTS", "5")))
 CRAWLER_MAX_RETRIES = max(0, min(5, int(os.getenv("CRAWLER_MAX_RETRIES", "2"))))

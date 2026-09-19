@@ -20,8 +20,8 @@ _extract_semaphore = None
 class ExtractUrlRequest(BaseModel):
     url: str
     fetch_mode: str = "auto"
-    timeout_ms: int = 15_000
-    max_retries: int = 0
+    timeout_ms: int = config.INTERACTIVE_HTML_TIMEOUT_SECONDS * 1000
+    max_retries: int = 1
 
 
 class DiscoverUrlsRequest(BaseModel):
@@ -113,7 +113,9 @@ async def extract_url(payload: ExtractUrlRequest):
         async with _get_extract_semaphore():
             # Generous timeout buffer for large documents and multi-page surveillance PDFs
             wait_buffer = 20.0 if is_pdf_target else 5.0
-            data = await asyncio.wait_for(collector.extract_url(url), timeout=(timeout_ms / 1000.0) + wait_buffer)
+            retry_count = max(0, min(payload.max_retries, config.CRAWLER_MAX_RETRIES if is_pdf_target else html_retries))
+            attempt_budget = (timeout_ms / 1000.0) * (retry_count + 1) + wait_buffer
+            data = await asyncio.wait_for(collector.extract_url(url), timeout=attempt_budget)
         if not data.get("content") and not data.get("title"):
             raise HTTPException(
                 status_code=404,

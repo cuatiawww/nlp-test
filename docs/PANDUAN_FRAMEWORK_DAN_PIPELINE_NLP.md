@@ -66,7 +66,7 @@ Prinsip utama:
 | Queue | lapin (Rust), pika (Python) | Publish/consume RabbitMQ |
 | NLP API | FastAPI 0.115.6, Pydantic 2.10 | Endpoint analisis |
 | NLP model | Transformers 4.47, PyTorch 2.5 | XLM-RoBERTa, IndoBERT, fine-tuned |
-| Translation | NLLB-200 lokal, DeepSeek fallback | Bahasa non-Latin ke English |
+| Translation | NLLB-200 lokal opsional | Translation view; bukan sumber evidence |
 | Scraping | Scrapling, Trafilatura, BeautifulSoup, lxml | Fetch dan main-content extraction |
 | Feed | feedparser | Membaca RSS |
 | Storage | MinIO | Raw document dan asset |
@@ -208,9 +208,9 @@ Teks/main content
 - English, Indonesia, dan Malay biasanya dianalisis langsung.
 - Thai, Lao, Khmer, Myanmar, dan bahasa non-Latin dideteksi dari script atau
   langdetect.
-- NLLB-200 lokal menerjemahkan bagian pembuka secara cepat di CPU.
-- DeepSeek menjadi fallback bila model lokal tidak tersedia dan API key ada.
-- Hasil translasi disimpan di translation_cache.
+- XLM-RoBERTa memahami teks asli untuk klasifikasi dan konteks multilingual.
+- NLLB-200 dapat diaktifkan sebagai translation view opsional bila diperlukan.
+- Hasil translasi, bila ada, disimpan di translation_cache dan tidak menggantikan evidence asli.
 - Angka kasus, kematian, dan lokasi dibandingkan dengan teks asli.
 
 ### Rule-based extraction
@@ -350,7 +350,7 @@ Credential nyata tidak boleh masuk repository. Gunakan .env lokal/server.
 | WHO_ICD_CLIENT_ID/SECRET | OAuth WHO ICD-11 |
 | WHO_DISCOVERY_ENABLED | Discovery term baru |
 | WHO_TERM_RESOLUTION_ENABLED | Resolusi WHO/local |
-| TRANSLATION_LOCAL_ENABLED | NLLB lokal |
+| TRANSLATION_LOCAL_ENABLED | Mengaktifkan translation view NLLB secara opsional |
 | LOW_CONFIDENCE_THRESHOLD | Batas needs_review |
 | NEXT_PUBLIC_API_BASE_URL | Base URL API frontend |
 | BACKEND_INTERNAL_URL | Rewrite API Next.js |

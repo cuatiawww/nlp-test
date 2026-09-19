@@ -215,14 +215,24 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
     from trafilatura import extract, extract_metadata
 
     soup_probe = BeautifulSoup(html, "lxml")
-    for node in soup_probe.select("script, style, noscript, svg, template, nav, footer, header, aside, .advertisement, .ads, .social-share, .related, .recommended, .social, .share, .tags, .author"):
+    media_noise_selectors = (
+        "script, style, noscript, svg, template, nav, footer, header, aside, "
+        ".advertisement, .ads, .social-share, .related, .recommended, .social, .share, .tags, .author, "
+        "[class*='baca-juga'], [class*='bacajuga'], [class*='read-also'], [class*='read__also'], "
+        "[class*='related'], [class*='terkait'], [class*='berita-pilihan'], [class*='pilihan-editor'], "
+        "[class*='paging'], [class*='paging__item'], [class*='list-berita'], [class*='latest__list'], "
+        "[class*='box-baca-juga'], [class*='article-tag'], .baca-juga, .read-also, .berita-terkait"
+    )
+    for node in soup_probe.select(media_noise_selectors):
         node.decompose()
 
     primary_article_node = soup_probe.select_one(
         "article.news-content, .news-content, .article__body, .cms-body, .article-body, .detail__content, .detail-content, .entry-content, .post-content, .article-content, #article-content, article"
     )
     if primary_article_node and len(primary_article_node.get_text(" ", strip=True)) >= 120:
-        content = primary_article_node.get_text(" ", strip=True)
+        for rel_node in primary_article_node.select(media_noise_selectors):
+            rel_node.decompose()
+        content = primary_article_node.get_text("\n", strip=True)
     else:
         content = extract(
             html,
@@ -257,10 +267,7 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
     elif tag_title and len(tag_title) > len(title) and not title.endswith("..."):
         title = tag_title
 
-    for node in soup.select(
-        "script, style, noscript, svg, template, nav, footer, header, aside, "
-        ".advertisement, .ads, .social-share, .related, .recommended"
-    ):
+    for node in soup.select(media_noise_selectors):
         node.decompose()
     if title_selector:
         sel_node = soup.select_one(title_selector)
@@ -288,7 +295,19 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
     if not content or len(content) < 50:
         for node in soup.select("nav, footer, header, aside, script, style, noscript, svg"):
             node.decompose()
-        content = soup.get_text(" ", strip=True)
+        content = soup.get_text("\n", strip=True)
+
+    if content:
+        content = re.sub(
+            r"(?im)^\s*(?:baca\s+juga|baca\s+artikel\s+terkait|simak\s+juga|tonton\s+juga|lihat\s+juga)\s*:?.*$",
+            "",
+            content,
+        )
+        content_parts = re.split(
+            r"(?im)^\s*(?:berita\s+pilihan|pilihan\s+editor|artikel\s+terkait|topik\s+terkait)\b",
+            content,
+        )
+        content = content_parts[0].strip() if content_parts else content
 
     content = " ".join((content or "").split())
     lower_title = (title or "").lower()
@@ -439,6 +458,18 @@ def _extract_published_at(html: str, url: str = "", text: str = "") -> str:
 
 
 class WebScraperCollector(BaseCollector):
+    @staticmethod
+    def _verify_tls(url: str) -> bool:
+        """Keep TLS verification on except for explicitly allowlisted hosts."""
+
+        if not app_config.CRAWLER_TLS_VERIFY:
+            return False
+        host = (urlparse(url).hostname or "").casefold()
+        if host in app_config.CRAWLER_INSECURE_TLS_HOSTS:
+            logger.warning("TLS verification disabled for explicitly allowlisted crawler host: %s", host)
+            return False
+        return True
+
     def _interactive_timeout_seconds(self) -> int:
         configured_ms = int(self.config.get("timeout_ms", app_config.INTERACTIVE_HTML_TIMEOUT_SECONDS * 1000))
         return max(1, min(configured_ms // 1000, 45))
@@ -475,7 +506,7 @@ class WebScraperCollector(BaseCollector):
                         headers=headers,
                         timeout=(min(10, timeout_seconds), timeout_seconds),
                         allow_redirects=False,
-                        verify=app_config.CRAWLER_TLS_VERIFY,
+                        verify=self._verify_tls(current_url),
                         stream=True,
                     )
                 except (requests.Timeout, requests.ConnectionError):

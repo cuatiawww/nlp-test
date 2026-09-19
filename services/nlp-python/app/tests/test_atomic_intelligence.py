@@ -62,6 +62,20 @@ class AtomicIntelligenceTests(unittest.TestCase):
         self.assertEqual(events[0]["disease"], "UNKNOWN")
         self.assertTrue(events[0]["needs_review"])
 
+    def test_disease_from_neighbouring_sentence_is_not_metric_attribution(self):
+        from app.intelligence import build_atomic_events
+
+        events = build_atomic_events(
+            "Dengue is listed as a travel-health reference. "
+            "Thailand reported 10 cases.",
+            disease_labels=["Dengue", "Acute hepatitis A"],
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["disease"], "UNKNOWN")
+        self.assertEqual(events[0]["case_count"], 10)
+        self.assertTrue(events[0]["needs_review"])
+
     def test_distinct_reporting_periods_remain_distinct_events(self):
         from app.intelligence import build_atomic_events
 

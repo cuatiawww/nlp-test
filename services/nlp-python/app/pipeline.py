@@ -7,6 +7,7 @@ from .llm_gate import should_escalate_to_llm
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
+from .multilingual import detect_language_profile, normalize_language_code
 from .surveillance_extraction import source_reliability_score
 from .epidemiology import (
     calibrate_outbreak_alert,
@@ -21,6 +22,33 @@ from .epidemiology import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _attach_location_provenance(locations: list[dict[str, Any]], source: str) -> list[dict[str, Any]]:
+    """Attach source spelling and offsets without deriving them from translation."""
+
+    aliases_by_canonical: dict[str, list[str]] = {}
+    for alias, canonical in {
+        **extractors.LOCATION_ALIASES,
+        **getattr(config, "LOCATION_ALIASES", {}),
+    }.items():
+        aliases_by_canonical.setdefault(str(canonical).casefold(), []).append(str(alias))
+    result: list[dict[str, Any]] = []
+    for raw_item in locations or []:
+        item = dict(raw_item) if isinstance(raw_item, dict) else raw_item.model_dump()
+        canonical = str(item.get("name") or "")
+        candidates = [canonical, *aliases_by_canonical.get(canonical.casefold(), [])]
+        found = next(
+            ((candidate, source.casefold().find(candidate.casefold())) for candidate in candidates if candidate),
+            (canonical, -1),
+        )
+        original_name, offset = found
+        item["original_name"] = original_name if offset >= 0 else None
+        item["evidence"] = source[offset:offset + len(original_name)] if offset >= 0 else ""
+        item["evidence_offset_start"] = offset if offset >= 0 else None
+        item["evidence_offset_end"] = offset + len(original_name) if offset >= 0 else None
+        result.append(item)
+    return result
 
 
 def _build_article_summary(
@@ -77,18 +105,28 @@ def _build_article_summary(
 
 
 def run(payload: AnalyzeRequest) -> AnalyzeResponse:
-    text = extractors.repair_mojibake(payload.text)
-    language = extractors.detect_language(text)
+    original_text = payload.text or ""
+    text = extractors.repair_mojibake(original_text)
+    evidence_offset_space = "original" if text == original_text else "repaired_original"
+    language_profile = detect_language_profile(
+        text,
+        payload.source_language,
+        markers=config.LANGUAGE_MARKERS,
+    )
+    language = str(language_profile.get("language") or "unknown")
     if language == "unknown" and payload.source_language:
-        language = payload.source_language
+        language = normalize_language_code(payload.source_language)
     translation = translate_and_extract(text, language)
     translated_text = translation["translated_text"]
-    analysis_text = translated_text or text
+    # Deterministic extraction always sees the source article. Translation is
+    # an auxiliary semantic view and must never become an evidence authority.
+    analysis_text = text
+    semantic_text = "\n".join(part for part in (text, translated_text) if part)
     structured = translation["structured"]
     facts = extractors.predict_surveillance_facts(text, payload.source_country)
     non_health_topic = bool(facts.get("non_health_topic")) or extractors.is_clearly_non_health_topic(
         text
-    ) or extractors.is_clearly_non_health_topic(analysis_text)
+    ) or extractors.is_clearly_non_health_topic(semantic_text)
     source_country = extractors.normalize_country(payload.source_country)
     location_country = facts.get("country") or extractors.extract_country_hint(text[:1500])
     if location_country and location_country not in config.ASEAN_COUNTRIES:
@@ -115,17 +153,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     location = facts.get("location") or extractors.extract_location(text, allowed_countries=allowed_countries)
     all_locations = facts.get("locations") or extractors.extract_all_locations(text, allowed_countries=allowed_countries)
+    all_locations = _attach_location_provenance(all_locations, text)
     original_location = location
-    if not location and translated_text:
-        location = extractors.extract_location(translated_text, allowed_countries=allowed_countries)
-        if not all_locations:
-            all_locations = extractors.extract_all_locations(translated_text, allowed_countries=allowed_countries)
     is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text)))
     if not location and not is_noisy_early and not payload.historical_fast and not payload.interactive and not non_health_topic:
         try:
             from .deepseek import detect_location
             resolved_location = detect_location(
-                analysis_text,
+                semantic_text,
                 source_language=payload.source_language or language,
                 source_country=location_country,
             )
@@ -214,9 +249,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     fallback_extracted = _rank_diseases(extractors.extract_diseases(analysis_text) + who_mentions, analysis_text)
     extracted = list(dict.fromkeys(primary_extracted or fallback_extracted))
     extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
+    # Structured translation output is deliberately not promoted to an entity
+    # unless the source article independently contains evidence for it.
     for value in structured.get("diseases") or []:
-        if isinstance(value, str) and value.strip():
-            extracted.append(value.strip().upper().replace("-", ""))
+        if isinstance(value, str) and value.strip() and extractors.disease_has_textual_evidence(value, text):
+            extracted.append(value.strip())
     extras = _rank_diseases(extracted, text + " " + analysis_text)
     extracted = list(dict.fromkeys([*(facts.get("diseases") or []), *extracted, *extras]))
     extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
@@ -238,7 +275,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     if config.NLP_MODEL != "none" and not non_health_topic:
         try:
-            clf_sample = (analysis_text or text)[:600]
+            # Keep both views inside the classifier budget. Previously the
+            # original lead consumed all 1,200 characters, so XLM-R never
+            # saw the translated semantic aid on long native-script articles.
+            if translated_text:
+                clf_sample = f"{text[:600]}\n{translated_text[:600]}"
+            else:
+                clf_sample = (text or "")[:1200]
             zero_shot = config.NLP_MODEL == "fine-tuned"
             if extracted:
                 disease = extracted[0]
@@ -388,11 +431,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     explicit_case_count = not facts.get("case_count_unknown", True) if facts.get("disease") else extractors.has_explicit_case_count(
         text, disease=disease if disease != "UNKNOWN" else None
     )
-    if translated_text and not explicit_case_count:
-        case_count = extractors.extract_case_count(translated_text, disease=disease if disease != "UNKNOWN" else None)
-        explicit_case_count = extractors.has_explicit_case_count(translated_text, disease=disease if disease != "UNKNOWN" else None)
-    if translated_text and death_count == 0:
-        death_count = extractors.extract_death_count(translated_text)
     if not explicit_case_count:
         case_count = 0
         explicit_case_count = False
@@ -722,7 +760,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     # --- Multi-event extraction (locations AND diseases) ---
     try:
-        from .multi_event_extractor import compose_structured_events
+        from .multi_event_extractor import compose_structured_events, _collapse_same_country_events
         multi_events = compose_structured_events(
             text=text,
             primary_disease=disease,
@@ -732,6 +770,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             case_count=case_count,
             death_count=death_count,
         )
+        # The persisted/API event view is country-scoped.  Keep the lower
+        # level composer location-specific for evidence and hierarchy tests,
+        # then collapse only the public surveillance event projection.
+        multi_events = _collapse_same_country_events(multi_events)
         sub_events = [
             SubEvent(
                 disease=evt.get("disease", disease),
@@ -746,6 +788,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 death_count=evt.get("death_count", 0),
                 metric_type=evt.get("metric_type", "cases"),
                 unit=evt.get("unit", "persons"),
+                metric_value_min=evt.get("metric_value_min"),
+                metric_value_max=evt.get("metric_value_max"),
                 evidence=evt.get("evidence", ""),
                 evidence_offset_start=evt.get("evidence_offset_start"),
                 evidence_offset_end=evt.get("evidence_offset_end"),
@@ -767,6 +811,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 },
                 validation_flags=evt.get("validation_flags", []),
                 confidence=evt.get("confidence", 0.90),
+                source_language=language,
+                source_script=str(language_profile.get("script") or "Latin"),
+                source_sentence_id=evt.get("source_sentence_id"),
+                source_evidence=evt.get("evidence", ""),
+                evidence_is_translated=False,
+                evidence_offset_space=evidence_offset_space,
             )
             for evt in multi_events
         ]
@@ -775,6 +825,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         sub_events = []
 
     if sub_events:
+        event_diseases = list(dict.fromkeys(
+            extractors.canonical_disease_name(evt.disease)
+            for evt in sub_events
+            if evt.disease and evt.disease.upper() != "UNKNOWN"
+            and (evt.case_count or evt.death_count)
+        ))
+        # A page can mention a disease in a title, prevention section, or
+        # comparison paragraph. If exactly one disease owns a real metric
+        # relation, use that identity for the parent row instead of the
+        # contextual classifier label.
+        if len(event_diseases) == 1:
+            disease = event_diseases[0]
+            extracted = list(dict.fromkeys([disease, *extracted]))
         if not location and sub_events[0].location_name:
             location = sub_events[0].location_name
         if not country and sub_events[0].country:
@@ -787,6 +850,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # response. LLM supplementation is skipped here because the main worker
     # already has its own bounded agent stages; the dedicated structured
     # endpoint may opt into it.
+    strict_projection_locations = []
+    relational_events = []
     try:
         from .surveillance_extraction import (
             GazetteerLinker, build_surveillance_output,
@@ -799,12 +864,43 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             source_name=payload.source_name,
             source_type=source_type,
             source_url=payload.source_url,
+            source_country=source_country,
             include_llm=False,
         )
         relational_events = extract_metric_relations(
-            text, linker=GazetteerLinker(), published_date=published_at,
+            text,
+            linker=GazetteerLinker(),
+            published_date=published_at,
+            source_country=source_country,
         )
+        # Relation evidence is authoritative for the public evidence view as
+        # well as for event construction.  Keep the original source span;
+        # translation must never be the only visible proof of a metric.
+        for relation in relational_events:
+            relation_evidence = str(relation.evidence or "").strip()
+            if relation_evidence and relation_evidence not in evidence:
+                evidence.append(relation_evidence)
+
+        relation_diseases = list(dict.fromkeys(
+            extractors.canonical_disease_name(relation.disease)
+            for relation in relational_events
+            if relation.disease and str(relation.disease).strip().upper() != "UNKNOWN"
+        ))
+        # The classifier may choose a disease from a page title or a health
+        # reference section.  When the metric relation has exactly one
+        # disease identity, prefer that evidence-backed identity for the
+        # article-level projection.
+        if len(relation_diseases) == 1:
+            relation_disease = relation_diseases[0]
+            if (
+                disease == "UNKNOWN"
+                or extractors.canonical_disease_name(disease).casefold()
+                != relation_disease.casefold()
+            ):
+                disease = relation_disease
+                extracted = list(dict.fromkeys([relation_disease, *extracted]))
         if strict_output.locations:
+            strict_projection_locations = list(strict_output.locations)
             outbreak_alert = strict_output.outbreak_alert
             relevance = strict_output.health_relevance.lower()
             relevance_confidence = max(relevance_confidence, 0.90)
@@ -836,35 +932,185 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         if key not in known:
                             all_locations.append(item)
                             known.add(key)
-            if len(relational_events) >= 2:
-                extra_sub = [
-                    SubEvent(
-                        disease=disease if disease != "UNKNOWN" else (
-                            strict_output.disease_classification[0]
-                            if strict_output.disease_classification else disease
+            # Use the strict country projection for event metrics.  Raw
+            # relation rows are deliberately not promoted one-for-one: they
+            # can be regional breakdowns of the same country total and can
+            # repeat a death count that belongs to the country aggregate.
+            projected_disease = disease
+            if projected_disease == "UNKNOWN" and len(relation_diseases) == 1:
+                projected_disease = relation_diseases[0]
+            if projected_disease != "UNKNOWN" and (
+                len(strict_output.disease_classification) <= 1 or len(relation_diseases) == 1
+            ):
+                by_country = {
+                    str(item.country or "").casefold(): item
+                    for item in strict_output.locations
+                    if item.country
+                }
+                for evt in sub_events:
+                    evt_country = str(evt.country or "").casefold()
+                    if not evt_country and evt.location_name:
+                        evt_country = str(
+                            extractors.resolve_location_hierarchy(evt.location_name).get("country") or ""
+                        ).casefold()
+                    projection = by_country.get(evt_country)
+                    if projection is None and len(by_country) == 1:
+                        projection = next(iter(by_country.values()))
+                    if projection is None:
+                        continue
+                    event_disease = extractors.canonical_disease_name(evt.disease or "UNKNOWN")
+                    target_disease = extractors.canonical_disease_name(projected_disease)
+                    if event_disease.upper() != "UNKNOWN" and event_disease.casefold() != target_disease.casefold():
+                        # A metric belonging to another disease must not be
+                        # copied into this row. Keep the row reviewable rather
+                        # than silently changing its identity.
+                        evt.needs_review = True
+                        if "metric_disease_mismatch" not in evt.validation_flags:
+                            evt.validation_flags.append("metric_disease_mismatch")
+                        continue
+                    evt.disease = projected_disease
+                    evt.country = projection.country
+                    evt.case_count = int(projection.reported_cases or 0)
+                    evt.death_count = int(projection.deaths or 0)
+                    evt.time_frame = projection.time_frame or evt.time_frame
+                    if count_period and count_period != "unknown":
+                        evt.temporal_context = count_period
+                    evt.event_date_start = period.get("event_date_start") or evt.event_date_start
+                    evt.event_date_end = period.get("event_date_end") or evt.event_date_end
+                    projection_relation = max(
+                        (
+                            relation
+                            for relation in relational_events
+                            if relation.location.country.casefold() == str(projection.country or "").casefold()
+                            and relation.time_frame == projection.time_frame
+                            and relation.evidence
                         ),
-                        location_name=item.location.name,
-                        country=item.location.country,
-                        latitude=item.location.latitude,
-                        longitude=item.location.longitude,
-                        case_count=item.cases,
-                        death_count=item.deaths or 0,
-                        evidence=item.evidence,
+                        key=lambda relation: (relation.cases or 0) + (relation.deaths or 0),
+                        default=None,
                     )
-                    for item in relational_events
-                    if extractors.is_usable_place_name(item.location.name, text)
-                ]
-                if extra_sub and not sub_events and disease != "UNKNOWN":
-                    sub_events = extra_sub
+                    if projection_relation:
+                        evt.evidence = projection_relation.evidence
+                        evt.source_evidence = projection_relation.evidence
+                        evt.evidence_offset_start = projection_relation.evidence_offset_start
+                        evt.evidence_offset_end = projection_relation.evidence_offset_end
+                    country_hierarchy = extractors.resolve_location_hierarchy(
+                        projection.country,
+                        country_hint=projection.country,
+                    )
+                    evt.country_iso3 = evt.country_iso3 or country_hierarchy.get("country_iso3")
+                    if str(evt.location_name or "").casefold() == str(projection.country or "").casefold():
+                        # Parent and country-level child rows must use the same
+                        # country centroid, never two different fallbacks.
+                        evt.latitude = country_hierarchy.get("latitude")
+                        evt.longitude = country_hierarchy.get("longitude")
+
+                if not sub_events:
+                    sub_events = [
+                        SubEvent(
+                            disease=projected_disease,
+                            location_name=item.country,
+                            country=item.country,
+                            country_iso3=extractors.resolve_location_hierarchy(
+                                item.country,
+                                country_hint=item.country,
+                            ).get("country_iso3"),
+                            latitude=extractors.resolve_location_hierarchy(
+                                item.country,
+                                country_hint=item.country,
+                            ).get("latitude"),
+                            longitude=extractors.resolve_location_hierarchy(
+                                item.country,
+                                country_hint=item.country,
+                            ).get("longitude"),
+                            case_count=int(item.reported_cases or 0),
+                            death_count=int(item.deaths or 0),
+                            evidence=next(
+                                (
+                                    relation.evidence
+                                    for relation in relational_events
+                                    if relation.location.country.casefold() == item.country.casefold()
+                                    and relation.evidence
+                                ),
+                                "",
+                            ),
+                            source_language=language,
+                            source_script=str(language_profile.get("script") or "Latin"),
+                            source_evidence=next(
+                                (
+                                    relation.evidence
+                                    for relation in relational_events
+                                    if relation.location.country.casefold() == item.country.casefold()
+                                    and relation.evidence
+                                ),
+                                "",
+                            ),
+                            evidence_is_translated=False,
+                            evidence_offset_space=evidence_offset_space,
+                        )
+                        for item in strict_output.locations
+                    ]
     except Exception as exc:
         logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
+
+    # The country projection is also the article-level fallback when the
+    # classifier/rules path could not read a local-language disease or count.
+    # It is still evidence-backed and never uses the publisher country.
+    if strict_projection_locations and disease != "UNKNOWN" and not ncd_only:
+        projected_cases = sum(int(item.reported_cases or 0) for item in strict_projection_locations)
+        projected_deaths = sum(int(item.deaths or 0) for item in strict_projection_locations if item.deaths is not None)
+        if projected_cases > 0 and (not explicit_case_count or case_count == 0):
+            case_count = projected_cases
+            explicit_case_count = True
+        if projected_deaths > 0 and death_count == 0:
+            death_count = projected_deaths
+
+    # Some narrative forms expose the country total to the general count
+    # extractor but not to the stricter location regex (for example,
+    # "Thailand reported 100 dengue cases").  When the public projection has
+    # exactly one country event, carry that already-evidence-backed total into
+    # the event instead of leaving its cases at zero/unknown.
+    event_countries = {str(evt.country or "").casefold() for evt in sub_events if evt.country}
+    if len(sub_events) == 1 and len(event_countries) == 1:
+        if explicit_case_count and case_count > sub_events[0].case_count:
+            sub_events[0].case_count = case_count
+        if death_count > sub_events[0].death_count:
+            sub_events[0].death_count = death_count
+
+    # If the article identifies only a country, make that country the event
+    # location and use its gazetteer centroid.  This is event geography, not
+    # publisher/source geography.
+    if country and (not location or str(location).strip().casefold() != str(country).strip().casefold()):
+        location_hierarchy = extractors.resolve_location_hierarchy(country, country_hint=country)
+        if not location:
+            location = location_hierarchy.get("canonical_name") or country
+        if lat is None and location.casefold() == str(country).casefold():
+            lat = location_hierarchy.get("latitude")
+            lon = location_hierarchy.get("longitude")
+    elif country and lat is None:
+        location_hierarchy = extractors.resolve_location_hierarchy(country, country_hint=country)
+        lat = location_hierarchy.get("latitude")
+        lon = location_hierarchy.get("longitude")
+
+    # Country-level parent and child rows are the same geographic fact.  Keep
+    # one coordinate source for both; otherwise an earlier gazetteer fallback
+    # can leave the child at a different country centroid than the parent.
+    if country and lat is not None and lon is not None:
+        for evt in sub_events:
+            if str(evt.location_name or "").casefold() == str(country).casefold():
+                evt.latitude = lat
+                evt.longitude = lon
 
     # Disease mentions without a metric/location/time relation remain
     # mentions.  They must not be promoted to phantom zero-count events.
     if ncd_only:
         sub_events = []
 
+    all_locations = _attach_location_provenance(all_locations, text)
+
     for evt in sub_events:
+        evt.evidence_offset_space = evidence_offset_space
+        if evidence_offset_space != "original":
+            evt.provenance["source_text"] = "repaired_original"
         resolved_sub = resolve_local_icd11_term(evt.disease)
         if resolved_sub and resolved_sub.get("ontology_code"):
             evt.disease = resolved_sub["canonical_name"]
@@ -967,6 +1213,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     return AnalyzeResponse(
         language=language,
+        language_confidence=float(language_profile.get("confidence") or 0.0),
+        language_detection_method=str(language_profile.get("method") or "unknown"),
+        script=str(language_profile.get("script") or "Latin"),
+        original_text=original_text,
+        evidence_offset_space=evidence_offset_space,
         normalized_text=extractors.normalize_text(text),
         summary=summary,
         published_at=published_at,
@@ -980,6 +1231,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         translated=bool(translated_text),
         translation_provider=translation.get("provider") or "none",
         translated_text=translated_text or "",
+        translation_alignment="sentence_id_only",
         country=country,
         latitude=lat,
         longitude=lon,

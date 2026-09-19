@@ -22,6 +22,8 @@ class SurveillanceExtractionTest(unittest.TestCase):
             "Rekor": (0.0, 0.0),
             "Asia": (35.0, 105.0),
             "Malaysia": (4.2, 101.9),
+            "ประเทศไทย": (13.7, 100.5),
+            "Laos": (17.9757, 102.6331),
         }
         self.countries = {
             "Indonesia": "Indonesia",
@@ -34,6 +36,8 @@ class SurveillanceExtractionTest(unittest.TestCase):
             "Rekor": "Indonesia",
             "Asia": "Asia",
             "Malaysia": "Malaysia",
+            "ประเทศไทย": "Thailand",
+            "Laos": "Laos",
         }
         self.coords_patch = patch.object(config, "LOCATION_COORDS", self.coords)
         self.countries_patch = patch.object(config, "LOCATION_COUNTRIES", self.countries)
@@ -105,6 +109,85 @@ class SurveillanceExtractionTest(unittest.TestCase):
         text = "Indonesia reported 7 cases. Banten reported 2 cases. Thailand reported 4 cases."
         relations = extract_metric_relations(text, linker=GazetteerLinker(allow_remote=False))
         self.assertEqual(aggregate_relation_totals(relations), (11, 0))
+
+    def test_thai_postfix_case_and_death_metrics_keep_their_labels(self):
+        from app.surveillance_extraction import GazetteerLinker, build_surveillance_output, extract_metric_relations
+
+        text = (
+            "ข้อมูลตั้งแต่วันที่ 1 มกราคม – 31 สิงหาคม 2569 "
+            "ประเทศไทยพบผู้ป่วยสะสม 99,691 ราย เสียชีวิต 15 ราย"
+        )
+        output = build_surveillance_output(
+            text,
+            published_at="2026-09-01",
+            source_name="DDC",
+            linker=GazetteerLinker(allow_remote=False),
+        ).model_dump(exclude_none=True)
+
+        thailand = next(item for item in output["locations"] if item["country"] == "Thailand")
+        self.assertEqual(thailand["reported_cases"], 99691)
+        self.assertEqual(thailand["deaths"], 15)
+        self.assertEqual(thailand["time_frame"], "2026-01-01 to 2026-08-31")
+        relations = extract_metric_relations(text, linker=GazetteerLinker(allow_remote=False))
+        self.assertTrue(any("99,691" in item.evidence and "15" in item.evidence for item in relations))
+
+    def test_calendar_year_is_not_promoted_to_case_metric(self):
+        from app.surveillance_extraction import GazetteerLinker, extract_metric_relations
+
+        text = (
+            "ปี 2568 ประเทศไทยพบผู้ป่วยสะสม 12,345 ราย"
+        )
+        relations = extract_metric_relations(text, linker=GazetteerLinker(allow_remote=False))
+
+        self.assertTrue(relations)
+        self.assertNotIn(2568, [item.cases for item in relations])
+        self.assertIn(12345, [item.cases for item in relations])
+
+    def test_lao_dengue_metric_and_country_are_linked_from_original_text(self):
+        from app.intelligence import build_atomic_events
+        from app.surveillance_extraction import GazetteerLinker, extract_metric_relations
+
+        text = (
+            "ສປປ ລາວ ມີຕົວເລກຜູ້ຕິດເຊື້ອໄຂ້ຍຸງລາຍ 214 ກໍລະນີ "
+            "ໃນ 6 ເດືອນຕົ້ນປີ 2026"
+        )
+        linker = GazetteerLinker(allow_remote=False)
+        relations = extract_metric_relations(text, linker=linker)
+        self.assertTrue(any(item.location.country == "Laos" and item.cases == 214 for item in relations))
+
+        events = build_atomic_events(text, disease_labels=["Dengue"], linker=linker)
+        self.assertTrue(any(item["disease"] == "Dengue" and item["case_count"] == 214 for item in events))
+
+    def test_lao_calendar_year_is_not_promoted_to_cases(self):
+        from app.surveillance_extraction import GazetteerLinker, extract_metric_relations
+
+        text = "ສປປ ລາວ ວັນທີ 6 ມັງກອນ 2021 ພົບຜູ້ຕິດເຊື້ອ 26 ກໍລະນີ"
+        relations = extract_metric_relations(text, linker=GazetteerLinker(allow_remote=False))
+        self.assertNotIn(2021, [item.cases for item in relations])
+
+    def test_domestic_thai_metrics_use_source_scope_and_keep_historical_comparison_separate(self):
+        from app.surveillance_extraction import extract_metric_relations
+
+        text = (
+            "เหตุการณ์โรคในประเทศ ตั้งแต่วันที่ 1 มกราคม – 9 มีนาคม 2569 "
+            "พบผู้ป่วยโรคไข้หวัดใหญ่สะสม 137,276 ราย "
+            "และมีรายงานผู้เสียชีวิต 8 ราย โดยในปี 2568 ประเทศไทยมีรายงานผู้ป่วยสะสม "
+            "1,194,342 ราย มีรายงานผู้เสียชีวิต 129 ราย"
+        )
+        text = (
+            "Thailand nationwide reported 137,276 cases and 8 deaths in 2026; "
+            "compared with 1,194,342 cases and 129 deaths in 2025."
+        )
+        relations = extract_metric_relations(text, source_country="Thailand")
+
+        current = next(item for item in relations if item.cases == 137276)
+        historical = next(item for item in relations if item.cases == 1194342)
+        self.assertEqual(current.location.name, "Thailand")
+        self.assertEqual(current.deaths, 8)
+        self.assertEqual(historical.location.name, "Thailand")
+        self.assertEqual(historical.deaths, 129)
+        self.assertIn("2025", historical.time_frame)
+        self.assertNotEqual(current.time_frame, historical.time_frame)
 
 
 if __name__ == "__main__":

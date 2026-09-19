@@ -31,7 +31,14 @@ import requests
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import config, extractors
-from .epidemiology import evidence_sentences, extract_event_date, extract_labeled_counts, normalize_publication_date
+from .multilingual import CASE_TERMS, DEATH_TERMS, metric_term_pattern, normalize_local_digits
+from .epidemiology import (
+    evidence_sentences,
+    extract_event_date,
+    extract_event_period,
+    extract_labeled_counts,
+    normalize_publication_date,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +225,7 @@ def source_reliability_score(
 NON_GEOGRAPHIC_TERMS = frozenset({
     "puncak", "sudah", "rekor", "tertinggi", "terendah", "rata-rata",
     "rata rata", "persen", "kasus", "kematian", "pasien", "total",
-    "jumlah", "angka", "periode", "minggu", "weekly",
+    "jumlah", "angka", "periode", "minggu", "weekly", "sepanjang",
     "asia", "africa", "europe", "oceania", "antarctica",
     "southeast asia", "south east asia", "asean",
     "were", "was", "been", "have", "has", "had", "did", "does",
@@ -355,13 +362,37 @@ class GazetteerLinker:
             folded = extractors._fold_location_text(name)
             if folded and folded not in self._folded_coords:
                 self._folded_coords[folded] = name
-        names = sorted(self.coords, key=len, reverse=True)
+        for alias, canonical in getattr(config, "LOCATION_ALIASES", {}).items():
+            folded_alias = extractors._fold_location_text(alias)
+            if folded_alias and folded_alias not in self._folded_coords:
+                self._folded_coords[folded_alias] = canonical
+        all_names = set(self.coords.keys())
+        all_names.update(getattr(config, "LOCATION_ALIASES", {}).keys())
+        # Country aliases live in the extractor vocabulary as well as the
+        # database-loaded location aliases. Include both so native mentions
+        # such as ``ລາວ`` and ``ສປປ ລາວ`` can enter the same linker path.
+        all_names.update(getattr(extractors, "COUNTRY_ALIASES", {}).keys())
+        for alias, canonical in getattr(extractors, "COUNTRY_ALIASES", {}).items():
+            folded_alias = extractors._fold_location_text(alias)
+            if folded_alias and folded_alias not in self._folded_coords and canonical in self.coords:
+                self._folded_coords[folded_alias] = canonical
+        names = sorted(all_names, key=len, reverse=True)
+        native_names = [name for name in names if extractors._is_native_script(name)]
+        latin_names = [name for name in names if name not in native_names]
+        native_pattern = "|".join(re.escape(name) for name in native_names)
+        latin_pattern = "|".join(re.escape(name) for name in latin_names)
+        alternatives = []
+        if native_pattern:
+            # Thai/Lao/Khmer/Myanmar do not use whitespace word boundaries.
+            alternatives.append(rf"(?:{native_pattern})")
+        if latin_pattern:
+            alternatives.append(rf"(?<!\w)(?:{latin_pattern})(?!\w)")
         self._mention_pattern = (
             re.compile(
-                rf"(?<!\w)(?:{'|'.join(re.escape(name) for name in names)})(?!\w)",
+                "|".join(alternatives),
                 re.IGNORECASE,
             )
-            if names else None
+            if alternatives else None
         )
         self.geocoder = geocoder or NominatimGeocoder()
         self.allow_remote = (
@@ -375,6 +406,11 @@ class GazetteerLinker:
             return None
         if not extractors.is_usable_place_name(value):
             return None
+        for alias, canonical in getattr(config, "LOCATION_ALIASES", {}).items():
+            if folded == extractors._fold_location_text(alias):
+                if canonical.casefold() in NON_GEOGRAPHIC_TERMS:
+                    return None
+                return canonical
         # Countries include aliases such as Singapura/Kamboja.
         for alias, canonical in extractors.COUNTRY_ALIASES.items():
             if folded == extractors._fold_location_text(alias):
@@ -476,6 +512,16 @@ class MetricRelation:
     deaths: Optional[int] = None
     time_frame: str = ""
     evidence: str = ""
+    disease: Optional[str] = None
+    metric_type: str = "cases"
+    unit: str = "persons"
+    qualifier: Optional[str] = None
+    value: Optional[float] = None
+    value_min: Optional[float] = None
+    value_max: Optional[float] = None
+    evidence_offset_start: Optional[int] = None
+    evidence_offset_end: Optional[int] = None
+    source_sentence_id: Optional[str] = None
 
 
 def aggregate_relation_totals(
@@ -513,13 +559,50 @@ MONTHS = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
     "ags": 8, "agst": 8, "agu": 8, "aug": 8, "sep": 9,
     "okt": 10, "oct": 10, "nov": 11, "des": 12, "dec": 12,
+    # Vietnamese, Thai, Khmer, Lao, and Myanmar month names. These are
+    # language grammar support, not article-specific aliases.
+    "tháng một": 1, "tháng 1": 1, "tháng hai": 2, "tháng 2": 2,
+    "tháng ba": 3, "tháng 3": 3, "tháng tư": 4, "tháng 4": 4,
+    "tháng năm": 5, "tháng 5": 5, "tháng sáu": 6, "tháng 6": 6,
+    "tháng bảy": 7, "tháng 7": 7, "tháng tám": 8, "tháng 8": 8,
+    "tháng chín": 9, "tháng 9": 9, "tháng mười": 10, "tháng 10": 10,
+    "มกราคม": 1, "กุมภาพันธ์": 2, "มีนาคม": 3, "เมษายน": 4,
+    "พฤษภาคม": 5, "มิถุนายน": 6, "กรกฎาคม": 7, "สิงหาคม": 8,
+    "กันยายน": 9, "ตุลาคม": 10, "พฤศจิกายน": 11, "ธันวาคม": 12,
+    "មករា": 1, "កុម្ភៈ": 2, "មីនា": 3, "មេសា": 4,
+    "ឧសភា": 5, "មិថុនា": 6, "កក្កដា": 7, "សីហា": 8,
+    "កញ្ញា": 9, "តុលា": 10, "វិច្ឆិកា": 11, "ធ្នូ": 12,
+    "ມັງກອນ": 1, "ກຸມພາ": 2, "ມີນາ": 3, "ເມສາ": 4,
+    "ພຶດສະພາ": 5, "ມິຖຸນາ": 6, "ກໍລະກົດ": 7, "ສິງຫາ": 8,
+    "ກັນຍາ": 9, "ຕຸລາ": 10, "ພະຈິກ": 11, "ທັນວາ": 12,
+    "ဇန်နဝါရီ": 1, "ဖေဖော်ဝါရီ": 2, "မတ်": 3, "ဧပြီ": 4,
+    "မေ": 5, "ဇွန်": 6, "ဇူလိုင်": 7, "ဩဂုတ်": 8,
+    "စက်တင်ဘာ": 9, "အောက်တိုဘာ": 10, "နိုဝင်ဘာ": 11, "ဒီဇင်ဘာ": 12,
 }
+
+def _is_comparative_location(text: str, loc_start: int) -> bool:
+    """Returns True if the location at loc_start is inside a comparative clause,
+    e.g. 'setelah Jawa Barat, Jawa Tengah, dan Jawa Timur'."""
+    prefix = text[max(0, loc_start - 120):loc_start]
+    comp_match = re.search(
+        r"\b(?:setelah|sesudah|dibandingkan(?:\s+dengan)?|dibanding|daripada|seperti|antara\s+lain|misalnya|after|following|behind|compared\s+(?:to|with))\s+([^.;\n]*)$",
+        prefix,
+        re.IGNORECASE,
+    )
+    if comp_match:
+        intervening = comp_match.group(1).strip()
+        if re.fullmatch(r"(?:[A-Za-zÀ-ÿ'’.-]+\s*[,/&]?\s*|(?:dan|atau|serta|and|or)\s+)*", intervening, re.IGNORECASE):
+            return True
+    return False
+
 
 _NUMBER = r"(?:\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)"
 _CASE_BEFORE_LOCATION = re.compile(
     rf"(?<![\w.,])(?P<count>{_NUMBER})(?![\w])\s*(?:ribu|juta|million|thousand)?\s*"
     r"(?:kasus|cases?|infeksi|infections?|pasien|patients?)\s+"
-    r"(?:baru\s+)?(?:di|in|from|among)\s+"
+    r"(?:(?:baru|positif|aktif|harian|terkonfirmasi|dengue|dbd|ispa|covid(?:-19)?|mpox|rabies)\s+)*"
+    r"(?:di|in|from|among)\s+"
+    r"(?:provinsi\s+|prov\.\s+|kabupaten\s+|kab\.\s+|kota\s+)?"
     r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*){0,5})",
     re.IGNORECASE | re.UNICODE,
 )
@@ -581,17 +664,24 @@ def _date_from_parts(day: str, month: str, year: str) -> Optional[date]:
         return None
 
 
-_YEAR_TOKEN = re.compile(r"\b(20\d{2})\b")
+_YEAR_TOKEN = re.compile(r"\b(20\d{2}|25\d{2})\b")
+
+
+def _calendar_year(raw: str | int) -> int:
+    """Normalize Gregorian and Thai Buddhist years for period logic."""
+
+    year = int(raw)
+    return year - 543 if 2500 <= year <= 2599 else year
 _NAMED_RANGE = re.compile(
-    r"(?P<day1>\d{1,2})\s+(?P<month1>[A-Za-z]+)\s*"
+    r"(?P<day1>\d{1,2})\s+(?P<month1>[^\W\d_]+(?:\s+[^\W\d_]+)?)\s*"
     r"(?:(?P<year1>20\d{2})\s*)?"
-    r"(?:to|sampai|hingga|s/d|sd|[-–])\s*"
-    r"(?P<day2>\d{1,2})\s+(?P<month2>[A-Za-z]+)\s+(?P<year2>20\d{2})",
+    r"(?:to|sampai|hingga|s/d|sd|đến|ถึง|ដល់|ຫາ|ထိ|[-–])\s*"
+    r"(?P<day2>\d{1,2})\s+(?P<month2>[^\W\d_]+(?:\s+[^\W\d_]+)?)\s+(?P<year2>20\d{2})",
     re.IGNORECASE,
 )
 _MONTH_RANGE = re.compile(
-    r"(?P<month1>[A-Za-z]+)\s+(?:to|sampai|hingga|s/d|sd|[-–])\s+"
-    r"(?P<month2>[A-Za-z]+)\s+(?P<year>20\d{2})",
+    r"(?P<month1>[^\W\d_]+(?:\s+[^\W\d_]+)?)\s+(?:to|sampai|hingga|đến|ถึง|ដល់|ຫາ|ထိ|s/d|sd|[-–])\s+"
+    r"(?P<month2>[^\W\d_]+(?:\s+[^\W\d_]+)?)\s+(?P<year>20\d{2})",
     re.IGNORECASE,
 )
 _SEMESTER = re.compile(r"\bsemester\s*(?P<part>[12]|I{1,2})\s*(?P<year>20\d{2})\b", re.IGNORECASE)
@@ -628,7 +718,7 @@ def _metric_context(text: str, start: int, end: int, radius: int = 220) -> str:
 
 
 def extract_time_frame(text: str, published_date: Optional[str] = None) -> str:
-    value = re.sub(r"\s+", " ", text or "").strip()
+    value = re.sub(r"\s+", " ", normalize_local_digits(text or "")).strip()
     iso = re.search(r"(\d{4}-\d{2}-\d{2})\s*(?:to|sampai|hingga|-|–)\s*(\d{4}-\d{2}-\d{2})", value, re.I)
     if iso:
         return f"{iso.group(1)} to {iso.group(2)}"
@@ -665,12 +755,17 @@ def extract_time_frame(text: str, published_date: Optional[str] = None) -> str:
             start_month = (part - 1) * 3 + 1
             end_month = start_month + 2
             return f"{date(year, start_month, 1).isoformat()} to {date(year, end_month, monthrange(year, end_month)[1]).isoformat()}"
+    explicit_period = extract_event_period(value)
+    if explicit_period.get("event_date_start"):
+        start = explicit_period["event_date_start"]
+        end = explicit_period.get("event_date_end") or start
+        return start if start == end else f"{start} to {end}"
     year_only = re.search(
-        r"\b(?:pada|di|tahun|year|in|during|throughout|sepanjang)\s+(?:tahun\s+)?(20\d{2})\b",
+        r"\b(?:pada|di|tahun|year|in|during|throughout|sepanjang|ช่วงกลางปี|ปี)\s+(?:tahun\s+)?(20\d{2}|25\d{2})\b",
         value, re.I,
     )
     if year_only:
-        return _year_frame(int(year_only.group(1)))
+        return _year_frame(_calendar_year(year_only.group(1)))
     weekly = re.findall(r"\b(?:weekly|minggu(?: ke-)?)\s*(?:M|ke-)?\s*(\d{1,2})\b", value, re.I)
     # If the article mentions different reporting weeks for different
     # countries, do not assign the first week to every metric relation.
@@ -724,21 +819,73 @@ def _relation_time_frame_for_span(
     context = _metric_context(source, start, end)
     years = _YEAR_TOKEN.findall(context)
     local_frame = extract_time_frame(context, None)
-    if local_frame and len(set(years)) <= 1:
-        return local_frame
-
-    nearby_years = list(_YEAR_TOKEN.finditer(source, max(0, start - 180), min(len(source), end + 180)))
-    nearest_year = min(
-        nearby_years,
-        key=lambda item: min(abs(start - item.end()), abs(item.start() - end)),
-        default=None,
+    prior_year = next(
+        reversed(list(_YEAR_TOKEN.finditer(source, max(0, start - 220), start))),
+        None,
     )
     year_after_metric = next(
         _YEAR_TOKEN.finditer(source, end, min(len(source), end + 100)),
         None,
     )
+    if year_after_metric is not None and (year_after_metric.start() - end) <= 45:
+        after_clause = source[end:year_after_metric.start()]
+        after_year = source[year_after_metric.end():year_after_metric.end() + 120]
+        has_explicit_range = bool(
+            re.search(r"\(\s*\d{1,2}\s+[^()\d]{2,24}\s*(?:-|–|to|s/d)\s*\d{1,2}", after_year, re.IGNORECASE)
+        )
+        if not re.search(r"[.!?;\n]", after_clause) and re.search(
+            r"(?:\b(?:in|during|throughout|year|tahun|pada)\b|ปี|ປີ|ឆ្នាំ|年)\s*$",
+            after_clause,
+            re.IGNORECASE | re.UNICODE,
+        ) and not has_explicit_range:
+            return _year_frame(_calendar_year(year_after_metric.group(1)))
+    local_year = _calendar_year(years[0]) if len(set(years)) == 1 else None
+    document_period = extract_event_period(source)
+    document_start = document_period.get("event_date_start")
+    document_end = document_period.get("event_date_end") or document_period.get("event_date")
+    document_frame = (
+        f"{document_start} to {document_end}"
+        if document_start and document_end and document_start != document_end
+        else document_start or document_end or ""
+    )
+    document_year = int(document_start[:4]) if document_start else None
+    if (
+        document_frame
+        and prior_year
+        and document_year is not None
+        and _calendar_year(prior_year.group(1)) == document_year
+        and (not local_frame or local_year == document_year)
+    ):
+        return document_frame
+    # A native article can place the historical year just outside the local
+    # clause while a later current-year comparison is still inside it. Do not
+    # let that later year override the metric's preceding historical year.
+    prior_is_different = bool(
+        prior_year
+        and local_year
+        and _calendar_year(prior_year.group(1)) != local_year
+    )
+    if local_frame and len(set(years)) <= 1 and not prior_is_different:
+        return local_frame
+
+    nearby_years = list(_YEAR_TOKEN.finditer(source, max(0, start - 220), min(len(source), end + 220)))
+    nearest_year = min(
+        nearby_years,
+        key=lambda item: min(abs(start - item.end()), abs(item.start() - end)),
+        default=None,
+    )
+    # In long native-script sentences a comparison year can appear after the
+    # metric. Prefer the closest year already introducing the metric clause;
+    # otherwise ``129 deaths`` can inherit the later ``2026`` mentioned in
+    # the next comparison clause instead of the preceding ``2025``.
+    year_before_metric = next(
+        reversed(list(_YEAR_TOKEN.finditer(source, max(0, start - 220), start))),
+        None,
+    )
+    if year_before_metric is not None and (start - year_before_metric.end()) <= 220:
+        nearest_year = year_before_metric
     named_ranges = list(_NAMED_RANGE.finditer(source))
-    if year_after_metric and not any(
+    if year_after_metric and year_before_metric is None and not any(
         match.group("year2") == year_after_metric.group(1)
         and match.end() >= start - 80
         for match in named_ranges
@@ -762,7 +909,7 @@ def _relation_time_frame_for_span(
         return global_frame
 
     if nearby_years:
-        return _year_frame(int(nearest_year.group(1)))
+        return _year_frame(_calendar_year(nearest_year.group(1)))
 
     # Keep weekly/location behavior and the old single-period fallback.
     if len(set(_YEAR_TOKEN.findall(source))) <= 1:
@@ -789,6 +936,44 @@ def _candidate_location(linker: GazetteerLinker, raw: str, text: str, start: int
         if linked:
             return linked
     return None
+
+
+_DOMESTIC_SCOPE = re.compile(
+    r"(?:\bnationwide\b|\bcountrywide\b|\bdomestic\b|\bnational(?:ly)?\b|"
+    r"\bacross the country\b|\bin the country\b|\bthroughout the country\b|"
+    r"\bnasional\b|\bse[- ]?indonesia\b|\bdalam negeri\b|\bseluruh negara\b|"
+    r"\btrong nước\b|\btoàn quốc\b|\btrên cả nước\b|ทั่วประเทศ|"
+    r"ในประเทศ|ระดับประเทศ|ទូទាំងប្រទេស|ທົ່ວປະເທດ|"
+    r"ພາຍໃນປະເທດ|တစ်နိုင်ငံလုံး|\bsa buong bansa\b|\bpambansa\b)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _source_scope_location(
+    text: str,
+    linker: GazetteerLinker,
+    source_country: Optional[str],
+) -> Optional[LinkedLocation]:
+    """Use source scope only when the article explicitly says domestic."""
+
+    country = extractors.normalize_country(source_country)
+    if country not in config.ASEAN_COUNTRIES:
+        return None
+    mentioned = extractors.extract_all_mentioned_countries(text)
+    same_country_mentioned = country in mentioned and len(mentioned) == 1
+    if not _DOMESTIC_SCOPE.search(text or "") and not same_country_mentioned:
+        return None
+    linked = linker.link(country, context="national country scope", evidence="")
+    if linked:
+        return linked
+    latitude, longitude = config.LOCATION_COORDS.get(country, (None, None))
+    return LinkedLocation(
+        name=country,
+        country=country,
+        latitude=latitude,
+        longitude=longitude,
+        evidence="",
+    )
 
 
 def _mentioned_locations(text: str, linker: GazetteerLinker) -> list[LinkedLocation]:
@@ -818,17 +1003,58 @@ def _mentioned_locations(text: str, linker: GazetteerLinker) -> list[LinkedLocat
     )
 
 
+_LOCAL_CASE_TERM = metric_term_pattern(CASE_TERMS)
+_LOCAL_DEATH_TERM = metric_term_pattern(DEATH_TERMS)
+
+_RANGE_CASE = re.compile(
+    rf"(?:between|antara|from|từ|từ khoảng|ระหว่าง|จาก|ចន្លោះពី|ពី|ລະຫວ່າງ|"
+    rf"จาก)\s*(?P<low>{_NUMBER})\s*(?:and|dan|to|sampai|hingga|đến|ถึง|ដល់|ຫາ|မှ)\s*"
+    rf"(?P<high>{_NUMBER})\s*(?:{_LOCAL_CASE_TERM})",
+    re.IGNORECASE | re.UNICODE,
+)
+
 _NARRATIVE_CASE = re.compile(
     rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
-    r"(?:new\s+)?(?:[A-Za-z][\w-]*\s+){0,3}"
-    r"(?:kasus|cases?|infeksi|infections?|pasien|patients?)\b",
+    rf"(?:new\s+|baru\s+|terkonfirmasi\s+|confirmed\s+)?(?:[A-Za-zÀ-ÿ\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF][\wÀ-ÿ\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]*\s+){{0,4}}"
+    rf"{_LOCAL_CASE_TERM}",
     re.IGNORECASE,
 )
 _NARRATIVE_DEATH = re.compile(
     rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
-    r"(?:[A-Za-z][\w-]*\s+){0,3}"
-    r"(?:kematian|deaths?|fatalities|meninggal(?: dunia)?)\b",
+    rf"(?:[A-Za-zÀ-ÿ\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF][\wÀ-ÿ\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]*\s+){{0,4}}"
+    rf"{_LOCAL_DEATH_TERM}",
     re.IGNORECASE,
+)
+
+# Native-script and post-label forms are common in official ASEAN reporting:
+# ``ผู้ป่วยสะสม 99,691 ราย`` and ``เสียชีวิต 15 ราย``.  The old relation
+# patterns only handled number-before-label forms, so the death matcher could
+# incorrectly consume the preceding case total.
+_POSTFIX_CASE = re.compile(
+    rf"(?:ผู้ป่วย|ผู้ติดเชื้อ|ผู้ป่วยสะสม|ผู้ป่วยใหม่|"
+    rf"cases?|infections?|kasus|infeksi|patients?|pasien|"
+    rf"ca\s+mắc|ca\s+nhiễm|trường\s+hợp|ករណីឆ្លង|ករណី|"
+    rf"ກໍລະນີ|ຄົນເຈັບ|လူနာ|ကူးစက်သူ)"
+    rf"(?:\s*(?:สะสม|ใหม่|ทั้งหมด|รวม|baru|terkonfirmasi|confirmed|"
+    rf"mới|xác\s+nhận|ថ្មី|ໃໝ່|အသစ်))?\s*"
+    rf"(?P<count>{_NUMBER})\s*(?:ราย|คน|នាក់|ຄົນ|ဦး|ယောက်|cases?|"
+    rf"kasus|patients?|pasien|ca|trường\s+hợp)?",
+    re.IGNORECASE | re.UNICODE,
+)
+_POSTFIX_DEATH = re.compile(
+    rf"(?:ผู้เสียชีวิต|เสียชีวิต|death\s+toll|deaths?|fatalities|"
+    rf"kematian|meninggal(?:\s+dunia)?|korban\s+jiwa|tewas|died|"
+    rf"tử\s+vong|អ្នកស្លាប់|ករណីស្លាប់|ຜູ້ເສຍຊີວິດ|ເສຍຊີວິດ|"
+    rf"သေဆုံးသူ|သေဆုံး|kamatayan)"
+    rf"(?:\s*(?:สะสม|ทั้งหมด|รวม|total|tercatat|reported|baru))?\s*"
+    rf"(?P<count>{_NUMBER})\s*(?:ราย|คน|នាក់|ຄົນ|ဦး|ယောက်|deaths?|"
+    rf"fatalities|kematian)?",
+    re.IGNORECASE | re.UNICODE,
+)
+_CASE_TOTAL_BEFORE_DEATH = re.compile(
+    r"(?:cases?|infections?|kasus|infeksi|ราย|trường\s+hợp|"
+    r"ករណី(?:ឆ្លង)?|ca\s+(?:mắc|nhiễm)|ກໍລະນີ|ကူးစက်သူ)",
+    re.IGNORECASE | re.UNICODE,
 )
 _NON_CASE_NUMBER_CONTEXT = re.compile(
     r"(?:%|persen|percent|per\s+100|population|populasi|tempat\s+tidur|"
@@ -836,12 +1062,112 @@ _NON_CASE_NUMBER_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 
+_CASE_BREAKDOWN_CONTEXT = re.compile(
+    r"(?:\bage(?:d)?\b|\brate\b|อายุ|อัตราป่วย|โรงพยาบาล|hospital)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _looks_like_case_breakdown(text: str, start: int) -> bool:
+    """Reject age/hospital/rate breakdown numbers as national case totals."""
+
+    source = text or ""
+    prefix_start = max(0, start - 120)
+    for match in re.finditer(r"[.!?;\n]", source[prefix_start:start]):
+        if match.group(0) == ".":
+            absolute = prefix_start + match.start()
+            if (
+                absolute > 0
+                and absolute + 1 < len(source)
+                and source[absolute - 1].isdigit()
+                and source[absolute + 1].isdigit()
+            ):
+                continue
+        prefix_start = prefix_start + match.end()
+    prefix = source[prefix_start:start]
+    return bool(_CASE_BREAKDOWN_CONTEXT.search(prefix))
+
+_CALENDAR_YEAR_CONTEXT = re.compile(
+    r"(?:\b(?:year|tahun|in|during|throughout|pada|di|tahun)\s*|"
+    r"(?:ปี|พ\.ศ\.?|ค\.ศ\.?|ឆ្នាំ|ປີ|နှစ်)\s*)$|"
+    r"(?:\b(?:year|tahun|ปี|พ\.ศ\.?|ค\.ศ\.?|ឆ្នាំ|ປີ|နှစ်)\s*)"
+    r"(?:19\d{2}|20\d{2}|25\d{2})\b",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _looks_like_calendar_year(text: str, start: int, end: int) -> bool:
+    """Reject a calendar year when a loose case regex spans into its label.
+
+    Narrative patterns intentionally allow a few words between a number and a
+    metric label.  That is useful for prose, but it also makes ``ปี 2568 ...
+    ผู้ป่วย`` look like 2,568 cases.  The number remains available to temporal
+    extraction; it is only excluded from the metric relation layer.
+    """
+
+    raw = (text or "")[start:end]
+    compact = re.sub(r"[\s,._]", "", raw)
+    if not re.fullmatch(r"(?:19\d{2}|20\d{2}|25\d{2})", compact):
+        return False
+    source = text or ""
+    prefix = source[max(0, start - 40):start]
+    suffix = source[end:min(len(source), end + 12)]
+    if re.search(
+        r"(?:\b(?:year|tahun|in|during|throughout|pada|di)\s*|"
+        r"(?:ปี|พ\.ศ\.?|ค\.ศ\.?|กลางปี|ឆ្នាំ|ປີ|နှစ်)\s*)$",
+        prefix,
+        re.IGNORECASE | re.UNICODE,
+    ):
+        return True
+    # A year followed by a date/period connector is temporal even when the
+    # language places the marker after the number.
+    return bool(re.match(r"\s*(?:年|ปี|г\.?|年|[-–/]\s*\d)", suffix, re.IGNORECASE | re.UNICODE))
+
 
 def _metric_is_valid(text: str, start: int, end: int) -> bool:
     """Reject numbers that look like rates, capacity, samples, or doses."""
 
     context = text[max(0, start - 32):min(len(text), end + 48)]
-    return not _NON_CASE_NUMBER_CONTEXT.search(context)
+    if _NON_CASE_NUMBER_CONTEXT.search(context):
+        return False
+    return not _looks_like_calendar_year(text, start, end)
+
+
+def _case_number_after_death_label(text: str, start: int) -> bool:
+    """Reject ``death label + number`` from the case relation pass."""
+
+    prefix = (text or "")[max(0, start - 80):start]
+    return bool(re.search(rf"(?:{_LOCAL_DEATH_TERM})\s*$", prefix, re.IGNORECASE | re.UNICODE))
+
+
+def _narrative_metric_is_valid(text: str, match: re.Match, metric_name: str) -> bool:
+    """Keep adjacent case/death metrics from stealing each other's value."""
+
+    span = match.group(0)
+    if _looks_like_calendar_year(text, match.start("count"), match.end("count")):
+        return False
+    if metric_name == "cases" and _looks_like_case_breakdown(text, match.start("count")):
+        return False
+    # A loose native-script pattern may start at a year and consume several
+    # words before reaching ``cases``/``deaths``. A four-digit calendar year
+    # is not a metric in that form, even when the language omits a Latin date
+    # marker (common in Lao reporting).
+    raw_count = match.group("count")
+    compact_count = re.sub(r"[\s,._]", "", raw_count or "")
+    after_count = span[match.end("count") - match.start():].strip()
+    if re.fullmatch(r"(?:19\d{2}|20\d{2}|25\d{2})", compact_count) and len(after_count) > 10:
+        return False
+    if metric_name == "cases":
+        return not _case_number_after_death_label(text, match.start("count"))
+
+    death_label = re.search(_LOCAL_DEATH_TERM, span, re.IGNORECASE | re.UNICODE)
+    if not death_label:
+        return True
+    # ``99,691 ราย เสียชีวิต 15 ราย`` must not yield a synthetic death count
+    # of 99,691. A direct ``99,691 patients died`` remains valid because
+    # patient/person wording is not treated as a prior case total here.
+    prefix = span[:death_label.start()]
+    return not _CASE_TOTAL_BEFORE_DEATH.search(prefix)
 
 
 def _location_spans(text: str, linker: GazetteerLinker) -> list[tuple[int, int, LinkedLocation]]:
@@ -859,11 +1185,17 @@ def _nearest_location(
     metric_end: int,
     locations: list[tuple[int, int, LinkedLocation]],
     max_distance: int = 260,
+    text: str = "",
 ) -> Optional[LinkedLocation]:
     if not locations:
         return None
+    valid_locations = locations
+    if text:
+        filtered = [loc for loc in locations if not _is_comparative_location(text, loc[0])]
+        if filtered:
+            valid_locations = filtered
     candidate = min(
-        locations,
+        valid_locations,
         key=lambda item: min(abs(metric_start - item[1]), abs(item[0] - metric_end)),
     )
     distance = min(abs(metric_start - candidate[1]), abs(candidate[0] - metric_end))
@@ -878,105 +1210,313 @@ def _upsert_relation(
         relation.location.country.casefold(),
         relation.location.name.casefold(),
         relation.time_frame,
+        (relation.disease or "").casefold(),
+        relation.qualifier or "",
     )
     current = relations.get(key)
     if not current:
+        # Native-script pages frequently omit sentence punctuation, and a
+        # decimal rate can make a simple punctuation counter split one
+        # reporting clause in two. Merge a disease-labelled case/death pair
+        # when the location, period, and qualifier agree and the evidence is
+        # close; never merge two different explicit diseases.
+        for candidate in relations.values():
+            same_scope = (
+                candidate.location.country.casefold() == relation.location.country.casefold()
+                and candidate.location.name.casefold() == relation.location.name.casefold()
+                and candidate.time_frame == relation.time_frame
+                and (candidate.qualifier or "") == (relation.qualifier or "")
+            )
+            disease_compatible = (
+                not candidate.disease
+                or not relation.disease
+                or candidate.disease.casefold() == relation.disease.casefold()
+            )
+            if not same_scope or not disease_compatible:
+                continue
+            if candidate.evidence_offset_start is None or relation.evidence_offset_start is None:
+                continue
+            if abs(candidate.evidence_offset_start - relation.evidence_offset_start) <= 500:
+                current = candidate
+                break
+    if not current:
         relations[key] = relation
         return
+    previous_evidence = current.evidence
+    if not current.disease and relation.disease:
+        current.disease = relation.disease
     if relation.cases > current.cases:
         current.cases = relation.cases
         current.evidence = relation.evidence or current.evidence
+        current.metric_type = "cases"
     if relation.deaths is not None:
         current.deaths = max(current.deaths or 0, relation.deaths)
+        if current.cases == 0:
+            current.metric_type = "deaths"
+    if (
+        relation.evidence
+        and current.evidence
+        and relation.evidence not in previous_evidence
+        and (
+            relation.source_sentence_id == current.source_sentence_id
+            or (
+                current.evidence_offset_start is not None
+                and relation.evidence_offset_start is not None
+                and abs(current.evidence_offset_start - relation.evidence_offset_start) <= 500
+            )
+        )
+    ):
+        # Keep case and death proof together when they came from one original
+        # sentence. This avoids exposing a death count with case-only evidence
+        # while preserving the exact source wording.
+        evidence_parts = [current.evidence]
+        if previous_evidence and previous_evidence not in evidence_parts[0]:
+            evidence_parts.append(previous_evidence)
+        if relation.evidence not in evidence_parts[0]:
+            evidence_parts.append(relation.evidence)
+        current.evidence = " ".join(dict.fromkeys(part for part in evidence_parts if part)).strip()
+        if current.evidence_offset_start is not None and relation.evidence_offset_start is not None:
+            current.evidence_offset_start = min(current.evidence_offset_start, relation.evidence_offset_start)
+        if current.evidence_offset_end is not None and relation.evidence_offset_end is not None:
+            current.evidence_offset_end = max(current.evidence_offset_end, relation.evidence_offset_end)
+    if relation.evidence and len(relation.evidence) > len(current.evidence):
+        current.evidence = relation.evidence
+    current.value_min = min(
+        value for value in (current.value_min, relation.value_min) if value is not None
+    ) if any(value is not None for value in (current.value_min, relation.value_min)) else None
+    current.value_max = max(
+        value for value in (current.value_max, relation.value_max) if value is not None
+    ) if any(value is not None for value in (current.value_max, relation.value_max)) else None
+
+
+def _source_sentence_id(text: str, offset: int) -> str:
+    """Create a stable source sentence identifier without fake translations."""
+
+    prefix = (text or "")[:max(0, offset)]
+    boundaries = re.findall(r"[.!?。！？\n]", prefix)
+    return f"s{len(boundaries) + 1}"
+
+
+def _relation_disease(text: str, start: int, end: int) -> Optional[str]:
+    """Use only disease terms found in the same metric evidence window."""
+
+    context = _metric_context(text, start, end)
+    candidates = list(dict.fromkeys(
+        extractors.extract_diseases(context) + extractors.extract_alias_diseases(context)
+    ))
+    candidates = [item for item in candidates if extractors.disease_has_textual_evidence(item, context)]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _relation_qualifier(text: str, start: int, end: int) -> Optional[str]:
+    context = _metric_context(text, start, end)
+    match = re.search(
+        r"\b(more than|over|at least|nearly|about|around|approximately|"
+        r"lebih dari|setidaknya|sekitar|hampir|lebih kurang|approximately)\b",
+        context,
+        re.IGNORECASE,
+    )
+    return match.group(1).casefold() if match else None
 
 
 def _extract_narrative_relations(
     text: str,
     linker: GazetteerLinker,
     published_date: Optional[str],
+    fallback_location: Optional[LinkedLocation] = None,
 ) -> list[MetricRelation]:
     """Recover implicit-location comparisons such as ``2025 ... 614,601``."""
 
-    locations = _location_spans(text or "", linker)
+    source = text or ""
+    working = normalize_local_digits(source)
+    locations = _location_spans(source, linker)
     relations: dict[tuple[str, str, str], MetricRelation] = {}
     for pattern, metric_name in ((_NARRATIVE_CASE, "cases"), (_NARRATIVE_DEATH, "deaths")):
-        for match in pattern.finditer(text or ""):
-            if not _metric_is_valid(text, match.start("count"), match.end()):
+        for match in pattern.finditer(working):
+            if not _narrative_metric_is_valid(source, match, metric_name):
                 continue
-            linked = _nearest_location(match.start(), match.end(), locations)
+            if not _metric_is_valid(source, match.start("count"), match.end()):
+                continue
+            if _looks_like_case_breakdown(source, match.start("count")):
+                continue
+            linked = _nearest_location(match.start(), match.end(), locations, text=source)
+            if not linked:
+                linked = fallback_location
             if not linked:
                 continue
             frame = _relation_time_frame_for_span(
-                text, linked, published_date, match.start(), match.end()
+                source, linked, published_date, match.start(), match.end()
             )
-            evidence = _metric_context(text, match.start(), match.end(), radius=180)
+            evidence = source[match.start():match.end()].strip()
+            value = _number(match.group("count"), match.groupdict().get("multiplier", ""))
             relation = MetricRelation(
                 location=linked,
-                cases=_number(match.group("count"), match.groupdict().get("multiplier", "")) if metric_name == "cases" else 0,
-                deaths=_number(match.group("count"), match.groupdict().get("multiplier", "")) if metric_name == "deaths" else None,
+                cases=value if metric_name == "cases" else 0,
+                deaths=value if metric_name == "deaths" else None,
                 time_frame=frame,
                 evidence=evidence,
+                disease=_relation_disease(source, match.start(), match.end()),
+                metric_type=metric_name,
+                qualifier=_relation_qualifier(source, match.start(), match.end()),
+                value=value,
+                evidence_offset_start=match.start(),
+                evidence_offset_end=match.end(),
+                source_sentence_id=_source_sentence_id(source, match.start()),
             )
             _upsert_relation(relations, relation)
     return list(relations.values())
+
+
+def _extract_range_relations(
+    text: str,
+    linker: GazetteerLinker,
+    published_date: Optional[str],
+) -> list[MetricRelation]:
+    """Keep a numeric range as a range instead of selecting one endpoint."""
+
+    source = text or ""
+    working = normalize_local_digits(source)
+    locations = _location_spans(source, linker)
+    relations: list[MetricRelation] = []
+    for match in _RANGE_CASE.finditer(working):
+        linked = _nearest_location(match.start(), match.end(), locations, text=source)
+        if not linked:
+            continue
+        low = _number(match.group("low"))
+        high = _number(match.group("high"))
+        if high < low:
+            low, high = high, low
+        relations.append(MetricRelation(
+            location=linked,
+            cases=0,
+            time_frame=_relation_time_frame_for_span(source, linked, published_date, match.start(), match.end()),
+            evidence=source[match.start():match.end()].strip(),
+            disease=_relation_disease(source, match.start(), match.end()),
+            metric_type="cases",
+            qualifier="range",
+            value_min=low,
+            value_max=high,
+            evidence_offset_start=match.start(),
+            evidence_offset_end=match.end(),
+            source_sentence_id=_source_sentence_id(source, match.start()),
+        ))
+    return relations
 
 
 def extract_metric_relations(
     text: str,
     linker: Optional[GazetteerLinker] = None,
     published_date: Optional[str] = None,
+    source_country: Optional[str] = None,
 ) -> list[MetricRelation]:
     """Extract explicit location↔metric relations from local evidence windows."""
 
+    source = text or ""
+    working = normalize_local_digits(source)
     linker = linker or GazetteerLinker()
+    locations = _location_spans(source, linker)
+    # Keep a verified domestic-scope fallback even when the article also
+    # mentions a country later in a historical comparison. The nearest
+    # location still wins; the fallback is used only when a metric has no
+    # nearby explicit location.
+    fallback_location = _source_scope_location(source, linker, source_country)
     relations: dict[tuple[str, str, str], MetricRelation] = {}
+
+    for relation in _extract_range_relations(source, linker, published_date):
+        _upsert_relation(relations, relation)
 
     patterns = (_LOCATION_PARENS_CASE, _CASE_BEFORE_LOCATION, _LOCATION_BEFORE_CASE)
     for pattern in patterns:
-        for match in pattern.finditer(text or ""):
+        for match in pattern.finditer(working):
+            if _is_comparative_location(source, match.start("location")):
+                continue
             raw_location = match.group("location")
-            linked = _candidate_location(linker, raw_location, text, match.start("location"), match.end("location"))
+            linked = _candidate_location(linker, raw_location, source, match.start("location"), match.end("location"))
             if not linked:
                 continue
             count = _number(match.group("count"), match.groupdict().get("multiplier", ""))
-            if not _metric_is_valid(text, match.start("count"), match.end()):
+            if _case_number_after_death_label(source, match.start("count")):
+                continue
+            if not _metric_is_valid(source, match.start("count"), match.end()):
+                continue
+            if _looks_like_case_breakdown(source, match.start("count")):
                 continue
             frame = _relation_time_frame_for_span(
-                text, linked, published_date, match.start("count"), match.end("count")
+                source, linked, published_date, match.start("count"), match.end("count")
             )
             _upsert_relation(relations, MetricRelation(
                 location=linked, cases=count,
-                time_frame=frame, evidence=match.group(0).strip(),
+                time_frame=frame, evidence=source[match.start():match.end()].strip(),
+                disease=_relation_disease(source, match.start(), match.end()),
+                metric_type="cases", qualifier=_relation_qualifier(source, match.start(), match.end()),
+                value=count, evidence_offset_start=match.start(), evidence_offset_end=match.end(),
+                source_sentence_id=_source_sentence_id(source, match.start()),
+            ))
+
+    for pattern, metric_name in ((_POSTFIX_CASE, "cases"), (_POSTFIX_DEATH, "deaths")):
+        for match in pattern.finditer(working):
+            if not _metric_is_valid(source, match.start("count"), match.end()):
+                continue
+            linked = _nearest_location(match.start(), match.end(), locations, text=source)
+            if not linked:
+                linked = fallback_location
+            if not linked:
+                continue
+            count = _number(match.group("count"), match.groupdict().get("multiplier", ""))
+            frame = _relation_time_frame_for_span(
+                source, linked, published_date, match.start("count"), match.end("count")
+            )
+            _upsert_relation(relations, MetricRelation(
+                location=linked,
+                cases=count if metric_name == "cases" else 0,
+                deaths=count if metric_name == "deaths" else None,
+                time_frame=frame,
+                evidence=source[match.start():match.end()].strip(),
+                disease=_relation_disease(source, match.start(), match.end()),
+                metric_type=metric_name,
+                qualifier=_relation_qualifier(source, match.start(), match.end()),
+                value=count,
+                evidence_offset_start=match.start(),
+                evidence_offset_end=match.end(),
+                source_sentence_id=_source_sentence_id(source, match.start()),
             ))
 
     for pattern in (_DEATH_NEAR_LOCATION, _DEATH_WITH_LABEL, _LOCATION_BEFORE_DEATH):
-        for match in pattern.finditer(text or ""):
-            linked = _candidate_location(linker, match.group("location"), text, match.start("location"), match.end("location"))
+        for match in pattern.finditer(working):
+            if _is_comparative_location(source, match.start("location")):
+                continue
+            linked = _candidate_location(linker, match.group("location"), source, match.start("location"), match.end("location"))
             if not linked:
                 continue
             death_count = _number(match.group("count"), match.groupdict().get("multiplier", ""))
-            if not _metric_is_valid(text, match.start("count"), match.end()):
+            if not _metric_is_valid(source, match.start("count"), match.end()):
                 continue
             frame = _relation_time_frame_for_span(
-                text, linked, published_date, match.start("count"), match.end("count")
+                source, linked, published_date, match.start("count"), match.end("count")
             )
             _upsert_relation(relations, MetricRelation(
                 location=linked, deaths=death_count,
-                time_frame=frame, evidence=match.group(0).strip(),
+                time_frame=frame, evidence=source[match.start():match.end()].strip(),
+                disease=_relation_disease(source, match.start(), match.end()),
+                metric_type="deaths", qualifier=_relation_qualifier(source, match.start(), match.end()),
+                value=death_count, evidence_offset_start=match.start(), evidence_offset_end=match.end(),
+                source_sentence_id=_source_sentence_id(source, match.start()),
             ))
 
     # The deterministic location patterns intentionally require a nearby
     # place. This second pass handles common narrative shorthand where the
     # country is named once and subsequent comparison values omit it.
-    narrative_count = len(_NARRATIVE_CASE.findall(text or "")) + len(_NARRATIVE_DEATH.findall(text or ""))
+    narrative_count = len(_NARRATIVE_CASE.findall(working)) + len(_NARRATIVE_DEATH.findall(working))
     if not relations or narrative_count > len(relations):
-        for relation in _extract_narrative_relations(text or "", linker, published_date):
+        for relation in _extract_narrative_relations(
+            source, linker, published_date, fallback_location=fallback_location
+        ):
             _upsert_relation(relations, relation)
 
     # Optional NER contributes only locations; it is not allowed to invent a
     # metric. This improves coverage for province grouping without weakening
     # the relation rule above.
-    for raw, context in _spacy_candidates(text or ""):
+    for raw, context in _spacy_candidates(source):
         linked = linker.link(raw, context=context)
         if linked and not any(r.location.name.casefold() == linked.name.casefold() for r in relations.values()):
             continue
@@ -989,7 +1529,7 @@ def extract_metric_relations(
 
 
 def _llm_relations(text: str) -> list[RawLLMRelation]:
-    if not config.AGENT_ENABLED or os.getenv("SURVEILLANCE_LLM_RELATIONS", "true").lower() not in {"1", "true", "yes", "on"}:
+    if not config.AGENT_ENABLED or os.getenv("SURVEILLANCE_LLM_RELATIONS", "false").lower() not in {"1", "true", "yes", "on"}:
         return []
     try:
         from .agent import chat_json
@@ -1123,17 +1663,17 @@ def decide_alert(
 def _period_year(time_frame: str, published_date: Optional[str] = None) -> Optional[int]:
     match = _YEAR_TOKEN.search(time_frame or "")
     if match:
-        return int(match.group(1))
+        return _calendar_year(match.group(1))
     if published_date:
         match = _YEAR_TOKEN.match(published_date[:4])
         if match:
-            return int(match.group(1))
+            return _calendar_year(match.group(1))
     return None
 
 
 def _period_sort_key(time_frame: str) -> tuple[int, str, str]:
     years = _YEAR_TOKEN.findall(time_frame or "")
-    year = int(years[-1]) if years else 0
+    year = _calendar_year(years[-1]) if years else 0
     iso_dates = re.findall(r"20\d{2}-\d{2}-\d{2}", time_frame or "")
     return year, (iso_dates[-1] if iso_dates else ""), time_frame or ""
 
@@ -1251,6 +1791,7 @@ def build_surveillance_output(
     source_name: Optional[str] = None,
     source_type: Optional[str] = None,
     source_url: Optional[str] = None,
+    source_country: Optional[str] = None,
     linker: Optional[GazetteerLinker] = None,
     include_llm: bool = True,
 ) -> SurveillanceOutput:
@@ -1260,7 +1801,12 @@ def build_surveillance_output(
     published_date = _published_date(published_at, text)
     event_date = extract_event_date(text)
     typed_counts = extract_labeled_counts(text)
-    relations = extract_metric_relations(text, linker=linker, published_date=published_date)
+    relations = extract_metric_relations(
+        text,
+        linker=linker,
+        published_date=published_date,
+        source_country=source_country,
+    )
     mentioned_locations = _mentioned_locations(text, linker)
 
     # LLM relations are supplements only. They must resolve to the same local

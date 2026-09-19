@@ -25,15 +25,53 @@ _BACKEND_URL = os.getenv("BACKEND_LABELS_URL", "http://backend-rust:8080")
 _DEFAULT_LABELS: dict[str, list[str]] = {}
 
 
+def _fetch_paginated_collection(path: str, category: str) -> list[dict]:
+    """Read the complete DB collection instead of silently taking page one.
+
+    The backend defaults to 20 rows per page. Classifier labels and keywords
+    are runtime configuration, so truncating them changes model behaviour
+    without an error. Keep the pagination detail here rather than teaching
+    every caller a different API contract.
+    """
+    items: list[dict] = []
+    page = 1
+    per_page = 100
+    while page <= 100:
+        separator = "&" if "?" in path else "?"
+        url = (
+            f"{_BACKEND_URL}{path}{separator}category={category}"
+            f"&page={page}&per_page={per_page}"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "nlp-service/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read())
+        batch = payload.get("data", []) if isinstance(payload, dict) else payload
+        if not isinstance(batch, list):
+            raise ValueError("configuration API returned a non-list data field")
+        items.extend(item for item in batch if isinstance(item, dict))
+        total_pages = int((payload or {}).get("total_pages") or page) if isinstance(payload, dict) else page
+        if page >= total_pages or not batch:
+            break
+        page += 1
+    return items
+
+
 def _load_defaults():
     global _DEFAULT_LABELS
     if not _DEFAULT_LABELS:
-        from ..config import DISEASE_LABELS, SENTIMENT_LABELS, EVENT_TYPE_LABELS, RELEVANCE_LABELS
+        from ..config import (
+            BINARY_HEALTH_LABELS,
+            DISEASE_LABELS,
+            SENTIMENT_LABELS,
+            EVENT_TYPE_LABELS,
+            RELEVANCE_LABELS,
+        )
         _DEFAULT_LABELS = {
             "disease": DISEASE_LABELS,
             "sentiment": SENTIMENT_LABELS,
             "event_type": EVENT_TYPE_LABELS,
             "relevance": RELEVANCE_LABELS,
+            "binary_health": BINARY_HEALTH_LABELS,
         }
 
 
@@ -44,16 +82,12 @@ def _fetch_labels_api():
         return
     _load_defaults()
 
-    for category in ("disease", "event_type", "sentiment", "relevance"):
+    for category in ("disease", "event_type", "sentiment", "relevance", "binary_health"):
         try:
-            req = urllib.request.Request(f"{_BACKEND_URL}/api/v1/nlp-labels?category={category}",
-                                          headers={"User-Agent": "nlp-service/1.0"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read())["data"]
-                labels = [l["label"] for l in data if l.get("is_active", True)]
-                if labels:
-                    _current_labels[category] = labels
-                    logger.info("Refreshed %d labels for '%s' from DB", len(labels), category)
+            data = _fetch_paginated_collection("/api/v1/nlp-labels", category)
+            labels = [item["label"] for item in data if item.get("is_active", True) and item.get("label")]
+            _current_labels[category] = labels
+            logger.info("Refreshed %d labels for '%s' from DB", len(labels), category)
         except Exception as e:
             logger.debug("Failed to fetch labels for '%s': %s", category, e)
             if category not in _current_labels:
@@ -69,17 +103,14 @@ def _fetch_keywords(cfg):
     """Update config.SYMPTOM_DICT and config.DISEASE_DICT from DB."""
     for cat, target_dict_name in [("symptom", "SYMPTOM_DICT"), ("disease", "DISEASE_DICT")]:
         try:
-            req = urllib.request.Request(f"{_BACKEND_URL}/api/v1/nlp-keywords?category={cat}",
-                                          headers={"User-Agent": "nlp-service/1.0"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                items = json.loads(resp.read()).get("data", [])
-                new_dict = {}
-                for item in items:
-                    if item.get("is_active", True):
-                        new_dict[item["keyword"]] = item["target_label"]
-                if new_dict:
-                    setattr(cfg, target_dict_name, new_dict)
-                    logger.info("Refreshed %d keywords for '%s' from DB", len(new_dict), cat)
+            items = _fetch_paginated_collection("/api/v1/nlp-keywords", cat)
+            new_dict = {
+                item["keyword"]: item["target_label"]
+                for item in items
+                if item.get("is_active", True) and item.get("keyword") and item.get("target_label")
+            }
+            setattr(cfg, target_dict_name, new_dict)
+            logger.info("Refreshed %d keywords for '%s' from DB", len(new_dict), cat)
         except Exception as e:
             logger.debug("Failed to fetch keywords for '%s': %s", cat, e)
 

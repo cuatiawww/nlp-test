@@ -61,7 +61,7 @@ Modul **Console** adalah portal administratif mandiri (*stealth admin system*) u
 
 ### D. Auto-Provisioning Server (`docker-compose.yml`)
 * [`docker-compose.yml`](file:///wsl.localhost/Ubuntu/home/aspire_5/app/NLP-PENYAKIT/docker-compose.yml):
-  * Service `disease-minio-init` menggunakan image resmi `minio/mc:latest`.
+  * Service `disease-minio-init` menggunakan image resmi `quay.io/minio/mc:latest`.
   * Saat container pertama kali naik di server mana pun, script ini otomatis membuat bucket `disease-documents` dan menyetel hak akses download publik (`mc anonymous set download`). Developer tidak perlu konfigurasi manual di MinIO dashboard.
 
 ---

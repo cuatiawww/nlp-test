@@ -8199,11 +8199,14 @@ async fn create_label(
             Json(json!({"success": false, "error": "Label exists or insert failed"}))
         });
     match row {
-        Ok(r) => Json(json!({"success": true, "data": {
+        Ok(r) => {
+            reload_nlp_runtime(&state).await;
+            Json(json!({"success": true, "data": {
             "id": r.get::<_, Uuid>(0), "category": r.get::<_, String>(1),
             "label": r.get::<_, String>(2), "is_active": r.get::<_, bool>(3),
             "priority": r.get::<_, i32>(4), "created_at": r.get::<_, Option<String>>(5),
-        }})),
+            }}))
+        },
         Err(j) => j,
     }
 }
@@ -8225,11 +8228,14 @@ async fn update_label(
         .await
         .map_err(|_| Json(json!({"success": false, "error": "Update failed"})));
     match row {
-        Ok(r) => Json(json!({"success": true, "data": {
+        Ok(r) => {
+            reload_nlp_runtime(&state).await;
+            Json(json!({"success": true, "data": {
             "id": r.get::<_, Uuid>(0), "category": r.get::<_, String>(1),
             "label": r.get::<_, String>(2), "is_active": r.get::<_, bool>(3),
             "priority": r.get::<_, i32>(4), "created_at": r.get::<_, Option<String>>(5),
-        }})),
+            }}))
+        },
         Err(j) => j,
     }
 }
@@ -8243,6 +8249,7 @@ async fn delete_label(
         Err(_) => return Json(json!({"success": false, "error": "DB error"})),
     };
     client.execute("DELETE FROM nlp_labels WHERE id = $1", &[&id]).await.unwrap_or_default();
+    reload_nlp_runtime(&state).await;
     Json(json!({"success": true, "data": "deleted"}))
 }
 
@@ -8305,12 +8312,15 @@ async fn create_keyword(
         )
         .await;
     match result {
-        Ok(r) => Json(json!({"success": true, "data": {
+        Ok(r) => {
+            reload_nlp_runtime(&state).await;
+            Json(json!({"success": true, "data": {
             "id": r.get::<_, Uuid>(0), "category": r.get::<_, String>(1),
             "keyword": r.get::<_, String>(2), "target_label": r.get::<_, String>(3),
             "is_active": r.get::<_, bool>(4), "priority": r.get::<_, i32>(5),
             "created_at": r.get::<_, Option<String>>(6),
-        }})),
+            }}))
+        },
         Err(_) => Json(json!({"success": false, "error": "Keyword exists"})),
     }
 }
@@ -8331,12 +8341,15 @@ async fn update_keyword(
         )
         .await;
     match result {
-        Ok(r) => Json(json!({"success": true, "data": {
+        Ok(r) => {
+            reload_nlp_runtime(&state).await;
+            Json(json!({"success": true, "data": {
             "id": r.get::<_, Uuid>(0), "category": r.get::<_, String>(1),
             "keyword": r.get::<_, String>(2), "target_label": r.get::<_, String>(3),
             "is_active": r.get::<_, bool>(4), "priority": r.get::<_, i32>(5),
             "created_at": r.get::<_, Option<String>>(6),
-        }})),
+            }}))
+        },
         Err(_) => Json(json!({"success": false, "error": "Update failed"})),
     }
 }
@@ -8350,6 +8363,7 @@ async fn delete_keyword(
         Err(_) => return Json(json!({"success": false, "error": "DB error"})),
     };
     client.execute("DELETE FROM nlp_keywords WHERE id = $1", &[&id]).await.unwrap_or_default();
+    reload_nlp_runtime(&state).await;
     Json(json!({"success": true, "data": "deleted"}))
 }
 
@@ -8834,6 +8848,7 @@ async fn create_language_marker(
         )
         .await
         .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Exists: {}", e)}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: json!({
         "id": row.get::<_, Uuid>(0), "word": row.get::<_, String>(1),
         "language": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
@@ -8856,6 +8871,7 @@ async fn update_language_marker(
         )
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: json!({
         "id": row.get::<_, Uuid>(0), "word": row.get::<_, String>(1),
         "language": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
@@ -8870,6 +8886,7 @@ async fn delete_language_marker(
     let client = state.db.get().await.map_err(internal_error)?;
     client.execute("DELETE FROM language_markers WHERE id = $1", &[&id]).await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 
@@ -8907,6 +8924,7 @@ async fn create_extraction_rule(
         )
         .await
         .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Exists: {}", e)}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: json!({
         "id": row.get::<_, Uuid>(0), "field_name": row.get::<_, String>(1),
         "regex_pattern": row.get::<_, String>(2), "priority": row.get::<_, i32>(3),
@@ -8929,6 +8947,7 @@ async fn update_extraction_rule(
         )
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: json!({
         "id": row.get::<_, Uuid>(0), "field_name": row.get::<_, String>(1),
         "regex_pattern": row.get::<_, String>(2), "priority": row.get::<_, i32>(3),
@@ -8944,6 +8963,7 @@ async fn delete_extraction_rule(
     let client = state.db.get().await.map_err(internal_error)?;
     client.execute("DELETE FROM extraction_rules WHERE id = $1", &[&id]).await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 
@@ -8980,6 +9000,7 @@ async fn create_language_model(
         )
         .await
         .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Exists: {}", e)}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: json!({
         "id": row.get::<_, Uuid>(0), "language": row.get::<_, String>(1),
         "model_key": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
@@ -9002,6 +9023,7 @@ async fn update_language_model(
         )
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: json!({
         "id": row.get::<_, Uuid>(0), "language": row.get::<_, String>(1),
         "model_key": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
@@ -9016,6 +9038,7 @@ async fn delete_language_model(
     let client = state.db.get().await.map_err(internal_error)?;
     client.execute("DELETE FROM language_models WHERE id = $1", &[&id]).await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
+    reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 

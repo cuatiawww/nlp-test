@@ -173,7 +173,7 @@ flowchart TD
 
     %% SUBGRAPH 2: NLP & STANDARDIZATION
     subgraph FASE_2 ["FASE 2: PEMROSESAN KOGNITIF & STANDARISASI MEDIS"]
-        B2 --> C1["Deteksi Bahasa & Translasi NLLB-200 (Non-Latin)"]
+        B2 --> C1["Deteksi Bahasa & Pemrosesan Native; NLLB-200 Opsional"]
         C1 --> C2{"Penyaring Relevansi Kesehatan (Health Classifier)"}
         
         C2 -- "Bukan Terkait Kesehatan" --> C3["Diarsipkan (Non-Health Event)"]
@@ -266,8 +266,8 @@ Setelah sinyal dihimpun, mesin kognitif AI memvalidasi dan menerjemahkan teks be
 
 #### Langkah Kritis Pemrosesan:
 
-1. **Penerjemahan Multibahasa ASEAN (NLLB-200 Lokal)**:
-   - Teks berbahasa non-Latin (Thai, Khmer, Lao, Burma) diterjemahkan secara internal menggunakan model NLLB-200. Hal ini menjamin independensi operasional tanpa ketergantungan biaya API pihak ketiga serta menjaga kerahasiaan data intelijen kesehatan nasional.
+1. **Pemrosesan Multibahasa ASEAN (Native + XLM-RoBERTa)**:
+   - Artikel selalu diekstrak dari bahasa asli. XLM-RoBERTa menangani klasifikasi/konteks multilingual, sedangkan NLLB-200 hanya digunakan sebagai translation view opsional bila diaktifkan. Hasil terjemahan tidak menggantikan evidence asli.
 2. **Pintu Penapisan Relevansi Kesehatan (*Binary Health Filter*)**:
    - Artikel disaring untuk memilah apakah laporan tersebut benar-benar berkaitan dengan kesehatan manusia atau sekadar berita metaforis (misalnya: istilah *wabah korupsi* atau *demam panggung*). Laporan non-kesehatan langsung diarsipkan dan tidak diizinkan masuk ke dashboard.
 3. **Penyelarasan Nomenklatur Standar WHO ICD-11 MMS**:

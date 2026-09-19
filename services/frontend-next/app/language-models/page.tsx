@@ -9,7 +9,7 @@ import Modal from '@/components/Modal'
 import SearchInput from '@/components/SearchInput'
 
 interface ModelItem {
-  id: string; language: string; model_name: string; is_active: boolean
+  id: string; language: string; model_key: string; is_active: boolean
 }
 
 export default function LanguageModelsPage() {
@@ -19,7 +19,7 @@ export default function LanguageModelsPage() {
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState<any | null>(null)
-  const [form, setForm] = useState({ language: '', model_name: '' })
+  const [form, setForm] = useState({ language: '', model_key: '' })
 
   const load = async () => {
     setLoading(true)
@@ -31,11 +31,11 @@ export default function LanguageModelsPage() {
   useEffect(() => { load() }, [])
 
   const filtered = search
-    ? data.filter(l => l.language.toLowerCase().includes(search.toLowerCase()) || l.model_name.toLowerCase().includes(search.toLowerCase()))
+    ? data.filter(l => l.language.toLowerCase().includes(search.toLowerCase()) || l.model_key.toLowerCase().includes(search.toLowerCase()))
     : data
 
   const handleSave = async () => {
-    if (!form.language || !form.model_name) return
+    if (!form.language || !form.model_key) return
     try {
       if (editItem) await updateLanguageModel(editItem.id, form)
       else await createLanguageModel(form)
@@ -56,7 +56,7 @@ export default function LanguageModelsPage() {
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.languageModels.title')}</h1>
           <p className="mt-1 text-sm text-slate-500">{t('pages.languageModels.subtitle')}</p>
         </div>
-        <button onClick={() => { setEditItem(null); setForm({ language: '', model_name: '' }); setShowModal(true) }}
+        <button onClick={() => { setEditItem(null); setForm({ language: '', model_key: '' }); setShowModal(true) }}
           className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white hover:bg-[#004b85]">
           <Plus className="h-4 w-4" /> {t('common.add')}
         </button>
@@ -88,7 +88,7 @@ export default function LanguageModelsPage() {
               {filtered.map(l => (
                 <tr key={l.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   <td className="px-4 py-3"><span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-600 uppercase">{l.language}</span></td>
-                  <td className="px-4 py-3 font-mono text-sm text-slate-800">{l.model_name}</td>
+                  <td className="px-4 py-3 font-mono text-sm text-slate-800">{l.model_key}</td>
                   <td className="px-4 py-3 text-center">
                     {l.is_active
                       ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.yes')}</span>
@@ -96,7 +96,7 @@ export default function LanguageModelsPage() {
                     }
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button onClick={() => { setEditItem(l); setForm({ language: l.language, model_name: l.model_name }); setShowModal(true) }}
+                    <button onClick={() => { setEditItem(l); setForm({ language: l.language, model_key: l.model_key }); setShowModal(true) }}
                       className="rounded-lg px-2 py-1 text-xs font-semibold text-[#0060A9] hover:bg-blue-50">{t('common.edit')}</button>
                     <button onClick={() => handleDelete(l.id, l.language)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
@@ -117,7 +117,7 @@ export default function LanguageModelsPage() {
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.languageModels.colName')} (HF / local name)</label>
-            <input value={form.model_name} onChange={e => setForm(f => ({ ...f, model_name: e.target.value }))} required
+            <input value={form.model_key} onChange={e => setForm(f => ({ ...f, model_key: e.target.value }))} required
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono" />
           </div>
           <div className="flex justify-end gap-2 pt-2">

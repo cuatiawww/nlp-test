@@ -83,6 +83,17 @@ class WebScraperHelpersTest(unittest.TestCase):
         self.assertTrue(_is_challenge(200, "<title>Just a moment...</title>"))
         self.assertFalse(_is_challenge(200, "<article>Health news</article>"))
 
+    def test_tls_exception_is_host_allowlisted_not_global(self):
+        from unittest.mock import patch
+        from app.collectors.web_scraper import WebScraperCollector
+
+        with patch("app.collectors.web_scraper.app_config.CRAWLER_TLS_VERIFY", True), patch(
+            "app.collectors.web_scraper.app_config.CRAWLER_INSECURE_TLS_HOSTS",
+            frozenset({"official.example"}),
+        ):
+            self.assertFalse(WebScraperCollector._verify_tls("https://official.example/news"))
+            self.assertTrue(WebScraperCollector._verify_tls("https://other.example/news"))
+
     def test_response_html_falls_back_to_bytes_body(self):
         page = FakePage(body="berita kesehatan".encode())
         self.assertEqual(_response_html(page), "berita kesehatan")

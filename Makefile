@@ -39,6 +39,13 @@ bootstrap-data-llm:
 	@echo "DeepSeek dipakai oleh NLP runtime sebagai fallback deteksi; bootstrap WHO tetap deterministik."
 	$(MAKE) bootstrap-data
 
+cache-nllb:
+	docker compose run --rm --no-deps \
+		-e HF_HUB_OFFLINE=0 \
+		-e TRANSFORMERS_OFFLINE=0 \
+		disease-nlp-python \
+		python -c 'from huggingface_hub import snapshot_download; snapshot_download(repo_id="facebook/nllb-200-distilled-600M")'
+
 export-training:
 	TRAINING_DATABASE_URL="$(TRAINING_DATABASE_URL)" python3 scripts/export_training_data.py
 

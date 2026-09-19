@@ -19,6 +19,7 @@ from .surveillance_extraction import (
     _metric_context,
     extract_metric_relations,
 )
+from .multilingual import normalize_local_digits
 
 
 _SENTENCE_RE = re.compile(r".*?(?:[.!?。！？]+|$)", re.S)
@@ -29,7 +30,11 @@ _GENERIC_METRIC_RE = re.compile(
     r"(?P<metric>hospitali[sz]ed|rawat inap|dirawat|recovered|sembuh|pulih|"
     r"tests?|tes|specimens?|spesimen|vaccinated|divaksin|vaksinasi|"
     r"suspected|suspek|confirmed|terkonfirmasi|active|aktif|percent|persen|"
-    r"rate|rasio|ratio)\b",
+    r"rate|rasio|ratio|"
+    r"โรงพยาบาล|รักษาในโรงพยาบาล|หายป่วย|ตรวจ|ฉีดวัคซีน|"
+    r"សម្រាកពេទ្យ|ជាសះស្បើយ|ធ្វើតេស្ត|ចាក់វ៉ាក់សាំង|"
+    r"ນອນໂຮງໝໍ|ຫາຍດີ|ກວດ|ສັກວັກຊີນ|"
+    r"ဆေးရုံတက်|ပြန်လည်ကောင်းမွန်|စမ်းသပ်|ကာကွယ်ဆေးထိုး)\b",
     re.IGNORECASE,
 )
 
@@ -40,7 +45,11 @@ def sentence_spans(text: str) -> list[tuple[int, int, str]]:
     source = text or ""
     spans: list[tuple[int, int, str]] = []
     start = 0
-    for match in re.finditer(r"[.!?。！？]+|\n+", source):
+    # Avoid splitting on periods inside numbers (e.g. 7.994 or 218.356)
+    pattern = re.compile(
+        r"(?:(?<!\d)[.!?。！？]+|(?<=\d)[.!?。！？]+(?=\s+[A-Z\"“'‘\n]|\s*$))(?:\s+|\n+|$)|(?<![\w\d])[.!?。！？]+(?:\s+|\n+|$)|[!?。！？]+|\n+"
+    )
+    for match in pattern.finditer(source):
         end = match.end()
         value = source[start:end].strip()
         if value:
@@ -132,15 +141,25 @@ def _generic_metric_type(label: str) -> tuple[str, str]:
         return "percentage", "percent"
     if value in {"rate", "rasio", "ratio"}:
         return "rate", "ratio"
+    if value in {"โรงพยาบาล", "รักษาในโรงพยาบาล", "សម្រាកពេទ្យ", "ນອນໂຮງໝໍ", "ဆေးရုံတက်"}:
+        return "hospitalized", "persons"
+    if value in {"หายป่วย", "ជាសះស្បើយ", "ຫາຍດີ", "ပြန်လည်ကောင်းမွန်"}:
+        return "recovered", "persons"
+    if value in {"ตรวจ", "ធ្វើតេស្ត", "ກວດ", "စမ်းသပ်"}:
+        return "tests", "tests"
+    if value in {"ฉีดวัคซีน", "ចាក់វ៉ាក់សាំង", "ສັກວັກຊີນ", "ကာကွယ်ဆေးထိုး"}:
+        return "vaccinated", "persons"
     return value, "persons"
 
 
 def _generic_observations(sentence: str, linker: GazetteerLinker) -> list[dict[str, Any]]:
     """Extract non-case metrics only when a location can be linked locally."""
 
-    locations = list(linker.local_mentions(sentence))
+    source = sentence or ""
+    working = normalize_local_digits(source)
+    locations = list(linker.local_mentions(source))
     observations: list[dict[str, Any]] = []
-    for match in _GENERIC_METRIC_RE.finditer(sentence):
+    for match in _GENERIC_METRIC_RE.finditer(working):
         metric_type, unit = _generic_metric_type(match.group("metric"))
         raw = match.group("value").replace(" ", "")
         try:
@@ -157,7 +176,7 @@ def _generic_observations(sentence: str, linker: GazetteerLinker) -> list[dict[s
             "value": value,
             "unit": unit,
             "qualifier": match.group("qualifier"),
-            "evidence": sentence.strip(),
+            "evidence": source.strip(),
             "offset_start": match.start(),
             "offset_end": match.end(),
         })
@@ -277,6 +296,17 @@ def _most_specific_event_location(sentence: str, evidence: str, base_location, l
     if not candidates:
         return base_location
 
+    from .surveillance_extraction import _is_comparative_location
+    filtered_candidates = []
+    for c in candidates:
+        c_name = str(c.get("name") or "")
+        idx = sentence.find(c_name)
+        if idx >= 0 and _is_comparative_location(sentence, idx):
+            continue
+        filtered_candidates.append(c)
+    if filtered_candidates:
+        candidates = filtered_candidates
+
     base_country = str(getattr(base_location, "country", "") or "").casefold()
     compatible = [
         item for item in candidates
@@ -347,7 +377,10 @@ def build_atomic_events(
             relation for relation in document_relations
             if relation.evidence and relation.evidence.casefold() in sentence.casefold()
         ]
-        local_relations = [relation for relation in local_relations if relation.cases or relation.deaths]
+        local_relations = [
+            relation for relation in local_relations
+            if relation.cases or relation.deaths or relation.value_min is not None
+        ]
         generic = _generic_observations(sentence, linker)
         if not local_relations and not generic:
             continue
@@ -362,7 +395,13 @@ def build_atomic_events(
 
         def resolve_disease(evidence: str, evidence_start: int) -> tuple[str, float]:
             direct = _disease_candidates(evidence, labels)
-            candidates = direct or sentence_candidates or paragraph_candidates
+            # A paragraph-level disease is context, not attribution.  It is
+            # unsafe to attach a country-wide metric to a disease mentioned
+            # in a title, neighbouring paragraph, or reference section.
+            # Only a disease in the metric evidence/sentence may be resolved;
+            # the single-label fallback remains safe for a genuinely
+            # single-disease article.
+            candidates = direct or sentence_candidates
             if not candidates and len(labels) == 1:
                 candidates = labels
             disease = _nearest_disease(sentence, candidates, evidence_start) if candidates else None
@@ -377,7 +416,7 @@ def build_atomic_events(
             confidence = 0.92 if explicit and len(candidates) == 1 else (0.68 if candidates else 0.30)
             return resolved, confidence
 
-        def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, event_disease="UNKNOWN", event_confidence=0.30):
+        def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None):
             location = _most_specific_event_location(sentence, evidence, location, linker)
             hierarchy = extractors.resolve_location_hierarchy(location.name)
             frame = extract_event_period(sentence, published_at=None)
@@ -399,6 +438,8 @@ def build_atomic_events(
                 "death_count": max(0, int(deaths or 0)),
                 "metric_type": metric_type,
                 "unit": unit,
+                "metric_value_min": value_min,
+                "metric_value_max": value_max,
                 "metric_qualifier": qualifier,
                 "time_frame": time_frame,
                 "temporal_context": frame.get("period_type") or "current",
@@ -417,6 +458,8 @@ def build_atomic_events(
                 "relations": [{
                     "type": "reported_in",
                     "evidence": evidence or sentence.strip(),
+                    "source_sentence_id": source_sentence_id,
+                    "evidence_is_translated": False,
                 }],
                 "metrics": [],
                 "provenance": {
@@ -424,7 +467,11 @@ def build_atomic_events(
                     "source": "surveillance_extraction",
                     "offset_start": start + max(0, start_offset),
                     "offset_end": start + max(0, end_offset),
+                    "source_sentence_id": source_sentence_id,
+                    "source_text": "original",
                 },
+                "source_sentence_id": source_sentence_id,
+                "source_text": "original",
             }
             metric = {
                 "metric_type": metric_type,
@@ -434,6 +481,10 @@ def build_atomic_events(
                 "time_frame": time_frame,
                 "evidence": evidence or sentence.strip(),
                 "confidence": min(event_confidence, 0.90),
+                "value_min": value_min,
+                "value_max": value_max,
+                "source_sentence_id": source_sentence_id,
+                "evidence_is_translated": False,
             }
             _merge_metric(event, metric)
             key = _relation_key(event)
@@ -448,20 +499,38 @@ def build_atomic_events(
 
         for relation in local_relations:
             evidence_start = sentence.find(relation.evidence) if relation.evidence else 0
-            event_disease, event_confidence = resolve_disease(relation.evidence or sentence, max(0, evidence_start))
+            event_disease = relation.disease
+            event_confidence = 0.94 if event_disease else 0.30
+            if not event_disease:
+                event_disease, event_confidence = resolve_disease(relation.evidence or sentence, max(0, evidence_start))
+            relation_evidence = relation.evidence or sentence.strip()
+            # Some narrative parsers retain only the numeric span (for
+            # example ``28,074 case``). If the disease was resolved from the
+            # same sentence, keep that complete original sentence as the
+            # traceable evidence instead of creating a disease-less proof.
+            if (
+                event_disease
+                and event_disease.upper() != "UNKNOWN"
+                and not extractors.disease_has_textual_evidence(event_disease, relation_evidence)
+            ):
+                relation_evidence = sentence.strip()
+            evidence_start = sentence.find(relation_evidence)
             add_event(
                 relation.location,
                 cases=relation.cases,
                 deaths=relation.deaths or 0,
-                evidence=relation.evidence,
+                evidence=relation_evidence,
                 start_offset=max(0, evidence_start),
-                end_offset=(max(0, evidence_start) + len(relation.evidence)) if relation.evidence and evidence_start >= 0 else len(sentence),
-                metric_type="deaths" if relation.deaths and not relation.cases else qualify_metric_type(sentence, has_cases=bool(relation.cases), has_deaths=bool(relation.deaths))[0],
+                end_offset=(max(0, evidence_start) + len(relation_evidence)) if evidence_start >= 0 else len(sentence),
+                metric_type=relation.metric_type or ("deaths" if relation.deaths and not relation.cases else qualify_metric_type(sentence, has_cases=bool(relation.cases), has_deaths=bool(relation.deaths))[0]),
                 unit="persons",
-                qualifier=_metric_qualifier(relation.evidence or sentence),
+                qualifier=relation.qualifier or _metric_qualifier(relation.evidence or sentence),
                 value=relation.deaths if relation.deaths and not relation.cases else relation.cases,
+                value_min=relation.value_min,
+                value_max=relation.value_max,
                 event_disease=event_disease,
                 event_confidence=event_confidence,
+                source_sentence_id=relation.source_sentence_id,
             )
 
         for item in generic:
@@ -477,6 +546,7 @@ def build_atomic_events(
                 value=item["value"],
                 event_disease=event_disease,
                 event_confidence=event_confidence,
+                source_sentence_id=None,
             )
 
     return _collapse_hierarchical_parser_duplicates(list(events.values()))

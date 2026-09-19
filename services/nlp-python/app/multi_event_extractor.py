@@ -566,6 +566,7 @@ def extract_multi_events(
     # legacy parsers below remain as a bounded fallback for formats that the
     # relation layer cannot yet parse, but they are never allowed to split a
     # document that the canonical layer already judged to be one event.
+    atomic_evidence_found = False
     try:
         from .intelligence import build_atomic_events
 
@@ -577,6 +578,11 @@ def extract_multi_events(
         )
         if len(atomic_events) >= MULTI_EVENT_MIN_PAIRS:
             return _deduplicate_events(atomic_events)
+        if atomic_events:
+            # A deterministic relation exists, but it is not enough to prove
+            # multiple events. Legacy deterministic parsers may still recover
+            # a second explicit location, but the LLM must not split it.
+            atomic_evidence_found = True
         # A single atomic relation does not prove that the article is
         # multi-event, but the legacy parser may still recover a second
         # explicit location/metric pair from a format it understands.
@@ -648,6 +654,7 @@ def extract_multi_events(
     # Layer 3: LLM fallback
     if (
         MULTI_EVENT_LLM_FALLBACK
+        and not atomic_evidence_found
         and len(all_events) < MULTI_EVENT_MIN_PAIRS
         and _has_multi_event_signal(text, locations)
     ):
@@ -964,6 +971,146 @@ def compose_structured_events(
             "confidence": 0.90,
         }]
     return []
+
+
+def _event_country_context(event: dict[str, Any]) -> tuple[Optional[str], dict[str, Any]]:
+    """Resolve country and hierarchy without trusting a publisher location."""
+    from . import extractors as ext
+
+    location = str(event.get("location_name") or "").strip()
+    country_hint = str(event.get("country") or "").strip() or None
+    hierarchy = ext.resolve_location_hierarchy(location, country_hint=country_hint) if location else {}
+    country = hierarchy.get("country") or country_hint
+    if country:
+        country = ext.normalize_country(country)
+    return country, hierarchy
+
+
+def _country_centroid(country: Optional[str], hierarchy: dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
+    """Use the country centroid only when an event is intentionally country-level."""
+    from . import extractors as ext
+
+    if hierarchy.get("latitude") is not None and hierarchy.get("longitude") is not None:
+        return hierarchy["latitude"], hierarchy["longitude"]
+    if not country:
+        return None, None
+    country_hierarchy = ext.resolve_location_hierarchy(country, country_hint=country)
+    if country_hierarchy.get("latitude") is not None and country_hierarchy.get("longitude") is not None:
+        return country_hierarchy["latitude"], country_hierarchy["longitude"]
+    lat, lon, _, _ = ext.geocode_place(country, country)
+    return lat, lon
+
+
+def _collapse_same_country_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse region rows into country events while preserving evidence.
+
+    A country total wins over its regional breakdown.  If no country total is
+    present, distinct regional metrics are summed once.  Different diseases,
+    periods, temporal contexts, or countries remain separate events.
+    """
+    if len(events) < 2:
+        return events
+
+    groups: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    unresolved: list[dict[str, Any]] = []
+    for event in events:
+        country, hierarchy = _event_country_context(event)
+        if not country:
+            unresolved.append(event)
+            continue
+        event["country"] = country
+        event["country_iso3"] = event.get("country_iso3") or hierarchy.get("country_iso3")
+        event.setdefault("admin1", hierarchy.get("admin1_name"))
+        event.setdefault("admin2", hierarchy.get("admin2_name"))
+        disease = str(event.get("disease") or "UNKNOWN").casefold()
+        key = (
+            disease,
+            country.casefold(),
+            str(event.get("time_frame") or ""),
+            str(event.get("temporal_context") or "current"),
+        )
+        groups.setdefault(key, []).append(event)
+
+    collapsed: list[dict[str, Any]] = []
+    for group in groups.values():
+        distinct_locations = {
+            str(item.get("location_name") or "").casefold()
+            for item in group
+            if item.get("location_name")
+        }
+        country = str(group[0].get("country") or "").strip()
+        country_level = [
+            item for item in group
+            if str(item.get("location_name") or "").casefold() == country.casefold()
+        ]
+
+        # Preserve a single specific locality.  Country-level projection is
+        # needed when the article has multiple regions or an explicit total.
+        if len(group) == 1 and not country_level:
+            collapsed.extend(group)
+            continue
+
+        base_event = max(
+            country_level or group,
+            key=lambda item: (
+                int(item.get("case_count") or 0),
+                int(item.get("death_count") or 0),
+            ),
+        )
+        if country_level:
+            cases = max(int(item.get("case_count") or 0) for item in country_level)
+            deaths = max(int(item.get("death_count") or 0) for item in country_level)
+        else:
+            # Region rows are distinct evidence units.  Deduplication already
+            # removed repeated mentions for the same location/context.
+            cases = sum(int(item.get("case_count") or 0) for item in group)
+            deaths = sum(int(item.get("death_count") or 0) for item in group)
+
+        base = base_event.copy()
+        hierarchy = _event_country_context({"location_name": country, "country": country})[1]
+        lat, lon = _country_centroid(country, hierarchy)
+        base.update({
+            "location_name": hierarchy.get("canonical_name") or country,
+            "country": country,
+            "admin1": None,
+            "admin2": None,
+            "country_iso3": base.get("country_iso3") or hierarchy.get("country_iso3"),
+            "latitude": lat,
+            "longitude": lon,
+            "case_count": cases,
+            "death_count": deaths,
+            "needs_review": bool(base.get("needs_review")) or len(distinct_locations) > 1 and not country_level,
+        })
+
+        relation_rows = list(base.get("relations") or [])
+        metric_rows = list(base.get("metrics") or [])
+        for item in group:
+            if item is base_event:
+                continue
+            relation_rows.append({
+                "type": "regional_support",
+                "location": item.get("location_name"),
+                "country": item.get("country") or country,
+                "cases": item.get("case_count", 0),
+                "deaths": item.get("death_count", 0),
+                "evidence": item.get("evidence", ""),
+                "evidence_offset_start": item.get("evidence_offset_start"),
+                "evidence_offset_end": item.get("evidence_offset_end"),
+                "source_text": "original",
+            })
+            metric_rows.extend(item.get("metrics") or [])
+        base["relations"] = relation_rows
+        base["metrics"] = metric_rows
+        provenance = dict(base.get("provenance") or {})
+        provenance["country_aggregation"] = {
+            "source_event_count": len(group),
+            "source_locations": sorted(distinct_locations),
+            "country_total_preferred": bool(country_level),
+        }
+        base["provenance"] = provenance
+        collapsed.append(base)
+
+    return [*collapsed, *unresolved]
 
 
 def _deduplicate_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

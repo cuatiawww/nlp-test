@@ -6,6 +6,8 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from .multilingual import normalize_local_digits
+
 
 COUNT_LABELS = {
     "confirmed_cases": (
@@ -105,7 +107,8 @@ def classify_epistemic_status(
 _RE_CUMULATIVE = re.compile(
     r"\b(?:sejak\s+awal\s+tahun|total\s+akumulatif|akumulasi|sepanjang\s+tahun|"
     r"sepanjang\s+20\d{2}|total\s+kasus|secara\s+keseluruhan|cumulative|to\s+date|"
-    r"so\s+far\s+this\s+year|year[- ]to[- ]date|ytd|tổng\s+số\s+ca)\b",
+    r"so\s+far\s+this\s+year|year[- ]to[- ]date|ytd|tổng\s+số\s+ca|"
+    r"สะสม|ตั้งแต่ต้นปี|จนถึงปัจจุบัน)\b",
     re.IGNORECASE,
 )
 
@@ -122,7 +125,8 @@ _RE_ACTIVE_CASES = re.compile(
 )
 
 _RE_DEATHS = re.compile(
-    r"\b(?:kematian|meninggal(?:\s+dunia)?|korban\s+jiwa|tewas|deaths?|fatalities|tử\s+vong)\b",
+    r"\b(?:kematian|meninggal(?:\s+dunia)?|korban\s+jiwa|tewas|deaths?|fatalities|tử\s+vong)\b|"
+    r"(?:เสียชีวิต|ผู้เสียชีวิต|ស្លាប់|អ្នកស្លាប់|ເສຍຊີວິດ|သေဆုံး)",
     re.IGNORECASE,
 )
 
@@ -199,6 +203,18 @@ _MONTH_MAP = {
     "october": 10, "oktober": 10, "oct": 10, "okt": 10, "ตุลาคม": 10,
     "november": 11, "nov": 11, "พฤศจิกายน": 11,
     "december": 12, "desember": 12, "dec": 12, "des": 12, "ธันวาคม": 12,
+    "tháng một": 1, "tháng hai": 2, "tháng ba": 3, "tháng tư": 4,
+    "tháng năm": 5, "tháng sáu": 6, "tháng bảy": 7, "tháng tám": 8,
+    "tháng chín": 9, "tháng mười": 10,
+    "មករា": 1, "កុម្ភៈ": 2, "មីនា": 3, "មេសា": 4, "ឧសភា": 5,
+    "មិថុនា": 6, "កក្កដា": 7, "សីហា": 8, "កញ្ញា": 9, "តុលា": 10,
+    "វិច្ឆិកា": 11, "ធ្នូ": 12,
+    "ມັງກອນ": 1, "ກຸມພາ": 2, "ມີນາ": 3, "ເມສາ": 4,
+    "ພຶດສະພາ": 5, "ມິຖຸນາ": 6, "ກໍລະກົດ": 7, "ສິງຫາ": 8,
+    "ກັນຍາ": 9, "ຕຸລາ": 10, "ພະຈິກ": 11, "ທັນວາ": 12,
+    "ဇန်နဝါရီ": 1, "ဖေဖော်ဝါရီ": 2, "မတ်": 3, "ဧပြီ": 4,
+    "မေ": 5, "ဇွန်": 6, "ဇူလိုင်": 7, "ဩဂုတ်": 8, "စက်တင်ဘာ": 9,
+    "အောက်တိုဘာ": 10, "နိုဝင်ဘာ": 11, "ဒီဇင်ဘာ": 12,
 }
 
 _MONTHS_PATTERN = (
@@ -206,16 +222,47 @@ _MONTHS_PATTERN = (
     r"june|juni|july|juli|august|agustus|september|october|oktober|"
     r"november|december|desember|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|"
     r"มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|"
-    r"กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม"
+    r"กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม|"
+    r"tháng\s+(?:một|hai|ba|tư|năm|sáu|bảy|tám|chín|mười)|"
+    r"មករា|កុម្ភៈ|មីនា|មេសា|ឧសភា|មិថុនា|កក្កដា|សីហា|កញ្ញា|តុលា|វិច្ឆិកា|ធ្នូ|"
+    r"ມັງກອນ|ກຸມພາ|ມີນາ|ເມສາ|ພຶດສະພາ|ມິຖຸນາ|ກໍລະກົດ|ສິງຫາ|ກັນຍາ|ຕຸລາ|ພະຈິກ|ທັນວາ|"
+    r"ဇန်နဝါရီ|ဖေဖော်ဝါရီ|မတ်|ဧပြီ|မေ|ဇွန်|ဇူလိုင်|ဩဂုတ်|စက်တင်ဘာ|အောက်တိုဘာ|နိုဝင်ဘာ|ဒီဇင်ဘာ"
 )
 
 _RANGE = re.compile(
     r"(?:from|between|sejak|dari)?\s*"
     r"(?:(?P<d1>\d{1,2})\s+(?P<m1>" + _MONTHS_PATTERN + r")|(?P<m1_alt>" + _MONTHS_PATTERN + r")\.?\s+(?P<d1_alt>\d{1,2}))"
     r"(?:\s+(?P<y1>20\d{2}|25\d{2}))?"
-    r"\s*(?:-|–|—|to|until|hingga|sampai|and|s/?d)\s*"
+    r"\s*(?:-|–|—|to|until|hingga|sampai|đến|ถึง|ដល់|ຫາ|ထိ|and|s/?d)\s*"
     r"(?:(?P<d2>\d{1,2})\s+(?P<m2>" + _MONTHS_PATTERN + r")|(?P<m2_alt>" + _MONTHS_PATTERN + r")\.?\s+(?P<d2_alt>\d{1,2}))"
     r"(?:\s+(?P<y2>20\d{2}|25\d{2}))?",
+    re.IGNORECASE,
+)
+
+_EVENT_DATE_MARKER = (
+    r"(?:\b(?:on|as\s+of|during|reported\s+on|recorded\s+on|pada|tanggal|"
+    r"dilaporkan\s+pada|tercatat\s+pada|ngày|vào\s+ngày|tính\s+đến)\b|"
+    r"(?:วันที่|เมื่อวันที่|នៅថ្ងៃទី|ວັນທີ|ໃນວັນທີ|ရက်နေ့|နေ့တွင်))"
+)
+_KHMER_MONTHS_PATTERN = r"ខែមករា|ខែកុម្ភៈ|ខែមីនា|ខែមេសា|ខែឧសភា|ខែមិថុនា|ខែកក្កដា|ខែសីហា|ខែកញ្ញា|ខែតុលា|ខែវិច្ឆិកា|ខែធ្នូ"
+_SINGLE_EVENT_DATE = re.compile(
+    _EVENT_DATE_MARKER
+    + r"\s*(?P<day>\d{1,2})\s+(?P<month>"
+    + _MONTHS_PATTERN + r"|" + _KHMER_MONTHS_PATTERN
+    + r")\s+(?:(?:ปี|ឆ្នាំ|ປີ|နှစ်)\s+)?(?P<year>20\d{2}|25\d{2})",
+    re.IGNORECASE,
+)
+_SINGLE_VIETNAMESE_NUMERIC_DATE = re.compile(
+    _EVENT_DATE_MARKER
+    + r"\s*(?P<day>\d{1,2})\s+tháng\s+(?P<month>\d{1,2})\s+năm\s+(?P<year>20\d{2}|25\d{2})",
+    re.IGNORECASE,
+)
+_SINGLE_KHMER_DATE = re.compile(
+    r"(?:នៅថ្ងៃទី|ថ្ងៃទី)\s*(?P<day>\d{1,2})\s+ខែ(?P<month>មករា|កុម្ភៈ|មីនា|មេសា|ឧសភា|មិថុនា|កក្កដា|សីហា|កញ្ញា|តុលា|វិច្ឆិកា|ធ្នូ)\s+ឆ្នាំ\s*(?P<year>20\d{2}|25\d{2})",
+    re.IGNORECASE,
+)
+_SINGLE_VIETNAMESE_DATE = re.compile(
+    r"(?:vào\s+ngày|ngày)\s*(?P<day>\d{1,2})\s+tháng\s+(?P<month>\d{1,2})\s+năm\s+(?P<year>20\d{2}|25\d{2})",
     re.IGNORECASE,
 )
 
@@ -238,6 +285,25 @@ def _ymd(year: Optional[int], month: Optional[int], day: Optional[int]) -> Optio
         return None
 
 
+def _single_event_date(text: str) -> Optional[str]:
+    """Parse one explicitly event-marked date without using publication time."""
+    for match in (
+        _SINGLE_EVENT_DATE.search(text or ""),
+        _SINGLE_VIETNAMESE_NUMERIC_DATE.search(text or ""),
+        _SINGLE_KHMER_DATE.search(text or ""),
+        _SINGLE_VIETNAMESE_DATE.search(text or ""),
+    ):
+        if not match:
+            continue
+        raw_month = match.group("month").lower().rstrip(".")
+        month = int(raw_month) if raw_month.isdigit() else _MONTH_MAP.get(raw_month)
+        if month is None and raw_month.startswith("ខែ"):
+            month = _MONTH_MAP.get(raw_month[1:])
+        if month is not None:
+            return _ymd(_calendar_year(match.group("year")), month, int(match.group("day")))
+    return None
+
+
 def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
     """Return reporting window, period type, and whether Date Case needs review.
 
@@ -256,7 +322,9 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
         "period_type": count_period_type(text),
         "date_needs_review": False,
     }
-    sample = text or ""
+    # Native digits are normalized only in the working buffer. Evidence and
+    # offsets continue to use the caller's original string elsewhere.
+    sample = normalize_local_digits(text or "")
     pub_iso = normalize_publication_date(published_at)
     pub_dt = None
     if pub_iso:
@@ -339,39 +407,46 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
         result["event_date"] = end or start
         result["period_type"] = "cumulative"
         result["date_needs_review"] = True
-    elif result["period_type"] == "cumulative":
-        start_only = re.search(
-            r"\b(?:from|since|sejak|dari)\s+(?P<m>[A-Za-z]{3,12})\s+(?P<y>20\d{2}|25\d{2})",
-            sample[:2000],
-            re.I,
-        )
-        as_of = re.search(
-            r"\b(?:as of|dilaporkan per|per|hingga|reported as of)\s+"
-            r"([A-Za-z]{3,12}\s+20\d{2}|20\d{2}-\d{2}-\d{2}|\d{1,2}\s+[A-Za-z]{3,12}\s+20\d{2})",
-            sample[:2000],
-            re.I,
-        )
-        if start_only:
-            y = _calendar_year(start_only.group("y"))
-            m = _MONTH_MAP.get(start_only.group("m").lower())
-            result["event_date_start"] = _ymd(y, m, 1)
-            result["date_needs_review"] = True
-        if as_of:
-            result["event_date"] = normalize_publication_date(extract_date_from_text(as_of.group(0)))
-            result["event_date_end"] = result["event_date"]
-            result["date_needs_review"] = True
+    else:
+        single_date = _single_event_date(sample[:2500])
+        if single_date:
+            result["event_date"] = single_date
+            result["event_date_start"] = single_date
+            result["event_date_end"] = single_date
+            result["period_type"] = "incident"
+        elif result["period_type"] == "cumulative":
+            start_only = re.search(
+                r"\b(?:from|since|sejak|dari)\s+(?P<m>[A-Za-z]{3,12})\s+(?P<y>20\d{2}|25\d{2})",
+                sample[:2000],
+                re.I,
+            )
+            as_of = re.search(
+                r"\b(?:as of|dilaporkan per|per|hingga|reported as of)\s+"
+                r"([A-Za-z]{3,12}\s+20\d{2}|20\d{2}-\d{2}-\d{2}|\d{1,2}\s+[A-Za-z]{3,12}\s+20\d{2})",
+                sample[:2000],
+                re.I,
+            )
+            if start_only:
+                y = _calendar_year(start_only.group("y"))
+                m = _MONTH_MAP.get(start_only.group("m").lower())
+                result["event_date_start"] = _ymd(y, m, 1)
+                result["date_needs_review"] = True
+            if as_of:
+                result["event_date"] = normalize_publication_date(extract_date_from_text(as_of.group(0)))
+                result["event_date_end"] = result["event_date"]
+                result["date_needs_review"] = True
 
     # Annual references are periods, not publication dates.  Preserve them so
     # two reports for different years cannot collapse into one event merely
     # because they share a disease and location.
     if not result["event_date_start"] and not result["event_date_end"]:
         year_match = re.search(
-            r"\b(?P<cue>in|pada|tahun|during|sepanjang|since|sejak)\s+(?P<year>20\d{2})\b",
+            r"\b(?P<cue>in|pada|tahun|during|sepanjang|since|sejak|ปี|พ\.ศ\.)\s+(?P<year>20\d{2}|25\d{2})\b",
             sample[:2500],
             re.IGNORECASE,
         )
         if year_match:
-            year = int(year_match.group("year"))
+            year = _calendar_year(year_match.group("year"))
             result["event_date_start"] = f"{year:04d}-01-01"
             result["event_date_end"] = f"{year:04d}-12-31"
             result["period_type"] = (
@@ -430,9 +505,11 @@ def evidence_sentences(text: str, limit: int = 5) -> list[str]:
     """Retain short source spans containing an explicit surveillance fact."""
     evidence = []
     metric = re.compile(
-        r"\b(?:cases?|kasus|patients?|pasien|deaths?|kematian|died|meninggal|"
-        r"hospitali[sz]|dirawat|confirmed|terkonfirmasi|suspected|suspek|outbreak|wabah|cluster)\b",
-        re.IGNORECASE,
+        r"(?:\b(?:cases?|kasus|patients?|pasien|deaths?|kematian|died|meninggal|"
+        r"hospitali[sz]|dirawat|confirmed|terkonfirmasi|suspected|suspek|outbreak|wabah|cluster)\b|"
+        r"ผู้ป่วย|ผู้เสียชีวิต|เสียชีวิต|ราย|ติดเชื้อ|ករណី|អ្នកស្លាប់|"
+        r"ເສຍຊີວິດ|ກໍລະນີ|သေဆုံး|လူနာ)",
+        re.IGNORECASE | re.UNICODE,
     )
     for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text or ""):
         clean = " ".join(sentence.split()).strip()

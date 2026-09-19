@@ -332,6 +332,62 @@ class TestComposeStructuredEvents(unittest.TestCase):
         self.assertEqual(collapsed["cases_display"], "Indonesia(8278); Philippines(3734)")
         self.assertEqual(collapsed["location_display"], "Indonesia; Philippines")
 
+    def test_regions_in_one_country_collapse_to_country_event(self):
+        from app.multi_event_extractor import _collapse_same_country_events
+
+        events = _collapse_same_country_events([
+            {
+                "disease": "Dengue",
+                "location_name": "Bangkok",
+                "country": "Thailand",
+                "case_count": 10,
+                "death_count": 1,
+                "evidence": "Bangkok reported 10 cases and 1 death.",
+            },
+            {
+                "disease": "Dengue",
+                "location_name": "Chiang Mai",
+                "country": "Thailand",
+                "case_count": 20,
+                "death_count": 2,
+                "evidence": "Chiang Mai reported 20 cases and 2 deaths.",
+            },
+        ])
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["location_name"], "Thailand")
+        self.assertEqual(events[0]["country"], "Thailand")
+        self.assertEqual(events[0]["case_count"], 30)
+        self.assertEqual(events[0]["death_count"], 3)
+        self.assertIsNotNone(events[0]["latitude"])
+        self.assertIsNotNone(events[0]["longitude"])
+
+    def test_country_total_wins_over_regional_breakdown(self):
+        from app.multi_event_extractor import _collapse_same_country_events
+
+        events = _collapse_same_country_events([
+            {
+                "disease": "Dengue",
+                "location_name": "Thailand",
+                "country": "Thailand",
+                "case_count": 100,
+                "death_count": 3,
+                "evidence": "Thailand reported 100 cases and 3 deaths.",
+            },
+            {
+                "disease": "Dengue",
+                "location_name": "Bangkok",
+                "country": "Thailand",
+                "case_count": 40,
+                "death_count": 1,
+                "evidence": "Bangkok reported 40 cases and 1 death.",
+            },
+        ])
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["case_count"], 100)
+        self.assertEqual(events[0]["death_count"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

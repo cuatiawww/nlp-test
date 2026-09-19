@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 import logging
 import unicodedata
@@ -7,7 +7,7 @@ from typing import Any
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.19.multilingual-source-first")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
@@ -43,6 +43,25 @@ def env_seconds_at_least(name, default):
 
 
 TRANSLATION_STAGE_TIMEOUT_SECONDS = env_seconds_at_least("TRANSLATION_STAGE_TIMEOUT_SECONDS", 60)
+TRANSLATION_PROVIDER = os.getenv("TRANSLATION_PROVIDER", "nllb").strip().lower() or "nllb"
+TRANSLATION_MAX_CHARS = max(500, int(os.getenv("TRANSLATION_MAX_CHARS", "4000")))
+TRANSLATION_CHUNK_CHARS = max(200, int(os.getenv("TRANSLATION_CHUNK_CHARS", "450")))
+TRANSLATION_MAX_CHUNKS = max(1, int(os.getenv("TRANSLATION_MAX_CHUNKS", "8")))
+# Interactive URL analysis only needs a semantic aid.  It must not translate
+# an entire article before source-language extraction can return.  Batch jobs
+# may use the larger TRANSLATION_* budget above.
+TRANSLATION_INTERACTIVE_MAX_CHARS = max(
+    500, int(os.getenv("TRANSLATION_INTERACTIVE_MAX_CHARS", "1200"))
+)
+TRANSLATION_INTERACTIVE_CHUNK_CHARS = max(
+    200, int(os.getenv("TRANSLATION_INTERACTIVE_CHUNK_CHARS", "600"))
+)
+TRANSLATION_INTERACTIVE_MAX_CHUNKS = max(
+    1, int(os.getenv("TRANSLATION_INTERACTIVE_MAX_CHUNKS", "1"))
+)
+TRANSLATION_INTERACTIVE_TIMEOUT_SECONDS = max(
+    5, int(os.getenv("TRANSLATION_INTERACTIVE_TIMEOUT_SECONDS", "20"))
+)
 INFERENCE_STAGE_TIMEOUT_SECONDS = env_seconds_at_least("INFERENCE_STAGE_TIMEOUT_SECONDS", 180)
 NLP_REQUEST_TIMEOUT_SECONDS = env_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270)
 NLP_STAGE_OVERHEAD_SECONDS = env_seconds_at_least("NLP_STAGE_OVERHEAD_SECONDS", 15)
@@ -94,6 +113,13 @@ EVENT_TYPE_LABELS = [
 RELEVANCE_LABELS = [
     "health related medical disease outbreak",
     "general news not health related",
+]
+
+# Only used when the DB is unavailable. The active runtime normally loads the
+# binary classifier labels from nlp_labels, just like the other categories.
+BINARY_HEALTH_LABELS = [
+    "health related disease medical",
+    "general news other topic",
 ]
 
 SOURCE_CREDIBILITY_MAP = {
@@ -178,6 +204,11 @@ LOCATION_ALIASES: dict[str, str] = {
     "jogja": "DI Yogyakarta",
     "jogjakarta": "DI Yogyakarta",
     "yogyakarta": "DI Yogyakarta",
+    "sumatra utara": "Sumatera Utara",
+    "sumatra barat": "Sumatera Barat",
+    "sumatra selatan": "Sumatera Selatan",
+    "sumatra": "Sumatera",
+    "sumatera": "Sumatera",
     "sumut": "Sumatera Utara",
     "sumbar": "Sumatera Barat",
     "sumsel": "Sumatera Selatan",
@@ -211,7 +242,7 @@ LOCATION_ALIASES: dict[str, str] = {
 LOCATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
 LOCATION_STOPWORDS = {
     # Indonesian time/grammatical words that collide with foreign/rare gazetteer entries
-    "selama", "hingga", "sejak", "menjelang", "antara", "sejumlah", "tercatat", "banyaknya",
+    "selama", "hingga", "sejak", "menjelang", "antara", "sejumlah", "tercatat", "banyaknya", "sepanjang",
     # Vietnamese common discourse markers that collide with gazetteer entries
     "lien quan", "liên quan", "lien quan den", "liên quan đến", "thang", "thắng", "chien thang", "chiến thắng",
     "trong do", "trong đó", "tu dau nam", "từ đầu năm", "tong so", "tổng số",
@@ -282,6 +313,11 @@ def load_keywords_from_db():
         symptom = {}
         disease = {}
         for r in rows:
+            if r["category"] not in {"symptom", "disease"}:
+                logging.getLogger(__name__).warning(
+                    "Ignoring unsupported keyword category from DB: %s", r["category"]
+                )
+                continue
             d = symptom if r["category"] == "symptom" else disease
             d[r["keyword"]] = r["target_label"]
         SYMPTOM_DICT = symptom
@@ -322,6 +358,24 @@ def load_who_disease_concepts_from_db():
         ).fetchall()
         conn.close()
         WHO_DISEASE_CONCEPTS = list(rows)
+        # The database concept/alias catalog is authoritative when it knows a
+        # surface form. Keep the legacy map as a fallback for concepts that
+        # have not been migrated yet, but let DB aliases win on collisions.
+        try:
+            from . import extractors
+            for concept in WHO_DISEASE_CONCEPTS:
+                canonical = str(concept.get("canonical_name") or "").strip()
+                if not canonical:
+                    continue
+                for alias_item in concept.get("aliases") or []:
+                    alias = alias_item.get("alias") if isinstance(alias_item, dict) else alias_item
+                    alias = str(alias or "").strip().casefold()
+                    if alias:
+                        extractors.DISEASE_ALIASES[alias] = canonical
+        except Exception:
+            # Import order during isolated unit tests must not prevent the DB
+            # catalog itself from loading.
+            pass
         import logging
         logging.getLogger(__name__).info("Loaded %d WHO ICD-11 disease concepts", len(rows))
     except Exception as e:
@@ -391,7 +445,7 @@ def load_locations_from_db():
         alias_rows = []
         try:
             alias_rows = conn.execute(
-                """SELECT a.alias_name, l.name as canonical_name
+                """SELECT a.alias_name, l.name as canonical_name, l.country, l.admin_level
                    FROM location_aliases a
                    JOIN locations l ON a.location_id = l.id
                    WHERE l.is_active = TRUE"""
@@ -418,11 +472,25 @@ def load_locations_from_db():
             if r.get("admin_level") is not None:
                 LOCATION_ADMIN_LEVEL[name] = r["admin_level"]
 
+        db_country_aliases: dict[str, str] = {}
         for ar in alias_rows:
             alias = ar["alias_name"].strip().casefold()
             canon = ar["canonical_name"]
             if alias and canon:
                 LOCATION_ALIASES[alias] = canon
+                if (
+                    str(ar.get("country") or "").casefold() == str(canon).casefold()
+                    or ar.get("admin_level") == 0
+                ):
+                    db_country_aliases[alias] = canon
+
+        try:
+            from . import extractors
+            # Country aliases live in the same location master and therefore
+            # follow the same DB-over-fallback precedence as place aliases.
+            extractors.COUNTRY_ALIASES.update(db_country_aliases)
+        except Exception:
+            pass
 
         # Curated additions for verified surveillance localities
         if "Tuy Đức" not in LOCATION_COORDS and "Tuy Duc" not in LOCATION_COORDS:
@@ -449,6 +517,21 @@ def load_locations_from_db():
         LOCATION_COORDS["Gunung Kidul"] = (-7.97, 110.60)
         LOCATION_COUNTRIES["Gunung Kidul"] = "Indonesia"
         LOCATION_ISO3["Gunung Kidul"] = "IDN"
+        if "Sumatra Utara" not in LOCATION_COORDS:
+            LOCATION_COORDS["Sumatra Utara"] = (3.5853, 98.6746)
+            LOCATION_COUNTRIES["Sumatra Utara"] = "Indonesia"
+            LOCATION_ADMIN1["Sumatra Utara"] = "Sumatera Utara"
+            LOCATION_ISO3["Sumatra Utara"] = "IDN"
+        if "Sumatra Barat" not in LOCATION_COORDS:
+            LOCATION_COORDS["Sumatra Barat"] = (-0.9492, 100.3543)
+            LOCATION_COUNTRIES["Sumatra Barat"] = "Indonesia"
+            LOCATION_ADMIN1["Sumatra Barat"] = "Sumatera Barat"
+            LOCATION_ISO3["Sumatra Barat"] = "IDN"
+        if "Sumatra Selatan" not in LOCATION_COORDS:
+            LOCATION_COORDS["Sumatra Selatan"] = (-2.9909, 104.7565)
+            LOCATION_COUNTRIES["Sumatra Selatan"] = "Indonesia"
+            LOCATION_ADMIN1["Sumatra Selatan"] = "Sumatera Selatan"
+            LOCATION_ISO3["Sumatra Selatan"] = "IDN"
 
         all_names_to_match = set(LOCATION_COORDS.keys()) | {
             alias for alias, canon in LOCATION_ALIASES.items() if canon in LOCATION_COORDS
@@ -548,6 +631,13 @@ def load_extraction_rules_from_db():
         rules: dict[str, list[str]] = {}
         for r in rows:
             field = r["field_name"]
+            try:
+                re.compile(r["regex_pattern"])
+            except re.error as exc:
+                logging.getLogger(__name__).warning(
+                    "Ignoring invalid extraction rule %s: %s", field, exc
+                )
+                continue
             if field not in rules:
                 rules[field] = []
             rules[field].append(r["regex_pattern"])

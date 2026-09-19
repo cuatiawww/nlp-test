@@ -6,9 +6,8 @@ import { analyzeUrl } from '@/lib/api'
 import AnalyzeResultCard from '@/components/AnalyzeResultCard'
 import Modal from '@/components/Modal'
 import AseanMap from '@/components/AseanMap'
-import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
 import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
-import { Edit3, Eye } from 'lucide-react'
+import { Eye } from 'lucide-react'
 import type { AnalyzeResponse } from '@/types'
 import { collapseAnalyzeResult } from '@/lib/multiFactDisplay.mjs'
 import { isCachedAnalyzeResult } from '@/lib/analysis-job.mjs'
@@ -73,6 +72,10 @@ function findEvidence(result: AnalyzeResponse, disease?: string | null, location
   ) || ''
 }
 
+function formatCoordinate(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '-'
+}
+
 export default function AnalyzePage() {
   const { t, translateDisease } = useTranslation()
   const [url, setUrl] = useState('')
@@ -84,7 +87,6 @@ export default function AnalyzePage() {
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
   const [forceRefresh, setForceRefresh] = useState(false)
   const [matrixExpanded, setMatrixExpanded] = useState(true)
-  const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
 
   useEffect(() => {
@@ -344,6 +346,32 @@ export default function AnalyzePage() {
               ? collapsed.diseaseDisplay.split('; ').map((name) => translateDisease(name)).join('; ')
               : (translateDisease(result.disease_classification) || '-')
             const evidenceSnippet = ((result as any)?.evidence || [])[0] || ''
+            const eventCountries = Array.from(new Set(
+              subEvents
+                .map((evt: { country?: string }) => (evt.country || '').trim())
+                .filter(Boolean),
+            ))
+            const matrixCountry = eventCountries.length > 0
+              ? eventCountries.join('; ')
+              : (result.country || '-')
+            const hasScopedMetrics = subEvents.length >= 2
+            const matrixCases = hasScopedMetrics
+              ? 'See event rows'
+              : ((result as any).case_count_unknown
+                ? 'unknown'
+                : result.case_count != null ? result.case_count.toLocaleString() : '0')
+            const matrixDeaths = hasScopedMetrics
+              ? 'See event rows'
+              : (result.death_count != null ? result.death_count.toLocaleString() : '0')
+            const resultLatitude = (result as any)?.latitude
+            const resultLongitude = (result as any)?.longitude
+            const resultPrecision = eventCountries.length > 1
+              ? 'multiple event locations'
+              : resultLatitude != null && resultLongitude != null
+                ? ((result.location_name || '').trim().toLowerCase() === (result.country || '').trim().toLowerCase()
+                  ? 'country centroid'
+                  : 'locality/admin')
+                : 'unknown'
 
             const ANALYZE_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
               { key: 'no', label: 'No', width: 68, sticky: true },
@@ -352,8 +380,10 @@ export default function AnalyzePage() {
               { key: 'url', label: 'Source URL', width: 200 },
               { key: 'title', label: 'Article Title', width: 240 },
               { key: 'disease', label: 'Disease Name', width: 190 },
-              { key: 'region', label: 'Region', width: 120 },
-              { key: 'province_city_case', label: 'Province / City Case', width: 170 },
+              { key: 'location_case', label: 'Location Case', width: 170 },
+              { key: 'latitude', label: 'Latitude', width: 105 },
+              { key: 'longitude', label: 'Longitude', width: 105 },
+              { key: 'location_precision', label: 'Location Precision', width: 135 },
               { key: 'published_at', label: 'Published Date', width: 120 },
               { key: 'date_case', label: 'Date Case', width: 140 },
               { key: 'cases', label: 'Number of Cases', width: 180 },
@@ -387,10 +417,10 @@ export default function AnalyzePage() {
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Location / Country</span>
-                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={result.location_name || result.province || result.country || '-'}>
-                      {result.location_name || result.province || result.country || '-'}
+                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={matrixCountry}>
+                      {eventCountries.length > 1 ? matrixCountry : (result.location_name || result.province || result.country || '-')}
                     </p>
-                    {result.country && (result.location_name || result.province) !== result.country && (
+                    {eventCountries.length <= 1 && result.country && (result.location_name || result.province) !== result.country && (
                       <span className="text-[11px] text-slate-500 font-medium">({result.country})</span>
                     )}
                   </div>
@@ -398,16 +428,14 @@ export default function AnalyzePage() {
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Number of Cases</span>
                     <p className="mt-1 text-lg font-black text-slate-900 leading-snug truncate">
-                      {(result as any).case_count_unknown
-                        ? 'unknown'
-                        : result.case_count != null ? result.case_count.toLocaleString() : '0'}
+                      {matrixCases}
                     </p>
                   </div>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Recorded Deaths</span>
                     <p className={`mt-1 text-lg font-black ${result.death_count > 0 ? 'text-red-600' : 'text-slate-900'} leading-snug truncate`}>
-                      {result.death_count != null ? result.death_count.toLocaleString() : '0'}
+                      {matrixDeaths}
                     </p>
                   </div>
                 </div>
@@ -492,7 +520,7 @@ export default function AnalyzePage() {
                             </div>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            {result.country || '-'}
+                            {matrixCountry}
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono uppercase">
                             {result.language || '-'}
@@ -522,13 +550,19 @@ export default function AnalyzePage() {
                               <span className="truncate max-w-[160px]" title={diseaseValue}>{diseaseValue}</span>
                             </div>
                           </td>
-                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600">
-                            {(result as any).region || '-'}
-                          </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            <span className="block max-w-[150px] truncate" title={result.location_name || result.province || result.country || '-'}>
-                              {result.location_name || result.province || result.country || '-'}
+                            <span className="block max-w-[150px] truncate" title={matrixCountry}>
+                              {eventCountries.length > 1 ? matrixCountry : (result.location_name || result.province || result.country || '-')}
                             </span>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-mono text-slate-600">
+                            {eventCountries.length > 1 ? '-' : formatCoordinate(resultLatitude)}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-mono text-slate-600">
+                            {eventCountries.length > 1 ? '-' : formatCoordinate(resultLongitude)}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600">
+                            {resultPrecision}
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono text-[10px]">
                             {result.published_at || '-'}
@@ -539,15 +573,13 @@ export default function AnalyzePage() {
                               : result.event_date || result.published_at || '-'}
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-extrabold text-slate-900">
-                            <span className="block max-w-[160px] truncate" title={String(result.case_count)}>
-                              {(result as any).case_count_unknown
-                                ? 'unknown'
-                                : result.case_count != null ? result.case_count.toLocaleString() : '0'}
+                            <span className="block max-w-[160px] truncate" title={String(matrixCases)}>
+                              {matrixCases}
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-bold">
                             <span className={`block max-w-[130px] truncate ${result.death_count > 0 ? 'text-red-600 font-extrabold' : 'text-slate-600'}`}>
-                              {result.death_count != null ? result.death_count.toLocaleString() : '0'}
+                              {matrixDeaths}
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-700 capitalize font-medium">
@@ -634,14 +666,24 @@ export default function AnalyzePage() {
                                   )}
                                 </div>
                               </td>
-                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
-                                —
-                              </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-semibold text-slate-800">
                                 <div className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3 text-red-500 shrink-0" />
                                   <span>{evt.location_name || evt.province || evt.city || result.location_name || result.province || result.country || '-'}</span>
                                 </div>
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-mono text-slate-600">
+                                {formatCoordinate(evt.latitude)}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-mono text-slate-600">
+                                {formatCoordinate(evt.longitude)}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-600">
+                                {evt.latitude != null && evt.longitude != null
+                                  ? ((evt.location_name || '').trim().toLowerCase() === (evt.country || result.country || '').trim().toLowerCase()
+                                    ? 'country centroid'
+                                    : 'locality/admin')
+                                  : 'unknown'}
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-500 font-mono text-[10px]">
                                 {result.published_at || '-'}
@@ -680,20 +722,27 @@ export default function AnalyzePage() {
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-2.5 py-1.5 text-center">
                                 <button
                                   type="button"
-                                  onClick={() => setCorrectionTarget({
+                                  onClick={() => setReviewTarget({
                                     eventId: (evt as any)?.id || (result as any)?.id,
                                     rawReportId: (result as any)?.raw_report_id,
-                                    fieldName: 'case_count',
-                                    originalValue: String(evt.case_count ?? 0),
-                                    textSnippet: childEvtSnippet || evt.evidence || evidenceSnippet,
-                                    articleTitle: (result as any)?.title || url,
+                                    title: (result as any)?.title || url,
+                                    url,
+                                    summary: (result as any)?.summary,
+                                    snippet: childEvtSnippet || evt.evidence || evidenceSnippet,
+                                    evidence: childEvtSnippet || evt.evidence,
+                                    disease: evt.disease || result?.disease_classification,
+                                    country: evt.country || result?.country,
+                                    locationName: evt.location_name || result?.location_name,
+                                    cases: evt.case_count,
+                                    deaths: evt.death_count,
                                     language: result?.language,
+                                    needsReview: evt.needs_review || (result as any)?.needs_review,
                                   })}
                                   className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition"
-                                  title="Koreksi sub-event ini"
+                                  title="Review sub-event ini"
                                 >
-                                  <Edit3 className="h-3 w-3 text-slate-500" />
-                                  <span>Koreksi</span>
+                                  <Eye className="h-3 w-3 text-blue-600" />
+                                  <span>Review</span>
                                 </button>
                               </td>
                             </tr>
@@ -869,7 +918,7 @@ export default function AnalyzePage() {
                         <thead>
                           <tr className="border-b border-slate-200/80 bg-slate-50/40 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                             <th className="py-2.5 px-3.5">Disease</th>
-                            <th className="py-2.5 px-3.5">Region / Location</th>
+                            <th className="py-2.5 px-3.5">Country / Location</th>
                             <th className="py-2.5 px-3.5 text-right">Cases</th>
                             <th className="py-2.5 px-3.5 text-right">Deaths</th>
                             <th className="py-2.5 px-3.5">Role</th>
@@ -1050,16 +1099,6 @@ export default function AnalyzePage() {
         </div>
       )}
 
-      <CorrectionModal
-        open={!!correctionTarget}
-        target={correctionTarget}
-        onClose={() => setCorrectionTarget(null)}
-        onSuccess={(field, val) => {
-          if (result && field === 'case_count') {
-            (result as any).case_count = parseInt(val, 10) || 0;
-          }
-        }}
-      />
       <ArticleReviewModal
         open={!!reviewTarget}
         target={reviewTarget}

@@ -14,6 +14,7 @@ def strip_diacritics(s: str) -> str:
 from collections import Counter
 from typing import Optional, Any
 from . import config
+from .multilingual import detect_language_profile, normalize_language_code
 
 
 def normalize_disease_display(disease: str, language: str = "unknown", text: str = "") -> str:
@@ -164,29 +165,23 @@ def normalize_text(text: str) -> str:
 
 
 def detect_language(text: str) -> str:
-    script_counts = {
-        "th": sum("\u0e00" <= char <= "\u0e7f" for char in text),
-        "lo": sum("\u0e80" <= char <= "\u0eff" for char in text),
-        "my": sum("\u1000" <= char <= "\u109f" for char in text),
-        "km": sum("\u1780" <= char <= "\u17ff" for char in text),
+    profile = detect_language_profile(text, markers=config.LANGUAGE_MARKERS)
+    language = str(profile.get("language") or "unknown")
+    if language != "unknown":
+        return language
+
+    # Database markers are a deterministic fallback when langdetect is absent
+    # or cannot classify a short Latin-script article.
+    markers = config.LANGUAGE_MARKERS
+    min_match = int(os.getenv("LANG_MARKER_MIN_MATCH", "2"))
+    folded = (text or "").casefold()
+    scores = {
+        normalize_language_code(lang_code): sum(1 for word in words if str(word).casefold() in folded)
+        for lang_code, words in markers.items()
     }
-    if text and max(script_counts.values(), default=0) >= 3:
-        return max(script_counts, key=script_counts.get)
-    try:
-        from langdetect import detect
-        lang = detect(text)
-        if lang in ("id", "ms"):
-            return "id"
-        return lang
-    except Exception:
-        markers = config.LANGUAGE_MARKERS
-        min_match = int(os.getenv("LANG_MARKER_MIN_MATCH", "2"))
-        scores: dict[str, int] = {}
-        for lang_code, words in markers.items():
-            scores[lang_code] = sum(1 for w in words if w in text.lower())
-        if not scores or max(scores.values()) < min_match:
-            return "unknown"
-            return max(scores, key=scores.get)
+    if not scores or max(scores.values(), default=0) < min_match:
+        return "unknown"
+    return max(scores, key=scores.get)
 
 
 # Non-Latin Southeast Asian scripts (Thai, Lao, Myanmar, Khmer) do not use whitespace between words
@@ -243,6 +238,8 @@ COUNTRY_ALIASES = {
     "กម្ពុជា": "Cambodia",
     "မြန်မာ": "Myanmar",
     "ລາວ": "Laos",
+    "ສປປ ລາວ": "Laos",
+    "ສປປລາວ": "Laos",
     "việt nam": "Vietnam",
     "s'pore": "Singapore",
     "kamboja": "Cambodia",
@@ -322,6 +319,14 @@ LOCATION_ALIASES = {
     "ho chi minh": "Ho Chi Minh City",
     "thành phố hồ chí minh": "Ho Chi Minh City",
     "thanh pho ho chi minh": "Ho Chi Minh City",
+    "sumatra utara": "Sumatera Utara",
+    "sumatra barat": "Sumatera Barat",
+    "sumatra selatan": "Sumatera Selatan",
+    "sumatra": "Sumatera",
+    "sumatera": "Sumatera",
+    "sumut": "Sumatera Utara",
+    "sumbar": "Sumatera Barat",
+    "sumsel": "Sumatera Selatan",
 }
 
 CONTINENT_AND_REGION_LABELS = {
@@ -342,6 +347,7 @@ MEDIA_FILLER_PLACE_TOKENS = {
     "harian", "persen", "percent", "tak", "pesisir", "pantai",
     "antara", "detik", "tempo", "tribun", "kompas", "times", "post",
     "daily", "herald", "tribune", "online", "network", "media",
+    "sepanjang",
     # Thai "ลอง" (try) and English "Long" collide with a gazetteer row
     # (teammate QA no.53 province=Long for an exhibition).
     "long",
@@ -652,7 +658,7 @@ def extract_country_hint(text: str) -> Optional[str]:
     if not lower_text.strip():
         return None
     contextual = re.compile(
-        r"(?:including|includes|compared with|compared to|higher than|lower than|"
+        r"(?:setelah|sesudah|dibandingkan|dibanding|daripada|seperti|termasuk|antara lain|misalnya|including|includes|compared with|compared to|higher than|lower than|"
         r"both|between|across|regional partners|countries in|in contrast to|"
         r"neighbouring|neighboring|unlike|versus|vs\.?|rather than|than that of)",
         re.IGNORECASE,
@@ -706,7 +712,7 @@ def extract_all_mentioned_countries(text: str) -> list[str]:
     if not lower_text.strip():
         return []
     contextual = re.compile(
-        r"(?:including|includes|compared with|compared to|higher than|lower than|"
+        r"(?:setelah|sesudah|dibandingkan|dibanding|daripada|seperti|termasuk|antara lain|misalnya|including|includes|compared with|compared to|higher than|lower than|"
         r"both|between|across|regional partners|countries in|in contrast to|"
         r"neighbouring|neighboring|unlike|versus|vs\.?|rather than|than that of)",
         re.IGNORECASE,
@@ -1007,7 +1013,7 @@ def extract_location(
     # 3. Specificity bonus for multi-word or distinct city names = +1
     # 4. Penalty if inside comparative phrasing ("in contrast to Singapore", "including Thailand") = -5
     contextual = re.compile(
-        r"(?:including|includes|compared with|compared to|higher than|lower than|"
+        r"(?:setelah|sesudah|dibandingkan|dibanding|daripada|seperti|termasuk|antara lain|misalnya|including|includes|compared with|compared to|higher than|lower than|"
         r"both|between|across|regional partners|countries in|in contrast to|"
         r"neighbouring|neighboring|unlike|versus|vs\.?)",
         re.IGNORECASE,
@@ -1421,7 +1427,7 @@ def disease_has_textual_evidence(disease: str, text: str) -> bool:
     aliases = {
         "measles": ("measles", "campak", "rubella", "sởi", "โรคหัด"),
         "rabies": ("rabies", "anjing gila", "lyssavirus", "bệnh dại", "พิษสุนัขบ้า"),
-        "dengue": ("dengue", "dbd", "demam berdarah", "sot xuat huyet", "sốt xuất huyết", "ไข้เลือดออก"),
+        "dengue": ("dengue", "dbd", "demam berdarah", "sot xuat huyet", "sốt xuất huyết", "ไข้เลือดออก", "ໄຂ້ຍຸງລາຍ", "ໄຂ້ເລືອດອອກ"),
         "covid-19": ("covid", "coronavirus", "sars-cov", "โควิด"),
         "malaria": ("malaria", "sốt rét", "sot ret", "มาลาเรีย"),
         "cholera": ("cholera", "kolera", "bệnh tả", "อหิวาตกโรค"),
@@ -1429,7 +1435,7 @@ def disease_has_textual_evidence(disease: str, text: str) -> bool:
         "hfmd": ("hfmd", "hand foot", "tangan kaki", "flu singapura", "tay chân miệng", "tay chan mieng", "มือเท้าปาก", "โรคมือเท้าปาก"),
         "poliomyelitis": ("polio", "poliovirus", "cvdpv", "poliomyelitis"),
         "hantavirus": ("hantavirus",),
-        "influenza": ("influenza", "hmpv", "ไข้หวัดใหญ่"),
+        "influenza": ("influenza", "hmpv", "ไข้หวัดใหญ่", "ໄຂ້ຫວັດໃຫຍ່"),
         "rsv": ("rsv", "respiratory syncytial"),
         "syncytial": ("rsv", "respiratory syncytial", "syncytial"),
         "nipah": ("nipah",),
@@ -1882,6 +1888,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             rf"\b({_NUM_TOKEN})\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
+            r"(?:ผู้ป่วย|ผู้ติดเชื้อ)(?:สะสม|ใหม่|ทั้งหมด)?\s*([0-9][0-9,.]*)\s*(?:ราย|คน)",
             r"(?:ករណីឆ្លងថ្មី|ករណីឆ្លង|អ្នកឆ្លង)\s*([0-9][0-9,.]*)\s*នាក់",
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
         ],
@@ -1929,7 +1936,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return
         raw_token = match.group(1).strip(".,")
         # 2. Year filter (19xx, 20xx)
-        if re.fullmatch(r"(?:19|20)\d{2}", raw_token):
+        if re.fullmatch(r"(?:19|20|25)\d{2}", raw_token):
             return
         # 3. Calendar dates (e.g. '23 Agustus', '1 to 23 Aug')
         if re.match(r"^(?:-|–|\s)*(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|january|february|march|april|may|june|july|august|september|october|november|december|tháng)\b", after, re.I):
@@ -1937,6 +1944,18 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         window = _sentence_window(search_text, match.start(), match.end())
         window_l = window.lower()
         if field == "case_count" and _VACCINE_WINDOW.search(window):
+            return
+        # "10 patients were hospitalized/admitted and later discharged" is a
+        # care-utilization fact, not ten new disease cases. Keep it available
+        # to typed hospitalization extraction, but never promote it to a
+        # disease total.
+        if field == "case_count" and re.search(r"\bpatients?\b", match.group(0), re.IGNORECASE) and re.search(
+            r"\b(?:hospitali[sz](?:ed|ation)?|admitted|in hospital|discharged|returned home|"
+            r"hospitalis(?:é|e|és|ées)|admis(?:e|es)?|sort(?:i|is|ie|ies) de l(?:['’]hôpital|hôpital)|"
+            r"dirawat|rawat inap|pulang)\b",
+            window_l,
+            re.IGNORECASE,
+        ):
             return
         if field == "case_count" and _ANIMAL_OUTBREAK.search(window) and re.search(
             r"\b(?:outbreaks?|clusters?|farms?)\b", window_l
@@ -2207,6 +2226,8 @@ DISEASE_ALIASES = {
     "uốn ván": "Tetanus",
     "viêm não nhật bản": "Japanese Encephalitis",
     "ไข้เลือดออก": "Dengue",
+    "ໄຂ້ຍຸງລາຍ": "Dengue",
+    "ໄຂ້ເລືອດອອກ": "Dengue",
     "มาลาเรีย": "Malaria",
     "พิษสุนัขบ้า": "Rabies",
     "อหิวาตกโรค": "Cholera",
@@ -2267,6 +2288,7 @@ DISEASE_ALIASES = {
     "respiratory syncytial virus": "Respiratory syncytial virus infection",
     "influenza": "Influenza",
     "ไข้หวัดใหญ่": "Influenza",
+    "ໄຂ້ຫວັດໃຫຍ່": "Influenza",
     "cancer": "Cancer",
     "มะเร็ง": "Cancer",
     "heart attack": "Heart attack",

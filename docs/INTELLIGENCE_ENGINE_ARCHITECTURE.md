@@ -42,7 +42,7 @@ Each capability is classified based on the actual codebase inspection (`services
 | **Crawler & Document Identity** | **EXISTS** | `crawler_identity.py` with URL normalization, tracking param stripping, `content_hash`, `url_hash`, safe SSRF validation. | Metadata (author, publisher country) is extracted at document level, not linked to individual event claims. |
 | **Disease Classification (Document)** | **EXISTS** | `pipeline.py` with `NLP_MODEL` options (`xlm-roberta`, `indobert`, `fine-tuned`, `none`), fallback to keywords in `nlp_keywords`. | Assigns one primary disease per document; secondary diseases are stored in JSONB mentions without guaranteed metric linkage. |
 | **WHO ICD-11 Dynamic Discovery** | **EXISTS** | `icd11.py` with WHO OAuth API integration, `disease_concepts` (60 rows), `disease_aliases` (294 rows), local token cache. | Focuses on single concepts and exact aliases; does not resolve sub-clades (e.g., Mpox Clade Ib vs IIb) or co-infections. |
-| **Multilingual Translation** | **EXISTS** | `translator.py` with NLLB-200 local and DeepSeek fallback, stored in `translation_cache` (hash-keyed). | Translation is applied to head text (first 7,000 chars); cross-lingual entity span alignment back to original text is heuristic. |
+| **Multilingual Translation** | **OPTIONAL** | `translator.py` with NLLB-200 local view, stored in `translation_cache` (hash-keyed). | Native extraction is authoritative; translation is disabled by default and never supplies evidence offsets. |
 | **Multi-Event Decomposition** | **PARTIAL** | `multi_event_extractor.py` decomposes articles with $\ge 2$ location-count pairs; `persist_child_facts` inserts child rows in `disease_events`. | Decomposes only if $\ge 2$ pairs exist. If an article has 1 event, it returns `[]` and uses document-level fallback. Only handles cases & deaths. |
 | **Location Extraction & Geocoding** | **PARTIAL** | Flat `locations` table (13,563 rows), regex matching in `extractors.py`, title/dateline scoring, Indonesian PostGIS polygons (`peta_provinsi2023`, `peta_kab2023`). | **No administrative hierarchy** (`admin1`/`admin2`/`admin3`); flat coordinates only. No ASEAN polygons outside Indonesia; homonyms cause false positives. |
 | **Numeric Attribution** | **PARTIAL** | Adjacency regex in `epidemiology.py` (`extract_labeled_counts`), regex pair matching in `multi_event_extractor.py`, Vietnamese breakdown parser. | Limited to `cases` and `deaths`. No coverage for `hospitalizations`, `vaccinations`, `positivity_rate`, `incidence`, or `CFR` in child events. Fragile against complex syntax. |
@@ -148,7 +148,7 @@ To satisfy production latency ($< 3$ seconds per document), zero operational API
        ┌────────────────────────────┴────────────────────────────┐
        ▼ (Non-Latin: Thai, Lao, Khmer, Burmese)                  ▼ (Latin: ID, MS, EN, VI)
 ┌──────────────────────────────────────┐                         │
-│ Translation Engine (NLLB-200 / Cache)│                         │
+│ Optional Translation View (NLLB-200) │                         │
 └──────────────────┬───────────────────┘                         │
                    └──────────────────────┬──────────────────────┘
                                           │

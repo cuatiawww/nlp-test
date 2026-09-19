@@ -10,7 +10,7 @@ from .stage_budget import bounded_call, remaining_inference_budget
 logger = logging.getLogger(__name__)
 router = APIRouter()
 slots = threading.BoundedSemaphore(1)
-TRANSLATION_STAGE_TIMEOUT_SECONDS = config.TRANSLATION_STAGE_TIMEOUT_SECONDS
+TRANSLATION_STAGE_TIMEOUT_SECONDS = config.TRANSLATION_INTERACTIVE_TIMEOUT_SECONDS
 INFERENCE_STAGE_TIMEOUT_SECONDS = config.INFERENCE_STAGE_TIMEOUT_SECONDS
 
 class BoundedRequest(AnalyzeRequest):
@@ -19,7 +19,16 @@ class BoundedRequest(AnalyzeRequest):
 def translate_stage(text):
     from .extractors import detect_language
     from .translator import translate_and_extract
-    return translate_and_extract(text, detect_language(text))
+    # URL analysis is latency-sensitive.  One short semantic window is enough
+    # to help the classifier; source-language extraction remains authoritative
+    # for diseases, locations, metrics, and dates.
+    return translate_and_extract(
+        text,
+        detect_language(text),
+        max_chars=config.TRANSLATION_INTERACTIVE_MAX_CHARS,
+        chunk_chars=config.TRANSLATION_INTERACTIVE_CHUNK_CHARS,
+        max_chunks=config.TRANSLATION_INTERACTIVE_MAX_CHUNKS,
+    )
 
 def inference_stage(payload, translation, rules_only):
     from . import config, pipeline
@@ -54,7 +63,10 @@ def analyze_bounded(payload: BoundedRequest):
         if not payload.rules_only:
             try:
                 translation = bounded_call(
-                    translate_stage, (payload.text,), TRANSLATION_STAGE_TIMEOUT_SECONDS
+                    translate_stage,
+                    (payload.text,),
+                    TRANSLATION_STAGE_TIMEOUT_SECONDS,
+                    isolation="process",
                 )
             except Exception as e:
                 logger.warning("Translation stage failed or timed out: %s", e)

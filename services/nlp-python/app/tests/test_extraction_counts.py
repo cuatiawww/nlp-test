@@ -129,6 +129,21 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         text = "Kemenkes melaporkan 3.5 ribu pasien terinfeksi."
         self.assertEqual(extractors.extract_case_count(text), 3500)
 
+    def test_hospitalized_patients_are_not_case_total(self):
+        text = (
+            "To date, 10 patients including 8 children were hospitalized, "
+            "and all have returned home."
+        )
+        self.assertEqual(extractors.extract_case_count(text), 0)
+
+    def test_thai_postfix_case_count_is_not_the_buddhist_year_or_death_count(self):
+        text = (
+            "ตั้งแต่วันที่ 1 มกราคม-31 สิงหาคม 2569 "
+            "พบผู้ป่วยสะสม 99,691 ราย เสียชีวิต 15 ราย"
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="COVID-19"), 99691)
+        self.assertEqual(extractors.extract_death_count(text, disease="COVID-19"), 15)
+
     def test_extract_decimal_case_count_pure(self):
         text = "Tercatat sebanyak 2.1 kasus per wilayah."
         # Should not throw ValueError: invalid literal for int() with base 10: '2.1'

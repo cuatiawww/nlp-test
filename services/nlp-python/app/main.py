@@ -1,5 +1,6 @@
 ﻿import logging
 from typing import Optional
+import os
 
 from fastapi import FastAPI, Body, HTTPException, status
 from pydantic import BaseModel
@@ -35,9 +36,14 @@ def startup():
     try:
         from .translator import preload_local_model
         preload_local_model()
-        logger.info("Local NLLB translation model preloaded")
+        logger.info(
+            "NLLB translation provider=%s preload=%s model=%s (lazy loading remains default)",
+            os.getenv("TRANSLATION_PROVIDER", "nllb"),
+            os.getenv("TRANSLATION_PRELOAD", "false"),
+            os.getenv("TRANSLATION_LOCAL_MODEL", "facebook/nllb-200-distilled-600M"),
+        )
     except Exception as e:
-        logger.warning("Local translation preload failed; API fallback remains available: %s", e)
+        logger.warning("NLLB translation preload failed: %s", e)
     if NLP_MODEL != "none":
         from .models.classifier import classify_disease, _get_pipe
         from .config import LANGUAGE_MODEL_MAP
