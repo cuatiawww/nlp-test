@@ -28,10 +28,7 @@ def _attach_location_provenance(locations: list[dict[str, Any]], source: str) ->
     """Attach source spelling and offsets without deriving them from translation."""
 
     aliases_by_canonical: dict[str, list[str]] = {}
-    for alias, canonical in {
-        **extractors.LOCATION_ALIASES,
-        **getattr(config, "LOCATION_ALIASES", {}),
-    }.items():
+    for alias, canonical in extractors.active_location_aliases().items():
         aliases_by_canonical.setdefault(str(canonical).casefold(), []).append(str(alias))
     result: list[dict[str, Any]] = []
     for raw_item in locations or []:

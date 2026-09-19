@@ -2141,12 +2141,24 @@ struct RulesQuery {
 struct CreateLanguageMarkerRequest {
     word: String,
     language: String,
+    marker_type: Option<String>,
+    canonical_value: Option<String>,
+    script: Option<String>,
+    priority: Option<i32>,
+    confidence: Option<f64>,
+    source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct UpdateLanguageMarkerRequest {
     word: Option<String>,
     language: Option<String>,
+    marker_type: Option<String>,
+    canonical_value: Option<String>,
+    script: Option<String>,
+    priority: Option<i32>,
+    confidence: Option<f64>,
+    source: Option<String>,
     is_active: Option<bool>,
 }
 
@@ -8822,16 +8834,22 @@ async fn list_language_markers(
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
     let rows = client
-        .query("SELECT id, word, language, is_active, created_at::text, updated_at::text FROM language_markers ORDER BY language, word", &[])
+        .query("SELECT id, word, language, marker_type, canonical_value, script, priority, confidence, source, is_active, created_at::text, updated_at::text FROM language_markers ORDER BY marker_type, language, word", &[])
         .await
         .map_err(internal_error)?;
     let data: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.get::<_, Uuid>(0),
         "word": r.get::<_, String>(1),
         "language": r.get::<_, String>(2),
-        "is_active": r.get::<_, bool>(3),
-        "created_at": r.get::<_, Option<String>>(4),
-        "updated_at": r.get::<_, Option<String>>(5),
+        "marker_type": r.get::<_, String>(3),
+        "canonical_value": r.get::<_, Option<String>>(4),
+        "script": r.get::<_, Option<String>>(5),
+        "priority": r.get::<_, i32>(6),
+        "confidence": r.get::<_, f64>(7),
+        "source": r.get::<_, String>(8),
+        "is_active": r.get::<_, bool>(9),
+        "created_at": r.get::<_, Option<String>>(10),
+        "updated_at": r.get::<_, Option<String>>(11),
     })).collect();
     Ok(Json(ApiResponse { success: true, data, total: None, page: None, per_page: None, total_pages: None }))
 }
@@ -8843,16 +8861,21 @@ async fn create_language_marker(
     let client = state.db.get().await.map_err(internal_error)?;
     let row = client
         .query_one(
-            "INSERT INTO language_markers (word, language) VALUES ($1, $2) RETURNING id, word, language, is_active, created_at::text",
-            &[&payload.word, &payload.language],
+            "INSERT INTO language_markers (word, language, marker_type, canonical_value, script, priority, confidence, source)
+             VALUES ($1, $2, COALESCE($3, 'language_marker'), $4, $5, COALESCE($6, 0), COALESCE($7, 1.0), COALESCE($8, 'curated'))
+             RETURNING id, word, language, marker_type, canonical_value, script, priority, confidence, source, is_active, created_at::text",
+            &[&payload.word, &payload.language, &payload.marker_type, &payload.canonical_value, &payload.script, &payload.priority, &payload.confidence, &payload.source],
         )
         .await
         .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Exists: {}", e)}))))?;
     reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: json!({
         "id": row.get::<_, Uuid>(0), "word": row.get::<_, String>(1),
-        "language": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
-        "created_at": row.get::<_, Option<String>>(4),
+        "language": row.get::<_, String>(2), "marker_type": row.get::<_, String>(3),
+        "canonical_value": row.get::<_, Option<String>>(4), "script": row.get::<_, Option<String>>(5),
+        "priority": row.get::<_, i32>(6), "confidence": row.get::<_, f64>(7),
+        "source": row.get::<_, String>(8), "is_active": row.get::<_, bool>(9),
+        "created_at": row.get::<_, Option<String>>(10),
     }), total: None, page: None, per_page: None, total_pages: None }))
 }
 
@@ -8865,17 +8888,22 @@ async fn update_language_marker(
     let row = client
         .query_one(
             "UPDATE language_markers SET word=COALESCE($1,word), language=COALESCE($2,language),
-             is_active=COALESCE($3,is_active), updated_at=NOW() WHERE id=$4
-             RETURNING id, word, language, is_active, created_at::text, updated_at::text",
-            &[&payload.word, &payload.language, &payload.is_active, &id],
+             marker_type=COALESCE($3,marker_type), canonical_value=COALESCE($4,canonical_value),
+             script=COALESCE($5,script), priority=COALESCE($6,priority), confidence=COALESCE($7,confidence),
+             source=COALESCE($8,source), is_active=COALESCE($9,is_active), updated_at=NOW() WHERE id=$10
+             RETURNING id, word, language, marker_type, canonical_value, script, priority, confidence, source, is_active, created_at::text, updated_at::text",
+            &[&payload.word, &payload.language, &payload.marker_type, &payload.canonical_value, &payload.script, &payload.priority, &payload.confidence, &payload.source, &payload.is_active, &id],
         )
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
     reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: json!({
         "id": row.get::<_, Uuid>(0), "word": row.get::<_, String>(1),
-        "language": row.get::<_, String>(2), "is_active": row.get::<_, bool>(3),
-        "created_at": row.get::<_, Option<String>>(4), "updated_at": row.get::<_, Option<String>>(5),
+        "language": row.get::<_, String>(2), "marker_type": row.get::<_, String>(3),
+        "canonical_value": row.get::<_, Option<String>>(4), "script": row.get::<_, Option<String>>(5),
+        "priority": row.get::<_, i32>(6), "confidence": row.get::<_, f64>(7),
+        "source": row.get::<_, String>(8), "is_active": row.get::<_, bool>(9),
+        "created_at": row.get::<_, Option<String>>(10), "updated_at": row.get::<_, Option<String>>(11),
     }), total: None, page: None, per_page: None, total_pages: None }))
 }
 

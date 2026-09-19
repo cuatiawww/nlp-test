@@ -6,6 +6,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from . import config
 from .multilingual import normalize_local_digits
 
 
@@ -190,81 +191,48 @@ def extract_event_date(text: str) -> Optional[str]:
     return None
 
 
-_MONTH_MAP = {
-    "january": 1, "januari": 1, "jan": 1, "มกราคม": 1,
-    "february": 2, "februari": 2, "feb": 2, "กุมภาพันธ์": 2,
-    "march": 3, "maret": 3, "mar": 3, "มีนาคม": 3,
-    "april": 4, "apr": 4, "เมษายน": 4,
-    "may": 5, "mei": 5, "พฤษภาคม": 5,
-    "june": 6, "juni": 6, "jun": 6, "มิถุนายน": 6,
-    "july": 7, "juli": 7, "jul": 7, "กรกฎาคม": 7,
-    "august": 8, "agustus": 8, "aug": 8, "ags": 8, "สิงหาคม": 8,
-    "september": 9, "sep": 9, "กันยายน": 9,
-    "october": 10, "oktober": 10, "oct": 10, "okt": 10, "ตุลาคม": 10,
-    "november": 11, "nov": 11, "พฤศจิกายน": 11,
-    "december": 12, "desember": 12, "dec": 12, "des": 12, "ธันวาคม": 12,
-    "tháng một": 1, "tháng hai": 2, "tháng ba": 3, "tháng tư": 4,
-    "tháng năm": 5, "tháng sáu": 6, "tháng bảy": 7, "tháng tám": 8,
-    "tháng chín": 9, "tháng mười": 10,
-    "មករា": 1, "កុម្ភៈ": 2, "មីនា": 3, "មេសា": 4, "ឧសភា": 5,
-    "មិថុនា": 6, "កក្កដា": 7, "សីហា": 8, "កញ្ញា": 9, "តុលា": 10,
-    "វិច្ឆិកា": 11, "ធ្នូ": 12,
-    "ມັງກອນ": 1, "ກຸມພາ": 2, "ມີນາ": 3, "ເມສາ": 4,
-    "ພຶດສະພາ": 5, "ມິຖຸນາ": 6, "ກໍລະກົດ": 7, "ສິງຫາ": 8,
-    "ກັນຍາ": 9, "ຕຸລາ": 10, "ພະຈິກ": 11, "ທັນວາ": 12,
-    "ဇန်နဝါရီ": 1, "ဖေဖော်ဝါရီ": 2, "မတ်": 3, "ဧပြီ": 4,
-    "မေ": 5, "ဇွန်": 6, "ဇူလိုင်": 7, "ဩဂုတ်": 8, "စက်တင်ဘာ": 9,
-    "အောက်တိုဘာ": 10, "နိုဝင်ဘာ": 11, "ဒီဇင်ဘာ": 12,
-}
+def _runtime_date_patterns() -> dict[str, re.Pattern]:
+    """Build date regexes from the reviewed DB month registry.
 
-_MONTHS_PATTERN = (
-    r"january|januari|february|februari|march|maret|april|may|mei|"
-    r"june|juni|july|juli|august|agustus|september|october|oktober|"
-    r"november|december|desember|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|"
-    r"มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|"
-    r"กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม|"
-    r"tháng\s+(?:một|hai|ba|tư|năm|sáu|bảy|tám|chín|mười)|"
-    r"មករា|កុម្ភៈ|មីនា|មេសា|ឧសភា|មិថុនា|កក្កដា|សីហា|កញ្ញា|តុលា|វិច្ឆិកា|ធ្នូ|"
-    r"ມັງກອນ|ກຸມພາ|ມີນາ|ເມສາ|ພຶດສະພາ|ມິຖຸນາ|ກໍລະກົດ|ສິງຫາ|ກັນຍາ|ຕຸລາ|ພະຈິກ|ທັນວາ|"
-    r"ဇန်နဝါရီ|ဖေဖော်ဝါရီ|မတ်|ဧပြီ|မေ|ဇွန်|ဇူလိုင်|ဩဂုတ်|စက်တင်ဘာ|အောက်တိုဘာ|နိုဝင်ဘာ|ဒီဇင်ဘာ"
-)
+    Grammar (date order, separators, and event cues) remains algorithmic. Month
+    names are data-owned so new language aliases do not require a code release.
+    An empty registry produces no named-month matches rather than guessed data.
+    """
 
-_RANGE = re.compile(
-    r"(?:from|between|sejak|dari)?\s*"
-    r"(?:(?P<d1>\d{1,2})\s+(?P<m1>" + _MONTHS_PATTERN + r")|(?P<m1_alt>" + _MONTHS_PATTERN + r")\.?\s+(?P<d1_alt>\d{1,2}))"
-    r"(?:\s+(?P<y1>20\d{2}|25\d{2}))?"
-    r"\s*(?:-|–|—|to|until|hingga|sampai|đến|ถึง|ដល់|ຫາ|ထိ|and|s/?d)\s*"
-    r"(?:(?P<d2>\d{1,2})\s+(?P<m2>" + _MONTHS_PATTERN + r")|(?P<m2_alt>" + _MONTHS_PATTERN + r")\.?\s+(?P<d2_alt>\d{1,2}))"
-    r"(?:\s+(?P<y2>20\d{2}|25\d{2}))?",
-    re.IGNORECASE,
-)
-
-_EVENT_DATE_MARKER = (
-    r"(?:\b(?:on|as\s+of|during|reported\s+on|recorded\s+on|pada|tanggal|"
-    r"dilaporkan\s+pada|tercatat\s+pada|ngày|vào\s+ngày|tính\s+đến)\b|"
-    r"(?:วันที่|เมื่อวันที่|នៅថ្ងៃទី|ວັນທີ|ໃນວັນທີ|ရက်နေ့|နေ့တွင်))"
-)
-_KHMER_MONTHS_PATTERN = r"ខែមករា|ខែកុម្ភៈ|ខែមីនា|ខែមេសា|ខែឧសភា|ខែមិថុនា|ខែកក្កដា|ខែសីហា|ខែកញ្ញា|ខែតុលា|ខែវិច្ឆិកា|ខែធ្នូ"
-_SINGLE_EVENT_DATE = re.compile(
-    _EVENT_DATE_MARKER
-    + r"\s*(?P<day>\d{1,2})\s+(?P<month>"
-    + _MONTHS_PATTERN + r"|" + _KHMER_MONTHS_PATTERN
-    + r")\s+(?:(?:ปี|ឆ្នាំ|ປີ|နှစ်)\s+)?(?P<year>20\d{2}|25\d{2})",
-    re.IGNORECASE,
-)
-_SINGLE_VIETNAMESE_NUMERIC_DATE = re.compile(
-    _EVENT_DATE_MARKER
-    + r"\s*(?P<day>\d{1,2})\s+tháng\s+(?P<month>\d{1,2})\s+năm\s+(?P<year>20\d{2}|25\d{2})",
-    re.IGNORECASE,
-)
-_SINGLE_KHMER_DATE = re.compile(
-    r"(?:នៅថ្ងៃទី|ថ្ងៃទី)\s*(?P<day>\d{1,2})\s+ខែ(?P<month>មករា|កុម្ភៈ|មីនា|មេសា|ឧសភា|មិថុនា|កក្កដា|សីហា|កញ្ញា|តុលា|វិច្ឆិកា|ធ្នូ)\s+ឆ្នាំ\s*(?P<year>20\d{2}|25\d{2})",
-    re.IGNORECASE,
-)
-_SINGLE_VIETNAMESE_DATE = re.compile(
-    r"(?:vào\s+ngày|ngày)\s*(?P<day>\d{1,2})\s+tháng\s+(?P<month>\d{1,2})\s+năm\s+(?P<year>20\d{2}|25\d{2})",
-    re.IGNORECASE,
-)
+    month_pattern = config.get_temporal_month_pattern()
+    event_marker = (
+        r"(?:\b(?:on|as\s+of|during|reported\s+on|recorded\s+on|pada|tanggal|"
+        r"dilaporkan\s+pada|tercatat\s+pada|ngày|vào\s+ngày|tính\s+đến)\b|"
+        r"(?:วันที่|เมื่อวันที่|ថ្ងៃទី|ວັນທີ|ໃນວັນທີ|ရက်နေ့|နေ့တွင်))"
+    )
+    range_pattern = re.compile(
+        r"(?:from|between|sejak|dari)?\s*"
+        rf"(?:(?P<d1>\d{{1,2}})\s+(?P<m1>{month_pattern})|"
+        rf"(?P<m1_alt>{month_pattern})\.?\s+(?P<d1_alt>\d{{1,2}}))"
+        r"(?:\s+(?P<y1>20\d{2}|25\d{2}))?\s*"
+        r"(?:-|–|—|to|until|hingga|sampai|đến|ถึง|ដល់|ຫາ|and|s/?d)\s*"
+        rf"(?:(?P<d2>\d{{1,2}})\s+(?P<m2>{month_pattern})|"
+        rf"(?P<m2_alt>{month_pattern})\.?\s+(?P<d2_alt>\d{{1,2}}))"
+        r"(?:\s+(?P<y2>20\d{2}|25\d{2}))?",
+        re.IGNORECASE | re.UNICODE,
+    )
+    single_pattern = re.compile(
+        event_marker
+        + rf"\s*(?P<day>\d{{1,2}})\s+(?P<month>{month_pattern})"
+        + r"\s+(?:(?:ปี|ឆ្នាំ|ປີ|နှစ်)\s+)?(?P<year>20\d{2}|25\d{2})",
+        re.IGNORECASE | re.UNICODE,
+    )
+    vietnamese_numeric = re.compile(
+        event_marker
+        + r"\s*(?P<day>\d{1,2})\s+tháng\s+(?P<month>\d{1,2})"
+        + r"\s+năm\s+(?P<year>20\d{2}|25\d{2})",
+        re.IGNORECASE | re.UNICODE,
+    )
+    return {
+        "range": range_pattern,
+        "single": single_pattern,
+        "vietnamese_numeric": vietnamese_numeric,
+    }
 
 
 def _calendar_year(raw: Optional[str]) -> Optional[int]:
@@ -287,18 +255,15 @@ def _ymd(year: Optional[int], month: Optional[int], day: Optional[int]) -> Optio
 
 def _single_event_date(text: str) -> Optional[str]:
     """Parse one explicitly event-marked date without using publication time."""
+    patterns = _runtime_date_patterns()
     for match in (
-        _SINGLE_EVENT_DATE.search(text or ""),
-        _SINGLE_VIETNAMESE_NUMERIC_DATE.search(text or ""),
-        _SINGLE_KHMER_DATE.search(text or ""),
-        _SINGLE_VIETNAMESE_DATE.search(text or ""),
+        patterns["single"].search(text or ""),
+        patterns["vietnamese_numeric"].search(text or ""),
     ):
         if not match:
             continue
-        raw_month = match.group("month").lower().rstrip(".")
-        month = int(raw_month) if raw_month.isdigit() else _MONTH_MAP.get(raw_month)
-        if month is None and raw_month.startswith("ខែ"):
-            month = _MONTH_MAP.get(raw_month[1:])
+        raw_month = match.group("month").casefold().rstrip(".")
+        month = int(raw_month) if raw_month.isdigit() else config.get_temporal_month_map().get(raw_month)
         if month is not None:
             return _ymd(_calendar_year(match.group("year")), month, int(match.group("day")))
     return None
@@ -325,6 +290,8 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
     # Native digits are normalized only in the working buffer. Evidence and
     # offsets continue to use the caller's original string elsewhere.
     sample = normalize_local_digits(text or "")
+    month_map = config.get_temporal_month_map()
+    date_patterns = _runtime_date_patterns()
     pub_iso = normalize_publication_date(published_at)
     pub_dt = None
     if pub_iso:
@@ -390,7 +357,7 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
             return result
 
     # 3. Explicit date range regex
-    match = _RANGE.search(sample[:2500])
+    match = date_patterns["range"].search(sample[:2500])
     if match:
         y2 = _calendar_year(match.group("y2")) or pub_year
         y1 = _calendar_year(match.group("y1")) or y2 or pub_year
@@ -398,8 +365,8 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
         m2_raw = match.group("m2") or match.group("m2_alt") or ""
         d1_raw = match.group("d1") or match.group("d1_alt")
         d2_raw = match.group("d2") or match.group("d2_alt")
-        m1 = _MONTH_MAP.get(m1_raw.lower().rstrip("."))
-        m2 = _MONTH_MAP.get(m2_raw.lower().rstrip("."))
+        m1 = month_map.get(m1_raw.casefold().rstrip("."))
+        m2 = month_map.get(m2_raw.casefold().rstrip("."))
         start = _ymd(y1, m1, d1_raw)
         end = _ymd(y2, m2, d2_raw)
         result["event_date_start"] = start
@@ -415,20 +382,21 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
             result["event_date_end"] = single_date
             result["period_type"] = "incident"
         elif result["period_type"] == "cumulative":
+            month_pattern = config.get_temporal_month_pattern()
             start_only = re.search(
-                r"\b(?:from|since|sejak|dari)\s+(?P<m>[A-Za-z]{3,12})\s+(?P<y>20\d{2}|25\d{2})",
+                rf"\b(?:from|since|sejak|dari)\s+(?P<m>{month_pattern})\s+(?P<y>20\d{{2}}|25\d{{2}})",
                 sample[:2000],
-                re.I,
+                re.I | re.UNICODE,
             )
             as_of = re.search(
-                r"\b(?:as of|dilaporkan per|per|hingga|reported as of)\s+"
-                r"([A-Za-z]{3,12}\s+20\d{2}|20\d{2}-\d{2}-\d{2}|\d{1,2}\s+[A-Za-z]{3,12}\s+20\d{2})",
+                rf"\b(?:as of|dilaporkan per|per|hingga|reported as of)\s+"
+                rf"({month_pattern}\s+20\d{{2}}|20\d{{2}}-\d{{2}}-\d{{2}}|\d{{1,2}}\s+{month_pattern}\s+20\d{{2}})",
                 sample[:2000],
-                re.I,
+                re.I | re.UNICODE,
             )
             if start_only:
                 y = _calendar_year(start_only.group("y"))
-                m = _MONTH_MAP.get(start_only.group("m").lower())
+                m = month_map.get(start_only.group("m").casefold())
                 result["event_date_start"] = _ymd(y, m, 1)
                 result["date_needs_review"] = True
             if as_of:
@@ -471,12 +439,9 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
 
 
 def _parse_count(raw: str) -> int:
-    compact = raw.strip().replace(" ", "")
-    if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", compact):
-        compact = compact.replace(".", "").replace(",", "")
-    else:
-        compact = compact.replace(",", "")
-    return int(compact)
+    from .extractors import parse_surveillance_count
+
+    return parse_surveillance_count(raw) or 0
 
 
 def extract_labeled_counts(text: str) -> dict[str, Optional[int]]:

@@ -9,7 +9,8 @@ import Modal from '@/components/Modal'
 import SearchInput from '@/components/SearchInput'
 
 interface LangItem {
-  id: string; word: string; language: string; is_active: boolean
+  id: string; word: string; language: string; marker_type: string; canonical_value?: string | null
+  script?: string | null; priority: number; confidence: number; source: string; is_active: boolean
 }
 
 export default function LanguageMarkersPage() {
@@ -19,7 +20,7 @@ export default function LanguageMarkersPage() {
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState<any | null>(null)
-  const [form, setForm] = useState({ word: '', language: 'en' })
+  const [form, setForm] = useState({ word: '', language: 'en', marker_type: 'language_marker', canonical_value: '', script: '', priority: 0, confidence: 1, source: 'curated' })
 
   const load = async () => {
     setLoading(true)
@@ -56,7 +57,7 @@ export default function LanguageMarkersPage() {
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">{t('pages.languageMarkers.title')}</h1>
           <p className="mt-1 text-sm text-slate-500">{t('pages.languageMarkers.subtitle')}</p>
         </div>
-        <button onClick={() => { setEditItem(null); setForm({ word: '', language: 'en' }); setShowModal(true) }}
+        <button onClick={() => { setEditItem(null); setForm({ word: '', language: 'en', marker_type: 'language_marker', canonical_value: '', script: '', priority: 0, confidence: 1, source: 'curated' }); setShowModal(true) }}
           className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white hover:bg-[#004b85]">
           <Plus className="h-4 w-4" /> {t('common.add')}
         </button>
@@ -83,6 +84,8 @@ export default function LanguageMarkersPage() {
               <tr className="border-b bg-slate-50 text-left">
                 <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.languageMarkers.colWord')}</th>
                 <th className="px-4 py-3 font-semibold text-slate-600">{t('pages.languageMarkers.colLanguage')}</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">Type</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">Canonical</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-600">{t('common.active')}</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-600">{t('common.actions')}</th>
               </tr>
@@ -92,6 +95,8 @@ export default function LanguageMarkersPage() {
                 <tr key={l.id} className="border-b border-slate-50 hover:bg-blue-50/40">
                   <td className="px-4 py-3 font-mono text-sm text-slate-800">{l.word}</td>
                   <td className="px-4 py-3"><span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-600 uppercase">{l.language}</span></td>
+                  <td className="px-4 py-3 text-xs text-slate-600">{l.marker_type}</td>
+                  <td className="px-4 py-3 text-xs text-slate-600">{l.canonical_value || '—'}</td>
                   <td className="px-4 py-3 text-center">
                     {l.is_active
                       ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-600">{t('common.yes')}</span>
@@ -99,7 +104,7 @@ export default function LanguageMarkersPage() {
                     }
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button onClick={() => { setEditItem(l); setForm({ word: l.word, language: l.language }); setShowModal(true) }}
+                    <button onClick={() => { setEditItem(l); setForm({ word: l.word, language: l.language, marker_type: l.marker_type || 'language_marker', canonical_value: l.canonical_value || '', script: l.script || '', priority: l.priority || 0, confidence: l.confidence ?? 1, source: l.source || 'curated' }); setShowModal(true) }}
                       className="rounded-lg px-2 py-1 text-xs font-semibold text-[#0060A9] hover:bg-blue-50">{t('common.edit')}</button>
                     <button onClick={() => handleDelete(l.id, l.word)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
@@ -121,6 +126,22 @@ export default function LanguageMarkersPage() {
           <div>
             <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.languageMarkers.colLanguage')} (code, e.g. en / id / th)</label>
             <input value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))} required
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Marker type</label>
+            <select value={form.marker_type} onChange={e => setForm(f => ({ ...f, marker_type: e.target.value }))}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+              <option value="language_marker">language_marker</option>
+              <option value="metric_case">metric_case</option>
+              <option value="metric_death">metric_death</option>
+              <option value="count_unit">count_unit</option>
+              <option value="temporal_month">temporal_month</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Canonical value</label>
+            <input value={form.canonical_value} onChange={e => setForm(f => ({ ...f, canonical_value: e.target.value }))}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
           </div>
           <div className="flex justify-end gap-2 pt-2">

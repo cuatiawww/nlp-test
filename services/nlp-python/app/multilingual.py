@@ -43,20 +43,6 @@ _LOCAL_DIGITS = str.maketrans(
     "0123456789" * 4,
 )
 
-# These are grammar markers, not disease or place names. They are used only
-# to classify a metric occurrence and keep the source span intact.
-CASE_TERMS = (
-    "case", "cases", "kasus", "kes", "ca mắc", "ca nhiễm", "ca", "trường hợp",
-    "bệnh nhân", "ผู้ป่วย", "ติดเชื้อ", "ราย", "กรณี", "ករណី", "អ្នកឆ្លង",
-    "ກໍລະນີ", "ກໍລະນີສະສົມ", "ຄົນເຈັບ", "ຜູ້ຕິດເຊື້ອ", "လူနာ", "ကူးစက်သူ", "ဦး", "kaso", "pasyente",
-    "infeksi", "infection", "infections", "patient", "patients",
-)
-DEATH_TERMS = (
-    "death", "deaths", "kematian", "meninggal", "meninggal dunia", "fatalities", "died",
-    "tewas", "tử vong", "เสียชีวิต", "ស្លាប់", "ເສຍຊີວິດ", "သေဆုံး", "kamatayan",
-)
-
-
 def normalize_language_code(value: Optional[str]) -> str:
     value = str(value or "").strip().casefold().replace("_", "-")
     if not value:
@@ -163,12 +149,20 @@ def detect_language_profile(
 
 
 def metric_term_pattern(terms: tuple[str, ...]) -> str:
+    if not terms:
+        return r"(?!)"
     return "(?:" + "|".join(re.escape(term) for term in terms) + ")"
 
 
-def contains_metric_term(text: str) -> bool:
+def contains_metric_term(
+    text: str,
+    case_terms: tuple[str, ...] = (),
+    death_terms: tuple[str, ...] = (),
+) -> bool:
+    """Check caller-supplied lexicon terms without embedding language data."""
+
     pattern = re.compile(
-        rf"\b(?:{metric_term_pattern(CASE_TERMS)}|{metric_term_pattern(DEATH_TERMS)})\b",
+        rf"(?:{metric_term_pattern(case_terms)}|{metric_term_pattern(death_terms)})",
         re.IGNORECASE | re.UNICODE,
     )
     return bool(pattern.search(text or ""))

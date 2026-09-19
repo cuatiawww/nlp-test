@@ -216,118 +216,24 @@ def _fold_with_positions(value: str) -> tuple[str, list[int]]:
     return "".join(folded), positions
 
 
-COUNTRY_ALIASES = {
-    "brunei": "Brunei",
-    "brunei darussalam": "Brunei",
-    "cambodia": "Cambodia",
-    "kampuchea": "Cambodia",
-    "indonesia": "Indonesia",
-    "laos": "Laos",
-    "lao pdr": "Laos",
-    "lao people's democratic republic": "Laos",
-    "lao people s democratic republic": "Laos",
-    "malaysia": "Malaysia",
-    "myanmar": "Myanmar",
-    "burma": "Myanmar",
-    "philippines": "Philippines",
-    "the philippines": "Philippines",
-    "philippine": "Philippines",
-    "singapore": "Singapore",
-    "singapura": "Singapore",
-    "ประเทศไทย": "Thailand",
-    "กម្ពុជា": "Cambodia",
-    "မြန်မာ": "Myanmar",
-    "ລາວ": "Laos",
-    "ສປປ ລາວ": "Laos",
-    "ສປປລາວ": "Laos",
-    "việt nam": "Vietnam",
-    "s'pore": "Singapore",
-    "kamboja": "Cambodia",
-    "cambodian": "Cambodia",
-    "vietnamese": "Vietnam",
-    "indonesian": "Indonesia",
-    "malaysian": "Malaysia",
-    "filipino": "Philippines",
-    "filipina": "Philippines",
-    "thailand": "Thailand",
-    "timor-leste": "Timor-Leste",
-    "timor leste": "Timor-Leste",
-    "east timor": "Timor-Leste",
-    "vietnam": "Vietnam",
-    "viet nam": "Vietnam",
-    "south sudan": "South Sudan",
-    "sudan": "Sudan",
-    "democratic republic of the congo": "Democratic Republic of the Congo",
-    "dr congo": "Democratic Republic of the Congo",
-    "rd congo": "Democratic Republic of the Congo",
-    "rd kongo": "Democratic Republic of the Congo",
-    "congo": "Democratic Republic of the Congo",
-    "kongo": "Democratic Republic of the Congo",
-    "united states of america": "United States",
-    "united states": "United States",
-    "u.s.a.": "United States",
-    "u.s.": "United States",
-    "usa": "United States",
-    "us": "United States",
-    "amerika serikat": "United States",
-    "mexico": "Mexico",
-    "meksiko": "Mexico",
-    "canada": "Canada",
-    "kanada": "Canada",
-    "brazil": "Brazil",
-    "brasil": "Brazil",
-    "united kingdom": "United Kingdom",
-    "uk": "United Kingdom",
-    "britain": "United Kingdom",
-    "great britain": "United Kingdom",
-    "inggris": "United Kingdom",
-    "germany": "Germany",
-    "jerman": "Germany",
-    "france": "France",
-    "prancis": "France",
-    "spain": "Spain",
-    "spanyol": "Spain",
-    "italy": "Italy",
-    "italia": "Italy",
-    "russia": "Russia",
-    "rusia": "Russia",
-    "china": "China",
-    "tiongkok": "China",
-    "india": "India",
-    "japan": "Japan",
-    "jepang": "Japan",
-    "south korea": "South Korea",
-    "korea selatan": "South Korea",
-    "australia": "Australia",
-    "new zealand": "New Zealand",
-    "pakistan": "Pakistan",
-    "bangladesh": "Bangladesh",
-    "nigeria": "Nigeria",
-    "south africa": "South Africa",
-    "egypt": "Egypt",
-    "saudi arabia": "Saudi Arabia",
-}
+# Country and place aliases are loaded from location_aliases.
+# Empty before DB bootstrap: no code-owned fallback vocabulary.
+COUNTRY_ALIASES: dict[str, str] = {}
 
 # Publisher shorthand is common in Vietnamese news headlines. Keep these
 # aliases local and deterministic so a title such as "TP.HCM" resolves to the
 # gazetteer city instead of falling back to the country only.
-LOCATION_ALIASES = {
-    "tp.hcm": "Ho Chi Minh City",
-    "tp hcm": "Ho Chi Minh City",
-    "tphcm": "Ho Chi Minh City",
-    "hồ chí minh": "Ho Chi Minh City",
-    "ho chi minh": "Ho Chi Minh City",
-    "thành phố hồ chí minh": "Ho Chi Minh City",
-    "thanh pho ho chi minh": "Ho Chi Minh City",
-    "sumatra utara": "Sumatera Utara",
-    "sumatra barat": "Sumatera Barat",
-    "sumatra selatan": "Sumatera Selatan",
-    "sumatra": "Sumatera",
-    "sumatera": "Sumatera",
-    "sumut": "Sumatera Utara",
-    "sumbar": "Sumatera Barat",
-    "sumsel": "Sumatera Selatan",
-}
+# Publisher and shorthand aliases are maintained in location_aliases.
+LOCATION_ALIASES: dict[str, str] = {}
+
+
+def active_location_aliases() -> dict[str, str]:
+    """Return the merged DB-backed locality/country alias view."""
+
+    return {
+        **LOCATION_ALIASES,
+        **getattr(config, "LOCATION_ALIASES", {}),
+    }
 
 CONTINENT_AND_REGION_LABELS = {
     "asia", "africa", "europe", "oceania", "antarctica",
@@ -492,6 +398,7 @@ def resolve_location_hierarchy(
     """Resolve a location name into its canonical administrative hierarchy:
     locality -> admin2 (city/regency) -> admin1 (province/state) -> country (iso3).
     """
+    config.ensure_location_registry_loaded()
     if not location_name or not str(location_name).strip():
         norm_c = normalize_country(country_hint) if country_hint else None
         iso3 = config.COUNTRY_TO_ISO3.get((norm_c or "").lower()) if norm_c else None
@@ -508,7 +415,7 @@ def resolve_location_hierarchy(
 
     raw = str(location_name).strip()
     folded = _fold_location_text(raw)
-    aliases = {**LOCATION_ALIASES, **getattr(config, "LOCATION_ALIASES", {})}
+    aliases = active_location_aliases()
 
     canonical = None
     # 1. Alias lookup (prioritize exact casefold for native non-Latin scripts)
@@ -643,6 +550,7 @@ def geocode_place(
 
 def normalize_country(value: Optional[str]) -> Optional[str]:
     """Normalize a supplied country hint without confusing organizations with countries."""
+    config.ensure_location_registry_loaded()
     raw = (value or "").strip()
     if not raw:
         return None
@@ -654,6 +562,7 @@ def normalize_country(value: Optional[str]) -> Optional[str]:
 
 
 def extract_country_hint(text: str) -> Optional[str]:
+    config.ensure_location_registry_loaded()
     lower_text = (text or "").lower()
     if not lower_text.strip():
         return None
@@ -708,6 +617,7 @@ def extract_country_hint(text: str) -> Optional[str]:
 
 def extract_all_mentioned_countries(text: str) -> list[str]:
     """Extract all distinct ASEAN countries explicitly mentioned in text with positive evidence."""
+    config.ensure_location_registry_loaded()
     lower_text = (text or "").lower()
     if not lower_text.strip():
         return []
@@ -934,6 +844,14 @@ def extract_location(
     country: Optional[str] = None,
     allowed_countries: Optional[set[str] | list[str]] = None,
 ) -> Optional[str]:
+    # A caller may intentionally install a small in-memory gazetteer (the
+    # library tests do this).  A compiled pattern set is the signal that such
+    # a registry is already active; do not merge the production DB rows into
+    # it mid-call.  Normal service startup loads the DB registry before the
+    # first extraction, while direct callers with no pattern set still get
+    # lazy loading.
+    if not config.LOCATION_PATTERNS:
+        config.ensure_location_registry_loaded()
     text = repair_mojibake(text or "")
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
@@ -955,7 +873,7 @@ def extract_location(
     # Resolve curated publisher abbreviations before matching the generic
     # gazetteer regex. The canonical target still has to exist in the loaded
     # location table and match the country restriction.
-    for alias, canonical in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
+    for alias, canonical in active_location_aliases().items():
         if canonical not in allowed_names:
             continue
         if _is_native_script(alias):
@@ -975,7 +893,7 @@ def extract_location(
         for name in config.LOCATION_COORDS
         if name in allowed_names
     }
-    for alias, canon in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
+    for alias, canon in active_location_aliases().items():
         if canon in allowed_names:
             folded_names[_fold_location_text(alias)] = canon
             folded_names[alias.casefold()] = canon
@@ -1020,8 +938,11 @@ def extract_location(
     )
     counts = Counter(loc for loc, _ in hits)
     scored: dict[str, float] = {}
-    all_loc_aliases = {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}
-    alias_names = {loc for loc, _ in hits if any(
+    all_loc_aliases = active_location_aliases()
+    # Country aliases are registry data too, but they must not receive the
+    # stronger locality-alias bonus.  Otherwise a comparison country such as
+    # Singapore can outrank a primary dateline locality such as Kuala Lumpur.
+    alias_names = {loc for loc, _ in hits if loc not in config.ASEAN_COUNTRIES and any(
         canonical == loc and (
             re.search(re.escape(alias), compact_text) if _is_native_script(alias)
             else re.search(rf"\b{re.escape(alias)}\b", compact_text, re.IGNORECASE)
@@ -1078,6 +999,8 @@ def extract_all_locations(
     allowed_countries: Optional[set[str] | list[str]] = None,
 ) -> list[dict]:
     """Extract all distinct valid locations mentioned in the text with coordinates."""
+    if not config.LOCATION_PATTERNS:
+        config.ensure_location_registry_loaded()
     text = repair_mojibake(text or "")
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
@@ -1096,7 +1019,7 @@ def extract_all_locations(
     if (country or allowed_countries) and not allowed_names:
         return []
 
-    for alias, canonical in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
+    for alias, canonical in active_location_aliases().items():
         if canonical not in allowed_names:
             continue
         if _is_native_script(alias):
@@ -1116,7 +1039,7 @@ def extract_all_locations(
         for name in config.LOCATION_COORDS
         if name in allowed_names
     }
-    for alias, canon in {**LOCATION_ALIASES, **getattr(config, 'LOCATION_ALIASES', {})}.items():
+    for alias, canon in active_location_aliases().items():
         if canon in allowed_names:
             folded_names[_fold_location_text(alias)] = canon
             folded_names[alias.casefold()] = canon
@@ -2138,6 +2061,16 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         return None
 
 
+def parse_surveillance_count(value: str, context: str = "") -> Optional[int]:
+    """Parse a surveillance count through the single numeric policy.
+
+    Relation, epidemiology, and multi-event modules call this public wrapper;
+    ``_parse_count`` remains private for the legacy whole-article scorer.
+    """
+
+    return _parse_count(value, context)
+
+
 def extract_case_count(text: str, disease: Optional[str] = None) -> int:
     if article_states_zero_cases(text):
         return 0
@@ -2421,21 +2354,6 @@ def extract_alias_diseases(text: str) -> list[str]:
     ))
 
 
-MONTH_MAP = {
-    # Indonesian / Malay
-    "januari": 1, "februari": 2, "maret": 3, "mac": 3, "april": 4, "mei": 5,
-    "juni": 6, "julai": 7, "juli": 7, "agustus": 8, "ogos": 8, "september": 9,
-    "oktober": 10, "november": 11, "nopember": 11, "desember": 12, "disember": 12,
-    # English
-    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
-    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
-    # Short
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "mei": 5, "jun": 6, "jul": 7,
-    "ags": 8, "agst": 8, "agu": 8, "aug": 8, "sep": 9, "okt": 10,
-    "oct": 10, "nov": 11, "des": 12, "dec": 12,
-}
-
-
 def extract_date_from_text(text: str) -> Optional[str]:
     if not text:
         return None
@@ -2445,17 +2363,19 @@ def extract_date_from_text(text: str) -> Optional[str]:
     if m:
         return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
     # Day Month Year (supports hyphens, slashes, spaces): e.g. "26-May-2025", "27 Agustus 2026"
-    m = re.search(r'\b(0?[1-9]|[12]\d|3[01])[-/\s]+([A-Za-z]{3,12})[-/\s]+(20\d{2})\b', sample)
+    month_pattern = config.get_temporal_month_pattern()
+    month_map = config.get_temporal_month_map()
+    m = re.search(rf'(?<!\w)(0?[1-9]|[12]\d|3[01])[-/\s]+(?P<month>{month_pattern})[-/\s]+(20\d{{2}})\b', sample, re.IGNORECASE | re.UNICODE)
     if m:
-        month_str = m.group(2).lower()
-        if month_str in MONTH_MAP:
-            return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(1)):02d}"
+        month_str = m.group("month").casefold()
+        if month_str in month_map:
+            return f"{m.group(3)}-{month_map[month_str]:02d}-{int(m.group(1)):02d}"
     # Month Day, Year: e.g. "May 26, 2025", "August 27, 2026"
-    m = re.search(r'\b([A-Za-z]{3,12})[-/\s]+(0?[1-9]|[12]\d|3[01]),?[-/\s]+(20\d{2})\b', sample)
+    m = re.search(rf'(?<!\w)(?P<month>{month_pattern})[-/\s]+(0?[1-9]|[12]\d|3[01]),?[-/\s]+(20\d{{2}})\b', sample, re.IGNORECASE | re.UNICODE)
     if m:
-        month_str = m.group(1).lower()
-        if month_str in MONTH_MAP:
-            return f"{m.group(3)}-{MONTH_MAP[month_str]:02d}-{int(m.group(2)):02d}"
+        month_str = m.group("month").casefold()
+        if month_str in month_map:
+            return f"{m.group(3)}-{month_map[month_str]:02d}-{int(m.group(2)):02d}"
     return None
 
 

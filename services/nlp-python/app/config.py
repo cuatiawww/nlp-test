@@ -2,7 +2,7 @@ import os
 import re
 import logging
 import unicodedata
-from typing import Any
+from typing import Any, Optional
 
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
@@ -189,56 +189,10 @@ COUNTRY_TO_ISO3: dict[str, str] = {
     "brunei": "BRN",
     "timor-leste": "TLS",
 }
-LOCATION_ALIASES: dict[str, str] = {
-    "tp.hcm": "Ho Chi Minh City",
-    "tp hcm": "Ho Chi Minh City",
-    "tphcm": "Ho Chi Minh City",
-    "hồ chí minh": "Ho Chi Minh City",
-    "ho chi minh": "Ho Chi Minh City",
-    "thành phố hồ chí minh": "Ho Chi Minh City",
-    "thanh pho ho chi minh": "Ho Chi Minh City",
-    "jabar": "Jawa Barat",
-    "jateng": "Jawa Tengah",
-    "jatim": "Jawa Timur",
-    "dki": "DKI Jakarta",
-    "jogja": "DI Yogyakarta",
-    "jogjakarta": "DI Yogyakarta",
-    "yogyakarta": "DI Yogyakarta",
-    "sumatra utara": "Sumatera Utara",
-    "sumatra barat": "Sumatera Barat",
-    "sumatra selatan": "Sumatera Selatan",
-    "sumatra": "Sumatera",
-    "sumatera": "Sumatera",
-    "sumut": "Sumatera Utara",
-    "sumbar": "Sumatera Barat",
-    "sumsel": "Sumatera Selatan",
-    "sulsel": "Sulawesi Selatan",
-    "sulut": "Sulawesi Utara",
-    "kalbar": "Kalimantan Barat",
-    "kaltim": "Kalimantan Timur",
-    "ntb": "Nusa Tenggara Barat",
-    "ntt": "Nusa Tenggara Timur",
-    "kepri": "Kepulauan Riau",
-    "babel": "Kepulauan Bangka Belitung",
-    "singapura": "Singapore",
-    "filipina": "Philippines",
-    "pilipinas": "Philippines",
-    "kamboja": "Cambodia",
-    "viet nam": "Vietnam",
-    "việt nam": "Vietnam",
-    "muang thai": "Thailand",
-    "krung thep": "Bangkok",
-    "krung thep maha nakhon": "Bangkok",
-    "hà nội": "Hanoi",
-    "ha noi": "Hanoi",
-    "đà nẵng": "Da Nang",
-    "da nang": "Da Nang",
-    "saigon": "Ho Chi Minh City",
-    "sài gòn": "Ho Chi Minh City",
-    "burma": "Myanmar",
-    "rangoon": "Yangon",
-    "nay pyi taw": "Naypyidaw",
-}
+# Location aliases are authoritative in location_aliases.
+# Empty before DB bootstrap: no code-owned fallback vocabulary.
+LOCATION_ALIASES: dict[str, str] = {}
+LOCATION_LOAD_ATTEMPTED = False
 LOCATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
 LOCATION_STOPWORDS = {
     # Indonesian time/grammatical words that collide with foreign/rare gazetteer entries
@@ -292,6 +246,13 @@ LANGUAGE_MARKERS: dict[str, list[str]] = {}
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
 WHO_DISEASE_CONCEPTS: list[dict[str, Any]] = []
+# Shared DB-backed lexical registry.  The legacy language_markers name is
+# retained for API compatibility, but its marker_type now separates language
+# detection from metric and temporal vocabulary.
+LEXICON_TERMS: dict[str, dict[str, list[str]]] = {}
+TEMPORAL_MONTH_MAP: dict[str, int] = {}
+LEXICON_READY = False
+LEXICON_LOAD_ATTEMPTED = False
 
 ASEAN_COUNTRIES = frozenset({
     "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar",
@@ -429,8 +390,16 @@ def build_location_patterns():
 
 
 def load_locations_from_db():
+    global LOCATION_LOAD_ATTEMPTED
+    LOCATION_LOAD_ATTEMPTED = True
     global LOCATION_COORDS, LOCATION_COUNTRIES, LOCATION_PATTERNS
     global LOCATION_ADMIN1, LOCATION_ADMIN2, LOCATION_ISO3, LOCATION_ADMIN_LEVEL, LOCATION_ALIASES
+    LOCATION_ALIASES = {}
+    try:
+        from . import extractors
+        extractors.COUNTRY_ALIASES = {}
+    except Exception:
+        extractors = None
     try:
         import psycopg
         from psycopg.rows import dict_row
@@ -563,8 +532,15 @@ def load_locations_from_db():
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(
-            "Failed to load locations from DB, using defaults: %s", e
+            "Location registry unavailable; location alias matching is disabled: %s", e
         )
+
+
+def ensure_location_registry_loaded() -> None:
+    """Lazily load DB-owned locations for direct library/test callers."""
+
+    if not LOCATION_LOAD_ATTEMPTED:
+        load_locations_from_db()
 
 
 def load_credibility_from_db():
@@ -590,32 +566,92 @@ def load_credibility_from_db():
 
 
 def load_language_markers_from_db():
-    global LANGUAGE_MARKERS
+    global LANGUAGE_MARKERS, LEXICON_TERMS, TEMPORAL_MONTH_MAP, LEXICON_READY, LEXICON_LOAD_ATTEMPTED
+    LEXICON_LOAD_ATTEMPTED = True
     try:
         import psycopg
         from psycopg.rows import dict_row
         conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT word, language FROM language_markers WHERE is_active = TRUE ORDER BY language"
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                """SELECT word, language, marker_type, canonical_value
+                   FROM language_markers
+                   WHERE is_active = TRUE
+                   ORDER BY marker_type, language, priority, word"""
+            ).fetchall()
+        except Exception:
+            # Keep older development databases usable until migration 095 is
+            # applied. They expose the original two-column marker contract.
+            conn.rollback()
+            rows = conn.execute(
+                "SELECT word, language FROM language_markers WHERE is_active = TRUE ORDER BY language, word"
+            ).fetchall()
         conn.close()
         markers: dict[str, list[str]] = {}
+        lexicon: dict[str, dict[str, list[str]]] = {}
+        month_map: dict[str, int] = {}
         for r in rows:
-            lang = r["language"]
-            if lang not in markers:
-                markers[lang] = []
-            markers[lang].append(r["word"])
+            word = str(r["word"] or "").strip()
+            lang = str(r["language"] or "unknown").strip().casefold()
+            marker_type = str(r.get("marker_type") or "language_marker").strip().casefold()
+            if not word:
+                continue
+            lexicon.setdefault(marker_type, {}).setdefault(lang, []).append(word)
+            if marker_type == "language_marker":
+                markers.setdefault(lang, []).append(word)
+            if marker_type == "temporal_month":
+                try:
+                    month_map[word.casefold()] = int(r.get("canonical_value"))
+                except (TypeError, ValueError):
+                    logging.getLogger(__name__).warning(
+                        "Ignoring invalid temporal month lexicon value for %s/%s", lang, word
+                    )
         LANGUAGE_MARKERS = markers
+        LEXICON_TERMS = lexicon
+        TEMPORAL_MONTH_MAP = month_map
+        LEXICON_READY = bool(lexicon)
         import logging
         logging.getLogger(__name__).info(
-            "Loaded %d language markers (%d languages) from DB",
+            "Loaded %d lexicon terms (%d language markers, %d languages) from DB",
+            sum(len(items) for by_language in lexicon.values() for items in by_language.values()),
             sum(len(v) for v in markers.values()), len(markers),
         )
     except Exception as e:
+        LANGUAGE_MARKERS = {}
+        LEXICON_TERMS = {}
+        TEMPORAL_MONTH_MAP = {}
+        LEXICON_READY = False
         import logging
         logging.getLogger(__name__).warning(
-            "Failed to load language markers from DB, using defaults: %s", e
+            "Lexicon registry unavailable; lexical metric/date extraction is disabled: %s", e
         )
+
+
+def get_lexicon_terms(marker_type: str, language: Optional[str] = None) -> list[str]:
+    """Return active DB lexicon terms; never synthesize fallback vocabulary."""
+
+    if not LEXICON_LOAD_ATTEMPTED:
+        load_language_markers_from_db()
+    by_language = LEXICON_TERMS.get(str(marker_type or "").strip().casefold(), {})
+    if language:
+        selected = by_language.get(str(language).strip().casefold(), [])
+        return list(dict.fromkeys(selected))
+    return list(dict.fromkeys(term for values in by_language.values() for term in values))
+
+
+def get_temporal_month_map() -> dict[str, int]:
+    """Return only reviewed month aliases loaded from the database."""
+
+    if not LEXICON_LOAD_ATTEMPTED:
+        load_language_markers_from_db()
+    return dict(TEMPORAL_MONTH_MAP)
+
+
+def get_temporal_month_pattern() -> str:
+    """Build an escaped Unicode month pattern from the DB registry."""
+
+    aliases = sorted(get_temporal_month_map(), key=len, reverse=True)
+    return "(?:" + "|".join(re.escape(alias) for alias in aliases) + ")" if aliases else r"(?!)"
 
 
 def load_extraction_rules_from_db():

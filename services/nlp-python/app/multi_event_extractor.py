@@ -16,7 +16,7 @@ import os
 import re
 from typing import Any, Optional
 
-from . import config
+from . import config, extractors
 
 logger = logging.getLogger(__name__)
 
@@ -115,18 +115,9 @@ _RE_LOC_VERB_CASES_EN = re.compile(
 
 
 def _parse_count_value(raw: str) -> int:
-    """Parse a count string like '1,234' or '10.000' to int."""
-    val = raw.strip().strip(".,")
-    if not val:
-        return 0
-    if re.fullmatch(r"\d{1,3}(?:[,.]\d{3})+", val):
-        return int(re.sub(r"[,.]", "", val))
-    if re.fullmatch(r"\d+", val):
-        return int(val)
-    try:
-        return int(round(float(val.replace(",", "."))))
-    except (ValueError, OverflowError):
-        return 0
+    """Compatibility wrapper around the shared surveillance count parser."""
+
+    return extractors.parse_surveillance_count(raw) or 0
 
 
 def _clean_location_name(raw: str) -> str:

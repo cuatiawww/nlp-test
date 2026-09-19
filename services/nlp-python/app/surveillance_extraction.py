@@ -31,7 +31,7 @@ import requests
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import config, extractors
-from .multilingual import CASE_TERMS, DEATH_TERMS, metric_term_pattern, normalize_local_digits
+from .multilingual import metric_term_pattern, normalize_local_digits
 from .epidemiology import (
     evidence_sentences,
     extract_event_date,
@@ -551,35 +551,8 @@ def aggregate_relation_totals(
     return total_cases, total_deaths
 
 
-MONTHS = {
-    "januari": 1, "january": 1, "februari": 2, "february": 2, "maret": 3,
-    "march": 3, "april": 4, "mei": 5, "may": 5, "juni": 6, "june": 6,
-    "juli": 7, "july": 7, "agustus": 8, "august": 8, "september": 9,
-    "oktober": 10, "october": 10, "november": 11, "desember": 12, "december": 12,
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
-    "ags": 8, "agst": 8, "agu": 8, "aug": 8, "sep": 9,
-    "okt": 10, "oct": 10, "nov": 11, "des": 12, "dec": 12,
-    # Vietnamese, Thai, Khmer, Lao, and Myanmar month names. These are
-    # language grammar support, not article-specific aliases.
-    "tháng một": 1, "tháng 1": 1, "tháng hai": 2, "tháng 2": 2,
-    "tháng ba": 3, "tháng 3": 3, "tháng tư": 4, "tháng 4": 4,
-    "tháng năm": 5, "tháng 5": 5, "tháng sáu": 6, "tháng 6": 6,
-    "tháng bảy": 7, "tháng 7": 7, "tháng tám": 8, "tháng 8": 8,
-    "tháng chín": 9, "tháng 9": 9, "tháng mười": 10, "tháng 10": 10,
-    "มกราคม": 1, "กุมภาพันธ์": 2, "มีนาคม": 3, "เมษายน": 4,
-    "พฤษภาคม": 5, "มิถุนายน": 6, "กรกฎาคม": 7, "สิงหาคม": 8,
-    "กันยายน": 9, "ตุลาคม": 10, "พฤศจิกายน": 11, "ธันวาคม": 12,
-    "មករា": 1, "កុម្ភៈ": 2, "មីនា": 3, "មេសា": 4,
-    "ឧសភា": 5, "មិថុនា": 6, "កក្កដា": 7, "សីហា": 8,
-    "កញ្ញា": 9, "តុលា": 10, "វិច្ឆិកា": 11, "ធ្នូ": 12,
-    "ມັງກອນ": 1, "ກຸມພາ": 2, "ມີນາ": 3, "ເມສາ": 4,
-    "ພຶດສະພາ": 5, "ມິຖຸນາ": 6, "ກໍລະກົດ": 7, "ສິງຫາ": 8,
-    "ກັນຍາ": 9, "ຕຸລາ": 10, "ພະຈິກ": 11, "ທັນວາ": 12,
-    "ဇန်နဝါရီ": 1, "ဖေဖော်ဝါရီ": 2, "မတ်": 3, "ဧပြီ": 4,
-    "မေ": 5, "ဇွန်": 6, "ဇူလိုင်": 7, "ဩဂုတ်": 8,
-    "စက်တင်ဘာ": 9, "အောက်တိုဘာ": 10, "နိုဝင်ဘာ": 11, "ဒီဇင်ဘာ": 12,
-}
-
+# Month aliases are loaded from the shared language_markers registry.
+# Numeric month grammar remains handled by the date parser.
 def _is_comparative_location(text: str, loc_start: int) -> bool:
     """Returns True if the location at loc_start is inside a comparative clause,
     e.g. 'setelah Jawa Barat, Jawa Tengah, dan Jawa Timur'."""
@@ -641,26 +614,18 @@ _LOCATION_BEFORE_DEATH = re.compile(
 
 
 def _number(raw: str, multiplier: str = "") -> int:
-    value = (raw or "").strip().replace(" ", "")
-    if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", value):
-        result = int(re.sub(r"[.,]", "", value))
-    else:
-        try:
-            result = int(float(value.replace(",", ".")))
-        except (TypeError, ValueError):
-            return 0
-    multiplier = (multiplier or "").lower()
-    if multiplier in {"ribu", "thousand"}:
-        result *= 1_000
-    elif multiplier in {"juta", "million"}:
-        result *= 1_000_000
-    return max(0, result)
+    return max(0, extractors.parse_surveillance_count(raw, multiplier or "") or 0)
 
 
 def _date_from_parts(day: str, month: str, year: str) -> Optional[date]:
     try:
-        return date(int(year), MONTHS[month.lower()], int(day))
-    except (KeyError, TypeError, ValueError):
+        month_key = (month or "").casefold().strip()
+        month_number = config.get_temporal_month_map().get(month_key)
+        if month_number is None:
+            numeric = re.fullmatch(r"(?:tháng\s*)?(1[0-2]|[1-9])", month_key)
+            month_number = int(numeric.group(1)) if numeric else None
+        return date(int(year), int(month_number), int(day)) if month_number else None
+    except (TypeError, ValueError):
         return None
 
 
@@ -731,8 +696,9 @@ def extract_time_frame(text: str, published_date: Optional[str] = None) -> str:
             return f"{start.isoformat()} to {end.isoformat()}"
     month_range = _MONTH_RANGE.search(value)
     if month_range:
-        first = MONTHS.get(month_range.group("month1").lower())
-        last = MONTHS.get(month_range.group("month2").lower())
+        month_map = config.get_temporal_month_map()
+        first = month_map.get(month_range.group("month1").casefold())
+        last = month_map.get(month_range.group("month2").casefold())
         if first and last:
             from calendar import monthrange
             year = int(month_range.group("year"))
@@ -1003,59 +969,60 @@ def _mentioned_locations(text: str, linker: GazetteerLinker) -> list[LinkedLocat
     )
 
 
-_LOCAL_CASE_TERM = metric_term_pattern(CASE_TERMS)
-_LOCAL_DEATH_TERM = metric_term_pattern(DEATH_TERMS)
+def _runtime_metric_patterns() -> dict[str, Any]:
+    """Build metric grammars from the shared DB lexicon at call time.
 
-_RANGE_CASE = re.compile(
-    rf"(?:between|antara|from|từ|từ khoảng|ระหว่าง|จาก|ចន្លោះពី|ពី|ລະຫວ່າງ|"
-    rf"จาก)\s*(?P<low>{_NUMBER})\s*(?:and|dan|to|sampai|hingga|đến|ถึง|ដល់|ຫາ|မှ)\s*"
-    rf"(?P<high>{_NUMBER})\s*(?:{_LOCAL_CASE_TERM})",
-    re.IGNORECASE | re.UNICODE,
-)
+    The surrounding grammar stays algorithmic, while language-specific words
+    are data. Rebuilding these small patterns per extraction keeps admin
+    lexicon reloads effective without restarting the NLP process.
+    """
 
-_NARRATIVE_CASE = re.compile(
-    rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
-    rf"(?:new\s+|baru\s+|terkonfirmasi\s+|confirmed\s+)?(?:[A-Za-zÀ-ÿ\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF][\wÀ-ÿ\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]*\s+){{0,4}}"
-    rf"{_LOCAL_CASE_TERM}",
-    re.IGNORECASE,
-)
-_NARRATIVE_DEATH = re.compile(
-    rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
-    rf"(?:[A-Za-zÀ-ÿ\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF][\wÀ-ÿ\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]*\s+){{0,4}}"
-    rf"{_LOCAL_DEATH_TERM}",
-    re.IGNORECASE,
-)
-
-# Native-script and post-label forms are common in official ASEAN reporting:
-# ``ผู้ป่วยสะสม 99,691 ราย`` and ``เสียชีวิต 15 ราย``.  The old relation
-# patterns only handled number-before-label forms, so the death matcher could
-# incorrectly consume the preceding case total.
-_POSTFIX_CASE = re.compile(
-    rf"(?:ผู้ป่วย|ผู้ติดเชื้อ|ผู้ป่วยสะสม|ผู้ป่วยใหม่|"
-    rf"cases?|infections?|kasus|infeksi|patients?|pasien|"
-    rf"ca\s+mắc|ca\s+nhiễm|trường\s+hợp|ករណីឆ្លង|ករណី|"
-    rf"ກໍລະນີ|ຄົນເຈັບ|လူနာ|ကူးစက်သူ)"
-    rf"(?:\s*(?:สะสม|ใหม่|ทั้งหมด|รวม|baru|terkonfirmasi|confirmed|"
-    rf"mới|xác\s+nhận|ថ្មី|ໃໝ່|အသစ်))?\s*"
-    rf"(?P<count>{_NUMBER})\s*(?:ราย|คน|នាក់|ຄົນ|ဦး|ယောက်|cases?|"
-    rf"kasus|patients?|pasien|ca|trường\s+hợp)?",
-    re.IGNORECASE | re.UNICODE,
-)
-_POSTFIX_DEATH = re.compile(
-    rf"(?:ผู้เสียชีวิต|เสียชีวิต|death\s+toll|deaths?|fatalities|"
-    rf"kematian|meninggal(?:\s+dunia)?|korban\s+jiwa|tewas|died|"
-    rf"tử\s+vong|អ្នកស្លាប់|ករណីស្លាប់|ຜູ້ເສຍຊີວິດ|ເສຍຊີວິດ|"
-    rf"သေဆုံးသူ|သေဆုံး|kamatayan)"
-    rf"(?:\s*(?:สะสม|ทั้งหมด|รวม|total|tercatat|reported|baru))?\s*"
-    rf"(?P<count>{_NUMBER})\s*(?:ราย|คน|នាក់|ຄົນ|ဦး|ယောက်|deaths?|"
-    rf"fatalities|kematian)?",
-    re.IGNORECASE | re.UNICODE,
-)
-_CASE_TOTAL_BEFORE_DEATH = re.compile(
-    r"(?:cases?|infections?|kasus|infeksi|ราย|trường\s+hợp|"
-    r"ករណី(?:ឆ្លង)?|ca\s+(?:mắc|nhiễm)|ກໍລະນີ|ကူးစက်သူ)",
-    re.IGNORECASE | re.UNICODE,
-)
+    case_terms = config.get_lexicon_terms("metric_case")
+    death_terms = config.get_lexicon_terms("metric_death")
+    unit_terms = config.get_lexicon_terms("count_unit")
+    case_term = metric_term_pattern(tuple(case_terms))
+    death_term = metric_term_pattern(tuple(death_terms))
+    unit_term = metric_term_pattern(tuple(unit_terms))
+    range_case = re.compile(
+        rf"(?:between|antara|from|từ|từ khoảng|ระหว่าง|จาก|ចន្លោះ|ລະຫວ່າງ|"
+        rf"ຈາກ)\s*(?P<low>{_NUMBER})\s*(?:and|dan|to|sampai|hingga|đến|ถึง|ដល់|"
+        rf"ຫາ|နှင့်)\s*(?P<high>{_NUMBER})\s*(?:{case_term})",
+        re.IGNORECASE | re.UNICODE,
+    )
+    narrative_case = re.compile(
+        rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
+        rf"(?:new\s+|baru\s+|terkonfirmasi\s+|confirmed\s+)?"
+        rf"(?:[\w\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]+\s+){{0,2}}"
+        rf"(?:{case_term})",
+        re.IGNORECASE | re.UNICODE,
+    )
+    narrative_death = re.compile(
+        rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
+        rf"(?:[\w\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]+\s+){{0,2}}"
+        rf"(?:{death_term})",
+        re.IGNORECASE | re.UNICODE,
+    )
+    postfix_case = re.compile(
+        rf"(?:{case_term})(?:\s*(?:cumulative|accumulated|new|total|baru|terkonfirmasi|"
+        rf"confirmed|mới|xác\s+nhận|สะสม|ใหม่|ทั้งหมด|รวม|ថ្មី|ໃໝ່|အသစ်))?\s*"
+        rf"(?P<count>{_NUMBER})\s*(?:{unit_term})?",
+        re.IGNORECASE | re.UNICODE,
+    )
+    postfix_death = re.compile(
+        rf"(?:{death_term})(?:\s*(?:cumulative|total|tercatat|reported|baru|สะสม|ทั้งหมด|"
+        rf"รวม|ថាំងអស់|ເສຍຊີວິດ|အသစ်))?\s*(?P<count>{_NUMBER})\s*(?:{unit_term})?",
+        re.IGNORECASE | re.UNICODE,
+    )
+    return {
+        "case_term": case_term,
+        "death_term": death_term,
+        "range_case": range_case,
+        "narrative_case": narrative_case,
+        "narrative_death": narrative_death,
+        "postfix_case": postfix_case,
+        "postfix_death": postfix_death,
+        "case_total_before_death": re.compile(case_term, re.IGNORECASE | re.UNICODE),
+    }
 _NON_CASE_NUMBER_CONTEXT = re.compile(
     r"(?:%|persen|percent|per\s+100|population|populasi|tempat\s+tidur|"
     r"bed(?:s)?|spesimen|specimen|swab|sampel|sample|dosis|dose|vaksin|vaccine)",
@@ -1137,7 +1104,8 @@ def _case_number_after_death_label(text: str, start: int) -> bool:
     """Reject ``death label + number`` from the case relation pass."""
 
     prefix = (text or "")[max(0, start - 80):start]
-    return bool(re.search(rf"(?:{_LOCAL_DEATH_TERM})\s*$", prefix, re.IGNORECASE | re.UNICODE))
+    death_term = _runtime_metric_patterns()["death_term"]
+    return bool(re.search(rf"(?:{death_term})\s*$", prefix, re.IGNORECASE | re.UNICODE))
 
 
 def _narrative_metric_is_valid(text: str, match: re.Match, metric_name: str) -> bool:
@@ -1160,14 +1128,16 @@ def _narrative_metric_is_valid(text: str, match: re.Match, metric_name: str) -> 
     if metric_name == "cases":
         return not _case_number_after_death_label(text, match.start("count"))
 
-    death_label = re.search(_LOCAL_DEATH_TERM, span, re.IGNORECASE | re.UNICODE)
+    death_label = re.search(
+        _runtime_metric_patterns()["death_term"], span, re.IGNORECASE | re.UNICODE
+    )
     if not death_label:
         return True
     # ``99,691 ราย เสียชีวิต 15 ราย`` must not yield a synthetic death count
     # of 99,691. A direct ``99,691 patients died`` remains valid because
     # patient/person wording is not treated as a prior case total here.
     prefix = span[:death_label.start()]
-    return not _CASE_TOTAL_BEFORE_DEATH.search(prefix)
+    return not _runtime_metric_patterns()["case_total_before_death"].search(prefix)
 
 
 def _location_spans(text: str, linker: GazetteerLinker) -> list[tuple[int, int, LinkedLocation]]:
@@ -1331,7 +1301,11 @@ def _extract_narrative_relations(
     working = normalize_local_digits(source)
     locations = _location_spans(source, linker)
     relations: dict[tuple[str, str, str], MetricRelation] = {}
-    for pattern, metric_name in ((_NARRATIVE_CASE, "cases"), (_NARRATIVE_DEATH, "deaths")):
+    runtime_patterns = _runtime_metric_patterns()
+    for pattern, metric_name in (
+        (runtime_patterns["narrative_case"], "cases"),
+        (runtime_patterns["narrative_death"], "deaths"),
+    ):
         for match in pattern.finditer(working):
             if not _narrative_metric_is_valid(source, match, metric_name):
                 continue
@@ -1378,7 +1352,7 @@ def _extract_range_relations(
     working = normalize_local_digits(source)
     locations = _location_spans(source, linker)
     relations: list[MetricRelation] = []
-    for match in _RANGE_CASE.finditer(working):
+    for match in _runtime_metric_patterns()["range_case"].finditer(working):
         linked = _nearest_location(match.start(), match.end(), locations, text=source)
         if not linked:
             continue
@@ -1453,7 +1427,11 @@ def extract_metric_relations(
                 source_sentence_id=_source_sentence_id(source, match.start()),
             ))
 
-    for pattern, metric_name in ((_POSTFIX_CASE, "cases"), (_POSTFIX_DEATH, "deaths")):
+    runtime_patterns = _runtime_metric_patterns()
+    for pattern, metric_name in (
+        (runtime_patterns["postfix_case"], "cases"),
+        (runtime_patterns["postfix_death"], "deaths"),
+    ):
         for match in pattern.finditer(working):
             if not _metric_is_valid(source, match.start("count"), match.end()):
                 continue
@@ -1506,7 +1484,11 @@ def extract_metric_relations(
     # The deterministic location patterns intentionally require a nearby
     # place. This second pass handles common narrative shorthand where the
     # country is named once and subsequent comparison values omit it.
-    narrative_count = len(_NARRATIVE_CASE.findall(working)) + len(_NARRATIVE_DEATH.findall(working))
+    runtime_patterns = _runtime_metric_patterns()
+    narrative_count = (
+        len(runtime_patterns["narrative_case"].findall(working))
+        + len(runtime_patterns["narrative_death"].findall(working))
+    )
     if not relations or narrative_count > len(relations):
         for relation in _extract_narrative_relations(
             source, linker, published_date, fallback_location=fallback_location
