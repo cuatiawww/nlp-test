@@ -1576,54 +1576,34 @@ def _sentence_window(text: str, start: int, end: int) -> str:
     return text[left + 1:right]
 
 
-_WORD_NUMBERS = {
-    # English
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
-    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
-    "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
-    "eighty": 80, "ninety": 90, "hundred": 100, "a hundred": 100, "a dozen": 12,
-    "twenty-one": 21, "twenty-two": 22, "twenty-three": 23, "twenty-four": 24, "twenty-five": 25,
-    "twenty-six": 26, "twenty-seven": 27, "twenty-eight": 28, "twenty-nine": 29,
+def _runtime_number_word_pattern() -> str:
+    """Build the number-token pattern from reviewed DB vocabulary."""
 
-    # Indonesian & Malay
-    "satu": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5,
-    "enam": 6, "tujuh": 7, "delapan": 8, "sembilan": 9, "sepuluh": 10,
-    "sebelas": 11, "dua belas": 12, "tiga belas": 13, "empat belas": 14, "lima belas": 15,
-    "enam belas": 16, "tujuh belas": 17, "delapan belas": 18, "sembilan belas": 19, "dua puluh": 20,
-    "dua puluh satu": 21, "dua puluh dua": 22, "dua puluh tiga": 23, "dua puluh empat": 24, "dua puluh lima": 25,
-    "tiga puluh": 30, "empat puluh": 40, "lima puluh": 50, "enam puluh": 60, "tujuh puluh": 70,
-    "delapan puluh": 80, "sembilan puluh": 90, "seratus": 100, "seribu": 1000,
-    # Classifiers & Quantifiers
-    "seorang": 1, "seekor": 1, "sepasang": 2, "kedua": 2, "tiga bersaudara": 3,
+    words = sorted(config.get_lexicon_values("number_word"), key=len, reverse=True)
+    alternatives = [re.escape(word) for word in words]
+    alternatives.append(r"[0-9]{1,3}(?:[,\.\s]\d{3})+\.?")
+    alternatives.append(r"[0-9]+(?:[.,]\d+)?\.?")
+    return "(?:" + "|".join(alternatives) + ")"
 
-    # Vietnamese
-    "một": 1, "hai": 2, "ba": 3, "bốn": 4, "năm": 5,
-    "sáu": 6, "bảy": 7, "tám": 8, "chín": 9, "mười": 10,
-    "mười một": 11, "mười hai": 12, "hai mươi": 20, "ba mươi": 30, "một trăm": 100,
-    "một người": 1, "một ca": 1, "một bệnh nhân": 1, "hai mẹ con": 2, "cả hai": 2,
 
-    # Thai
-    "หนึ่ง": 1, "สอง": 2, "สาม": 3, "สี่": 4, "ห้า": 5,
-    "หก": 6, "เจ็ด": 7, "แปด": 8, "เก้า": 9, "สิบ": 10,
-    "ยี่สิบ": 20, "สามสิบ": 30, "หนึ่งร้อย": 100, "ร้อย": 100,
-    "รายหนึ่ง": 1, "ทั้งสองราย": 2,
-}
+def _runtime_metric_label_pattern(marker_type: str) -> str:
+    terms = sorted(config.get_lexicon_terms(marker_type), key=len, reverse=True)
+    return "(?:" + "|".join(re.escape(term) for term in terms) + ")" if terms else r"(?!)"
 
-_NUM_TOKEN = (
-    r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
-    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
-    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
-    r"twenty-[a-z]+|thirty-[a-z]+|forty-[a-z]+|fifty-[a-z]+|"
-    r"satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|"
-    r"sebelas|dua\s+belas|tiga\s+belas|empat\s+belas|lima\s+belas|enam\s+belas|tujuh\s+belas|delapan\s+belas|sembilan\s+belas|"
-    r"dua\s+puluh|tiga\s+puluh|empat\s+puluh|lima\s+puluh|seratus|seribu|"
-    r"seorang|seekor|sepasang|kedua|"
-    r"một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười|hai\s+mươi|ba\s+mươi|một\s+trăm|"
-    r"หนึ่ง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ|ยี่สิบ|ร้อย|"
-    r"[0-9]{1,3}(?:[,.\s]\d{3})+\.?|[0-9]+(?:[.,]\d+)?\.?|[0-9][0-9,.]*)"
-)
+
+def _is_embedded_number_word(text: str, start: int) -> bool:
+    source = (text or "").casefold()
+    for word in config.get_lexicon_values("number_word"):
+        if " " not in word:
+            continue
+        candidate = source.find(
+            word.casefold(),
+            max(0, start - len(word) - 1),
+            start + len(word),
+        )
+        if 0 <= candidate < start < candidate + len(word):
+            return True
+    return False
 
 _FOCAL_SINGULAR = re.compile(
     r"(?:"
@@ -1773,7 +1753,8 @@ def _period_score(window: str, full_text: str) -> int:
 def _focal_human_case_override(text: str) -> Optional[int]:
     if article_states_zero_cases(text) or _OUTBREAK_CLOSED.search(text or ""):
         return None
-    if _HEADLINE_TWO.search(text or ""):
+    headline_two = _HEADLINE_TWO.search(text or "")
+    if headline_two and not _is_embedded_number_word(text or "", headline_two.start()):
         return 2
     if _FOCAL_SINGULAR.search(text or ""):
         return 1
@@ -1797,18 +1778,20 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             *({"mpox", "monkeypox"} if "mpox" in disease.lower() or "monkey" in disease.lower() else set()),
             *({"polio", "poliovirus", "cvdpv"} if "polio" in disease.lower() else set()),
         } if len(t) > 2]
+    num_token = _runtime_number_word_pattern()
+    case_label = _runtime_metric_label_pattern("metric_case")
     localized_patterns = {
         "case_count": [
-            rf"\b({_NUM_TOKEN})(?:\s+[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF()-]+){{0,4}}\s+(?:cases?|infections?|patients?|warga|kasus|pasien|residents?|ca\s+mắc|ca\s+nhiễm|ca|trường\s+hợp|bệnh\s+nhân)\b"
+            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF()-]+){{0,4}}\s*{case_label}(?!\w)"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has|of)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
-            rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({_NUM_TOKEN})\s*\)",
-            rf"(?:with|logged|recorded|reported|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({_NUM_TOKEN})\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
-            rf"(?:cases?|infections?|kasus).{{0,90}}(?:rose|climbed|increased|jumped|naik).{{0,50}}to\s+({_NUM_TOKEN})",
-            rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({_NUM_TOKEN})",
-            rf"(?:cases?|infections?|kasus|pasien)\b[^.\n;:]{{0,100}}?\b(?:reached|recorded|reported|tercatat|mencatat|melaporkan|total(?:ed)?|stood at|of)\s+({_NUM_TOKEN})",
-            rf"(?:sickened|infected|affected)\s+(?:more than|over|nearly|about|around)?\s*({_NUM_TOKEN})\s+(?:children|people|persons|residents)",
-            rf"\b({_NUM_TOKEN})\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
+            rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({num_token})\s*\)",
+            rf"(?:with|logged|recorded|reported|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({num_token})\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
+            rf"(?:cases?|infections?|kasus).{{0,90}}(?:rose|climbed|increased|jumped|naik).{{0,50}}to\s+({num_token})",
+            rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({num_token})",
+            rf"(?:cases?|infections?|kasus|pasien)\b[^.\n;:]{{0,100}}?\b(?:reached|recorded|reported|tercatat|mencatat|melaporkan|total(?:ed)?|stood at|of)\s+({num_token})",
+            rf"(?:sickened|infected|affected)\s+(?:more than|over|nearly|about|around)?\s*({num_token})\s+(?:children|people|persons|residents)",
+            rf"\b({num_token})\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ผู้ป่วย|ผู้ติดเชื้อ)(?:สะสม|ใหม่|ทั้งหมด)?\s*([0-9][0-9,.]*)\s*(?:ราย|คน)",
@@ -1816,13 +1799,13 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
         ],
         "death_count": [
-            rf"\b({_NUM_TOKEN})\s+(?:cases?|kasus)\s+(?:of\s+)?(?:deaths?|kematian|fatalities|tewas)\b",
-            rf"(?:deaths?|kematian|korban jiwa|fatalities)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({_NUM_TOKEN})",
-            rf"\b({_NUM_TOKEN})(?:\s+[a-z-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal)\b",
-            rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({_NUM_TOKEN})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities)",
-            rf"(?:death toll|toll)\s+(?:reached|reaches|rose to|stood at|of)\s+({_NUM_TOKEN})",
-            rf"({_NUM_TOKEN})\s+of them fatally",
-            rf"in 20\d{{2}},\s+the figure was\s+({_NUM_TOKEN})",
+            rf"\b({num_token})\s+(?:cases?|kasus)\s+(?:of\s+)?(?:deaths?|kematian|fatalities|tewas)\b",
+            rf"(?:deaths?|kematian|korban jiwa|fatalities)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({num_token})",
+            rf"\b({num_token})(?:\s+[a-z-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal)\b",
+            rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({num_token})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities)",
+            rf"(?:death toll|toll)\s+(?:reached|reaches|rose to|stood at|of)\s+({num_token})",
+            rf"({num_token})\s+of them fatally",
+            rf"in 20\d{{2}},\s+the figure was\s+({num_token})",
             r"ယမန်နေ့တွင်\s*သေဆုံးသူ\s*([0-9][0-9,.]*)\s*ဦး",
             r"(?:ผู้เสียชีวิต|เสียชีวิต)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីស្លាប់|អ្នកស្លាប់)\s*([0-9][0-9,.]*)\s*នាក់",
@@ -1980,8 +1963,9 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         if not val:
             return None
         word_val = val.casefold()
-        if word_val in _WORD_NUMBERS:
-            val = str(_WORD_NUMBERS[word_val])
+        number_values = config.get_lexicon_values("number_word")
+        if word_val in number_values:
+            val = str(number_values[word_val])
 
         # Exclude percentage rates when the captured token is the rate
         # ("2.1 persen", "66 per cent") — not when a nearby percent is a
@@ -1998,16 +1982,20 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         ):
             return None
 
-        # Determine multiplier from context. Billion-scale figures are treated as
-        # population/budget/OCR noise for case and death extraction — never as counts.
+        # Magnitudes are data, not a second code-owned multilingual lexicon.
+        # Billion-scale values remain invalid surveillance counts, while
+        # smaller magnitudes retain their exact parsed multiplier.
         multiplier = 1
-        if ctx_lower:
-            if re.search(r"\b(?:miliar|milyar|billion|tỷ)\b", ctx_lower) or re.search(r"\d\s*(?:b|mld)\b", ctx_lower):
-                return None
-            elif re.search(r"\b(?:juta|million|triệu|lakh|crore|ล้าน|លាន|သန်း)\b", ctx_lower) or re.search(r"\d\s*m\b", ctx_lower):
-                multiplier = 1_000_000
-            elif re.search(r"\b(?:ribu|thousand|nghìn|ngàn|พัน|ពាន់|သိန်း)\b", ctx_lower) or re.search(r"\d\s*k\b", ctx_lower):
-                multiplier = 1_000
+        magnitude_values = config.get_lexicon_values("metric_magnitude")
+        if ctx_lower and magnitude_values:
+            matched_values = [
+                value for term, value in magnitude_values.items()
+                if re.search(rf"(?<!\w){re.escape(term)}(?!\w)", ctx_lower, re.IGNORECASE | re.UNICODE)
+            ]
+            if matched_values:
+                multiplier = max(matched_values)
+                if multiplier >= 1_000_000_000:
+                    return None
 
         max_count = int(os.getenv("MAX_EVENT_CASE_COUNT", "2000000"))
 
@@ -2134,179 +2122,19 @@ def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
     return sorted(matches)
 
 
-DISEASE_ALIASES = {
-    "ebola": "Ebola disease, virus unspecified",
-    "ebola virus": "Ebola disease, virus unspecified",
-    "ebola virus disease": "Ebola disease, virus unspecified",
-    "virus ebola": "Ebola disease, virus unspecified",
-    "penyakit ebola": "Ebola disease, virus unspecified",
-    "penyakit virus ebola": "Ebola disease, virus unspecified",
-    "evd": "Ebola disease, virus unspecified",
-    "sốt xuất huyết": "Dengue",
-    "sot xuat huyet": "Dengue",
-    "sốt xuất huyết dengue": "Dengue",
-    "bệnh sốt xuất huyết": "Dengue",
-    "bệnh đậu mùa khỉ": "MPOX",
-    "đậu mùa khỉ": "MPOX",
-    "dau mua khi": "MPOX",
-    "bệnh dại": "Rabies",
-    "bệnh tả": "Cholera",
-    "bệnh lao": "Tuberculosis",
-    "sốt rét": "Malaria",
-    "sot ret": "Malaria",
-    "bạch hầu": "Diphtheria",
-    "bach hau": "Diphtheria",
-    "uốn ván": "Tetanus",
-    "viêm não nhật bản": "Japanese Encephalitis",
-    "ไข้เลือดออก": "Dengue",
-    "ໄຂ້ຍຸງລາຍ": "Dengue",
-    "ໄຂ້ເລືອດອອກ": "Dengue",
-    "มาลาเรีย": "Malaria",
-    "พิษสุนัขบ้า": "Rabies",
-    "อหิวาตกโรค": "Cholera",
-    "วัณโรค": "Tuberculosis",
-    "โควิด-19": "COVID-19",
-    "โควิด": "COVID-19",
-    "stroke": "Stroke",
-    "cerebrovascular accident": "Stroke",
-    "cerebrovascular disease": "Stroke",
-    "penyakit stroke": "Stroke",
-    "penyakit serebrovaskular": "Stroke",
-    "đột quỵ": "Stroke",
-    "dot quy": "Stroke",
-    "đột quị": "Stroke",
-    "hfmd": "HFMD",
-    "hand, foot and mouth disease": "HFMD",
-    "hand foot and mouth disease": "HFMD",
-    "hand foot mouth disease": "HFMD",
-    "hand foot mouth": "HFMD",
-    "hand, foot, and mouth": "HFMD",
-    "flu singapura": "HFMD",
-    "penyakit tangan, kaki dan mulut": "HFMD",
-    "penyakit tangan kaki dan mulut": "HFMD",
-    "penyakit tangan kaki mulut": "HFMD",
-    "bệnh tay chân miệng": "HFMD",
-    "tay chân miệng": "HFMD",
-    "โรคมือเท้าปาก": "HFMD",
-    "มือเท้าปาก": "HFMD",
-    "โรคเอ็มพ็อกซ์": "MPOX",
-    "เอ็มพ็อกซ์": "MPOX",
-    "mpox": "MPOX",
-    "monkeypox": "MPOX",
-    "campak": "Measles",
-    "measles": "Measles",
-    "dbd": "Dengue",
-    "dengue": "Dengue",
-    "demam berdarah": "Dengue",
-    "hantavirus": "Hantavirus infection",
-    "h5n1": "Avian influenza",
-    "flu burung": "Avian influenza",
-    "dengue fever": "DBD",
-    "dengue hemorrhagic fever": "DBD",
-    "dengue haemorrhagic fever": "DBD",
-    "haemorrhagic fever": "DBD",
-    "hemorrhagic fever": "DBD",
-    "breakbone fever": "DBD",
-    "avian influenza": "flu burung",
-    "bird flu": "flu burung",
-    "swine flu": "flu babi",
-    "whooping cough": "pertussis",
-    "covid-19": "COVID-19",
-    "covid": "COVID-19",
-    "coronavirus": "COVID-19",
-    "nipah": "Nipah virus disease",
-    "nipah virus": "Nipah virus disease",
-    "rsv": "Respiratory syncytial virus infection",
-    "respiratory syncytial": "Respiratory syncytial virus infection",
-    "respiratory syncytial virus": "Respiratory syncytial virus infection",
-    "influenza": "Influenza",
-    "ไข้หวัดใหญ่": "Influenza",
-    "ໄຂ້ຫວັດໃຫຍ່": "Influenza",
-    "cancer": "Cancer",
-    "มะเร็ง": "Cancer",
-    "heart attack": "Heart attack",
-    "หัวใจวาย": "Heart attack",
-    "polio": "Poliomyelitis",
-    "poliovirus": "Poliomyelitis",
-    "poliomyelitis": "Poliomyelitis",
-    "cvdpv2": "Poliomyelitis",
-    "cvdpv": "Poliomyelitis",
-    "clade 1b": "Mpox",
-    "clade ib": "Mpox",
-    "kolera": "Cholera",
-    "cholera": "Cholera",
-    "rabies": "Rabies",
-    "penyakit anjing gila": "Rabies",
-    "malaria": "Malaria",
-    # ARI/ISPA
-    "ispa": "Acute Respiratory Infection (ARI/ISPA)",
-    "infeksi saluran pernapasan akut": "Acute Respiratory Infection (ARI/ISPA)",
-    "infeksi saluran pernafasan akut": "Acute Respiratory Infection (ARI/ISPA)",
-    "acute respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
-    "upper respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
-    "lower respiratory infection": "Acute Respiratory Infection (ARI/ISPA)",
-    "ari": "Acute Respiratory Infection (ARI/ISPA)",
-    # Pneumonia
-    "pneumonia": "Pneumonia",
-    "radang paru": "Pneumonia",
-    "radang paru-paru": "Pneumonia",
-    # Hepatitis
-    "hepatitis": "Hepatitis",
-    "hepatitis a": "Hepatitis A",
-    "hepatitis b": "Hepatitis B",
-    # Typhoid
-    "typhoid": "Typhoid fever",
-    "tifus": "Typhoid fever",
-    "demam tifoid": "Typhoid fever",
-    "tipes": "Typhoid fever",
-    "typhoid fever": "Typhoid fever",
-    # Chikungunya
-    "chikungunya": "Chikungunya",
-    # Leptospirosis
-    "leptospirosis": "Leptospirosis",
-    # Diarrhea
-    "diare": "Acute diarrhea",
-    "diare akut": "Acute diarrhea",
-    "diarrhea": "Acute diarrhea",
-    "diarrhoea": "Acute diarrhea",
-    # Filariasis
-    "filariasis": "Filariasis",
-    "kaki gajah": "Filariasis",
-    # Scabies
-    "scabies": "Scabies",
-    "kudis": "Scabies",
-    # Pertussis
-    "pertusis": "Pertussis",
-    "pertussis": "Pertussis",
-    "batuk rejan": "Pertussis",
-    "whooping cough": "Pertussis",
-    # Diphtheria
-    "difteri": "Diphtheria",
-    "diphtheria": "Diphtheria",
-    # Others
-    "antraks": "Anthrax",
-    "anthrax": "Anthrax",
-    "kusta": "Leprosy",
-    "lepra": "Leprosy",
-    "leprosy": "Leprosy",
-    "tetanus": "Tetanus",
-    "diabetes": "Diabetes mellitus",
-    "diabetes melitus": "Diabetes mellitus",
-    "hipertensi": "Hypertension",
-    "hypertension": "Hypertension",
-    "stroke": "Stroke",
-    "penyakit jantung koroner": "Coronary heart disease",
-    # Vietnamese additional
-    "viêm phổi": "Pneumonia",
-    "tiêu chảy": "Acute diarrhea",
-    "bệnh thương hàn": "Typhoid fever",
-    # Thai additional
-    "ปอดบวม": "Pneumonia",
-    "ท้องร่วง": "Acute diarrhea",
-    "ไข้เด็งกี": "Dengue",
-    "ไข้ชิคุนกุนยา": "Chikungunya",
-}
+DISEASE_ALIASES: dict[str, str] = {}
 
+def active_disease_aliases() -> dict[str, str]:
+    """Return the DB disease vocabulary with compatibility aliases layered last."""
+
+    if not config.KEYWORDS_LOAD_ATTEMPTED:
+        config.load_keywords_from_db()
+    db_aliases = {
+        str(alias).strip().casefold(): str(label).strip()
+        for alias, label in config.DISEASE_DICT.items()
+        if str(alias).strip() and str(label).strip()
+    }
+    return {**db_aliases, **DISEASE_ALIASES}
 
 _ALIAS_WORD_REGEX_CACHE: dict[str, re.Pattern] = {}
 
@@ -2327,10 +2155,11 @@ def _match_disease_alias(key: str, text: str, lower_text: str) -> bool:
 
 
 def extract_diseases(text: str) -> list[str]:
+    aliases = active_disease_aliases()
     diseases = set(extract_terms(text, config.DISEASE_DICT))
     lower_text = text.lower()
     diseases.update(
-        value for key, value in DISEASE_ALIASES.items()
+        value for key, value in aliases.items()
         if _match_disease_alias(key, text, lower_text)
     )
     
@@ -2347,9 +2176,10 @@ def extract_diseases(text: str) -> list[str]:
 
 def extract_alias_diseases(text: str) -> list[str]:
     """Return high-precision explicit aliases, primarily for title matching."""
+    aliases = active_disease_aliases()
     lower_text = text.lower()
     return sorted(set(
-        value for key, value in DISEASE_ALIASES.items()
+        value for key, value in aliases.items()
         if _match_disease_alias(key, text, lower_text)
     ))
 

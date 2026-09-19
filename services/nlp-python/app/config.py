@@ -161,6 +161,7 @@ EXPLICIT_KNOWN_DISEASE_MIN_CASES = int(os.getenv("EXPLICIT_KNOWN_DISEASE_MIN_CAS
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 SYMPTOM_DICT: dict[str, str] = {}
 DISEASE_DICT: dict[str, str] = {}
+KEYWORDS_LOAD_ATTEMPTED = False
 OUTBREAK_RULES: dict[str, int] = {}
 LOCATION_COORDS: dict[str, tuple[float, float]] = {
     "Tuy Đức": (12.18, 107.50),
@@ -250,6 +251,7 @@ WHO_DISEASE_CONCEPTS: list[dict[str, Any]] = []
 # retained for API compatibility, but its marker_type now separates language
 # detection from metric and temporal vocabulary.
 LEXICON_TERMS: dict[str, dict[str, list[str]]] = {}
+LEXICON_VALUES: dict[str, dict[str, int]] = {}
 TEMPORAL_MONTH_MAP: dict[str, int] = {}
 LEXICON_READY = False
 LEXICON_LOAD_ATTEMPTED = False
@@ -262,7 +264,8 @@ OUTSIDE_ASEAN_COUNTRY = "OUTSIDE ASEAN"
 
 
 def load_keywords_from_db():
-    global SYMPTOM_DICT, DISEASE_DICT
+    global SYMPTOM_DICT, DISEASE_DICT, KEYWORDS_LOAD_ATTEMPTED
+    KEYWORDS_LOAD_ATTEMPTED = True
     try:
         import psycopg
         from psycopg.rows import dict_row
@@ -289,6 +292,8 @@ def load_keywords_from_db():
             len(symptom), len(disease),
         )
     except Exception as e:
+        SYMPTOM_DICT = {}
+        DISEASE_DICT = {}
         import logging
         logging.getLogger(__name__).warning(
             "Failed to load keywords from DB, using empty dicts: %s", e
@@ -566,7 +571,7 @@ def load_credibility_from_db():
 
 
 def load_language_markers_from_db():
-    global LANGUAGE_MARKERS, LEXICON_TERMS, TEMPORAL_MONTH_MAP, LEXICON_READY, LEXICON_LOAD_ATTEMPTED
+    global LANGUAGE_MARKERS, LEXICON_TERMS, LEXICON_VALUES, TEMPORAL_MONTH_MAP, LEXICON_READY, LEXICON_LOAD_ATTEMPTED
     LEXICON_LOAD_ATTEMPTED = True
     try:
         import psycopg
@@ -589,6 +594,7 @@ def load_language_markers_from_db():
         conn.close()
         markers: dict[str, list[str]] = {}
         lexicon: dict[str, dict[str, list[str]]] = {}
+        lexicon_values: dict[str, dict[str, int]] = {}
         month_map: dict[str, int] = {}
         for r in rows:
             word = str(r["word"] or "").strip()
@@ -606,8 +612,16 @@ def load_language_markers_from_db():
                     logging.getLogger(__name__).warning(
                         "Ignoring invalid temporal month lexicon value for %s/%s", lang, word
                     )
+            if marker_type in {"metric_magnitude", "number_word"}:
+                try:
+                    lexicon_values.setdefault(marker_type, {})[word.casefold()] = int(float(r.get("canonical_value")))
+                except (TypeError, ValueError):
+                    logging.getLogger(__name__).warning(
+                        "Ignoring invalid metric magnitude lexicon value for %s/%s", lang, word
+                    )
         LANGUAGE_MARKERS = markers
         LEXICON_TERMS = lexicon
+        LEXICON_VALUES = lexicon_values
         TEMPORAL_MONTH_MAP = month_map
         LEXICON_READY = bool(lexicon)
         import logging
@@ -619,6 +633,7 @@ def load_language_markers_from_db():
     except Exception as e:
         LANGUAGE_MARKERS = {}
         LEXICON_TERMS = {}
+        LEXICON_VALUES = {}
         TEMPORAL_MONTH_MAP = {}
         LEXICON_READY = False
         import logging
@@ -645,6 +660,14 @@ def get_temporal_month_map() -> dict[str, int]:
     if not LEXICON_LOAD_ATTEMPTED:
         load_language_markers_from_db()
     return dict(TEMPORAL_MONTH_MAP)
+
+
+def get_lexicon_values(marker_type: str) -> dict[str, int]:
+    """Return canonical numeric values from the active DB lexicon."""
+
+    if not LEXICON_LOAD_ATTEMPTED:
+        load_language_markers_from_db()
+    return dict(LEXICON_VALUES.get(str(marker_type or "").strip().casefold(), {}))
 
 
 def get_temporal_month_pattern() -> str:

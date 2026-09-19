@@ -570,47 +570,52 @@ def _is_comparative_location(text: str, loc_start: int) -> bool:
 
 
 _NUMBER = r"(?:\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)"
-_CASE_BEFORE_LOCATION = re.compile(
-    rf"(?<![\w.,])(?P<count>{_NUMBER})(?![\w])\s*(?:ribu|juta|million|thousand)?\s*"
-    r"(?:kasus|cases?|infeksi|infections?|pasien|patients?)\s+"
-    r"(?:(?:baru|positif|aktif|harian|terkonfirmasi|dengue|dbd|ispa|covid(?:-19)?|mpox|rabies)\s+)*"
-    r"(?:di|in|from|among)\s+"
-    r"(?:provinsi\s+|prov\.\s+|kabupaten\s+|kab\.\s+|kota\s+)?"
-    r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*){0,5})",
-    re.IGNORECASE | re.UNICODE,
-)
-_LOCATION_BEFORE_CASE = re.compile(
-    r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*){0,5})"
-    rf"(?:\s+[^.\n;:()]{{0,100}}?\s*[:,-]?\s*)"
-    rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
-    r"(?:kasus|cases?|infeksi|infections?|pasien|patients?)\b",
-    re.IGNORECASE | re.UNICODE,
-)
-_LOCATION_PARENS_CASE = re.compile(
-    rf"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’.-]*){{0,5}})"
-    rf"\s*\(\s*(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*(?:kasus|cases?)\s*\)",
-    re.IGNORECASE | re.UNICODE,
-)
-_DEATH_NEAR_LOCATION = re.compile(
-    rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
-    r"(?:kematian|deaths?|fatalities|meninggal(?: dunia)?)\s+(?:di|in)\s+"
-    r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’.-]*){0,5})",
-    re.IGNORECASE | re.UNICODE,
-)
-_DEATH_WITH_LABEL = re.compile(
-    rf"(?P<count>{_NUMBER})\s+[^.\n;:()]{{0,60}}?"
-    r"(?:kematian|deaths?|fatalities|meninggal(?: dunia)?)\s+"
-    r"(?:pada\s+[^.\n;:()]{0,40}?\s+)?(?:di|in)\s+"
-    r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*){0,5})",
-    re.IGNORECASE | re.UNICODE,
-)
-_LOCATION_BEFORE_DEATH = re.compile(
-    r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*){0,5})"
-    rf"(?:\s+[^.\n;:()]{{0,120}}?\s*[:,-]?\s*)"
-    rf"(?P<count>{_NUMBER})\s*(?P<multiplier>ribu|juta|million|thousand)?\s*"
-    r"(?:kematian|deaths?|fatalities|meninggal(?: dunia)?)\b",
-    re.IGNORECASE | re.UNICODE,
-)
+
+
+def _runtime_relation_patterns() -> dict[str, tuple[re.Pattern[str], ...]]:
+    """Build legacy location relations from the active DB lexicon."""
+
+    case_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_case")))
+    death_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_death")))
+    magnitude_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_magnitude")))
+    magnitude_group = rf"(?P<multiplier>{magnitude_term})?"
+    location = r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*){0,5})"
+    location_dotted = r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’.-]*){0,5})"
+    return {
+        "cases": (
+            re.compile(
+                rf"(?<![\w.,])(?P<count>{_NUMBER})(?![\w])\s*{magnitude_group}\s*"
+                rf"{case_term}\s+(?:[\w\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]+\s+){{0,4}}"
+                rf"(?:di|in|from|among)\s+(?:provinsi\s+|prov\.\s+|kabupaten\s+|kab\.\s+|kota\s+)?{location}",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
+                rf"{location}(?:\s+[^.\n;:()]{{0,100}}?\s*[:,-]?\s*)"
+                rf"(?P<count>{_NUMBER})\s*{magnitude_group}\s*{case_term}\b",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
+                rf"{location_dotted}\s*\(\s*(?P<count>{_NUMBER})\s*{magnitude_group}\s*{case_term}\s*\)",
+                re.IGNORECASE | re.UNICODE,
+            ),
+        ),
+        "deaths": (
+            re.compile(
+                rf"(?P<count>{_NUMBER})\s*{magnitude_group}\s*{death_term}\s+(?:di|in)\s+{location_dotted}",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
+                rf"(?P<count>{_NUMBER})\s+[^.\n;:()]{{0,60}}?{death_term}\s+"
+                rf"(?:pada\s+[^.\n;:()]{{0,40}}?\s+)?(?:di|in)\s+{location}",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
+                rf"{location}(?:\s+[^.\n;:()]{{0,120}}?\s*[:,-]?\s*)"
+                rf"(?P<count>{_NUMBER})\s*{magnitude_group}\s*{death_term}\b",
+                re.IGNORECASE | re.UNICODE,
+            ),
+        ),
+    }
 
 
 def _number(raw: str, multiplier: str = "") -> int:
@@ -1021,7 +1026,6 @@ def _runtime_metric_patterns() -> dict[str, Any]:
         "narrative_death": narrative_death,
         "postfix_case": postfix_case,
         "postfix_death": postfix_death,
-        "case_total_before_death": re.compile(case_term, re.IGNORECASE | re.UNICODE),
     }
 _NON_CASE_NUMBER_CONTEXT = re.compile(
     r"(?:%|persen|percent|per\s+100|population|populasi|tempat\s+tidur|"
@@ -1100,6 +1104,34 @@ def _metric_is_valid(text: str, start: int, end: int) -> bool:
     return not _looks_like_calendar_year(text, start, end)
 
 
+def _is_prior_case_total_for_death(text: str, match: re.Match) -> bool:
+    """Reject a case total accidentally captured as a death count.
+
+    ``99,691 cases, 15 deaths`` contains two numbers and two metrics. The
+    first number must not become a death relation, while ``3 ca tử vong`` is
+    a valid Vietnamese death expression even though ``ca`` is also a case
+    lexicon term. The extra-number check distinguishes those shapes.
+    """
+
+    span = match.group(0)
+    death_label = re.search(
+        _runtime_metric_patterns()["death_term"], span, re.IGNORECASE | re.UNICODE
+    )
+    if not death_label:
+        return False
+    count_end = match.end("count") - match.start()
+    between = span[count_end:death_label.start()]
+    case_label = re.search(
+        _runtime_metric_patterns()["case_term"], between, re.IGNORECASE | re.UNICODE
+    )
+    if not case_label:
+        return False
+    if re.search(_NUMBER, between[case_label.end():]):
+        return True
+    trailing = (text or "")[match.end():match.end() + 48]
+    return bool(re.search(_NUMBER, trailing))
+
+
 def _case_number_after_death_label(text: str, start: int) -> bool:
     """Reject ``death label + number`` from the case relation pass."""
 
@@ -1136,8 +1168,7 @@ def _narrative_metric_is_valid(text: str, match: re.Match, metric_name: str) -> 
     # ``99,691 ราย เสียชีวิต 15 ราย`` must not yield a synthetic death count
     # of 99,691. A direct ``99,691 patients died`` remains valid because
     # patient/person wording is not treated as a prior case total here.
-    prefix = span[:death_label.start()]
-    return not _runtime_metric_patterns()["case_total_before_death"].search(prefix)
+    return not _is_prior_case_total_for_death(text, match)
 
 
 def _location_spans(text: str, linker: GazetteerLinker) -> list[tuple[int, int, LinkedLocation]]:
@@ -1399,7 +1430,8 @@ def extract_metric_relations(
     for relation in _extract_range_relations(source, linker, published_date):
         _upsert_relation(relations, relation)
 
-    patterns = (_LOCATION_PARENS_CASE, _CASE_BEFORE_LOCATION, _LOCATION_BEFORE_CASE)
+    relation_patterns = _runtime_relation_patterns()
+    patterns = relation_patterns["cases"]
     for pattern in patterns:
         for match in pattern.finditer(working):
             if _is_comparative_location(source, match.start("location")):
@@ -1459,7 +1491,7 @@ def extract_metric_relations(
                 source_sentence_id=_source_sentence_id(source, match.start()),
             ))
 
-    for pattern in (_DEATH_NEAR_LOCATION, _DEATH_WITH_LABEL, _LOCATION_BEFORE_DEATH):
+    for pattern in relation_patterns["deaths"]:
         for match in pattern.finditer(working):
             if _is_comparative_location(source, match.start("location")):
                 continue
@@ -1467,6 +1499,8 @@ def extract_metric_relations(
             if not linked:
                 continue
             death_count = _number(match.group("count"), match.groupdict().get("multiplier", ""))
+            if _is_prior_case_total_for_death(source, match):
+                continue
             if not _metric_is_valid(source, match.start("count"), match.end()):
                 continue
             frame = _relation_time_frame_for_span(
