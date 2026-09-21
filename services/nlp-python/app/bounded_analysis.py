@@ -1,27 +1,28 @@
 """Opt-in endpoint for interactive jobs only; legacy /nlp/analyze is unchanged."""
 import logging
+import os
 import threading
 import time
 from fastapi import APIRouter, HTTPException
 from . import config
 from .schemas import AnalyzeRequest
-from .stage_budget import bounded_call, remaining_inference_budget
+from .stage_budget import bounded_call, remaining_inference_budget, GLOBAL_STAGE_TRACKER
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 slots = threading.BoundedSemaphore(1)
 TRANSLATION_STAGE_TIMEOUT_SECONDS = config.TRANSLATION_INTERACTIVE_TIMEOUT_SECONDS
-INFERENCE_STAGE_TIMEOUT_SECONDS = config.INFERENCE_STAGE_TIMEOUT_SECONDS
+INTERACTIVE_BUDGET_SECONDS = int(os.getenv("INTERACTIVE_STAGE_BUDGET_SECONDS", "30"))
+STALE_JOB_TIMEOUT_SECONDS = int(os.getenv("STALE_JOB_TIMEOUT_SECONDS", "35"))
+
 
 class BoundedRequest(AnalyzeRequest):
     rules_only: bool = False
 
+
 def translate_stage(text):
     from .extractors import detect_language
     from .translator import translate_and_extract
-    # URL analysis is latency-sensitive.  One short semantic window is enough
-    # to help the classifier; source-language extraction remains authoritative
-    # for diseases, locations, metrics, and dates.
     return translate_and_extract(
         text,
         detect_language(text),
@@ -29,6 +30,7 @@ def translate_stage(text):
         chunk_chars=config.TRANSLATION_INTERACTIVE_CHUNK_CHARS,
         max_chunks=config.TRANSLATION_INTERACTIVE_MAX_CHUNKS,
     )
+
 
 def inference_stage(payload, translation, rules_only):
     from . import config, pipeline
@@ -39,7 +41,7 @@ def inference_stage(payload, translation, rules_only):
     orig_who_res = config.WHO_TERM_RESOLUTION_ENABLED
     try:
         pipeline.translate_and_extract = lambda text, language: translation
-        if rules_only:
+        if rules_only or payload.get("interactive"):
             config.NLP_MODEL = "none"
             config.AGENT_ENABLED = False
             config.WHO_DISCOVERY_ENABLED = False
@@ -52,47 +54,57 @@ def inference_stage(payload, translation, rules_only):
         config.WHO_DISCOVERY_ENABLED = orig_who_disc
         config.WHO_TERM_RESOLUTION_ENABLED = orig_who_res
 
+
 @router.post("/nlp/analyze-bounded")
 def analyze_bounded(payload: BoundedRequest):
-    if not slots.acquire(blocking=False):
-        raise HTTPException(503, "Interactive NLP is busy; retry later")
+    acquired = slots.acquire(blocking=False)
+    if not acquired:
+        if GLOBAL_STAGE_TRACKER.recover_if_stale(STALE_JOB_TIMEOUT_SECONDS):
+            logger.warning("Recovered stale interactive NLP job; resetting semaphore slot")
+            try:
+                slots.release()
+            except ValueError:
+                pass
+            acquired = slots.acquire(blocking=False)
+        if not acquired:
+            raise HTTPException(503, "Interactive NLP is busy; retry later")
     warnings = []
     translation = {
         "translated": False,
         "translated_text": "",
         "structured": {},
         "provider": "none",
-        "translation_status": "not_required",
+        "translation_status": "deferred",
     }
     started = time.monotonic()
+    job_id = f"url-{int(time.time() * 1000)}"
     try:
         if not payload.rules_only:
             try:
-                if config.TRANSLATION_ASYNC_ENABLED:
-                    # Deferred translation is intentionally cheap here: use a
-                    # cached view if one exists, otherwise return pending.
-                    # Do not create a child process for a model that will not
-                    # be loaded on this request.
-                    translation = translate_stage(payload.text)
-                else:
-                    translation = bounded_call(
-                        translate_stage,
-                        (payload.text,),
-                        TRANSLATION_STAGE_TIMEOUT_SECONDS,
-                        isolation="process",
-                    )
+                from .extractors import detect_language
+                from .translator import _hash, _cached
+                lang = detect_language(payload.text)
+                cached = _cached(_hash(payload.text, lang))
+                if cached:
+                    translation = {
+                        "translated": True,
+                        "provider": f"{cached['provider']}-cache",
+                        "translation_status": "completed",
+                        "translated_text": cached["translated_text"],
+                        "structured": cached["structured_result"],
+                    }
             except Exception as e:
-                logger.warning("Translation stage failed or timed out: %s", e)
-                translation["translation_status"] = "timeout"
-                warnings.append(
-                    f"Translation unavailable within {TRANSLATION_STAGE_TIMEOUT_SECONDS}s; original text used"
-                )
-        inference_budget = max(
-            INFERENCE_STAGE_TIMEOUT_SECONDS,
-            remaining_inference_budget(
-                time.monotonic() - started,
-                config.NLP_REQUEST_TIMEOUT_SECONDS,
-                config.NLP_STAGE_OVERHEAD_SECONDS,
+                logger.debug("Cached translation lookup skipped: %s", e)
+
+        inference_budget = min(
+            INTERACTIVE_BUDGET_SECONDS,
+            max(
+                5,
+                remaining_inference_budget(
+                    time.monotonic() - started,
+                    INTERACTIVE_BUDGET_SECONDS,
+                    overhead=2,
+                ),
             ),
         )
         try:
@@ -100,6 +112,8 @@ def analyze_bounded(payload: BoundedRequest):
                 inference_stage,
                 (payload.model_dump(), translation, payload.rules_only),
                 inference_budget,
+                isolation="process",
+                job_id=job_id,
             )
         except TimeoutError as exc:
             logger.warning("Inference stage timed out after %ss: %s", inference_budget, exc)
@@ -111,10 +125,12 @@ def analyze_bounded(payload: BoundedRequest):
             logger.warning("Inference stage failed: %s", exc)
             raise HTTPException(503, f"NLP stage exceeded budget or failed: {exc}")
         result["stage_warnings"] = warnings
-        # Interactive/raw consumers are factual extraction clients. Alert and
-        # severity decisions are deprecated and must not leak into this API.
         result.pop("outbreak_alert", None)
         result.pop("severity", None)
         return result
     finally:
-        slots.release()
+        GLOBAL_STAGE_TRACKER.clear_active()
+        try:
+            slots.release()
+        except ValueError:
+            pass
