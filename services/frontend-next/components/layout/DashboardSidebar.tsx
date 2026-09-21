@@ -39,10 +39,17 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
   const appTitle = settings.app_name || "ASEAN REAL-TIME AI SURVEILLANCE DATA";
   const appSubtitle = settings.app_tagline || "Real-time multilingual data monitoring";
 
+  const resolveTargetUrl = (href?: string) => {
+    if (!href || href === "#") return "#";
+    if (href.startsWith("http")) return href;
+    const cleanPath = href.startsWith("/") ? href : `/${href}`;
+    return `${PUBLIC_BASE_PATH}${cleanPath === "/" ? "" : cleanPath}` || "/nlp";
+  };
+
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 h-screen w-[280px] border-r border-slate-100 bg-white text-slate-800 shadow-[2px_0_12px_rgba(0,0,0,0.03)] transition-transform duration-300 ${
-        open ? "translate-x-0" : "-translate-x-full"
+      className={`fixed left-0 top-0 z-[60] h-screen w-[280px] border-r border-slate-100 bg-white text-slate-800 shadow-[2px_0_12px_rgba(0,0,0,0.03)] transition-transform duration-300 ${
+        open ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none"
       }`}
     >
       <div className="h-[4px] bg-[#0060A9]" />
@@ -88,12 +95,18 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
               {group.items.map((item, itemIdx) => {
                 const Icon = item.icon;
                 const active = isActive(item);
+                const targetUrl = resolveTargetUrl(item.href);
                 return (
                   <li key={item.labelKey || item.label || itemIdx}>
-                    <Link
-                      href={item.href || "#"}
-                      onClick={() => {
-                        if (window.innerWidth < 1024) onClose();
+                    <a
+                      href={targetUrl}
+                      onClick={(e) => {
+                        onClose();
+                        if (item.href && item.href !== "#") {
+                          if (pathname === item.href) {
+                            e.preventDefault();
+                          }
+                        }
                       }}
                       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all ${
                         active
@@ -111,7 +124,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                       <span className="truncate">
                         {item.labelKey ? t(item.labelKey) : item.label}
                       </span>
-                    </Link>
+                    </a>
                   </li>
                 );
               })}

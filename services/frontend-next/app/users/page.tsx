@@ -10,7 +10,7 @@ export default function UsersRedirectPage() {
   }, [router])
   return (
     <div className="p-8 text-center text-slate-400 text-sm">
-      Mengalihkan ke Manajemen Pengguna di Console...
+      Redirecting to User Management in Console...
     </div>
   )
 }

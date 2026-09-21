@@ -58,6 +58,11 @@ export default function AppShell({
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
+  // Close sidebar drawer automatically on page/route navigation
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
   // Filter menu groups according to user role and permitted modules
   const activeMenu = useMemo(() => {
     if (tvMode) return [];
@@ -100,7 +105,7 @@ export default function AppShell({
           type="button"
           aria-label={t("common.closeSidebar")}
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-30 bg-slate-900/35 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[55] bg-slate-900/35 backdrop-blur-[1px]"
         />
       )}
       <div className="print:hidden">

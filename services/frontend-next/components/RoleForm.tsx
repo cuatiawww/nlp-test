@@ -78,12 +78,12 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) {
-      toast.error('Nama level / peran tidak boleh kosong.')
+      toast.error('Role name cannot be empty.')
       return
     }
 
     if (initialData?.id !== 'admin' && permissions.length === 0) {
-      toast.error('Pilih minimal 1 modul hak akses untuk level ini.')
+      toast.error('Select at least 1 module permission for this role.')
       return
     }
 
@@ -97,18 +97,18 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
           description: description.trim(),
           permissions: finalPermissions,
         })
-        toast.success(`Level "${name}" berhasil diperbarui!`)
+        toast.success(`Role "${name}" updated successfully!`)
       } else {
         await createRole({
           name: name.trim().toUpperCase(),
           description: description.trim(),
           permissions: finalPermissions,
         })
-        toast.success(`Level "${name}" berhasil ditambahkan!`)
+        toast.success(`Role "${name}" created successfully!`)
       }
       onSaved()
     } catch (err: any) {
-      toast.error(err?.message || 'Gagal menyimpan level.')
+      toast.error(err?.message || 'Failed to save role.')
     } finally {
       setSaving(false)
     }
@@ -134,16 +134,16 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 pt-1">
-      {/* SECTION 1: Informasi Level (Nama & Deskripsi) */}
+      {/* SECTION 1: Role Information (Name & Description) */}
       <div className="rounded-2xl border border-slate-200/90 bg-slate-50/50 p-4 sm:p-5 space-y-4">
         <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2.5">
           <Shield className="h-4 w-4 text-[#0060A9]" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-            Identitas Level / Peran Pengguna
+            Role & Access Level Identity
           </h3>
           {isSystem && (
             <span className="ml-auto rounded-full bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold text-slate-600 uppercase tracking-wide">
-              Peran Bawaan Sistem
+              Default System Role
             </span>
           )}
         </div>
@@ -151,7 +151,7 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
-              <span>Nama Level / Peran</span>
+              <span>Role Name</span>
               <span className="text-rose-500">*</span>
             </label>
             <input
@@ -160,7 +160,7 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
               onChange={e => setName(e.target.value)}
               required
               disabled={isSystem}
-              placeholder="contoh: SURVEILANS REGIONAL"
+              placeholder="e.g. REGIONAL SURVEILLANCE"
               className={`mt-1.5 w-full rounded-xl border px-3.5 py-2.5 text-sm font-semibold uppercase transition ${
                 isSystem
                   ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500 shadow-inner'
@@ -169,30 +169,30 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
             />
             <p className="mt-1 text-[11px] text-slate-400">
               {isSystem
-                ? 'Nama peran sistem bawaan tidak dapat diubah agar kompatibel dengan sistem.'
-                : 'Gunakan nama yang jelas seperti SURVEILANS DAERAH atau AUDITOR PUSAT.'}
+                ? 'Default system role names cannot be renamed to preserve system compatibility.'
+                : 'Use a clear name such as REGIONAL SURVEILLANCE or AUDITOR.'}
             </p>
           </div>
 
           <div>
             <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600">
-              <span>Deskripsi & Tujuan Akses</span>
+              <span>Description & Access Purpose</span>
             </label>
             <input
               type="text"
               value={description}
               onChange={e => setDescription(e.target.value)}
-              placeholder="contoh: Akses pemantauan data wilayah kerja provinsi"
+              placeholder="e.g. Monitoring access for provincial surveillance operations"
               className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-[#0060A9]/20"
             />
             <p className="mt-1 text-[11px] text-slate-400">
-              Keterangan singkat tentang wewenang dan tanggung jawab level ini.
+              Brief description of duties and access permissions for this role.
             </p>
           </div>
         </div>
       </div>
 
-      {/* SECTION 2: Pemilihan Hak Akses Modul Bawaan */}
+      {/* SECTION 2: Default Module Permissions */}
       <div className="rounded-2xl border border-slate-200/90 bg-slate-50/50 p-4 sm:p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 pb-3">
           <div className="flex items-center gap-2.5">
@@ -201,10 +201,10 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
             </div>
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                Hak Akses Modul Bawaan Level Ini
+                Default Module Permissions for this Role
               </h3>
               <p className="text-[11px] text-slate-500">
-                Pengguna yang ditugaskan ke level ini akan otomatis mendapatkan centang pada modul-modul berikut.
+                Users assigned to this role will automatically receive default access to the selected modules below.
               </p>
             </div>
           </div>
@@ -212,7 +212,7 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
           {initialData?.id === 'admin' ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-3 py-1 text-xs font-black text-purple-800 border border-purple-200 shadow-2xs">
               <Sparkles className="h-3.5 w-3.5 text-purple-600" />
-              Full Access (Semua Modul)
+              Full Access (All Modules)
             </span>
           ) : (
             <div className="flex items-center gap-2 flex-wrap">
@@ -221,7 +221,7 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
                 onClick={selectAll}
                 className="inline-flex items-center gap-1 text-xs font-bold text-[#0060A9] hover:bg-blue-50 px-2.5 py-1 rounded-lg transition cursor-pointer"
               >
-                <Check className="h-3 w-3" /> Pilih Semua
+                <Check className="h-3 w-3" /> Select All
               </button>
               <span className="text-slate-300">|</span>
               <button
@@ -229,10 +229,10 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
                 onClick={clearAll}
                 className="text-xs font-bold text-slate-500 hover:bg-slate-100 px-2.5 py-1 rounded-lg transition cursor-pointer"
               >
-                Kosongkan
+                Clear All
               </button>
               <span className="ml-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-black text-[#0060A9] border border-blue-200">
-                {permissions.length} / {SYSTEM_MODULES.length} dipilih
+                {permissions.length} / {SYSTEM_MODULES.length} selected
               </span>
             </div>
           )}
@@ -242,9 +242,9 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
           <div className="rounded-xl border border-purple-200 bg-purple-50/70 p-4 text-xs text-purple-900 leading-relaxed flex items-start gap-3">
             <Sparkles className="h-5 w-5 text-purple-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold">Akses Penuh Tanpa Batas</p>
+              <p className="font-bold">Unlimited Full Access</p>
               <p className="mt-0.5 text-purple-700 text-[11.5px]">
-                Level <strong>ADMIN</strong> selalu memiliki akses penuh ke seluruh modul sistem.
+                The <strong>ADMIN</strong> role always has full access to all system modules.
               </p>
             </div>
           </div>
@@ -302,7 +302,7 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
           disabled={saving}
           className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition disabled:opacity-50 cursor-pointer"
         >
-          Batal
+          Cancel
         </button>
         <button
           type="submit"
@@ -312,15 +312,15 @@ export default function RoleForm({ initialData, onSaved, onCancel }: Props) {
           {saving ? (
             <>
               <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-              <span>Menyimpan...</span>
+              <span>Saving...</span>
             </>
           ) : isEditing ? (
             <>
               <CheckCircle2 className="h-4 w-4" />
-              <span>Simpan Perubahan</span>
+              <span>Save Changes</span>
             </>
           ) : (
-            <span>Buat Level Baru</span>
+            <span>Create New Role</span>
           )}
         </button>
       </div>

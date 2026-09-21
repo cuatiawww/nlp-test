@@ -86,14 +86,14 @@ export default function ConsoleUsersPage() {
   }
 
   const handleDeleteUser = async (id: string, username: string) => {
-    if (!confirm(`Apakah Anda yakin ingin menghapus akun "${username}"? Tindakan ini tidak dapat dibatalkan.`)) return
+    if (!confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) return
     try {
       await deleteUser(id)
-      toast.success(`Pengguna "${username}" berhasil dihapus.`)
+      toast.success(`User "${username}" deleted successfully.`)
       reloadUsers()
       loadRoles()
     } catch {
-      toast.error(`Gagal menghapus pengguna "${username}".`)
+      toast.error(`Failed to delete user "${username}".`)
     }
   }
 
@@ -110,20 +110,20 @@ export default function ConsoleUsersPage() {
 
   const handleDeleteRole = async (role: RoleItem) => {
     if (role.is_system) {
-      toast.error('Peran sistem bawaan tidak dapat dihapus.')
+      toast.error('Default system roles cannot be deleted.')
       return
     }
     if ((role.user_count || 0) > 0) {
-      toast.error(`Peran ini masih digunakan oleh ${role.user_count} akun pengguna. Ubah peran pengguna tersebut sebelum menghapus level ini.`)
+      toast.error(`This role is still used by ${role.user_count} user account(s). Reassign these users before deleting this role.`)
       return
     }
-    if (!confirm(`Apakah Anda yakin ingin menghapus level "${role.name}"?`)) return
+    if (!confirm(`Are you sure you want to delete role "${role.name}"?`)) return
     try {
       await deleteRole(role.id)
-      toast.success(`Level "${role.name}" berhasil dihapus.`)
+      toast.success(`Role "${role.name}" deleted successfully.`)
       loadRoles()
     } catch (err: any) {
-      toast.error(err?.message || `Gagal menghapus level "${role.name}".`)
+      toast.error(err?.message || `Failed to delete role "${role.name}".`)
     }
   }
 
@@ -145,7 +145,7 @@ export default function ConsoleUsersPage() {
       case 'epidemiologi':
         return (
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 border border-emerald-200 uppercase tracking-wide shadow-2xs">
-            <Activity className="h-3.5 w-3.5 text-emerald-600" /> EPIDEMIOLOGI
+            <Activity className="h-3.5 w-3.5 text-emerald-600" /> EPIDEMIOLOGY
           </span>
         )
       case 'executive':
@@ -176,7 +176,7 @@ export default function ConsoleUsersPage() {
       return (
         <div className="flex items-center gap-1.5">
           <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-            <Sparkles className="h-3 w-3 text-emerald-600" /> Semua Modul ({SYSTEM_MODULES.length})
+            <Sparkles className="h-3 w-3 text-emerald-600" /> All Modules ({SYSTEM_MODULES.length})
           </span>
         </div>
       )
@@ -190,7 +190,7 @@ export default function ConsoleUsersPage() {
     if (permitted.length === 0) {
       return (
         <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-600 border border-rose-200">
-          Tidak ada akses
+          No access
         </span>
       )
     }
@@ -198,10 +198,10 @@ export default function ConsoleUsersPage() {
     return (
       <div className="flex flex-col gap-0.5 max-w-[240px]">
         <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 border border-slate-200 w-fit">
-          <Layers className="h-3 w-3 text-slate-500" /> {permitted.length} Modul Aktif
+          <Layers className="h-3 w-3 text-slate-500" /> {permitted.length} Active Modules
         </span>
         <span className="text-[11px] text-slate-400 truncate" title={moduleLabels.join(', ')}>
-          {moduleLabels.slice(0, 2).join(', ')}{moduleLabels.length > 2 ? ` +${moduleLabels.length - 2} lainnya` : ''}
+          {moduleLabels.slice(0, 2).join(', ')}{moduleLabels.length > 2 ? ` +${moduleLabels.length - 2} more` : ''}
         </span>
       </div>
     )
@@ -221,7 +221,7 @@ export default function ConsoleUsersPage() {
                 User Management & Access Control
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Kelola akun pengguna, level & hak akses peran kustom, serta matriks modul aplikasi.
+                Manage user accounts, custom roles & permissions, and application module access matrices.
               </p>
             </div>
           </div>
@@ -234,14 +234,14 @@ export default function ConsoleUsersPage() {
               onClick={handleAddUser}
               className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-[#004b85] shadow-sm transition cursor-pointer"
             >
-              <Plus className="h-4 w-4" /> Tambah Pengguna
+              <Plus className="h-4 w-4" /> Add User
             </button>
           ) : (
             <button
               onClick={handleAddRole}
               className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-[#004b85] shadow-sm transition cursor-pointer"
             >
-              <Plus className="h-4 w-4" /> Tambah Level Baru
+              <Plus className="h-4 w-4" /> Add New Role
             </button>
           )}
         </div>
@@ -258,7 +258,7 @@ export default function ConsoleUsersPage() {
           }`}
         >
           <UsersIcon className="h-4 w-4" />
-          <span>Pengguna Terdaftar</span>
+          <span>Registered Users</span>
           <span className={`ml-1 rounded-full px-2 py-0.5 text-xs font-bold ${
             activeTab === 'users' ? 'bg-blue-100 text-[#0060A9]' : 'bg-slate-100 text-slate-600'
           }`}>
@@ -275,7 +275,7 @@ export default function ConsoleUsersPage() {
           }`}
         >
           <Shield className="h-4 w-4" />
-          <span>Level & Hak Akses (Roles)</span>
+          <span>Roles & Permissions</span>
           <span className={`ml-1 rounded-full px-2 py-0.5 text-xs font-bold ${
             activeTab === 'roles' ? 'bg-blue-100 text-[#0060A9]' : 'bg-slate-100 text-slate-600'
           }`}>
@@ -297,27 +297,27 @@ export default function ConsoleUsersPage() {
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <SearchInput value={search} onChange={setSearch} placeholder="Cari nama, username, atau peran..." />
+              <SearchInput value={search} onChange={setSearch} placeholder="Search name, username, or role..." />
             </div>
           </div>
 
           <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs w-full">
             {usersLoading ? (
-              <div className="p-12 text-center text-slate-400 text-sm">Memuat data pengguna...</div>
+              <div className="p-12 text-center text-slate-400 text-sm">Loading user data...</div>
             ) : users.length === 0 ? (
-              <div className="p-12 text-center text-slate-400 text-sm">Tidak ada data pengguna ditemukan.</div>
+              <div className="p-12 text-center text-slate-400 text-sm">No user data found.</div>
             ) : (
               <div className="overflow-x-auto w-full">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-slate-50/80 text-left">
                       <th className="px-5 py-3.5 font-semibold text-slate-600 text-xs uppercase tracking-wider">Username</th>
-                      <th className="px-5 py-3.5 font-semibold text-slate-600 text-xs uppercase tracking-wider">Nama Lengkap</th>
-                      <th className="px-5 py-3.5 font-semibold text-slate-600 text-xs uppercase tracking-wider">Peran (Role / Level)</th>
-                      <th className="px-5 py-3.5 font-semibold text-slate-600 text-xs uppercase tracking-wider">Hak Akses Modul</th>
+                      <th className="px-5 py-3.5 font-semibold text-slate-600 text-xs uppercase tracking-wider">Full Name</th>
+                      <th className="px-5 py-3.5 font-semibold text-slate-600 text-xs uppercase tracking-wider">Role (Level)</th>
+                      <th className="px-5 py-3.5 font-semibold text-slate-600 text-xs uppercase tracking-wider">Module Access</th>
                       <th className="px-5 py-3.5 font-semibold text-slate-600 text-xs uppercase tracking-wider">Email</th>
                       <th className="px-5 py-3.5 text-center font-semibold text-slate-600 text-xs uppercase tracking-wider">Status</th>
-                      <th className="px-5 py-3.5 text-right font-semibold text-slate-600 text-xs uppercase tracking-wider">Aksi</th>
+                      <th className="px-5 py-3.5 text-right font-semibold text-slate-600 text-xs uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -343,7 +343,7 @@ export default function ConsoleUsersPage() {
                             }`}
                           >
                             <span className={`h-1.5 w-1.5 rounded-full ${u.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                            {u.is_active ? 'Aktif' : 'Nonaktif'}
+                            {u.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </td>
                         <td className="px-5 py-3.5 text-right">
@@ -351,14 +351,14 @@ export default function ConsoleUsersPage() {
                             <button
                               onClick={() => handleEditUser(u)}
                               className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-[#0060A9] transition cursor-pointer"
-                              title={`Edit akun ${u.username}`}
+                              title={`Edit user ${u.username}`}
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteUser(u.id, u.username)}
                               className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition cursor-pointer"
-                              title={`Hapus akun ${u.username}`}
+                              title={`Delete user ${u.username}`}
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
@@ -384,10 +384,10 @@ export default function ConsoleUsersPage() {
               <Info className="h-5 w-5 text-[#0060A9] shrink-0 mt-0.5" />
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                  Manajemen Level & Hak Akses
+                  Role & Access Level Management
                 </h3>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  Anda dapat membuat level baru (misal: <em>SURVEILANS PROVINSI</em>, <em>AUDITOR</em>) dan menentukan modul-modul bawaan yang diizinkan untuk level tersebut.
+                  You can create custom roles (e.g., <em>PROVINCIAL SURVEILLANCE</em>, <em>AUDITOR</em>) and configure the default allowed modules for each role.
                 </p>
               </div>
             </div>
@@ -395,14 +395,14 @@ export default function ConsoleUsersPage() {
               onClick={handleAddRole}
               className="inline-flex items-center gap-1.5 rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-[#004b85] transition shrink-0 cursor-pointer shadow-xs"
             >
-              <Plus className="h-3.5 w-3.5" /> Buat Level Baru
+              <Plus className="h-3.5 w-3.5" /> Create New Role
             </button>
           </div>
 
           {rolesLoading ? (
-            <div className="p-12 text-center text-slate-400 text-sm">Memuat daftar level...</div>
+            <div className="p-12 text-center text-slate-400 text-sm">Loading roles list...</div>
           ) : roles.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-sm">Tidak ada level ditemukan.</div>
+            <div className="p-12 text-center text-slate-400 text-sm">No roles found.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {roles.map((r) => {
@@ -424,12 +424,12 @@ export default function ConsoleUsersPage() {
                             {renderRoleBadge(r.name || r.id)}
                             {r.is_system && (
                               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 uppercase">
-                                Sistem
+                                System
                               </span>
                             )}
                           </div>
                           <p className="mt-2 text-xs text-slate-600 line-clamp-2">
-                            {r.description || 'Tidak ada keterangan tambahan.'}
+                            {r.description || 'No additional description.'}
                           </p>
                         </div>
                       </div>
@@ -437,20 +437,20 @@ export default function ConsoleUsersPage() {
                       {/* Permitted Modules */}
                       <div className="mt-3.5 space-y-2">
                         <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                          <span>Hak Akses Modul Bawaan:</span>
+                          <span>Default Module Access:</span>
                           <span className="text-[#0060A9]">
-                            {isFullAccess ? '13 Modul' : `${perms.length} Modul`}
+                            {isFullAccess ? 'All Modules' : `${perms.length} Modules`}
                           </span>
                         </div>
 
                         {isFullAccess ? (
                           <div className="flex items-center gap-1.5 rounded-xl bg-purple-50 p-2.5 text-xs font-semibold text-purple-700 border border-purple-100">
                             <Sparkles className="h-4 w-4 text-purple-600 shrink-0" />
-                            <span>Akses Penuh Seluruh Modul (Full Access)</span>
+                            <span>Full Access (All Modules)</span>
                           </div>
                         ) : perms.length === 0 ? (
                           <div className="rounded-xl bg-slate-50 p-2.5 text-xs text-slate-400 border border-slate-100">
-                            Belum ada modul yang dipilih
+                            No modules selected yet
                           </div>
                         ) : (
                           <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
@@ -471,7 +471,7 @@ export default function ConsoleUsersPage() {
                     <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between">
                       <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
                         <UsersIcon className="h-3.5 w-3.5 text-slate-400" />
-                        <span>{r.user_count || 0} Pengguna</span>
+                        <span>{r.user_count || 0} Users</span>
                       </div>
 
                       <div className="flex items-center gap-1.5">
@@ -485,10 +485,10 @@ export default function ConsoleUsersPage() {
                           <button
                             onClick={() => handleDeleteRole(r)}
                             disabled={(r.user_count || 0) > 0}
-                            title={(r.user_count || 0) > 0 ? 'Peran tidak dapat dihapus karena masih ada pengguna' : 'Hapus level'}
+                            title={(r.user_count || 0) > 0 ? 'Role cannot be deleted while assigned to users' : 'Delete role'}
                             className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 transition disabled:opacity-40 cursor-pointer"
                           >
-                            <Trash2 className="h-3.5 w-3.5" /> Hapus
+                            <Trash2 className="h-3.5 w-3.5" /> Delete
                           </button>
                         )}
                       </div>
@@ -506,7 +506,7 @@ export default function ConsoleUsersPage() {
         open={showUserModal}
         maxWidth="max-w-4xl xl:max-w-5xl"
         onClose={() => { setShowUserModal(false); setEditingUser(null) }}
-        title={editingUser ? `Edit Akun & Akses: ${editingUser.username}` : "Tambah Pengguna Baru & Hak Akses"}
+        title={editingUser ? `Edit User & Access: ${editingUser.username}` : "Add New User & Permissions"}
       >
         <UserForm
           initialData={editingUser}
@@ -530,7 +530,7 @@ export default function ConsoleUsersPage() {
         open={showRoleModal}
         maxWidth="max-w-4xl xl:max-w-5xl"
         onClose={() => { setShowRoleModal(false); setEditingRole(null) }}
-        title={editingRole ? `Edit Level: ${editingRole.name}` : "Tambah Level & Hak Akses Baru"}
+        title={editingRole ? `Edit Role: ${editingRole.name}` : "Add New Role & Permissions"}
       >
         <RoleForm
           initialData={editingRole}
