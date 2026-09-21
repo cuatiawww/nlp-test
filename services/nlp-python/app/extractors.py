@@ -490,6 +490,42 @@ def resolve_location_hierarchy(
     }
 
 
+def resolve_event_location_hierarchy(
+    location_name: Optional[str],
+    country_hint: Optional[str] = None,
+) -> dict[str, Any]:
+    """Resolve event geography without allowing a conflicting gazetteer pin.
+
+    ``resolve_location_hierarchy`` intentionally exposes the gazetteer's
+    original parent country so callers can diagnose ambiguous names. Event
+    projections need a safer contract: when article evidence says the event
+    is in country A but a locality lookup resolves to country B, retain the
+    conflict as provenance and use country A at country level. This prevents
+    a locality from producing coordinates in a different country than the
+    event evidence.
+    """
+    hierarchy = resolve_location_hierarchy(location_name, country_hint=country_hint)
+    if not hierarchy.get("country_conflict"):
+        return hierarchy
+
+    hinted_country = normalize_country(country_hint)
+    if not hinted_country:
+        return hierarchy
+
+    safe = resolve_location_hierarchy(hinted_country, country_hint=hinted_country)
+    safe.update(
+        {
+            "country_conflict": True,
+            "needs_review": True,
+            "original_location_name": location_name,
+            "original_canonical_name": hierarchy.get("canonical_name") or location_name,
+            "original_country": hierarchy.get("country"),
+            "original_country_iso3": hierarchy.get("country_iso3"),
+        }
+    )
+    return safe
+
+
 def split_admin_place(location: Optional[str], country: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
     """Return (province, city) using hierarchical location intelligence."""
     name = (location or "").strip()

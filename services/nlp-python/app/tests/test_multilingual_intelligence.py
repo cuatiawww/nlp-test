@@ -70,6 +70,22 @@ class MultilingualIntelligenceTests(unittest.TestCase):
         self.assertEqual(location, "Brunei")
         self.assertTrue(needs_review)
 
+    def test_event_hierarchy_uses_country_centroid_for_conflicting_locality(self):
+        from app import config
+        from app.extractors import resolve_event_location_hierarchy
+
+        with patch.object(
+            config,
+            "LOCATION_COUNTRIES",
+            {**self.countries, "Bandung": "Indonesia"},
+        ):
+            safe = resolve_event_location_hierarchy("Bandung", country_hint="Thailand")
+        self.assertEqual(safe["country"], "Thailand")
+        self.assertEqual(safe["country_iso3"], "THA")
+        self.assertIsNone(safe["admin1_name"])
+        self.assertTrue(safe["country_conflict"])
+        self.assertEqual(safe["original_country"], "Indonesia")
+
     def test_native_explicit_dates_remain_event_dates(self):
         from app.epidemiology import extract_event_period
 

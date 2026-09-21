@@ -802,7 +802,7 @@ def compose_structured_events(
     doc_period = extract_event_period(text)
     for evt in events:
         loc = evt.get("location_name")
-        hier = ext.resolve_location_hierarchy(loc, country_hint=evt.get("country")) if loc else {}
+        hier = ext.resolve_event_location_hierarchy(loc, country_hint=evt.get("country")) if loc else {}
         if hier.get("canonical_name"):
             evt["location_name"] = hier["canonical_name"]
         evt["admin1"] = evt.get("admin1") or hier.get("admin1_name")
@@ -813,6 +813,26 @@ def compose_structured_events(
         if not evt.get("latitude") and hier.get("latitude"):
             evt["latitude"] = hier.get("latitude")
             evt["longitude"] = hier.get("longitude")
+        if hier.get("country_conflict"):
+            evt["country"] = hier.get("country") or evt.get("country")
+            evt["admin1"] = None
+            evt["admin2"] = None
+            evt["country_iso3"] = hier.get("country_iso3")
+            evt["latitude"] = hier.get("latitude")
+            evt["longitude"] = hier.get("longitude")
+            evt["needs_review"] = True
+            flags = list(evt.get("validation_flags") or [])
+            if "location_country_conflict" not in flags:
+                flags.append("location_country_conflict")
+            evt["validation_flags"] = flags
+            provenance = dict(evt.get("provenance") or {})
+            provenance["location_conflict"] = {
+                "original_location_name": hier.get("original_location_name") or loc,
+                "original_canonical_name": hier.get("original_canonical_name"),
+                "original_country": hier.get("original_country"),
+                "resolved_country": hier.get("country"),
+            }
+            evt["provenance"] = provenance
 
         # Epistemic status qualification per sub-event
         evt_evidence = evt.get("evidence") or ""
@@ -970,7 +990,7 @@ def _event_country_context(event: dict[str, Any]) -> tuple[Optional[str], dict[s
 
     location = str(event.get("location_name") or "").strip()
     country_hint = str(event.get("country") or "").strip() or None
-    hierarchy = ext.resolve_location_hierarchy(location, country_hint=country_hint) if location else {}
+    hierarchy = ext.resolve_event_location_hierarchy(location, country_hint=country_hint) if location else {}
     country = hierarchy.get("country") or country_hint
     if country:
         country = ext.normalize_country(country)

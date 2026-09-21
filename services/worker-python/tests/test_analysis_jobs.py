@@ -157,6 +157,18 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertTrue(fetch.call_args.kwargs["fallback"])
         self.assertEqual(result["status"], "partial")
 
+    def test_fetch_failure_exposes_typed_source_diagnostic(self):
+        from app.analysis_jobs import ArticleFetchError
+
+        fetch = Mock(side_effect=[
+            ArticleFetchError("source_challenge", "browser challenge", 403),
+            ArticleFetchError("source_challenge", "browser challenge", 403),
+        ])
+        result = analyze_stages("https://example.org", fetch, Mock())
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error_code"], "source_challenge")
+        self.assertEqual(result["fetch_stage"], "article_fetch")
+
     def test_content_cache_skips_nlp_after_fetch(self):
         fetch = Mock(return_value={"content": "Stored outbreak report", "content_hash": "abc"})
         nlp = Mock()
@@ -199,6 +211,16 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(connect_timeout, 5)
         self.assertGreaterEqual(read_timeout, 35)
         self.assertLessEqual(read_timeout, 60)
+
+    def test_fetch_article_classifies_empty_article_response(self):
+        response = Mock()
+        response.status_code = 422
+        response.json.return_value = {"detail": "The page has no article text"}
+        response.text = "no article text"
+        with patch("requests.post", return_value=response):
+            with self.assertRaises(Exception) as ctx:
+                fetch_article("https://example.org/news")
+        self.assertEqual(ctx.exception.code, "empty_article")
 
     def test_analyze_article_marks_request_interactive(self):
         response = Mock()

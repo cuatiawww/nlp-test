@@ -38,7 +38,8 @@ def _guard_event_location_country(
 
     if not location or not event_country:
         return location, False
-    place_country = extractors.normalize_country(config.LOCATION_COUNTRIES.get(location))
+    place_hierarchy = extractors.resolve_location_hierarchy(location)
+    place_country = extractors.normalize_country(place_hierarchy.get("country"))
     normalized_event = extractors.normalize_country(event_country)
     if (
         place_country in config.ASEAN_COUNTRIES
@@ -884,6 +885,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # endpoint may opt into it.
     strict_projection_locations = []
     relational_events = []
+    relation_diseases = []
     try:
         from .surveillance_extraction import (
             GazetteerLinker, build_surveillance_output,
@@ -1139,6 +1141,30 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     all_locations = _attach_location_provenance(all_locations, text)
 
+    # Apply the same country-compatibility rule to the location matrix. A
+    # conflicting gazetteer candidate may remain visible as source evidence,
+    # but it must not expose the wrong admin hierarchy or coordinates.
+    for item in all_locations:
+        item_country = (
+            country
+            if location_country_conflict and country
+            else item.get("country") or country
+        )
+        safe_hierarchy = extractors.resolve_event_location_hierarchy(
+            item.get("name"), country_hint=item_country
+        )
+        if not safe_hierarchy.get("country_conflict"):
+            continue
+        item["original_name"] = item.get("original_name") or item.get("name")
+        item["name"] = safe_hierarchy.get("canonical_name") or item_country or item.get("name")
+        item["country"] = safe_hierarchy.get("country") or item_country
+        item["country_iso3"] = safe_hierarchy.get("country_iso3")
+        item["admin1"] = None
+        item["admin2"] = None
+        item["latitude"] = safe_hierarchy.get("latitude")
+        item["longitude"] = safe_hierarchy.get("longitude")
+        item["geocode_needs_review"] = True
+
     for evt in sub_events:
         evt.evidence_offset_space = evidence_offset_space
         if evidence_offset_space != "original":
@@ -1204,11 +1230,110 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     ]
     collapsed = collapse_facts(display_facts)
 
-    loc_hier = extractors.resolve_location_hierarchy(location, country_hint=country)
+    loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=country)
     admin_place = extractors.split_admin_place(location, country)
     final_province = loc_hier.get("admin1_name") or admin_place[0]
     final_city = loc_hier.get("admin2_name") or admin_place[1]
     final_iso3 = loc_hier.get("country_iso3")
+
+    # A location can be a valid gazetteer name in another country. The event
+    # country is the article's evidence-backed scope, so a conflicting
+    # locality is retained only as provenance and cannot leak its hierarchy or
+    # coordinates into the public response.
+    if loc_hier.get("country_conflict"):
+        original_location = original_location or loc_hier.get("original_location_name")
+        location = loc_hier.get("canonical_name") or country or location
+        final_province = None
+        final_city = None
+        lat = loc_hier.get("latitude")
+        lon = loc_hier.get("longitude")
+        final_iso3 = loc_hier.get("country_iso3")
+        geocode_needs_review = True
+        needs_review = True
+        if "location_country_conflict" not in doc_validation_flags:
+            doc_validation_flags.append("location_country_conflict")
+
+    metric_countries = {
+        str(item.country or "").strip()
+        for item in strict_projection_locations
+        if item.country
+    }
+    article_event_country = next(iter(metric_countries), None) if len(metric_countries) == 1 else None
+    if article_event_country is None and len(mentioned_countries) == 1:
+        article_event_country = next(iter(mentioned_countries))
+
+    for evt in sub_events:
+        evt_country = evt.country or country
+        if article_event_country and str(evt_country or "").casefold() != article_event_country.casefold():
+            # A single evidence-backed country projection outranks a locality
+            # candidate that was resolved in another country. Multi-country
+            # articles do not enter this branch because their metric country
+            # set has more than one member.
+            evt_country = article_event_country
+        event_hier = extractors.resolve_event_location_hierarchy(
+            evt.location_name,
+            country_hint=evt_country,
+        )
+        if not event_hier.get("country_conflict"):
+            continue
+        evt.provenance.setdefault("location_conflict", {})
+        evt.provenance["location_conflict"].update(
+            {
+                "original_location_name": event_hier.get("original_location_name") or evt.location_name,
+                "original_canonical_name": event_hier.get("original_canonical_name"),
+                "original_country": event_hier.get("original_country"),
+                "resolved_country": event_hier.get("country"),
+            }
+        )
+        evt.location_name = event_hier.get("canonical_name") or evt_country or evt.location_name
+        evt.country = event_hier.get("country") or evt_country
+        evt.admin1 = None
+        evt.admin2 = None
+        evt.country_iso3 = event_hier.get("country_iso3")
+        evt.latitude = event_hier.get("latitude")
+        evt.longitude = event_hier.get("longitude")
+        evt.needs_review = True
+        if "location_country_conflict" not in evt.validation_flags:
+            evt.validation_flags.append("location_country_conflict")
+
+    # Country-safety normalization can turn a conflicting locality row into
+    # the same country row as an existing aggregate. Deduplicate only when
+    # disease, country, location, metric type, and temporal context all agree;
+    # distinct diseases or periods remain separate events.
+    unique_events = {}
+    for evt in sub_events:
+        event_key = (
+            str(evt.disease or "").casefold(),
+            str(evt.country or "").casefold(),
+            str(evt.location_name or "").casefold(),
+            str(evt.metric_type or ""),
+            str(evt.time_frame or ""),
+            str(evt.temporal_context or ""),
+        )
+        existing = unique_events.get(event_key)
+        if existing is None:
+            unique_events[event_key] = evt
+            continue
+        # Prefer the non-review aggregate when both rows carry the same
+        # evidence-backed fact; preserve the largest explicit metric values.
+        if existing.needs_review and not evt.needs_review:
+            preferred, secondary = evt, existing
+        else:
+            preferred, secondary = existing, evt
+        preferred.case_count = max(preferred.case_count, secondary.case_count)
+        preferred.death_count = max(preferred.death_count, secondary.death_count)
+        if secondary.evidence and secondary.evidence not in preferred.evidence:
+            preferred.evidence = ". ".join(
+                value for value in (preferred.evidence, secondary.evidence) if value
+            )
+        preferred.relations.extend(item for item in secondary.relations if item not in preferred.relations)
+        preferred.metrics.extend(item for item in secondary.metrics if item not in preferred.metrics)
+        preferred.provenance.setdefault("deduplicated_source_events", 0)
+        preferred.provenance["deduplicated_source_events"] += 1
+        preferred.validation_flags = list(dict.fromkeys(
+            [*preferred.validation_flags, *secondary.validation_flags]
+        ))
+    sub_events = list(unique_events.values())
 
     doc_epistemic = classify_epistemic_status(text, disease=disease, evidence=" ".join(evidence))
     conf_cases = typed_counts.get("confirmed_cases")
@@ -1230,6 +1355,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     )
     if v_needs_review:
         needs_review = True
+    metric_without_disease_relation = (
+        disease.strip().upper() == "UNKNOWN"
+        and (case_count > 0 or death_count > 0)
+        and not relation_diseases
+    )
+    if metric_without_disease_relation:
+        needs_review = True
+        if "metric_without_disease_relation" not in doc_validation_flags:
+            doc_validation_flags.append("metric_without_disease_relation")
     if location_country_conflict:
         needs_review = True
         if "location_country_conflict" not in doc_validation_flags:
@@ -1303,7 +1437,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 for evt in sub_events
             ],
         ],
-        case_count_unknown=not explicit_case_count,
+        case_count_unknown=not explicit_case_count or metric_without_disease_relation,
         country_iso3=final_iso3,
         admin1_name=loc_hier.get("admin1_name"),
         admin2_name=loc_hier.get("admin2_name"),

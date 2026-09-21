@@ -46,6 +46,29 @@ class UnknownAnalysisJob(ValueError):
     """The message references no durable analysis job."""
 
 
+class ArticleFetchError(RuntimeError):
+    """A typed article retrieval failure that is safe to expose to operators."""
+
+    def __init__(self, code, detail, status_code=None):
+        self.code = code
+        self.detail = detail
+        self.status_code = status_code
+        super().__init__(detail)
+
+
+def _fetch_error_diagnostic(exc):
+    """Return stable diagnostics without leaking a response body or secrets."""
+    if isinstance(exc, ArticleFetchError):
+        return exc.code, exc.detail
+    name = type(exc).__name__.lower()
+    message = str(exc).replace("\n", " ").strip()
+    if "timeout" in name or "timed out" in message.lower():
+        return "fetch_timeout", "The source did not respond before the fetch deadline."
+    if "challenge" in message.lower() or "cloudflare" in message.lower():
+        return "source_challenge", "The source returned a browser challenge instead of article content."
+    return "fetch_error", "The source could not be fetched or did not contain usable article content."
+
+
 def _seconds_at_least(name, default):
     try:
         value = float(os.getenv(name, str(default)))
@@ -115,12 +138,23 @@ def analyze_stages(
     progress("fetch")
     try:
         extracted = fetch(url, fallback=False)
-    except Exception:
+    except Exception as first_error:
         warnings.append("Primary fetch failed; used HTTP fallback")
         try:
             extracted = fetch(url, fallback=True)
-        except Exception:
-            return {"status": "failed", "error": "Fetch failed. Check the source URL or retry later.", "warnings": warnings}
+        except Exception as second_error:
+            error_code, detail = _fetch_error_diagnostic(second_error)
+            if error_code == "fetch_error":
+                first_code, first_detail = _fetch_error_diagnostic(first_error)
+                if first_code != "fetch_error":
+                    error_code, detail = first_code, first_detail
+            return {
+                "status": "failed",
+                "error": detail,
+                "error_code": error_code,
+                "fetch_stage": "article_fetch",
+                "warnings": warnings,
+            }
     if not extracted.get("content", "").strip():
         return {"status": "failed", "error": "No extractable article content", "warnings": warnings}
     if before_nlp is not None:
@@ -240,12 +274,37 @@ def fetch_article(url, fallback=False):
                     response=response,
                 )
                 continue
+            if response.status_code >= 400:
+                detail = "Article source returned an HTTP error."
+                try:
+                    payload = response.json()
+                    detail = str(payload.get("detail") or payload.get("error") or detail)
+                except (ValueError, TypeError, AttributeError):
+                    pass
+                status = response.status_code
+                if status in {408, 504}:
+                    code = "fetch_timeout"
+                elif status in {403, 429, 451}:
+                    code = "source_blocked"
+                elif status == 404:
+                    code = "source_not_found"
+                elif status in {422}:
+                    code = "empty_article"
+                else:
+                    code = "collector_http_error"
+                raise ArticleFetchError(code, detail[:240], status)
             response.raise_for_status()
             return response.json()["data"]
         except (requests.Timeout, requests.ConnectionError) as exc:
             last_error = exc
             if attempt + 1 >= attempts:
-                raise
+                code = "fetch_timeout" if isinstance(exc, requests.Timeout) else "collector_unavailable"
+                raise ArticleFetchError(
+                    code,
+                    "The article collector did not respond before the fetch deadline."
+                    if code == "fetch_timeout"
+                    else "The article collector is unavailable.",
+                ) from exc
     if last_error:
         raise last_error
     raise RuntimeError("Article fetch failed")
