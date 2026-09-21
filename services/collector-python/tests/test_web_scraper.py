@@ -1,4 +1,5 @@
 ﻿import unittest
+import json
 import sys
 from pathlib import Path
 
@@ -6,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.collectors.web_scraper import (
     _extract_main_content,
+    _extract_next_rsc_article,
     _extract_published_at,
     _country_hint_from_url,
     _is_challenge,
@@ -136,6 +138,26 @@ class WebScraperHelpersTest(unittest.TestCase):
         </body></html>
         """
         self.assertFalse(_is_spa_shell(normal_html))
+
+    def test_extracts_article_from_next_rsc_payload(self):
+        body = (
+            "<strong>UN reports an Ebola outbreak with more than 7,200 cases.</strong>"
+            "<br />The report describes ongoing transmission and public-health response. "
+            "Health authorities continue surveillance across affected provinces, "
+            "reviewing hospital admissions, deaths, laboratory confirmations, and "
+            "community reports every day."
+        )
+        payload = json.dumps("3a:T1716," + body, ensure_ascii=False)
+        html = (
+            "<html><head><title>Article title</title></head><body><div id='__next'></div>"
+            f"<script>self.__next_f.push([1,{payload}])</script>"
+            + ("<!-- padding -->" * 400)
+            + "</body></html>"
+        )
+        title, content = _extract_next_rsc_article(html)
+        self.assertEqual(title, "Article title")
+        self.assertIn("7,200 cases", content)
+        self.assertIn("Health authorities", content)
 
     def test_main_content_excludes_navigation_and_footer(self):
         html = """

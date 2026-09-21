@@ -1,4 +1,5 @@
 import asyncio
+import html as html_lib
 import json
 import logging
 import re
@@ -180,6 +181,52 @@ def _is_spa_shell(html: str) -> bool:
     if root_el and len(root_el.get_text(strip=True).split()) < 30:
         return True
     return False
+
+
+def _extract_next_rsc_article(html: str) -> tuple[str, str]:
+    """Extract article text from a Next.js React Server Components payload.
+
+    Some publishers return a valid article only in ``self.__next_f.push``
+    streams while the visible HTML is an empty ``#__next`` shell. This parser
+    accepts content only when a decoded payload contains a substantial HTML
+    article fragment; it never treats the shell, title, or description alone
+    as article content.
+    """
+    if not html or "__next_f.push" not in html:
+        return "", ""
+    from bs4 import BeautifulSoup
+
+    payload_pattern = re.compile(
+        r"self\.__next_f\.push\(\[1,(\"(?:\\.|[^\"\\])*\")\]\)",
+        re.DOTALL,
+    )
+    fragments: list[str] = []
+    for match in payload_pattern.finditer(html):
+        try:
+            payload = json.loads(match.group(1))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, str):
+            continue
+        for marker in ("<article", "<strong", "<p>"):
+            start = payload.find(marker)
+            if start < 0:
+                continue
+            fragment = html_lib.unescape(payload[start:])
+            soup = BeautifulSoup(fragment, "html.parser")
+            for node in soup.select("script, style, noscript, svg, nav, footer, header, aside"):
+                node.decompose()
+            text = soup.get_text("\n", strip=True)
+            text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+            if len(text) >= 200 and len(text.split()) >= 30:
+                fragments.append(text)
+            break
+
+    if not fragments:
+        return "", ""
+    title_soup = BeautifulSoup(html, "html.parser")
+    title = title_soup.title.get_text(" ", strip=True) if title_soup.title else ""
+    return title, max(fragments, key=len)
 
 
 def _is_challenge(status: int, html: str) -> bool:
@@ -636,8 +683,12 @@ class WebScraperCollector(BaseCollector):
             raise RuntimeError(f"source returned a browser challenge status={outcome.status}")
         if outcome.status != 200:
             raise RuntimeError(f"source returned HTTP status={outcome.status}")
+        shell_title = ""
+        shell_content = ""
         if _is_spa_shell(outcome.html):
-            raise RuntimeError("source returned an unrendered application shell")
+            shell_title, shell_content = _extract_next_rsc_article(outcome.html)
+            if not shell_content:
+                raise RuntimeError("source returned an unrendered application shell")
 
         # Safety check: if response is actually a binary PDF
         if outcome.html.startswith("%PDF-") or (len(outcome.html) > 10 and "%PDF-" in outcome.html[:30]):
@@ -648,11 +699,14 @@ class WebScraperCollector(BaseCollector):
             pdf_data["source_country"] = _country_hint_from_url(url)
             return pdf_data
 
-        try:
-            title, content = _extract_main_content(outcome.html)
-        except Exception as exc:
-            logger.warning("Main content extraction failed for %s: %s, falling back to clean text", url, exc)
-            title, content = "", ""
+        if shell_content:
+            title, content = shell_title, shell_content
+        else:
+            try:
+                title, content = _extract_main_content(outcome.html)
+            except Exception as exc:
+                logger.warning("Main content extraction failed for %s: %s, falling back to clean text", url, exc)
+                title, content = "", ""
         if not content and outcome.html:
             try:
                 from bs4 import BeautifulSoup
