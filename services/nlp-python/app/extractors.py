@@ -12,7 +12,7 @@ def strip_diacritics(s: str) -> str:
     return "".join(c for c in normalized if not unicodedata.combining(c))
 
 from collections import Counter
-from typing import Optional, Any
+from typing import Optional, Any, Iterable
 from . import config
 from .multilingual import detect_language_profile, normalize_language_code
 
@@ -1797,6 +1797,20 @@ def _focal_human_case_override(text: str) -> Optional[int]:
     return None
 
 
+def is_non_incident_metric_context(text: str, start: int, end: int) -> bool:
+    """Detect DB-managed counts that are not disease incidence metrics."""
+
+    source = text or ""
+    left = max(0, start - 180)
+    right = min(len(source), end + 180)
+    context = source[left:right].casefold()
+    return any(
+        term.strip().casefold() in context
+        for term in config.get_lexicon_terms("metric_non_incident")
+        if term and term.strip()
+    )
+
+
 def _extract_count(text: str, field: str, default: int, disease: Optional[str] = None) -> int:
     raw = "".join(
         str(unicodedata.digit(char)) if unicodedata.category(char) == "Nd" else char
@@ -1884,6 +1898,10 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return
         window = _sentence_window(search_text, match.start(), match.end())
         window_l = window.lower()
+        if field == "case_count" and is_non_incident_metric_context(
+            search_text, match.start(1), match.end(1)
+        ):
+            return
         if field == "case_count" and _VACCINE_WINDOW.search(window):
             return
         # "10 patients were hospitalized/admitted and later discharged" is a
@@ -2103,6 +2121,62 @@ def parse_surveillance_count(value: str, context: str = "") -> Optional[int]:
     """
 
     return _parse_count(value, context)
+
+
+def extract_disease_case_metrics(
+    text: str,
+    disease_labels: Iterable[str],
+) -> dict[str, dict[str, Optional[int]]]:
+    """Extract counts explicitly attached to individual disease mentions.
+
+    This is deliberately label-driven: disease names come from the DB/model
+    output and metric vocabulary comes from the shared runtime lexicon. It is
+    used only when one article has multiple diseases, so a country total is
+    not duplicated across every disease merely because they share a sentence.
+    """
+    source = str(text or "")
+    if not source:
+        return {}
+    number = _runtime_number_word_pattern()
+    case_label = _runtime_metric_label_pattern("metric_case")
+    result: dict[str, dict[str, Optional[int]]] = {}
+    for raw_label in disease_labels:
+        label = canonical_disease_name(str(raw_label or "").strip())
+        if not label or label.upper() == "UNKNOWN":
+            continue
+        terms = {str(raw_label).strip(), label}
+        terms.update(
+            word for word in re.split(r"[,/()]+", str(raw_label))
+            if len(word.strip()) > 2
+        )
+        term_pattern = "(?:" + "|".join(
+            sorted((re.escape(term.strip()) for term in terms if term.strip()), key=len, reverse=True)
+        ) + ")"
+        patterns = (
+            re.compile(
+                rf"(?P<count>{number})\s+(?:{term_pattern})\s*(?:{case_label})(?!\w)",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
+                rf"(?:{term_pattern})\s*(?:[:=-]\s*)?(?P<count>{number})\s*(?:{case_label})(?!\w)",
+                re.IGNORECASE | re.UNICODE,
+            ),
+        )
+        for pattern in patterns:
+            match = pattern.search(source)
+            if not match:
+                continue
+            value = parse_surveillance_count(match.group("count"), match.group(0))
+            if value is None:
+                continue
+            result[label] = {
+                "case_count": value,
+                "evidence": match.group(0),
+                "evidence_offset_start": match.start(),
+                "evidence_offset_end": match.end(),
+            }
+            break
+    return result
 
 
 def extract_case_count(text: str, disease: Optional[str] = None) -> int:

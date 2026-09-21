@@ -886,6 +886,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     strict_projection_locations = []
     relational_events = []
     relation_diseases = []
+    article_disease_candidates = []
     try:
         from .surveillance_extraction import (
             GazetteerLinker, build_surveillance_output,
@@ -901,6 +902,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             source_country=source_country,
             include_llm=False,
         )
+        article_disease_candidates = list(dict.fromkeys(
+            extractors.canonical_disease_name(value)
+            for value in [*strict_output.disease_classification, *extracted]
+            if value and extractors.canonical_disease_name(value).upper() != "UNKNOWN"
+            and extractors.disease_has_textual_evidence(value, text)
+        ))
         relational_events = extract_metric_relations(
             text,
             linker=GazetteerLinker(),
@@ -920,6 +927,29 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             for relation in relational_events
             if relation.disease and str(relation.disease).strip().upper() != "UNKNOWN"
         ))
+        # The strict relation projection is the current-period authority. It
+        # prevents historical comparisons (for example, an older death total)
+        # from overwriting the current event and keeps national totals ahead of
+        # regional breakdown rows.
+        strict_current_cases = sum(
+            int(item.reported_cases or 0)
+            for item in strict_output.locations
+        )
+        strict_current_deaths = sum(
+            int(item.deaths or 0)
+            for item in strict_output.locations
+            if item.deaths is not None
+        )
+        if strict_output.locations and relational_events:
+            if strict_current_cases > 0:
+                # The strict location parser can retain a smaller regional
+                # breakdown while the general metric parser has the national
+                # total. Keep the larger evidence-backed value; never let a
+                # breakdown replace the article's exact country total.
+                case_count = max(case_count, strict_current_cases)
+                explicit_case_count = True
+            case_count = max(0, case_count)
+            death_count = max(0, strict_current_deaths)
         # The classifier may choose a disease from a page title or a health
         # reference section.  When the metric relation has exactly one
         # disease identity, prefer that evidence-backed identity for the
@@ -959,6 +989,29 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     }
                     for item in usable_relations
                 ]
+                # A country total can mention several provinces/cities without
+                # assigning a metric to each one. Keep those names in the
+                # location matrix as hierarchy/evidence, but do not turn them
+                # into child events or copy the country total onto them.
+                for projection in strict_output.locations:
+                    for region_name in [*projection.provinces, *projection.cities]:
+                        if not region_name or str(region_name).casefold() == str(projection.country or "").casefold():
+                            continue
+                        region_hierarchy = extractors.resolve_location_hierarchy(
+                            region_name,
+                            country_hint=projection.country,
+                        )
+                        extra_locations.append(
+                            {
+                                "name": region_hierarchy.get("canonical_name") or region_name,
+                                "latitude": region_hierarchy.get("latitude"),
+                                "longitude": region_hierarchy.get("longitude"),
+                                "country": projection.country,
+                                "admin1": region_hierarchy.get("admin1_name"),
+                                "admin2": region_hierarchy.get("admin2_name"),
+                                "country_iso3": region_hierarchy.get("country_iso3"),
+                            }
+                        )
                 if extra_locations:
                     known = {(str(item.get("name") or ""), str(item.get("country") or "")) for item in all_locations}
                     for item in extra_locations:
@@ -976,6 +1029,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if projected_disease != "UNKNOWN" and (
                 len(strict_output.disease_classification) <= 1 or len(relation_diseases) == 1
             ):
+                def evidence_for_metric_value(value: int) -> tuple[str, Optional[int], Optional[int]]:
+                    value_digits = re.sub(r"\D", "", str(value))
+                    if not value_digits:
+                        return "", None, None
+                    for candidate in evidence:
+                        candidate_digits = re.sub(r"\D", "", str(candidate))
+                        if value_digits not in candidate_digits:
+                            continue
+                        start = text.find(candidate)
+                        end = start + len(candidate) if start >= 0 else None
+                        return candidate, (start if start >= 0 else None), end
+                    return "", None, None
+
                 by_country = {
                     str(item.country or "").casefold(): item
                     for item in strict_output.locations
@@ -992,6 +1058,73 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         projection = next(iter(by_country.values()))
                     if projection is None:
                         continue
+                    projection_country = str(projection.country or "")
+                    event_location = str(evt.location_name or "")
+                    location_is_country = event_location.casefold() == projection_country.casefold()
+                    event_relation = max(
+                        (
+                            relation
+                            for relation in relational_events
+                            if relation.location.country.casefold() == projection_country.casefold()
+                            and relation.location.name.casefold() == event_location.casefold()
+                            and relation.evidence
+                        ),
+                        key=lambda relation: (relation.cases or 0) + (relation.deaths or 0),
+                        default=None,
+                    )
+                    if event_relation is not None:
+                        relation_start = event_relation.evidence_offset_start
+                        relation_end = event_relation.evidence_offset_end
+                        relation_context = event_relation.evidence or ""
+                        if relation_start is not None and relation_end is not None:
+                            relation_context = text[
+                                max(0, relation_start - 180): min(len(text), relation_end + 180)
+                            ]
+                        # A gazetteer can attach a nearby number to the last
+                        # region mentioned in a paragraph. Treat that as a
+                        # regional metric only when the region is explicitly
+                        # present in the metric's local evidence window.
+                        if event_location and event_location.casefold() not in relation_context.casefold():
+                            event_relation = None
+                    country_relation = max(
+                        (
+                            relation
+                            for relation in relational_events
+                            if relation.location.country.casefold() == projection_country.casefold()
+                            and relation.location.name.casefold() == projection_country.casefold()
+                            and relation.evidence
+                        ),
+                        key=lambda relation: (relation.cases or 0) + (relation.deaths or 0),
+                        default=None,
+                    )
+                    # A regional name without a regional metric is only a
+                    # breakdown mention. Promote the event to the country so
+                    # a national total is never displayed as (for example)
+                    # Sumatera Barat or Hanoi. A region keeps its own event
+                    # only when the source has a relation for that region.
+                    if (
+                        not location_is_country
+                        and event_relation is None
+                        and (
+                            country_relation is not None
+                            or int(projection.reported_cases or 0) > 0
+                            or projection.deaths is not None
+                        )
+                    ):
+                        evt.location_name = projection_country
+                        evt.admin1 = None
+                        evt.admin2 = None
+                        evt.country = projection_country
+                        if len(sub_events) == 1:
+                            location = projection_country
+                            country = projection_country
+                            lat = None
+                            lon = None
+                        evt.latitude = None
+                        evt.longitude = None
+                        evt_country = projection_country.casefold()
+                        event_location = projection_country
+                        location_is_country = True
                     event_disease = extractors.canonical_disease_name(evt.disease or "UNKNOWN")
                     target_disease = extractors.canonical_disease_name(projected_disease)
                     if event_disease.upper() != "UNKNOWN" and event_disease.casefold() != target_disease.casefold():
@@ -1004,9 +1137,21 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         continue
                     evt.disease = projected_disease
                     evt.country = projection.country
-                    evt.case_count = int(projection.reported_cases or 0)
-                    evt.death_count = int(projection.deaths or 0)
-                    evt.time_frame = projection.time_frame or evt.time_frame
+                    # Use a region-specific relation when it exists. Otherwise
+                    # this is the country-level event and the strict country
+                    # projection is the only safe metric source.
+                    metric_relation = event_relation if event_relation is not None else country_relation
+                    if metric_relation is not None and event_relation is not None:
+                        evt.case_count = int(metric_relation.cases or 0)
+                        evt.death_count = int(metric_relation.deaths or 0)
+                        evt.time_frame = metric_relation.time_frame or evt.time_frame
+                    else:
+                        projection_cases = int(projection.reported_cases or 0)
+                        if len(by_country) == 1:
+                            projection_cases = max(projection_cases, case_count)
+                        evt.case_count = projection_cases
+                        evt.death_count = int(projection.deaths or 0)
+                        evt.time_frame = projection.time_frame or evt.time_frame
                     if count_period and count_period != "unknown":
                         evt.temporal_context = count_period
                     evt.event_date_start = period.get("event_date_start") or evt.event_date_start
@@ -1022,11 +1167,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         key=lambda relation: (relation.cases or 0) + (relation.deaths or 0),
                         default=None,
                     )
-                    if projection_relation:
+                    if metric_relation or projection_relation:
+                        projection_relation = metric_relation or projection_relation
                         evt.evidence = projection_relation.evidence
                         evt.source_evidence = projection_relation.evidence
                         evt.evidence_offset_start = projection_relation.evidence_offset_start
                         evt.evidence_offset_end = projection_relation.evidence_offset_end
+                    if location_is_country:
+                        # Country totals may coexist with a nearby regional
+                        # breakdown relation. Prefer the original sentence
+                        # containing the exact country total as the event
+                        # evidence instead of exposing the smaller breakdown
+                        # span as proof for the national number.
+                        exact_evidence, exact_start, exact_end = evidence_for_metric_value(evt.case_count)
+                        if exact_evidence:
+                            evt.evidence = exact_evidence
+                            evt.source_evidence = exact_evidence
+                            evt.evidence_offset_start = exact_start
+                            evt.evidence_offset_end = exact_end
                     country_hierarchy = extractors.resolve_location_hierarchy(
                         projection.country,
                         country_hint=projection.country,
@@ -1109,6 +1267,41 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             sub_events[0].case_count = case_count
         if death_count > sub_events[0].death_count:
             sub_events[0].death_count = death_count
+
+    # Split only when the source explicitly binds different counts to
+    # different disease names. A shared phrase such as "measles and rubella
+    # cases" remains one reviewable aggregate because its total cannot be
+    # assigned to either disease safely.
+    if len(article_disease_candidates) > 1 and sub_events:
+        disease_metrics = extractors.extract_disease_case_metrics(
+            text,
+            article_disease_candidates,
+        )
+        metric_rows = [
+            (label, metric)
+            for label, metric in disease_metrics.items()
+            if int(metric.get("case_count") or 0) > 0
+        ]
+        metric_values = {int(metric.get("case_count") or 0) for _, metric in metric_rows}
+        if len(metric_rows) >= 2 and len(metric_values) >= 2:
+            base_event = sub_events[0]
+            split_events = []
+            for label, metric in metric_rows:
+                event = base_event.model_copy(deep=True)
+                event.disease = label
+                event.case_count = int(metric["case_count"] or 0)
+                event.death_count = 0
+                event.evidence = str(metric.get("evidence") or event.evidence)
+                event.source_evidence = event.evidence
+                event.evidence_offset_start = metric.get("evidence_offset_start")
+                event.evidence_offset_end = metric.get("evidence_offset_end")
+                event.needs_review = True
+                if "disease_specific_metric_split" not in event.validation_flags:
+                    event.validation_flags.append("disease_specific_metric_split")
+                split_events.append(event)
+            sub_events = split_events
+            case_count = sum(event.case_count for event in sub_events)
+            explicit_case_count = True
 
     # If the article identifies only a country, make that country the event
     # location and use its gazetteer centroid.  This is event geography, not
@@ -1206,29 +1399,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     )
 
     from .multi_fact_display import collapse_facts
-    display_facts = [
-        {
-            "disease": evt.disease,
-            "location_name": evt.location_name,
-            "country": evt.country,
-            "province": evt.admin1 or extractors.split_admin_place(evt.location_name, evt.country)[0],
-            "city": evt.admin2 or extractors.split_admin_place(evt.location_name, evt.country)[1],
-            "case_count": evt.case_count,
-            "death_count": evt.death_count,
-        }
-        for evt in sub_events
-    ] or [
-        {
-            "disease": disease,
-            "location_name": location,
-            "country": country,
-            "province": extractors.split_admin_place(location, country)[0],
-            "city": extractors.split_admin_place(location, country)[1],
-            "case_count": case_count,
-            "death_count": death_count,
-        }
-    ]
-    collapsed = collapse_facts(display_facts)
 
     loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=country)
     admin_place = extractors.split_admin_place(location, country)
@@ -1334,6 +1504,97 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             [*preferred.validation_flags, *secondary.validation_flags]
         ))
     sub_events = list(unique_events.values())
+
+    # A disease/location mention without an incident metric is context, not a
+    # zero-count event. Negative-surveillance language remains eligible via
+    # article_states_zero_cases(). This prevents narrative articles such as
+    # a local report saying disease activity is rising, but giving no count,
+    # from becoming a phantom event with 0 cases and 0 deaths.
+    has_incident_metric = (
+        explicit_case_count
+        or death_count > 0
+        or any((evt.case_count or 0) > 0 or (evt.death_count or 0) > 0 for evt in sub_events)
+        or extractors.article_states_zero_cases(text)
+    )
+    if not has_incident_metric and not ncd_only:
+        sub_events = []
+
+    # If a single disease owns the metric relations, an UNKNOWN event row is
+    # an attribution gap rather than a second disease. Inherit that identity
+    # only in the unambiguous one-disease case; multi-disease articles remain
+    # reviewable instead of guessing.
+    event_disease_candidates = list(dict.fromkeys(
+        extractors.canonical_disease_name(value)
+        for value in (relation_diseases or ([disease] if disease else []))
+        if value and extractors.canonical_disease_name(value).upper() != "UNKNOWN"
+    ))
+    if len(event_disease_candidates) == 1:
+        inherited_disease = event_disease_candidates[0]
+        for evt in sub_events:
+            if (
+                extractors.canonical_disease_name(evt.disease or "UNKNOWN").upper() == "UNKNOWN"
+                and ((evt.case_count or 0) > 0 or (evt.death_count or 0) > 0)
+            ):
+                evt.disease = inherited_disease
+                evt.needs_review = True
+                if "disease_inherited_from_single_relation" not in evt.validation_flags:
+                    evt.validation_flags.append("disease_inherited_from_single_relation")
+
+    # Re-assert exact country-total evidence after all relation normalization.
+    # This is intentionally based on the original evidence list, so a nearby
+    # regional relation cannot remain the visible proof for a national total.
+    for evt in sub_events:
+        if (
+            str(evt.location_name or "").casefold() != str(evt.country or "").casefold()
+            or (evt.case_count or 0) <= 0
+        ):
+            continue
+        value_digits = re.sub(r"\D", "", str(evt.case_count))
+        for candidate in evidence:
+            if value_digits and value_digits in re.sub(r"\D", "", str(candidate)):
+                evt.evidence = candidate
+                evt.source_evidence = candidate
+                start = text.find(candidate)
+                evt.evidence_offset_start = start if start >= 0 else None
+                evt.evidence_offset_end = start + len(candidate) if start >= 0 else None
+                break
+
+    # Build the parent-row display only after event attribution is complete.
+    # Otherwise an UNKNOWN event or a regional candidate can leak into the
+    # semicolon fields before it is normalized to its country-level fact.
+    shared_metric_disease_display = (
+        "; ".join(article_disease_candidates)
+        if len(sub_events) == 1 and len(article_disease_candidates) > 1
+        else None
+    )
+    display_facts = [
+        {
+            "disease": shared_metric_disease_display or evt.disease,
+            "location_name": evt.location_name,
+            "country": evt.country,
+            "province": evt.admin1 or extractors.split_admin_place(evt.location_name, evt.country)[0],
+            "city": evt.admin2 or extractors.split_admin_place(evt.location_name, evt.country)[1],
+            "case_count": evt.case_count,
+            "death_count": evt.death_count,
+        }
+        for evt in sub_events
+    ] or [
+        {
+            "disease": "; ".join(relation_diseases) if len(relation_diseases) > 1 else disease,
+            "location_name": location,
+            "country": country,
+            "province": extractors.split_admin_place(location, country)[0],
+            "city": extractors.split_admin_place(location, country)[1],
+            "case_count": case_count,
+            "death_count": death_count,
+        }
+    ]
+    collapsed = collapse_facts(display_facts)
+    if shared_metric_disease_display:
+        # The total belongs to the combined source phrase, not separately to
+        # every disease named in that phrase.
+        collapsed["cases_display"] = None
+        collapsed["deaths_display"] = None
 
     doc_epistemic = classify_epistemic_status(text, disease=disease, evidence=" ".join(evidence))
     conf_cases = typed_counts.get("confirmed_cases")

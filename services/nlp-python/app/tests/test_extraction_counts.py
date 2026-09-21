@@ -36,6 +36,17 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         text = "Selangor still accounts for the most dengue cases, with 19,313 infections from January to July 9."
         self.assertEqual(extractors.extract_case_count(text), 19313)
 
+    def test_extracts_distinct_counts_per_disease_without_hardcoded_names(self):
+        text = "Indonesia reported 361 dengue cases and 10 influenza cases."
+        metrics = extractors.extract_disease_case_metrics(text, ["Dengue", "Influenza"])
+        self.assertEqual(metrics["Dengue"]["case_count"], 361)
+        self.assertEqual(metrics["Influenza"]["case_count"], 10)
+
+    def test_does_not_split_one_shared_disease_total(self):
+        text = "The Philippines recorded 1,627 measles and rubella cases."
+        metrics = extractors.extract_disease_case_metrics(text, ["Measles", "Rubella"])
+        self.assertEqual(metrics, {})
+
     def test_extract_dengue_related_deaths(self):
         text = "The state also logged 21 dengue-related deaths, up from five fatalities during 2025."
         self.assertEqual(extractors.extract_death_count(text), 21)

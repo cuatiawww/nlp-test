@@ -9,24 +9,25 @@ Malay, Vietnamese, Filipino, dan Portuguese.
 Dokumen ini mencatat perubahan antar-run. Ini bukan gold-standard accuracy
 benchmark dan tidak boleh dibaca sebagai klaim akurasi 99%.
 
-## 1. Ringkasan tiga run
+## 1. Ringkasan empat run
 
 | Run | Kondisi pipeline | Full NLP | Partial/weak | Failed | Temuan utama |
 |---|---|---:|---:|---:|---|
 | Run 1 - 19 Sep | Baseline sebelum pemisahan status translation dan NLP | 14/22 (63,6%) | 7 | 1 | Translation timeout menurunkan status job; Malay sering terbaca sebagai Indonesian; relasi metric dan lokasi belum stabil. |
 | Run 2 - 21 Sep | Source-first, native-script extraction, metric context, country guard | 19/22 (86,4%) | 0 | 3 | Translation timeout tidak lagi menghapus hasil extraction; angka Thai dan Vietnamese membaik; fetch/fallback masih gagal pada tiga URL. |
 | Run 3 - 21 Sep | Async translation queue dan model guard terbaru | 19/22 (86,4%) | 0 | 3 | Translation tidak menghambat Full NLP; 6 translation queued dan 2 memakai cache; ditemukan konflik hierarchy Brunei pada event detail. |
+| Run 4 - 21 Sep | 10 URL baru dari sumber resmi/media ASEAN, diuji melalui terminal | 9/10 (90,0%) | 0 | 1 | Fetch challenge BERNAMA; disease-metric dan parent/event attribution masih berbeda pada beberapa artikel; country conflict Thailand terdeteksi dan diamankan. |
 
 ### Perubahan antar-run
 
-| Indikator | Run 1 | Run 2 | Run 3 | Makna |
-|---|---:|---:|---:|---|
-| Full NLP | 14 | 19 | 19 | Naik setelah extraction dibuat source-first dan status translation dipisah. |
-| Partial/weak | 7 | 0 | 0 | Timeout translation tidak lagi menentukan status NLP utama. |
-| Failed | 1 | 3 | 3 | Sisa masalah bergeser ke fetch/fallback, bukan ke translation. |
-| Translation yang menahan job | Ya | Tidak, tetapi timeout masih tercatat | Tidak | Run 3 memakai queue background. |
-| Original text sebagai authority | Belum konsisten | Ya | Ya | Translation hanya semantic enrichment. |
-| Evidence offset | Tidak stabil pada hasil translated | Original text | Original text | Offset palsu dari hasil translation tidak digunakan. |
+| Indikator | Run 1 | Run 2 | Run 3 | Run 4 | Makna |
+|---|---:|---:|---:|---:|---|
+| Full NLP | 14/22 | 19/22 | 19/22 | 9/10 | Run 4 memakai sampel URL baru, bukan pengganti suite 22 URL. |
+| Partial/weak | 7 | 0 | 0 | 0 | Timeout translation tidak lagi menentukan status NLP utama. |
+| Failed | 1 | 3 | 3 | 1 | Sisa masalah utama berada pada fetch challenge. |
+| Translation yang menahan job | Ya | Tidak, tetapi timeout masih tercatat | Tidak | Tidak | Translation tetap auxiliary dan tidak menghalangi extraction. |
+| Original text sebagai authority | Belum konsisten | Ya | Ya | Ya | Translation hanya semantic enrichment. |
+| Evidence offset | Tidak stabil pada hasil translated | Original text | Original text | Original text | Offset palsu dari hasil translation tidak digunakan. |
 
 ## 2. Run 1 - baseline, 19 September 2026
 
@@ -163,35 +164,124 @@ dari teks asli.
    translation tidak digunakan sebagai bukti bahwa extraction surveillance
    benar. Bukti tetap berasal dari teks asli.
 
-## 5. Diagnosis per lapisan
+## 5. Run 4 - 10 URL baru, 21 September 2026
 
-| Lapisan | Run 1 | Run 2 | Run 3 | Status sekarang |
-|---|---|---|---|---|
-| Collector/fetch | Challenge dan storage failure tercampur dengan NLP | Tiga URL gagal fallback | Masih tiga URL gagal, tetapi error lebih jelas | Perlu quality gate untuk challenge/empty shell dan retry/fetch policy per sumber. |
-| Language/script | Malay sering menjadi `id`; beberapa route English berisi teks lokal | Native-script lebih stabil | Thai, Lao, Burmese, Vietnamese terdeteksi dan diproses | Malay/Indonesian dan route-language masih perlu evaluasi. |
-| Translation | Menahan status menjadi partial | Timeout dipisahkan dari NLP | Async queue, cache, dan source-first | Tidak lagi menjadi bottleneck Full NLP. |
-| Disease | UNKNOWN atau disease context tercampur | Thai/Vietnamese membaik | Burmese/Malay masih lemah | Perlu relation/context classifier yang tidak bergantung pada translation. |
-| Metric | False case dari `outbreaks`; period tercampur | Metric non-case guard membantu | Angka native-script terbaca | Temporal attribution dan disease-metric pairing masih perlu diperbaiki. |
-| Location | Brunei dapat Bali/Jembrana | Country guard mulai tersedia | Konflik nested event BRN-01 masih terlihat | Validasi country, hierarchy, dan geocode harus dilakukan sebelum event commit. |
-| Event | Full belum berarti konteks koheren | Source evidence dipertahankan | Aggregate/breakdown masih perlu review | Event decision harus menunggu relation attribution. |
+Run ini menggunakan 10 URL baru dari Indonesia, Philippines, Malaysia,
+Vietnam, Thailand, Singapore, Myanmar, Cambodia, Laos, dan Brunei. Pengujian
+dijalankan dari terminal melalui helper async yang sama dengan `analyze_one`,
+`force_refresh=true`, dan polling maksimum 240 detik per URL.
 
-## 6. Prioritas setelah run 3
+### Matriks hasil aktual
 
-1. Perbaiki fetch quality gate untuk challenge page, empty article shell, dan
-   fallback HTML; jangan mengubahnya menjadi `UNKNOWN` disease.
-2. Tambahkan hard validation pada event detail: `country_iso3`, admin hierarchy,
-   latitude, dan longitude harus kompatibel dengan country event. Jika tidak,
-   event diberi review atau lokasi diturunkan ke country centroid.
-3. Perbaiki Malay/Indonesian language disambiguation dan disease-metric
-   attribution tanpa menunggu translation.
-4. Tambahkan evaluasi temporal untuk memisahkan historical, cumulative, new,
-   suspected, dan confirmed pada setiap metric.
-5. Buat gold set beranotasi untuk menghitung precision/recall field-level.
+| ID | Negara target | Bahasa terdeteksi | NLP | Translation | Disease parent | Country parent | Cases parent | Deaths parent | Events | Review |
+|---|---|---|---|---|---|---|---:|---:|---:|---|
+| IDN-NEW | Indonesia | `id` | FULL | not_required | Measles | Indonesia | 8.224 | 4 | 1 | Ya |
+| PHL-NEW | Philippines | `en` | FULL | not_required | Measles | Philippines | 1.627 | 0 | 2 | Ya |
+| MYS-NEW | Malaysia | - | FAILED | - | - | - | - | - | 0 | - |
+| VNM-NEW | Vietnam | `en` | FULL | not_required | Hand, foot and mouth disease | Vietnam | 25.000 | 4 | 2 | Tidak |
+| THA-NEW | Thailand | `en` | FULL | not_required | Leptospirosis | Myanmar | 2.190 | 2 | 1 | Ya |
+| SGP-NEW | Singapore | `en` | FULL | not_required | Measles | Singapore | 3 | 0 | 1 | Ya |
+| MMR-NEW | Myanmar | `en` | FULL | not_required | Malaria | Myanmar | 0 | 0 | 1 | Ya |
+| KHM-NEW | Cambodia | `en` | FULL | not_required | Avian influenza | Cambodia | 1 | 6 | 2 | Ya |
+| LAO-NEW | Laos | `en` | FULL | not_required | Rabies | Laos | 837 | 59 | 1 | Tidak |
+| BRN-NEW | Brunei | `en` | FULL | not_required | Ebola disease, virus unspecified | Brunei | 246 | 80 | 1 | Tidak |
+
+Full NLP selesai pada 9/10 URL. BERNAMA gagal sebelum NLP karena source
+browser challenge HTTP 403:
+
+`https://www.bernama.com/bm/news.php/news.php?id=2526093`
+
+Semua URL yang berhasil pada run ini berstatus `translation=not_required`.
+Dengan demikian Run 4 terutama menguji fetch, extraction, disease-metric
+relation, country attribution, dan event grouping; run ini belum menjadi
+validasi NLLB untuk aksara lokal.
+
+### Event dan attribution yang perlu ditindaklanjuti
+
+1. Artikel Indonesia menghasilkan parent `8.224 cases`, tetapi event detail
+   memiliki `8.245 cases` di Sumatera Barat. Parent dan event belum memakai
+   metric relation yang sama.
+2. Rappler menghasilkan dua event, tetapi disease pada kedua sub-event menjadi
+   `UNKNOWN` walaupun parent disease terbaca sebagai Measles.
+3. Artikel roundup Thailand memilih Myanmar sebagai country parent karena
+   artikel memuat beberapa konteks negara. Event Thailand sudah diberi flag
+   `location_country_conflict`, tetapi pemilihan parent country tetap perlu
+   memakai konteks metric utama.
+4. Artikel CDA Singapore memiliki parent Measles dengan 3 cases, sedangkan
+   event detail menjadi `UNKNOWN` dengan 12 cases. Ini adalah mismatch
+   disease-metric yang harus masuk review.
+5. Artikel Vietnam dan Cambodia masih menghasilkan aggregate/breakdown rows.
+   Hubungan parent dan breakdown perlu ditampilkan sebagai provenance yang
+   jelas, bukan dianggap dua outbreak independen.
+6. Artikel Brunei menghasilkan angka Ebola `246 cases` dan `80 deaths` tanpa
+   review flag. Angka ini perlu diuji dengan temporal/context evidence agar
+   data historis atau konteks lain tidak dianggap event aktif.
+
+### Kesimpulan Run 4
+
+- Collector berhasil mengambil 9/10 URL; satu kegagalan adalah challenge
+  source, bukan timeout translation atau NLP.
+- Full NLP selesai pada 9/10 URL, tetapi Full NLP tidak otomatis berarti
+  disease, metric, location, dan context sudah koheren.
+- Perbaikan berikutnya harus memprioritaskan disease-to-metric attribution,
+  parent-versus-event metric consistency, dan historical/context filtering.
+- Tidak ada angka akurasi 99% yang diklaim dari run ini.
+
+## 6. Diagnosis per lapisan
+
+| Lapisan | Run 1 | Run 2 | Run 3 | Run 4 | Status sekarang |
+|---|---|---|---|---|---|
+| Collector/fetch | Challenge dan storage failure tercampur dengan NLP | Tiga URL gagal fallback | Masih tiga URL gagal, tetapi error lebih jelas | 1 source challenge 403, 9 URL berhasil diambil | Quality gate dan retry/fetch policy per sumber tetap perlu diperkuat. |
+| Language/script | Malay sering menjadi `id`; beberapa route English berisi teks lokal | Native-script lebih stabil | Thai, Lao, Burmese, Vietnamese terdeteksi dan diproses | 9 URL English/Latin atau Indonesian; Malay gagal sebelum NLP | Malay/Indonesian dan route-language masih perlu evaluasi. |
+| Translation | Menahan status menjadi partial | Timeout dipisahkan dari NLP | Async queue, cache, dan source-first | Semua hasil berhasil `not_required` | Tidak lagi menjadi bottleneck Full NLP, tetapi aksara lokal belum tervalidasi pada run ini. |
+| Disease | UNKNOWN atau disease context tercampur | Thai/Vietnamese membaik | Burmese/Malay masih lemah | Disease hilang pada beberapa sub-event | Perlu relation/context classifier yang tidak bergantung pada translation. |
+| Metric | False case dari `outbreaks`; period tercampur | Metric non-case guard membantu | Angka native-script terbaca | Parent/event cases dan historical context masih berbeda | Temporal attribution dan disease-metric pairing masih perlu diperbaiki. |
+| Location | Brunei dapat Bali/Jembrana | Country guard mulai tersedia | Konflik nested event BRN-01 masih terlihat | Konflik Thailand ditandai, tetapi parent country masih salah | Validasi country, hierarchy, dan geocode harus dilakukan sebelum event commit. |
+| Event | Full belum berarti konteks koheren | Source evidence dipertahankan | Aggregate/breakdown masih perlu review | Aggregate/breakdown dan duplicate disease attribution terlihat | Event decision harus menunggu relation attribution. |
+
+## 7. Prioritas setelah run 4
+
+1. Pertahankan fetch quality gate untuk challenge page, empty article shell,
+   dan fallback HTML; jangan mengubahnya menjadi `UNKNOWN` disease.
+2. Perbaiki disease-metric attribution pada sub-event agar disease parent tidak
+   hilang ketika metric sudah ditemukan.
+3. Tambahkan konsistensi metric parent/event dan provenance aggregate-versus-
+   breakdown sebelum persistence.
+4. Pertahankan hard validation pada event detail: `country_iso3`, admin
+   hierarchy, latitude, dan longitude harus kompatibel dengan country event.
+5. Tambahkan evaluasi temporal untuk historical, cumulative, new, suspected,
+   dan confirmed pada setiap metric.
+6. Buat gold set beranotasi untuk menghitung precision/recall field-level.
    Sebelum itu, jangan menyebut angka 99% sebagai capaian.
 
-## 7. Artefak dan status repository
+## 8. Artefak dan status repository
 
 - JSON run 3: `/tmp/asean-22-rerun-2026-09-21-final.json`
 - Detail run 1: [asean-22-url-test-2026-09-19.md](asean-22-url-test-2026-09-19.md)
 - Detail run 2: [asean-22-url-rerun-2026-09-21.md](asean-22-url-rerun-2026-09-21.md)
-- Tidak ada perubahan yang dipush ke Gitea pada pencatatan ini.
+- Commit sebelum pull: `4f2a520` telah tersedia di Gitea.
+- Run 4 diuji langsung dari terminal dan belum memiliki JSON artifact tersimpan.
+
+## 9. Koreksi lokal setelah review Run 4
+
+Perubahan lokal yang belum dipush:
+
+- Total nasional tidak lagi ditempelkan ke provinsi/kota yang hanya disebut
+  sebagai daftar breakdown. Parent dan event utama memakai country, sedangkan
+  wilayah tetap dipertahankan di matrix locations beserta hierarchy dan
+  evidence.
+- Event regional hanya dibuat jika sumber memiliki metric yang benar-benar
+  terikat ke wilayah tersebut. Artikel yang hanya menyebut disease/lokasi
+  tanpa angka tidak menghasilkan event `1.1` kosong.
+- Disease event `UNKNOWN` dapat mewarisi disease parent hanya jika relasinya
+  tunggal dan punya metric. Jika beberapa disease memiliki count berbeda,
+  event dipecah dan parent menampilkan format `Dengue; Influenza` serta
+  `Dengue(361); Influenza(10)`. Shared total seperti “measles and rubella
+  cases” tetap satu aggregate reviewable; count tidak diduplikasi.
+- Evidence untuk event country-level dipilih dari sentence asli yang memuat
+  nilai exact, bukan dari angka breakdown terdekat.
+
+Validasi lokal: contoh Indonesia menghasilkan `Indonesia / 8.224 / 4` dengan
+1 event dan lima provinsi tetap muncul sebagai location mentions; contoh
+Myanmar tanpa angka menghasilkan 0 event; contoh dua disease dengan count
+berbeda menghasilkan 2 event. Suite NLP berjalan `171 tests: OK`.

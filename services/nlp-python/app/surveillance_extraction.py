@@ -1098,6 +1098,8 @@ def _looks_like_calendar_year(text: str, start: int, end: int) -> bool:
 def _metric_is_valid(text: str, start: int, end: int) -> bool:
     """Reject numbers that look like rates, capacity, samples, or doses."""
 
+    if extractors.is_non_incident_metric_context(text, start, end):
+        return False
     context = text[max(0, start - 32):min(len(text), end + 48)]
     if _NON_CASE_NUMBER_CONTEXT.search(context):
         return False
