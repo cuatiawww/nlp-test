@@ -129,6 +129,24 @@ function formatPublishDate(dateStr?: string | null, numLocale = "id-ID") {
   }
 }
 
+function getAlertPublishTimestamp(alert: OutbreakLocation): number {
+  const dateStr = alert.latest_date || alert.detail?.published_at;
+  if (!dateStr) return 0;
+  try {
+    const d = new Date(dateStr);
+    const t = d.getTime();
+    if (!isNaN(t)) return t;
+    const match = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const [, y, m, dNum] = match;
+      return new Date(Number(y), Number(m) - 1, Number(dNum)).getTime();
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ── Normalization Helper for 100% Consistent KPI Breakdown ─────────────────────
 function formatNumber(
   value: unknown,
@@ -907,6 +925,20 @@ export default function DashboardPage() {
 
   const countryData = data?.by_country ?? [];
 
+  const sortedAlerts = useMemo(() => {
+    if (!data?.alerts?.length) return [];
+    return [...data.alerts]
+      .sort((a, b) => {
+        const timeA = getAlertPublishTimestamp(a);
+        const timeB = getAlertPublishTimestamp(b);
+        if (timeB !== timeA) {
+          return timeB - timeA;
+        }
+        return (b.cases ?? 0) - (a.cases ?? 0);
+      })
+      .slice(0, 20);
+  }, [data?.alerts]);
+
   if (loading)
     return (
       <div className="grid min-h-[60vh] place-items-center text-sm font-semibold text-[#0060A9]">
@@ -1113,8 +1145,8 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="flex-1 space-y-2 overflow-y-auto p-3">
-                {data?.alerts.length ? (
-                  data.alerts.slice(0, 12).map((a, i) => (
+                {sortedAlerts.length ? (
+                  sortedAlerts.map((a, i) => (
                     <button
                       key={`${a.location_name}-${a.disease}-${i}`}
                       type="button"
