@@ -628,6 +628,17 @@ class WebScraperCollector(BaseCollector):
         if outcome is None:
             raise RuntimeError(f"Gagal mengambil konten dari URL: {url}")
 
+        # Direct HTTP is also used as a fallback, so the challenge check must
+        # happen here as well as inside the stealth fetcher.  Otherwise a
+        # Cloudflare shell can be passed to trafilatura/BeautifulSoup and
+        # stored as if it were an article.
+        if _is_challenge(outcome.status, outcome.html):
+            raise RuntimeError(f"source returned a browser challenge status={outcome.status}")
+        if outcome.status != 200:
+            raise RuntimeError(f"source returned HTTP status={outcome.status}")
+        if _is_spa_shell(outcome.html):
+            raise RuntimeError("source returned an unrendered application shell")
+
         # Safety check: if response is actually a binary PDF
         if outcome.html.startswith("%PDF-") or (len(outcome.html) > 10 and "%PDF-" in outcome.html[:30]):
             from .pdf_document import extract_pdf

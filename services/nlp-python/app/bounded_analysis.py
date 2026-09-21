@@ -57,19 +57,33 @@ def analyze_bounded(payload: BoundedRequest):
     if not slots.acquire(blocking=False):
         raise HTTPException(503, "Interactive NLP is busy; retry later")
     warnings = []
-    translation = {"translated": False, "translated_text": "", "structured": {}, "provider": "none"}
+    translation = {
+        "translated": False,
+        "translated_text": "",
+        "structured": {},
+        "provider": "none",
+        "translation_status": "not_required",
+    }
     started = time.monotonic()
     try:
         if not payload.rules_only:
             try:
-                translation = bounded_call(
-                    translate_stage,
-                    (payload.text,),
-                    TRANSLATION_STAGE_TIMEOUT_SECONDS,
-                    isolation="process",
-                )
+                if config.TRANSLATION_ASYNC_ENABLED:
+                    # Deferred translation is intentionally cheap here: use a
+                    # cached view if one exists, otherwise return pending.
+                    # Do not create a child process for a model that will not
+                    # be loaded on this request.
+                    translation = translate_stage(payload.text)
+                else:
+                    translation = bounded_call(
+                        translate_stage,
+                        (payload.text,),
+                        TRANSLATION_STAGE_TIMEOUT_SECONDS,
+                        isolation="process",
+                    )
             except Exception as e:
                 logger.warning("Translation stage failed or timed out: %s", e)
+                translation["translation_status"] = "timeout"
                 warnings.append(
                     f"Translation unavailable within {TRANSLATION_STAGE_TIMEOUT_SECONDS}s; original text used"
                 )

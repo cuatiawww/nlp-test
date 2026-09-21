@@ -46,7 +46,6 @@ def startup():
         logger.warning("NLLB translation preload failed: %s", e)
     if NLP_MODEL != "none":
         from .models.classifier import classify_disease, _get_pipe
-        from .config import LANGUAGE_MODEL_MAP
         warmed: set[str] = set()
         try:
             classify_disease("warmup")
@@ -54,14 +53,9 @@ def startup():
             logger.info("Warmed up model: %s", NLP_MODEL)
         except Exception as e:
             logger.warning("Model warmup failed for '%s': %s", NLP_MODEL, e)
-        for model_key in set(LANGUAGE_MODEL_MAP.values()):
-            if model_key not in warmed:
-                try:
-                    _get_pipe(model_key)
-                    warmed.add(model_key)
-                    logger.info("Preloaded model: %s", model_key)
-                except Exception as e:
-                    logger.warning("Model preload failed for '%s': %s", model_key, e)
+        # Language-specific models are lazy. Loading every configured ASEAN
+        # model at startup wastes RAM and makes a cold container slow; the
+        # first article using a language will warm only its selected model.
 
 
 @app.get("/health")
@@ -174,6 +168,42 @@ def analyze_url_endpoint(payload: AnalyzeRequest):
 class ICD11ResolveRequest(BaseModel):
     text: str
     language: Optional[str] = "unknown"
+
+
+class TranslationRequest(BaseModel):
+    """Explicit background translation request.
+
+    The normal analysis endpoints deliberately do not call this path. A
+    queue/worker may use it for semantic enrichment after the source-first
+    surveillance result has already been persisted.
+    """
+
+    text: str
+    language: str = "unknown"
+    max_chars: Optional[int] = None
+    chunk_chars: Optional[int] = None
+    max_chunks: Optional[int] = None
+
+
+@app.post("/nlp/translate")
+def translate_endpoint(payload: TranslationRequest):
+    from .translator import translate_and_extract
+
+    try:
+        return translate_and_extract(
+            payload.text,
+            payload.language,
+            max_chars=payload.max_chars,
+            chunk_chars=payload.chunk_chars,
+            max_chunks=payload.max_chunks,
+            defer=False,
+        )
+    except Exception as exc:
+        logger.exception("Explicit translation request failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Translation unavailable: {type(exc).__name__}",
+        ) from exc
 
 
 @app.post("/icd11/resolve")

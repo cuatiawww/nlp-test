@@ -1791,7 +1791,6 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({num_token})",
             rf"(?:cases?|infections?|kasus|pasien)\b[^.\n;:]{{0,100}}?\b(?:reached|recorded|reported|tercatat|mencatat|melaporkan|total(?:ed)?|stood at|of)\s+({num_token})",
             rf"(?:sickened|infected|affected)\s+(?:more than|over|nearly|about|around)?\s*({num_token})\s+(?:children|people|persons|residents)",
-            rf"\b({num_token})\s+(?:[a-z-]+\s+)?(?:outbreaks?|wabah|klaster|clusters?)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ผู้ป่วย|ผู้ติดเชื้อ)(?:สะสม|ใหม่|ทั้งหมด)?\s*([0-9][0-9,.]*)\s*(?:ราย|คน)",
@@ -1942,6 +1941,17 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return 0
         if field == "case_count":
             search_lower = search_text.lower()
+            # Quantifiers such as "several" describe the number of
+            # outbreaks/clusters as well as the number of cases.  Do not
+            # convert that non-case context into a surveillance total.  The
+            # vocabulary is maintained in the shared DB lexicon.
+            non_case_terms = config.get_lexicon_terms("metric_non_case")
+            if any(
+                re.search(rf"(?<!\w){re.escape(term.casefold())}(?!\w)", search_lower)
+                for term in non_case_terms
+                if term.strip()
+            ):
+                return default
             for quant, info in _APPROXIMATE_QUANTIFIERS.items():
                 if re.search(rf"\b{re.escape(quant)}\b", search_lower):
                     return info["median"]

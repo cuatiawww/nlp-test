@@ -103,12 +103,19 @@ def main() -> int:
         }
         rows.append(row)
         result = row["result"]
+        event_rows = (
+            result.get("events")
+            or result.get("atomic_events")
+            or result.get("sub_events")
+            or []
+        )
         print(
             f"[{('FULL' if row['full_nlp'] else 'WEAK'):4}] {case_id} {country:12} "
             f"lang={language:10} http={row['http_status']} status={row['analysis_status']} "
             f"disease={row['disease']!s:.28} country_out={row['country_extracted']!s:.18} "
             f"cases={row['case_count']} deaths={row['death_count']} "
-            f"events={len(result.get('events') or result.get('atomic_events') or [])} "
+            f"translation={result.get('translation_status') or '-'} "
+            f"events={len(event_rows)} "
             f"review={row['needs_review']} latency_ms={row['latency_ms']}"
         )
 

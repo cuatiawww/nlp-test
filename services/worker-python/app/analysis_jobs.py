@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from decimal import Decimal
 from urllib.parse import urlparse
@@ -37,6 +38,8 @@ def _json_safe(value):
         return [_json_safe(item) for item in value]
     return value
 QUEUE = os.getenv("RABBITMQ_ANALYSIS_URL_QUEUE", "disease.analysis-url")
+TRANSLATION_QUEUE = os.getenv("RABBITMQ_TRANSLATION_QUEUE", "disease.translation")
+TRANSLATION_NLP_URL = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000")
 
 
 class UnknownAnalysisJob(ValueError):
@@ -189,8 +192,15 @@ def analyze_stages(
     result = {**extracted, **analysis, "url": url, "cached": False}
     if warnings:
         result["needs_review"] = True
+    # Translation is an auxiliary semantic view.  A timeout must remain
+    # visible through translation_status, but it must not discard/pause the
+    # source-language extraction that already completed successfully.
+    blocking_warnings = [
+        warning for warning in warnings
+        if "translation unavailable" not in str(warning).lower()
+    ]
     return {
-        "status": "partial" if warnings else "completed",
+        "status": "partial" if blocking_warnings else "completed",
         "result": result,
         "warnings": warnings,
         "cached": False,
@@ -515,7 +525,7 @@ def retain_raw_or_get_cached(conn, requested_url: str, extracted: dict, allow_ca
             ON CONFLICT DO NOTHING
             RETURNING id""",
         (
-            extracted.get("published_at"), extracted.get("content", ""), requested_url,
+            extracted.get("published_at") or None, extracted.get("content", ""), requested_url,
             extracted.get("object_path"), extracted.get("normalized_url"), extracted.get("canonical_url"),
             extracted.get("url_hash"), extracted.get("content_hash"), extracted.get("final_url"),
             extracted.get("author"), extracted.get("source_country"),
@@ -907,6 +917,13 @@ def _handle_analysis_message(channel, method, _properties, body):
         settle_transient_delivery(channel, method, _properties, body, QUEUE, "analysis callback failure")
         return
 
+    # Translation is enrichment only. A queue publish failure must not turn a
+    # completed source-first surveillance result into a failed NLP job.
+    try:
+        enqueue_translation_for_job(channel, job_id)
+    except Exception:
+        logger.exception("Could not enqueue translation enrichment for job %s", job_id)
+
     try:
         channel.basic_ack(delivery_tag=method.delivery_tag)
     except Exception:
@@ -914,9 +931,155 @@ def _handle_analysis_message(channel, method, _properties, body):
 
 
 def consume_analysis_queue(channel):
-    declare_queue_topology(channel, (QUEUE,))
+    # Declare the enrichment topology on the publisher channel as well. The
+    # dedicated consumer declares it on its own connection too, so startup
+    # order and reconnects remain safe.
+    declare_queue_topology(channel, (QUEUE, TRANSLATION_QUEUE))
     channel.basic_qos(prefetch_count=analysis_prefetch())
     channel.basic_consume(queue=QUEUE, on_message_callback=_handle_analysis_message, auto_ack=False)
+
+
+def _translation_task_for_job(row):
+    result = row.get("result") or {}
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(result, dict) or result.get("translation_status") != "pending":
+        return None
+    language = str(result.get("language") or "unknown").strip().lower()
+    text = str(result.get("original_text") or "").strip()
+    if not text or language in {"", "unknown", "en", "id"}:
+        return None
+    return {
+        "job_id": str(row["id"]),
+        "text": text,
+        "language": language,
+    }
+
+
+def enqueue_translation_for_job(channel, job_id):
+    """Publish one durable enrichment task after the primary job is complete."""
+    import pika
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id,status,result FROM analysis_jobs WHERE id=%s",
+            (job_id,),
+        ).fetchone()
+        if not row or row.get("status") not in {"completed", "partial"}:
+            return False
+        task = _translation_task_for_job(row)
+        if not task:
+            return False
+        published = channel.basic_publish(
+            "",
+            TRANSLATION_QUEUE,
+            json.dumps(task, ensure_ascii=False),
+            properties=pika.BasicProperties(delivery_mode=2, content_type="application/json"),
+            mandatory=True,
+        )
+        if published is False:
+            raise RuntimeError(f"RabbitMQ rejected translation task for {job_id}")
+        result = dict(row["result"] or {})
+        result["translation_status"] = "queued"
+        result["translation_provider"] = "nllb-async"
+        from psycopg.types.json import Jsonb
+        conn.execute(
+            "UPDATE analysis_jobs SET result=%s,updated_at=NOW() WHERE id=%s",
+            (Jsonb(result), job_id),
+        )
+        logger.info("Queued translation enrichment: job=%s language=%s", job_id, task["language"])
+        return True
+
+
+def _handle_translation_message(channel, method, _properties, body):
+    try:
+        task = json.loads(body)
+        job_id = str(__import__("uuid").UUID(task["job_id"]))
+        text = str(task["text"] or "").strip()
+        language = str(task["language"] or "unknown").strip().lower()
+        if not text or not language:
+            raise ValueError("translation task is missing text or language")
+    except (ValueError, KeyError, json.JSONDecodeError, TypeError):
+        logger.warning("Rejecting malformed translation task")
+        settle_malformed_delivery(channel, method, _properties, body, TRANSLATION_QUEUE)
+        return
+
+    try:
+        import requests
+
+        response = requests.post(
+            TRANSLATION_NLP_URL.rstrip("/") + "/nlp/translate",
+            json={"text": text, "language": language},
+            timeout=(5, max(60, int(os.getenv("TRANSLATION_BACKGROUND_TIMEOUT_SECONDS", "180")))),
+        )
+        response.raise_for_status()
+        translation = response.json()
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT result FROM analysis_jobs WHERE id=%s FOR UPDATE",
+                (job_id,),
+            ).fetchone()
+            if row:
+                result = dict(row["result"] or {})
+                result.update(
+                    {
+                        "translated": bool(translation.get("translated")),
+                        "translation_provider": translation.get("provider") or "nllb-local",
+                        "translation_status": translation.get("translation_status") or "completed",
+                        "translated_text": translation.get("translated_text") or "",
+                        "translation_structured": translation.get("structured") or {},
+                    }
+                )
+                from psycopg.types.json import Jsonb
+                conn.execute(
+                    "UPDATE analysis_jobs SET result=%s,updated_at=NOW() WHERE id=%s",
+                    (Jsonb(result), job_id),
+                )
+        channel.basic_ack(delivery_tag=method.delivery_tag)
+        logger.info("Completed translation enrichment: job=%s status=%s", job_id, translation.get("translation_status"))
+    except Exception:
+        logger.exception("Translation enrichment failed; scheduling bounded retry")
+        settle_transient_delivery(
+            channel,
+            method,
+            _properties,
+            body,
+            TRANSLATION_QUEUE,
+            "translation enrichment failure",
+        )
+
+
+def translation_prefetch():
+    return max(1, min(int(os.getenv("TRANSLATION_PREFETCH", "1")), 2))
+
+
+def translation_consumer_loop():
+    """Consume enrichment separately so a slow NLLB call cannot block URL NLP."""
+    import pika
+
+    while True:
+        try:
+            params = pika.URLParameters(os.environ["RABBITMQ_URL"])
+            params.heartbeat = 300
+            params.blocked_connection_timeout = 5
+            with pika.BlockingConnection(params) as broker:
+                channel = broker.channel()
+                channel.confirm_delivery()
+                declare_queue_topology(channel, (TRANSLATION_QUEUE,))
+                channel.basic_qos(prefetch_count=translation_prefetch())
+                channel.basic_consume(
+                    queue=TRANSLATION_QUEUE,
+                    on_message_callback=_handle_translation_message,
+                    auto_ack=False,
+                )
+                logger.info("Translation enrichment worker listening on %s", TRANSLATION_QUEUE)
+                channel.start_consuming()
+        except Exception:
+            logger.exception("Translation worker unavailable; reconnecting")
+            time.sleep(5)
 
 
 def main():
@@ -924,6 +1087,11 @@ def main():
     from multiprocessing import Process
 
     logging.basicConfig(level=logging.INFO)
+    threading.Thread(
+        target=translation_consumer_loop,
+        name="translation-enrichment-worker",
+        daemon=True,
+    ).start()
     matrix_process = None
     if spawn_matrix_worker_enabled():
         matrix_process = Process(

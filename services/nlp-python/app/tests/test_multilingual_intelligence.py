@@ -49,6 +49,27 @@ class MultilingualIntelligenceTests(unittest.TestCase):
         self.assertEqual(detect_language_profile("ກໍລະນີຢູ່ວຽງຈັນ")['language'], "lo")
         self.assertEqual(detect_language_profile("ရန်ကုန်မြို့")['language'], "my")
 
+    def test_latin_marker_detection_does_not_promote_substrings(self):
+        from app.multilingual import detect_language_profile
+
+        profile = detect_language_profile(
+            "Malaysia melaporkan 10 kes dan 2 kematian akibat demam denggi.",
+            markers={
+                "id": ["kasus", "demam", "meninggal"],
+                "ms": ["kes", "kematian"],
+            },
+        )
+        self.assertEqual(profile["language"], "ms")
+
+    def test_location_country_conflict_downgrades_to_country(self):
+        from app import config
+        from app.pipeline import _guard_event_location_country
+
+        with patch.object(config, "LOCATION_COUNTRIES", {"Jembrana": "Indonesia"}):
+            location, needs_review = _guard_event_location_country("Jembrana", "Brunei")
+        self.assertEqual(location, "Brunei")
+        self.assertTrue(needs_review)
+
     def test_native_explicit_dates_remain_event_dates(self):
         from app.epidemiology import extract_event_period
 

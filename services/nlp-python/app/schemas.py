@@ -123,6 +123,7 @@ class AnalyzeResponse(BaseModel):
     surveillance_scope: Optional[str] = None
     translated: bool = False
     translation_provider: str = "none"
+    translation_status: str = "not_required"
     translated_text: str = ""
     translation_alignment: str = "sentence_id_only"
     original_location_name: Optional[str] = None

@@ -83,6 +83,9 @@ class WebScraperHelpersTest(unittest.TestCase):
         self.assertTrue(_is_challenge(200, "<title>Just a moment...</title>"))
         self.assertFalse(_is_challenge(200, "<article>Health news</article>"))
 
+    def test_challenge_markers_are_not_article_content(self):
+        self.assertTrue(_is_challenge(200, "<html><title>Attention Required</title><body>Cloudflare Ray ID</body></html>"))
+
     def test_tls_exception_is_host_allowlisted_not_global(self):
         from unittest.mock import patch
         from app.collectors.web_scraper import WebScraperCollector

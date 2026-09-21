@@ -74,6 +74,23 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertFalse(result["result"]["cached"])
         self.assertFalse(nlp.call_args.kwargs["fallback"])
 
+    def test_translation_timeout_does_not_demote_source_extraction(self):
+        nlp = Mock(return_value={
+            "disease_classification": "DENGUE",
+            "case_count": 10,
+            "translation_status": "timeout",
+            "stage_warnings": ["Translation unavailable within 20s; original text used"],
+        })
+        result = analyze_stages(
+            "https://example.org/news",
+            Mock(return_value={"content": "10 dengue cases"}),
+            nlp,
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["result"]["translation_status"], "timeout")
+        self.assertEqual(result["result"]["case_count"], 10)
+        self.assertTrue(result["result"]["needs_review"])
+
     def test_nlp_timeout_retries_full_nlp_without_rules(self):
         nlp = Mock(side_effect=[TimeoutError(), {"disease_classification": "DENGUE", "case_count": 10}])
         result = analyze_stages(

@@ -112,9 +112,7 @@ def detect_language_profile(
     if markers:
         folded = (text or "").casefold()
         scores = {
-            normalize_language_code(language): sum(
-                1 for marker in words if str(marker).casefold() in folded
-            )
+            normalize_language_code(language): sum(1 for marker in words if _marker_present(folded, str(marker)))
             for language, words in markers.items()
         }
         ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
@@ -146,6 +144,17 @@ def detect_language_profile(
         "confidence": 0.0,
         "method": "unresolved",
     }
+
+
+def _marker_present(text: str, marker: str) -> bool:
+    """Match Latin markers as words; native-script markers can be substrings."""
+
+    candidate = marker.strip().casefold()
+    if not candidate:
+        return False
+    if any("a" <= char <= "z" or "0" <= char <= "9" for char in candidate):
+        return bool(re.search(rf"(?<!\w){re.escape(candidate)}(?!\w)", text))
+    return candidate in text
 
 
 def metric_term_pattern(terms: tuple[str, ...]) -> str:

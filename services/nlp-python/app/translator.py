@@ -15,6 +15,27 @@ NO_TRANSLATION_LANGS = {"en"}
 _translation_lock = Lock()
 
 
+def _no_translation_result(provider: str = "none", status: str = "not_required") -> dict[str, Any]:
+    return {
+        "translated": False,
+        "provider": provider,
+        "translation_status": status,
+        "translated_text": "",
+        "structured": {},
+    }
+
+
+def _deferred_translation_result(lang: str) -> dict[str, Any]:
+    """Describe enrichment that will run outside the extraction request."""
+    return {
+        "translated": False,
+        "provider": "nllb-async",
+        "translation_status": "pending",
+        "translated_text": "",
+        "structured": {"source_language": lang},
+    }
+
+
 def _hash(text: str, lang: str) -> str:
     return hashlib.sha256(f"v2-chunked\0{lang}\0{text}".encode()).hexdigest()
 
@@ -158,6 +179,18 @@ def _nllb(
     if not source_code:
         return None
 
+    # A production container is intentionally offline. Do not let
+    # transformers perform a network lookup for a missing snapshot; that
+    # turns an optional enrichment task into a long request timeout.
+    model_name = os.getenv("TRANSLATION_LOCAL_MODEL", "facebook/nllb-200-distilled-600M")
+    model_path = _resolve_cached_model_path(model_name)
+    offline = os.getenv("HF_HUB_OFFLINE", "0").lower() in {"1", "true", "yes", "on"} or os.getenv(
+        "TRANSFORMERS_OFFLINE", "0"
+    ).lower() in {"1", "true", "yes", "on"}
+    if offline and model_path == model_name and "/" in model_name:
+        logger.info("NLLB snapshot is unavailable locally; returning without network lookup")
+        return None
+
     with _translation_lock:
         tokenizer, model = _nllb_model()
         tokenizer.src_lang = source_code
@@ -190,12 +223,14 @@ def translate_and_extract(
     max_chars: int | None = None,
     chunk_chars: int | None = None,
     max_chunks: int | None = None,
+    defer: bool | None = None,
 ) -> dict[str, Any]:
     """Return an optional NLLB view; original text remains authoritative."""
     if config.TRANSLATION_PROVIDER != "nllb":
-        return {"translated": False, "provider": "none", "translated_text": "", "structured": {}}
-    if lang in NO_TRANSLATION_LANGS:
-        return {"translated": False, "provider": "none", "translated_text": "", "structured": {}}
+        return _no_translation_result("none", "disabled")
+    normalized_lang = (lang or "unknown").strip().lower()
+    if normalized_lang in NO_TRANSLATION_LANGS or normalized_lang in config.TRANSLATION_NATIVE_FIRST_LANGS:
+        return _no_translation_result("none", "not_required")
 
     key = _hash(text, lang)
     cached = _cached(key)
@@ -203,9 +238,14 @@ def translate_and_extract(
         return {
             "translated": True,
             "provider": f"{cached['provider']}-cache",
+            "translation_status": "completed",
             "translated_text": cached["translated_text"],
             "structured": cached["structured_result"],
         }
+    if defer is None:
+        defer = config.TRANSLATION_ASYNC_ENABLED
+    if defer:
+        return _deferred_translation_result(normalized_lang)
     try:
         data = _nllb(
             text,
@@ -215,7 +255,7 @@ def translate_and_extract(
             max_chunks=max_chunks,
         )
         if not data:
-            return {"translated": False, "provider": "unavailable", "translated_text": "", "structured": {}}
+            return _no_translation_result("unavailable", "unavailable")
         translated = str(data.get("translated_text") or "").strip()
         structured = {k: v for k, v in data.items() if k != "translated_text"}
         if translated:
@@ -223,12 +263,13 @@ def translate_and_extract(
         return {
             "translated": bool(translated),
             "provider": "nllb-local",
+            "translation_status": "completed" if translated else "unavailable",
             "translated_text": translated,
             "structured": structured,
         }
     except Exception as exc:
         logger.warning("NLLB translation failed: %s", exc)
-        return {"translated": False, "provider": "failed", "translated_text": "", "structured": {}}
+        return _no_translation_result("failed", "failed")
 
 
 def preload_local_model():

@@ -24,6 +24,31 @@ from .epidemiology import (
 logger = logging.getLogger(__name__)
 
 
+def _guard_event_location_country(
+    location: Optional[str],
+    event_country: Optional[str],
+) -> tuple[Optional[str], bool]:
+    """Downgrade a conflicting locality to the explicit event country.
+
+    Gazetteer coordinates are never allowed to override an article's explicit
+    country. The original locality is kept by ``original_location_name`` and
+    the caller adds a review flag; the public event receives a safe country
+    centroid instead of a cross-country pin.
+    """
+
+    if not location or not event_country:
+        return location, False
+    place_country = extractors.normalize_country(config.LOCATION_COUNTRIES.get(location))
+    normalized_event = extractors.normalize_country(event_country)
+    if (
+        place_country in config.ASEAN_COUNTRIES
+        and normalized_event in config.ASEAN_COUNTRIES
+        and place_country.casefold() != normalized_event.casefold()
+    ):
+        return normalized_event, True
+    return location, False
+
+
 def _attach_location_provenance(locations: list[dict[str, Any]], source: str) -> list[dict[str, Any]]:
     """Attach source spelling and offsets without deriving them from translation."""
 
@@ -118,7 +143,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Deterministic extraction always sees the source article. Translation is
     # an auxiliary semantic view and must never become an evidence authority.
     analysis_text = text
-    semantic_text = "\n".join(part for part in (text, translated_text) if part)
+    # A translation is an analyst-facing enrichment only. It must not change
+    # health relevance, disease identity, outbreak classification, or any
+    # source metric: local translation can be fluent while still mistranslating
+    # a disease term. All intelligence decisions remain source-text based.
+    semantic_text = text
     structured = translation["structured"]
     facts = extractors.predict_surveillance_facts(text, payload.source_country)
     non_health_topic = bool(facts.get("non_health_topic")) or extractors.is_clearly_non_health_topic(
@@ -180,6 +209,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         raw_country = facts["country"]
     else:
         raw_country = location_country or (config.LOCATION_COUNTRIES.get(location) if location else None) or None
+    location, location_country_conflict = _guard_event_location_country(location, raw_country)
+    if location_country_conflict:
+        # Keep the source spelling and the rejected locality for review, but
+        # ensure all downstream hierarchy/geocoding uses the country-level
+        # event location.
+        raw_country = extractors.normalize_country(raw_country)
     if asean_hits and (raw_country not in config.ASEAN_COUNTRIES or not location):
         location = asean_hits[0]["name"]
         raw_country = asean_hits[0].get("country") or raw_country
@@ -1195,6 +1230,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     )
     if v_needs_review:
         needs_review = True
+    if location_country_conflict:
+        needs_review = True
+        if "location_country_conflict" not in doc_validation_flags:
+            doc_validation_flags.append("location_country_conflict")
 
     outbreak_alert = calibrate_outbreak_alert(
         disease=disease,
@@ -1227,6 +1266,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         surveillance_scope=("ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
         translated=bool(translated_text),
         translation_provider=translation.get("provider") or "none",
+        translation_status=translation.get("translation_status") or (
+            "completed" if translated_text else "not_required"
+        ),
         translated_text=translated_text or "",
         translation_alignment="sentence_id_only",
         country=country,

@@ -3,6 +3,8 @@ import logging
 import os
 import time
 import urllib.request
+from pathlib import Path
+from threading import Lock
 
 # Must be set before importing tokenizers/transformers. Fork-after-load plus
 # the Rayon thread pool is a common hang that surfaces as NLP HTTP 408.
@@ -17,6 +19,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _pipes: dict[str, pipeline] = {}
+_pipe_failures: dict[str, float] = {}
+_snapshot_lock = Lock()
 _current_labels: dict[str, list[str]] = {}
 _labels_last_fetch: float = 0
 _LABELS_CACHE_TTL = int(os.getenv("NLP_LABELS_CACHE_TTL", "60"))
@@ -115,27 +119,108 @@ def _fetch_keywords(cfg):
             logger.debug("Failed to fetch keywords for '%s': %s", cat, e)
 
 
+def _materialize_cached_snapshot(model_id: str) -> str | None:
+    """Repair cache snapshots when only HF blob metadata was persisted.
+
+    Some persistent volumes contain all model blobs but lost the lightweight
+    snapshot symlinks. Recreating those symlinks is safe, avoids a download,
+    and keeps the model selection generic rather than mapping filenames or
+    disease terms in application code.
+    """
+    if not model_id or model_id.startswith("/"):
+        return None
+    roots = []
+    for value in (
+        os.getenv("HF_HUB_CACHE"),
+        os.getenv("HF_HOME"),
+        os.getenv("TRANSFORMERS_CACHE"),
+    ):
+        if value and value not in roots:
+            roots.append(value)
+    try:
+        from huggingface_hub import scan_cache_dir
+
+        for root in roots:
+            cache_root = Path(root)
+            repo_dir = cache_root / f"models--{model_id.replace('/', '--')}"
+            existing_snapshots = repo_dir / "snapshots"
+            if existing_snapshots.is_dir():
+                for snapshot in existing_snapshots.iterdir():
+                    if (snapshot / "config.json").is_file() and (
+                        (snapshot / "model.safetensors").is_file()
+                        or (snapshot / "pytorch_model.bin").is_file()
+                    ):
+                        return str(snapshot)
+            report = scan_cache_dir(str(cache_root))
+            repo = next((item for item in report.repos if item.repo_id == model_id), None)
+            if not repo or not repo.revisions:
+                continue
+            revision = max(repo.revisions, key=lambda item: item.last_modified)
+            snapshot = repo_dir / "snapshots" / revision.commit_hash
+            with _snapshot_lock:
+                snapshot.mkdir(parents=True, exist_ok=True)
+                for cached_file in revision.files:
+                    blob = Path(cached_file.blob_path)
+                    target = snapshot / cached_file.file_name
+                    if not blob.is_file():
+                        break
+                    if not target.exists():
+                        os.symlink(blob, target)
+                required = snapshot / "config.json"
+                if required.is_file():
+                    logger.info("Using repaired local model snapshot: %s", snapshot)
+                    return str(snapshot)
+    except Exception as exc:
+        logger.debug("Could not repair local model snapshot for %s: %s", model_id, exc)
+    return None
+
+
 def _get_pipe(model_key: str):
     model_id = _get_model_id(model_key)
+    resolved_model_id = _materialize_cached_snapshot(model_id) or model_id
+    failed_at = _pipe_failures.get(model_key)
+    if failed_at and time.time() - failed_at < int(os.getenv("MODEL_FAILURE_COOLDOWN_SECONDS", "300")):
+        raise RuntimeError(f"model {model_key} unavailable; retry after cooldown")
     if model_key not in _pipes:
         max_length = int(os.getenv("NLP_MAX_LENGTH", "512"))
-        logger.info("Loading model %s (%s) — this may take a minute on first run", model_key, model_id)
-        if model_key == "fine-tuned":
-            _pipes[model_key] = pipeline(
-                "text-classification",
-                model=model_id,
-                tokenizer=model_id,
-                device=-1,
-                truncation=True,
-                max_length=max_length,
-            )
-        else:
-            _pipes[model_key] = pipeline(
-                "zero-shot-classification",
-                model=model_id,
-                device=-1,
-                truncation=True,
-            )
+        logger.info("Loading model %s (%s) — this may take a minute on first run", model_key, resolved_model_id)
+        try:
+            if model_key != "fine-tuned":
+                # An encoder checkpoint such as xlm-roberta-base has a
+                # masked-language-model head, not an NLI head. Passing it to
+                # zero-shot-classification silently creates random classifier
+                # weights. Reject it so deterministic source extraction stays
+                # safer than an untrained prediction.
+                from transformers import AutoConfig
+
+                model_config = AutoConfig.from_pretrained(
+                    resolved_model_id,
+                    local_files_only=True,
+                )
+                architectures = model_config.to_dict().get("architectures") or []
+                if not any("SequenceClassification" in str(item) for item in architectures):
+                    raise RuntimeError(
+                        f"model {resolved_model_id} is not a sequence-classification/NLI checkpoint"
+                    )
+            if model_key == "fine-tuned":
+                _pipes[model_key] = pipeline(
+                    "text-classification",
+                    model=resolved_model_id,
+                    tokenizer=resolved_model_id,
+                    device=-1,
+                    truncation=True,
+                    max_length=max_length,
+                )
+            else:
+                _pipes[model_key] = pipeline(
+                    "zero-shot-classification",
+                    model=resolved_model_id,
+                    device=-1,
+                    truncation=True,
+                )
+        except Exception:
+            _pipe_failures[model_key] = time.time()
+            raise
     return _pipes[model_key]
 
 

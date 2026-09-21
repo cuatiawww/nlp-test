@@ -23,7 +23,9 @@ DEEPSEEK_LOCATION_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_LOCATION_MIN_CONFID
 DEEPSEEK_PROMPT_CHARS = max(200, int(os.getenv("DEEPSEEK_PROMPT_CHARS", "1800")))
 DEEPSEEK_DAILY_BUDGET = int(os.getenv("DEEPSEEK_DAILY_BUDGET", "200"))
 DEEPSEEK_LOCATION_MAX_CANDIDATES = int(os.getenv("DEEPSEEK_LOCATION_MAX_CANDIDATES", "80"))
-AGENT_ENABLED = os.getenv("AGENT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+# External LLM review is opt-in. It must never be an implicit dependency of
+# high-volume crawling or a synchronous source extraction request.
+AGENT_ENABLED = os.getenv("AGENT_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 AGENT_PROVIDER_ORDER = os.getenv("AGENT_PROVIDER_ORDER", "deepseek,openai")
 AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", str(DEEPSEEK_TIMEOUT_SECONDS)))
 
@@ -44,6 +46,19 @@ def env_seconds_at_least(name, default):
 
 TRANSLATION_STAGE_TIMEOUT_SECONDS = env_seconds_at_least("TRANSLATION_STAGE_TIMEOUT_SECONDS", 60)
 TRANSLATION_PROVIDER = os.getenv("TRANSLATION_PROVIDER", "nllb").strip().lower() or "nllb"
+# Translation is an enrichment view, not a prerequisite for surveillance
+# extraction. In deferred mode the source-language pipeline returns first;
+# an already cached translation may still be used immediately.
+TRANSLATION_ASYNC_ENABLED = os.getenv("TRANSLATION_ASYNC_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+MODEL_FAILURE_COOLDOWN_SECONDS = max(30, int(os.getenv("MODEL_FAILURE_COOLDOWN_SECONDS", "300")))
+# Source-language extraction is authoritative.  These languages do not need
+# a translation just to produce a first surveillance result; translation can
+# still be enabled explicitly by removing a language from this setting.
+TRANSLATION_NATIVE_FIRST_LANGS = frozenset(
+    item.strip().lower()
+    for item in os.getenv("TRANSLATION_NATIVE_FIRST_LANGS", "id").split(",")
+    if item.strip()
+)
 TRANSLATION_MAX_CHARS = max(500, int(os.getenv("TRANSLATION_MAX_CHARS", "4000")))
 TRANSLATION_CHUNK_CHARS = max(200, int(os.getenv("TRANSLATION_CHUNK_CHARS", "450")))
 TRANSLATION_MAX_CHUNKS = max(1, int(os.getenv("TRANSLATION_MAX_CHUNKS", "8")))

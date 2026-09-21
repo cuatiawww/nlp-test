@@ -154,6 +154,14 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         # Percentages must not crash with ValueError and must not be treated as absolute count
         self.assertEqual(extractors.extract_case_count(text), 0)
 
+    def test_outbreak_count_is_not_a_case_count(self):
+        self.assertEqual(
+            extractors.extract_case_count(
+                "The report identified 11 new dengue outbreaks in several provinces."
+            ),
+            0,
+        )
+
     def test_extract_thousands_separator_both_formats(self):
         text_dot = "Sebanyak 10.000 kasus baru."
         self.assertEqual(extractors.extract_case_count(text_dot), 10000)
