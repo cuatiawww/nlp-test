@@ -6438,7 +6438,6 @@ async fn public_dashboard(
     .collect::<Vec<_>>();
 
     let mut locations = Vec::new();
-    let mut alerts = Vec::new();
 
     for row in rows {
         let location: String = row.get(0);
@@ -6511,15 +6510,182 @@ async fn public_dashboard(
             "is_recent": is_recent, "is_hot": is_hot, "detail": detail,
             "province": province, "city": city
         });
-        if is_alert { alerts.push(item.clone()); }
         locations.push(item);
     }
 
-    alerts.sort_by(|a, b| {
-        let rank = |v: &Value| match v["severity"].as_str().unwrap_or("NORMAL") {
-            "AWAS" => 3, "SIAGA" => 2, "WASPADA" => 1, _ => 0
+    // Latest Surveillance Signals: De-aggregated individual outbreak signals per-URL
+    let alert_scope = country_scope_predicate(&cluster_country, 3);
+    let alert_rows = client.query(
+        &format!(
+        "SELECT COALESCE(e.location_name, 'Unknown') AS location_name,
+                e.disease_classification,
+                {cluster_country} AS country,
+                COALESCE(ST_Y(e.geom), l.latitude) AS latitude,
+                COALESCE(ST_X(e.geom), l.longitude) AS longitude,
+                GREATEST(LEAST(COALESCE(e.case_count, 0), 2000000), 0)::bigint AS cases,
+                GREATEST(LEAST(COALESCE(e.death_count, 0), 200000), 0)::bigint AS deaths,
+                1::bigint AS event_count,
+                e.confidence::float8 AS confidence,
+                COALESCE(e.outbreak_alert, FALSE) AS model_alert,
+                COALESCE(r.min_case_count, 1) AS threshold,
+                e.published_at::text AS latest_date,
+                JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT(
+                  'url', e.report_url, 'source_name', e.source_name,
+                  'source_type', e.source_type, 'published_at', e.published_at::text
+                )) AS sources,
+                GREATEST(LEAST(COALESCE(e.case_count, 0), 2000000), 0)::bigint AS recent_cases,
+                0::bigint AS previous_period_cases,
+                1::bigint AS recent_event_count,
+                1::bigint AS recent_source_count,
+                JSONB_BUILD_OBJECT(
+                  'event_id', e.id::text, 'raw_report_id', e.raw_report_id::text,
+                  'url', e.report_url, 'content', LEFT(e.original_text, 1000), 'language', e.language,
+                  'source_type', e.source_type, 'source_name', e.source_name,
+                  'published_at', e.published_at::text, 'symptoms', e.symptoms,
+                  'disease_extracted', e.disease_extracted, 'sentiment', e.sentiment,
+                  'event_type', e.event_type, 'event_confidence', e.event_confidence,
+                  'relevance_score', e.relevance_score, 'relevance_confidence', e.relevance_confidence,
+                  'source_credibility', e.source_credibility,
+                  'source_credibility_label', e.source_credibility_label,
+                  'needs_review', e.needs_review, 'is_health_related', e.is_health_related,
+                  'outbreak_alert', e.outbreak_alert,
+                  'province', e.province, 'city', e.city,
+                  'case_count', e.case_count, 'death_count', e.death_count
+                ) AS detail,
+                NULLIF(e.province, '') AS province,
+                NULLIF(e.city, '') AS city
+            FROM (
+              SELECT e0.*, rr.url AS report_url,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY COALESCE(NULLIF(rr.url, ''), e0.raw_report_id::text, e0.id::text)
+                       ORDER BY e0.confidence DESC NULLS LAST, e0.created_at DESC
+                     ) AS dedup_rank
+              FROM disease_events e0
+              LEFT JOIN raw_reports rr ON rr.id = e0.raw_report_id
+               WHERE (e0.is_health_related = TRUE AND LOWER(COALESCE(e0.source_type, '')) NOT IN ('skdr', 'skdr_api'))
+                AND e0.disease_classification IS NOT NULL
+                AND UPPER(e0.disease_classification) <> 'UNKNOWN'
+                AND UPPER(e0.disease_classification) NOT LIKE 'NEGATIVE%'
+                 AND (COALESCE(e0.confidence, 0) >= 0.15)
+                AND e0.published_at IS NOT NULL
+                AND LOWER(COALESCE(e0.source_type, '')) <> 'test'
+                AND e0.published_at::date >= $1
+                AND e0.published_at::date <= $2
+                AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e0.disease_classification) = LOWER($4) OR LOWER(e0.disease_classification) LIKE '%' || LOWER($4) || '%')
+                AND ($5::text IS NULL OR (EXISTS (
+                  SELECT 1 FROM skdr_reports sr
+                  WHERE sr.raw_report_id = e0.raw_report_id
+                    AND ($5::text = 'skdr' OR sr.endpoint_name = $5::text)
+                ) OR ($5::text = 'skdr' AND LOWER(COALESCE(e0.source_type, '')) IN ('skdr', 'skdr_api'))))
+            ) e
+         LEFT JOIN LATERAL (
+           SELECT l0.* FROM locations l0
+           WHERE LOWER(l0.name) = LOWER(e.location_name) AND l0.is_active = TRUE
+           ORDER BY l0.updated_at DESC NULLS LAST, l0.created_at DESC
+           LIMIT 1
+         ) l ON TRUE
+         LEFT JOIN disease_outbreak_rules r
+           ON LOWER(r.disease_name) = LOWER(e.disease_classification) AND r.is_active = TRUE
+          WHERE (e.is_health_related = TRUE AND LOWER(COALESCE(e.source_type, '')) NOT IN ('skdr', 'skdr_api'))
+           AND e.disease_classification IS NOT NULL
+           AND UPPER(e.disease_classification) <> 'UNKNOWN'
+           AND UPPER(e.disease_classification) NOT LIKE 'NEGATIVE%'
+           AND (COALESCE(e.confidence, 0) >= 0.15)
+           AND e.dedup_rank = 1
+           AND e.published_at IS NOT NULL
+           AND e.published_at::date >= $1
+           AND e.published_at::date <= $2
+           AND {alert_scope}
+         ORDER BY e.published_at DESC, e.confidence DESC
+         LIMIT 100"
+        ),
+        &[&start_date, &end_date, &selected_country, &selected_disease, &selected_source],
+    ).await.map_err(internal_error)?;
+
+    let mut alerts = Vec::new();
+    for row in alert_rows {
+        let location: String = row.get(0);
+        let raw_disease: String = row.get(1);
+        if is_non_specific_disease(&raw_disease) {
+            continue;
+        }
+        let disease = canonical_for_dashboard(&raw_disease);
+        let country: String = row.get(2);
+        let latitude: Option<f64> = row.get(3);
+        let longitude: Option<f64> = row.get(4);
+        let cases: i64 = row.get(5);
+        let deaths: i64 = row.get(6);
+        let event_count: i64 = row.get(7);
+        let confidence: Option<f64> = row.get(8);
+        let model_alert: bool = row.get(9);
+        let threshold: i32 = row.get(10);
+        let latest_date: String = row.get::<_, Option<String>>(11).unwrap_or_default();
+        let sources: Value = row.get::<_, Option<Value>>(12).unwrap_or_else(|| json!([]));
+        let recent_cases: i64 = row.get(13);
+        let previous_period_cases: i64 = row.get(14);
+        let recent_event_count: i64 = row.get(15);
+        let recent_source_count: i64 = row.get(16);
+        let mut detail: Value = row.get::<_, Option<Value>>(17).unwrap_or(Value::Null);
+        let province: Option<String> = row.get(18);
+        let city: Option<String> = row.get(19);
+
+        if let Value::Object(ref mut detail_object) = detail {
+            detail_object.insert("disease_classification".to_string(), json!(disease));
+            if let Some(Value::Array(values)) = detail_object.get_mut("disease_extracted") {
+                let canonical_values = values
+                    .iter()
+                    .filter_map(|value| value.as_str())
+                    .filter(|value| !is_non_specific_disease(value))
+                    .map(canonical_for_dashboard)
+                    .collect::<Vec<_>>();
+                *values = canonical_values.into_iter().map(Value::String).collect();
+            }
+        }
+
+        let threshold_i64 = i64::from(threshold.max(1));
+        let candidate_severity = if cases >= threshold_i64 * 2 || deaths > 0 {
+            "AWAS"
+        } else if cases >= threshold_i64 || model_alert {
+            "SIAGA"
+        } else if cases > 0 {
+            "WASPADA"
+        } else if model_alert {
+            "SIAGA"
+        } else {
+            "NORMAL"
         };
-        rank(b).cmp(&rank(a)).then_with(|| b["cases"].as_i64().cmp(&a["cases"].as_i64()))
+        let ews_verified = confidence.unwrap_or(0.0) >= 0.35;
+        let severity = if ews_verified { candidate_severity } else { "NORMAL" };
+        let is_alert = severity != "NORMAL" || model_alert || cases > 0 || deaths > 0;
+        let is_recent = recent_event_count > 0;
+        let is_hot = is_recent && (cases > 0 || deaths > 0 || model_alert);
+
+        let item = json!({
+            "location_name": location, "disease": disease, "country": country,
+            "latitude": latitude, "longitude": longitude, "cases": cases,
+            "deaths": deaths, "event_count": event_count, "confidence": confidence,
+            "threshold": threshold_i64, "severity": severity, "has_alert": is_alert,
+            "latest_date": latest_date, "sources": sources, "recent_cases": recent_cases,
+            "previous_period_cases": previous_period_cases,
+            "recent_event_count": recent_event_count,
+            "recent_source_count": recent_source_count,
+            "is_recent": is_recent, "is_hot": is_hot, "detail": detail,
+            "province": province, "city": city
+        });
+        alerts.push(item);
+    }
+
+    alerts.sort_by(|a, b| {
+        let date_a = a["latest_date"].as_str().unwrap_or("");
+        let date_b = b["latest_date"].as_str().unwrap_or("");
+        date_b.cmp(date_a)
+            .then_with(|| {
+                let rank = |v: &Value| match v["severity"].as_str().unwrap_or("NORMAL") {
+                    "AWAS" => 3, "SIAGA" => 2, "WASPADA" => 1, _ => 0
+                };
+                rank(b).cmp(&rank(a))
+            })
+            .then_with(|| b["cases"].as_i64().cmp(&a["cases"].as_i64()))
     });
     let mut merged_diseases = std::collections::HashMap::<String, (i64, i64, i64)>::new();
     for item in unbounded_by_disease {

@@ -183,6 +183,8 @@ export type OutbreakLocation = {
     needs_review?: boolean | null;
     is_health_related?: boolean | null;
     outbreak_alert?: boolean;
+    case_count?: number | null;
+    death_count?: number | null;
   };
 };
 

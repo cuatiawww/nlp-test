@@ -1148,18 +1148,19 @@ export default function DashboardPage() {
                 {sortedAlerts.length ? (
                   sortedAlerts.map((a, i) => (
                     <button
-                      key={`${a.location_name}-${a.disease}-${i}`}
+                      key={`${a.detail?.event_id || a.detail?.url || a.location_name}-${a.disease}-${i}`}
                       type="button"
                       onClick={() => setSelected(a)}
                       className="group w-full rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/60"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-bold text-slate-900">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-slate-900 truncate">
                             {translateDisease(a.disease)}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-slate-500 truncate">
                             {a.location_name}, {a.country}
+                            {a.detail?.source_name ? ` • ${a.detail.source_name}` : ""}
                           </p>
                         </div>
                         <span

@@ -262,7 +262,108 @@ validasi NLLB untuk aksara lokal.
 - Commit sebelum pull: `4f2a520` telah tersedia di Gitea.
 - Run 4 diuji langsung dari terminal dan belum memiliki JSON artifact tersimpan.
 
-## 9. Koreksi lokal setelah review Run 4
+## 9. Status terkini setelah Run 4: akurasi dan waktu proses
+
+Bagian ini mencatat diagnosis operasional terbaru setelah Run 4. Ini bukan Run
+5 dan tidak mengubah angka hasil Run 1-4.
+
+### Insiden NLP terbaru
+
+Pada analisis URL terbaru, artikel berhasil diambil, tetapi worker menerima:
+
+```text
+HTTPConnectionPool(host='disease-nlp-python', port=8000):
+Read timed out. (read timeout=270.0)
+```
+
+Artinya collector sudah menyelesaikan fetch; bottleneck berada pada request
+ke NLP service. Endpoint URL mendelegasikan pekerjaan ke bounded analysis,
+tetapi konfigurasi `NLP_STAGE_ISOLATION` default masih `inprocess`. Pada mode
+ini, fungsi inference berjalan di proses FastAPI yang sama dan batas waktu stage
+tidak dapat menghentikan fungsi yang sedang berjalan. Worker kemudian menunggu
+hingga batas HTTP 270 detik.
+
+Jika request lama masih memegang slot interactive, percobaan berikutnya dapat
+menghasilkan `503 Interactive NLP is busy`. Karena itu menaikkan atau
+menurunkan angka timeout saja bukan solusi; stage yang melewati deadline harus
+benar-benar dapat dihentikan dan slot harus dilepaskan.
+
+### Arti hasil `FULL` terhadap akurasi
+
+`FULL` hanya berarti pipeline berhasil mengembalikan hasil NLP. Status ini
+belum membuktikan bahwa disease, metric, location, time, context, dan event
+berada dalam satu relasi yang benar. Bukti dari Run 4 masih menunjukkan:
+
+| Area | Masalah yang masih ada | Dampak |
+|---|---|---|
+| Disease-metric | Disease parent dapat terbaca, tetapi disease pada event detail menjadi `UNKNOWN` atau tidak terikat ke angka yang tepat. | Cases dapat terlihat benar secara total tetapi salah penyakitnya. |
+| Parent-event | Total parent dan metric event regional belum selalu konsisten. | Angka aggregate dapat tampak sebagai angka wilayah atau terduplikasi. |
+| Multi-disease | Artikel dengan beberapa penyakit belum selalu mempertahankan pasangan disease-count pada setiap event. | Contoh `Dengue(361); Influenza(10)` belum aman untuk semua bentuk narasi. |
+| Location | Konflik country, admin1/admin2, dan koordinat masih dapat muncul pada artikel multi-negara atau artikel yang menyebut lokasi sebagai konteks. | Event bisa salah ditempel ke wilayah/publisher, walaupun country parent terlihat benar. |
+| Temporal | Historical, cumulative, new, suspected, confirmed, dan comparison belum selalu menjadi relasi metric-time yang konsisten. | Angka lama atau forecast berisiko dianggap sebagai kondisi saat ini. |
+| Evidence | Teks asli tetap disimpan, tetapi atribusi evidence ke disease-metric-location-event belum selalu tepat. | Traceability tersedia, tetapi keputusan event masih perlu review. |
+| Native script | Thai sudah memiliki bukti source-first yang baik pada sampel tertentu; Lao, Khmer, dan Burmese belum memiliki validasi field-level yang cukup. | Keberhasilan translation tidak dapat dianggap sebagai keberhasilan extraction. |
+| Bahasa Latin ASEAN | Malay/Indonesian, Vietnamese, dan Tagalog masih dapat membutuhkan vocabulary serta relation evidence tambahan. | Deteksi bahasa benar tidak otomatis membuat disease atau metric benar. |
+
+### Dampak NLLB terhadap proses
+
+NLLB sudah dipisahkan dari status utama pada Run 3 dan Run 4: translation
+bersifat auxiliary, dapat `queued`, `completed/cache`, `pending`, atau
+`unavailable`, sementara source extraction tetap memakai teks asli. Ini adalah
+perbaikan yang benar.
+
+Namun NLLB tetap dapat memakai CPU, RAM, dan waktu worker translation. Dengan
+demikian, NLLB bukan penyebab langsung setiap `ReadTimeout` pada endpoint URL,
+tetapi resource yang terlalu ketat atau model yang cold-start dapat memperburuk
+latency NLP service. Pada konfigurasi sekarang, batas container NLP juga
+berlaku untuk seluruh service, bukan hanya translator.
+
+Observasi smoke test langsung ke NLP service menunjukkan payload pendek masih
+membutuhkan sekitar 24-29 detik. Ini menandakan inference/model initialization
+belum cukup cepat untuk dijadikan critical path artikel panjang.
+
+### Status dukungan 11 bahasa ASEAN
+
+| Kelompok | Status sekarang | Yang belum terbukti |
+|---|---|---|
+| Indonesia, English | Source-first relatif stabil pada sampel rerun. | Field-level precision/recall lintas struktur artikel. |
+| Malay | Deteksi `ms` sudah membaik dari baseline. | Disease-metric relation dan vocabulary pada MYS-01 masih lemah. |
+| Thai | Native-script cases/deaths dapat dipertahankan dari evidence asli. | Coverage umum untuk semua metric, context, dan variasi sintaks Thai. |
+| Vietnamese | False case dari `outbreaks` membaik dan source extraction berjalan. | Attribution pada artikel panjang dan breakdown kompleks. |
+| Lao | Source extraction dapat selesai walau translation timeout. | Validasi aksara Lao tanpa bergantung pada translation. |
+| Khmer | Sebagian URL gagal di fetch dan belum cukup untuk menilai extraction. | Gold cases Khmer, location hierarchy, dan metric relation. |
+| Myanmar | Artikel dapat selesai sebagai `UNKNOWN` bila metric koheren tidak ada. | Coverage aksara Myanmar dan disease/metric evidence. |
+| Filipino/Tagalog | Sampel Philippines pada rerun mengalami fetch failure atau sub-event ambiguity. | Native Filipino extraction dan country-level gold set. |
+
+Kesimpulannya, sistem belum dapat menyatakan dukungan 11 bahasa dengan akurasi
+99%. Yang sudah terbukti adalah source text tidak lagi ditimpa translation dan
+translation timeout tidak otomatis menghapus hasil extraction.
+
+### Prioritas implementasi berikutnya
+
+Fokus pertama tetap **Analyze URL**, kemudian jalur manual dan continuous
+crawl diarahkan ke core extractor yang sama.
+
+1. Buat Analyze URL memakai jalur source-first yang cepat: language/script,
+   extraction DB, evidence, relation, dan event tidak menunggu NLLB atau model
+   semantic berat.
+2. Jadikan translation dan semantic enrichment sebagai queue background yang
+   tidak dapat menggagalkan event utama.
+3. Perbaiki timeout dengan cancellation yang nyata, stale-job recovery, dan
+   pelepasan semaphore. Mengubah `NLP_REQUEST_TIMEOUT_SECONDS` saja tidak
+   cukup.
+4. Pertahankan satu shared extraction core untuk Analyze URL, manual crawl, dan
+   continuous crawl. Jangan menyalin rules ke tiga worker karena hasilnya akan
+   kembali berbeda.
+5. Setelah Analyze URL stabil, ulangi matriks bahasa dan ukur field-level
+   precision/recall untuk disease, country, location, metric, time, evidence,
+   dan event count.
+
+Sampai langkah tersebut selesai, hasil harus diperlakukan sebagai hasil
+surveillance dengan `needs_review` sesuai evidence, bukan sebagai klaim akurasi
+99%.
+
+## 10. Koreksi lokal setelah review Run 4
 
 Perubahan lokal yang belum dipush:
 
