@@ -4,6 +4,10 @@
 -- retry and therefore win only when no accepted/active row exists.
 BEGIN;
 
+-- The restored production database may not have replayed 001_schema.sql, so
+-- do not assume pgcrypto exists before using digest() below.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 UPDATE raw_reports
 SET canonical_url = COALESCE(NULLIF(BTRIM(canonical_url), ''), NULLIF(BTRIM(normalized_url), '')),
     final_url = COALESCE(NULLIF(BTRIM(final_url), ''), NULLIF(BTRIM(canonical_url), ''), NULLIF(BTRIM(normalized_url), ''))
