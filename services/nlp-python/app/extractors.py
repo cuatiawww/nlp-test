@@ -2158,7 +2158,19 @@ def extract_disease_case_metrics(
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
+                rf"(?P<count>{number})\s*(?:{case_label})\s+(?:of\s+|penyakit\s+)?(?:{term_pattern})(?!\w)",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
                 rf"(?:{term_pattern})\s*(?:[:=-]\s*)?(?P<count>{number})\s*(?:{case_label})(?!\w)",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
+                rf"(?:{term_pattern})\s*\(\s*(?P<count>{number})\s*(?:{case_label})?\s*\)",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
+                rf"(?:{term_pattern})\s*[:=-]\s*(?P<count>{number})(?!\w)",
                 re.IGNORECASE | re.UNICODE,
             ),
         )

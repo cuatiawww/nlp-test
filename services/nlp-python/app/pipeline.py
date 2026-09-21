@@ -1263,10 +1263,25 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # the event instead of leaving its cases at zero/unknown.
     event_countries = {str(evt.country or "").casefold() for evt in sub_events if evt.country}
     if len(sub_events) == 1 and len(event_countries) == 1:
-        if explicit_case_count and case_count > sub_events[0].case_count:
-            sub_events[0].case_count = case_count
-        if death_count > sub_events[0].death_count:
-            sub_events[0].death_count = death_count
+        is_country_event = (
+            not sub_events[0].location_name
+            or str(sub_events[0].location_name).casefold() == str(sub_events[0].country).casefold()
+        )
+        if is_country_event:
+            if explicit_case_count and case_count > sub_events[0].case_count:
+                sub_events[0].case_count = case_count
+            if death_count > sub_events[0].death_count:
+                sub_events[0].death_count = death_count
+        else:
+            # sub_events[0] is a regional mention. If it has no regional metric but there is a national total,
+            # promote the event to country-level rather than pasting national total onto the region.
+            if explicit_case_count and case_count > 0 and sub_events[0].case_count <= 0:
+                sub_events[0].location_name = sub_events[0].country
+                sub_events[0].admin1 = None
+                sub_events[0].admin2 = None
+                sub_events[0].case_count = case_count
+                if death_count > 0:
+                    sub_events[0].death_count = death_count
 
     # Split only when the source explicitly binds different counts to
     # different disease names. A shared phrase such as "measles and rubella
@@ -1291,10 +1306,25 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 event.disease = label
                 event.case_count = int(metric["case_count"] or 0)
                 event.death_count = 0
-                event.evidence = str(metric.get("evidence") or event.evidence)
-                event.source_evidence = event.evidence
-                event.evidence_offset_start = metric.get("evidence_offset_start")
-                event.evidence_offset_end = metric.get("evidence_offset_end")
+                # Evidence must come from the original sentence that contains the exact number
+                value_digits = re.sub(r"\D", "", str(event.case_count))
+                sentence_evidence = None
+                for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text):
+                    clean_s = " ".join(sentence.split()).strip()
+                    if (
+                        value_digits
+                        and value_digits in re.sub(r"\D", "", clean_s)
+                        and extractors.disease_has_textual_evidence(label, clean_s)
+                    ):
+                        sentence_evidence = clean_s
+                        break
+                if not sentence_evidence:
+                    sentence_evidence = str(metric.get("evidence") or event.evidence)
+                event.evidence = sentence_evidence
+                event.source_evidence = sentence_evidence
+                start = text.find(sentence_evidence)
+                event.evidence_offset_start = start if start >= 0 else metric.get("evidence_offset_start")
+                event.evidence_offset_end = start + len(sentence_evidence) if start >= 0 else metric.get("evidence_offset_end")
                 event.needs_review = True
                 if "disease_specific_metric_split" not in event.validation_flags:
                     event.validation_flags.append("disease_specific_metric_split")
@@ -1331,6 +1361,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # mentions.  They must not be promoted to phantom zero-count events.
     if ncd_only:
         sub_events = []
+
+    # Regional events exist ONLY when metrics are truly bound to that region.
+    # Bare location mentions belong in the location matrix, not as empty regional events.
+    sub_events = [
+        evt for evt in sub_events
+        if (
+            (evt.case_count or 0) > 0
+            or (evt.death_count or 0) > 0
+            or evt.metric_type == "negative_surveillance"
+            or (evt.country and str(evt.location_name or "").casefold() == str(evt.country).casefold())
+        )
+    ]
 
     all_locations = _attach_location_provenance(all_locations, text)
 

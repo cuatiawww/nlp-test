@@ -142,7 +142,9 @@ def _validate_location(name: str) -> Optional[str]:
     """Validate against the loaded gazetteer; return canonical name or None."""
     if not name:
         return None
-    from .extractors import _fold_location_text, COUNTRY_ALIASES, resolve_location_hierarchy
+    from .extractors import is_usable_place_name, _fold_location_text, COUNTRY_ALIASES, resolve_location_hierarchy
+    if not is_usable_place_name(name):
+        return None
     hier = resolve_location_hierarchy(name)
     if hier.get("canonical_name") and (hier.get("country") or hier.get("latitude") is not None):
         return hier["canonical_name"]
@@ -394,6 +396,9 @@ def _llm_extract_events(text: str, diseases: list[str]) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             deaths = 0
 
+        # Create regional events ONLY when metrics are truly bound to that region
+        if cases <= 0 and deaths <= 0:
+            continue
         validated.append({
             "location": canonical,
             "disease": str(item.get("disease") or "").strip(),
@@ -783,6 +788,38 @@ def compose_structured_events(
     # epidemiological event.  Additional events must come from the evidence
     # first relation layer above, never from the length of `diseases_extracted`.
     from . import extractors as ext
+
+    # Create regional events ONLY when metrics are truly bound to that region.
+    # No empty 1.1 events from bare disease/location mentions.
+    events = [
+        evt for evt in events
+        if (
+            (evt.get("case_count") or 0) > 0
+            or (evt.get("death_count") or 0) > 0
+            or evt.get("metric_type") == "negative_surveillance"
+            or (evt.get("country") and str(evt.get("location_name") or "").casefold() == str(evt.get("country")).casefold())
+        )
+    ]
+
+    # UNKNOWN child may inherit parent disease ONLY if single relation + has metric.
+    candidates = list(dict.fromkeys(
+        ext.canonical_disease_name(d)
+        for d in (diseases_extracted or ([primary_disease] if primary_disease else []))
+        if d and ext.canonical_disease_name(d).upper() != "UNKNOWN"
+    ))
+    if len(candidates) == 1:
+        inherited_disease = candidates[0]
+        for evt in events:
+            if (
+                ext.canonical_disease_name(evt.get("disease") or "UNKNOWN").upper() == "UNKNOWN"
+                and ((evt.get("case_count") or 0) > 0 or (evt.get("death_count") or 0) > 0)
+            ):
+                evt["disease"] = inherited_disease
+                evt["needs_review"] = True
+                flags = list(evt.get("validation_flags") or [])
+                if "disease_inherited_from_single_relation" not in flags:
+                    flags.append("disease_inherited_from_single_relation")
+                evt["validation_flags"] = flags
 
     if len(events) == 1 and primary_disease:
         event_disease = str(events[0].get("disease") or "")
