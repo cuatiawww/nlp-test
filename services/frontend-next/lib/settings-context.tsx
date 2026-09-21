@@ -1,5 +1,6 @@
 'use client';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { SidebarGroupConfig, DEFAULT_NAVIGATION_CONFIG } from '@/lib/menu';
 
 export interface SystemSettings {
   app_name: string;
@@ -9,6 +10,7 @@ export interface SystemSettings {
   favicon_url: string;
   footer_text: string;
   ticker_text: string;
+  navigation_menu?: SidebarGroupConfig[];
 }
 
 const DEFAULT_SETTINGS: SystemSettings = {
@@ -19,18 +21,21 @@ const DEFAULT_SETTINGS: SystemSettings = {
   favicon_url: '',
   footer_text: 'ASEAN Real-time AI Surveillance Data',
   ticker_text: '',
+  navigation_menu: DEFAULT_NAVIGATION_CONFIG,
 };
 
 interface SettingsContextType {
   settings: SystemSettings;
   loading: boolean;
   refetch: () => void;
+  updateSettings: (partial: Partial<SystemSettings>) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType>({
   settings: DEFAULT_SETTINGS,
   loading: false,
   refetch: () => {},
+  updateSettings: () => {},
 });
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
@@ -39,7 +44,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch('/nlp/api/v1/console/settings');
+      const res = await fetch(`/nlp/api/v1/console/settings?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data?.config_data) {
@@ -47,6 +58,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           setSettings({
             ...DEFAULT_SETTINGS,
             ...config,
+            navigation_menu: Array.isArray(config.navigation_menu) && config.navigation_menu.length > 0
+              ? config.navigation_menu
+              : DEFAULT_SETTINGS.navigation_menu,
             app_name: config.app_name === 'ASEAN Disease Outbreak Surveillance AI'
               ? DEFAULT_SETTINGS.app_name
               : config.app_name,
@@ -66,12 +80,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const updateSettings = useCallback((partial: Partial<SystemSettings>) => {
+    setSettings((prev) => ({ ...prev, ...partial }));
+  }, []);
+
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
 
   return (
-    <SettingsContext.Provider value={{ settings, loading, refetch: fetchSettings }}>
+    <SettingsContext.Provider value={{ settings, loading, refetch: fetchSettings, updateSettings }}>
       {children}
     </SettingsContext.Provider>
   );

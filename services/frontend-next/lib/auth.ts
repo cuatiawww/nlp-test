@@ -40,6 +40,7 @@ export const SYSTEM_MODULES: SystemModule[] = [
   // System Management
   { id: 'console_users', label: 'User Management', description: 'Create accounts and manage module permissions', category: 'System Management', path: '/console/users' },
   { id: 'console_settings', label: 'Settings & Audit', description: 'Application branding and activity audit history', category: 'System Management', path: '/console/settings' },
+  { id: 'configuration_modul', label: 'Configuration Modul', description: 'Configure navigation groups, modules, and sub-modules for sidebar', category: 'System Management', path: '/console/configuration-modul' },
 ];
 
 export const ROLE_PRESET_MODULES: Record<string, string[]> = {
@@ -82,6 +83,7 @@ export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string):
   if (moduleKeyOrPath.startsWith('/interoperability') && user.permissions?.includes('interoperability')) return true;
   if (moduleKeyOrPath.startsWith('/console/users') && user.permissions?.includes('console_users')) return true;
   if (moduleKeyOrPath.startsWith('/console/settings') && user.permissions?.includes('console_settings')) return true;
+  if (moduleKeyOrPath.startsWith('/console/configuration-modul') && (user.permissions?.includes('configuration_modul') || user.permissions?.includes('console_settings'))) return true;
 
   return false;
 }

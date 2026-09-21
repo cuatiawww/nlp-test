@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import {
   ChevronDown,
@@ -11,6 +11,7 @@ import {
   Settings as SettingsIcon,
   Users as UsersIcon,
   FileText,
+  SlidersHorizontal,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -97,7 +98,7 @@ export default function DashboardHeader({
           <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
             <LanguageSwitcher />
 
-            {/* In Console Mode: Show Console Tabs (Settings, Users) + Button to return to Surveillance Dashboard */}
+            {/* In Console Mode: Show Console Tabs (Settings, Users, Configuration Modul) + Button to return to Surveillance Dashboard */}
             {consoleMode ? (
               <div className="hidden items-center rounded-2xl border border-white/45 bg-white/90 p-1.5 shadow-sm backdrop-blur-sm sm:flex">
                 <Link
@@ -110,6 +111,17 @@ export default function DashboardHeader({
                 >
                   <SettingsIcon className="h-4 w-4" />
                   Settings
+                </Link>
+                <Link
+                  href="/console/configuration-modul"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname?.startsWith("/console/configuration-modul")
+                      ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
+                      : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
+                  }`}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Modules
                 </Link>
                 <Link
                   href="/console/users"

@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { usePathname } from "next/navigation";
-import { sidebarMenu, consoleMenu, SidebarGroup } from "@/lib/menu";
+import { sidebarMenu, consoleMenu, SidebarGroup, convertConfigToSidebarGroups } from "@/lib/menu";
 import DashboardSidebar from "./DashboardSidebar";
 import DashboardHeader from "./DashboardHeader";
 import { isLoggedIn, getAuthUser, hasModuleAccess, AuthUser } from "@/lib/auth";
 import Footer from "./Footer";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
+import { useSettings } from "@/lib/settings-context";
 
 const guestMenu: SidebarGroup[] = [
   {
@@ -33,6 +34,7 @@ export default function AppShell({
   consoleMode?: boolean;
 }) {
   const { t } = useTranslation();
+  const { settings } = useSettings();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authenticated, setAuthenticated] = useState(!publicMode);
@@ -68,7 +70,16 @@ export default function AppShell({
     if (tvMode) return [];
     if (!authenticated) return guestMenu;
 
-    const baseGroups = consoleMode ? consoleMenu : sidebarMenu;
+    const dynamicGroups = (settings.navigation_menu && settings.navigation_menu.length > 0)
+      ? convertConfigToSidebarGroups(settings.navigation_menu)
+      : sidebarMenu;
+
+    const baseGroups = consoleMode
+      ? [
+          consoleMenu[0], // SYSTEM MANAGEMENT (Console tools: Settings, Modul, CMS, Users, etc.)
+          ...dynamicGroups, // Dynamic Navigation configured by administrator!
+        ]
+      : dynamicGroups;
 
     // Admin or wildcard permission has access to everything
     if (!currentUser || currentUser.role?.toLowerCase() === 'admin' || currentUser.permissions?.includes('*')) {
@@ -90,8 +101,8 @@ export default function AppShell({
           items: filteredItems,
         };
       })
-      .filter((group) => group.items.length > 0);
-  }, [tvMode, authenticated, consoleMode, currentUser]);
+      .filter((group) => group.items.length > 0 || (group.id && group.id.startsWith('grp_')));
+  }, [tvMode, authenticated, consoleMode, currentUser, settings.navigation_menu]);
 
   if (tvMode)
     return (
