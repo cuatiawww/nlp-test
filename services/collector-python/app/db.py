@@ -13,6 +13,21 @@ _connection_state = threading.local()
 logger = logging.getLogger(__name__)
 
 
+def _as_utc(value):
+    """Normalize PostgreSQL timestamps before comparing them with UTC now.
+
+    Legacy deployments may expose TIMESTAMP WITHOUT TIME ZONE values as naive
+    Python datetimes, while newer columns use timezone-aware values. Treat a
+    naive database timestamp as UTC to keep scheduler/backoff comparisons
+    deterministic during the migration period.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def is_url_already_processed(url: str) -> bool:
     """Check whether the URL already has a completed NLP record.
 
@@ -263,7 +278,7 @@ def source_in_backoff(source_id: str, max_backoff_minutes: int = 360) -> bool:
             break
         streak += 1
         if last_failed_at is None:
-            last_failed_at = row["finished_at"]
+            last_failed_at = _as_utc(row["finished_at"])
     if streak <= 0 or last_failed_at is None:
         return False
     delay_minutes = min(max_backoff_minutes, 15 * (2 ** min(streak - 1, 5)))
@@ -309,7 +324,7 @@ def fetch_due_source_ids(limit: int = 3, default_interval_minutes: int = 60) -> 
     due = []
     for row in rows:
         interval = source_interval_minutes(row["schedule"], default_interval_minutes)
-        finished = row["finished_at"]
+        finished = _as_utc(row["finished_at"])
         if finished is None or finished <= datetime.now(timezone.utc) - timedelta(minutes=interval):
             due.append(row["id"])
         if len(due) >= max(1, int(limit)):
