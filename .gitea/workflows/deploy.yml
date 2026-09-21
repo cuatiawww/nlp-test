@@ -127,5 +127,23 @@ jobs:
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
 
       - name: Start frontend dan service lain setelah backend sehat
-        run: docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d --remove-orphans
+        run: |
+          set -e
+          # Do not re-evaluate the full dependency graph here: an NLP
+          # healthcheck may be slow while the service is still serving health.
+          # Backend has already passed its own healthcheck above.
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml \
+            up -d --no-deps disease-frontend-next
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml \
+            up -d --no-deps disease-worker-python analysis-job-worker
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 5 http://127.0.0.1:3010/nlp/login >/dev/null 2>&1; then
+              echo "✅ Frontend /nlp/login merespons (percobaan ke-$i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Frontend /nlp/login tidak merespons"
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml logs --tail 100 disease-frontend-next
+          exit 1
         working-directory: /home/nlpdev/docker/nlp-penyakit-git
