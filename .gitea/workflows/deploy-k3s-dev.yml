@@ -1,0 +1,45 @@
+name: deploy-k3s-dev
+run-name: "K3s dev ${{ gitea.ref_name }} (${{ gitea.sha }})"
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: [self-hosted, k3s-dev-deploy]
+    concurrency:
+      group: nlp-penyakit-k3s-dev
+      cancel-in-progress: true
+    env:
+      REGISTRY: gitea.mediaciptainformasi.co.id/arlansyah
+      IMAGE_TAG: dev-${{ gitea.sha }}
+      WORKSPACE: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
+    steps:
+      - name: Checkout
+        run: |
+          set -eu
+          rm -rf "$WORKSPACE"; mkdir -p "$WORKSPACE"; cd "$WORKSPACE"
+          git -c http.version=HTTP/1.1 -c http.extraHeader="Authorization: token ${{ gitea.token }}" clone --depth 1 --branch "${{ gitea.ref_name }}" https://gitea.mediaciptainformasi.co.id/KEMKES/NLP-PENYAKIT.git .
+      - name: Build and push images
+        working-directory: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
+        run: |
+          set -eu
+          docker info >/dev/null
+          docker build -t "$REGISTRY/nlp-penyakit-disease-nlp-python:$IMAGE_TAG" services/nlp-python
+          docker build -t "$REGISTRY/nlp-penyakit-disease-backend-rust:$IMAGE_TAG" services/backend-rust
+          docker build --build-arg NEXT_PUBLIC_API_BASE_URL=/api --build-arg NEXT_PUBLIC_BASE_PATH=/nlp --build-arg BACKEND_INTERNAL_URL=http://disease-backend-rust:8081 -t "$REGISTRY/nlp-penyakit-disease-frontend-next:$IMAGE_TAG" services/frontend-next
+          docker build -t "$REGISTRY/nlp-penyakit-disease-collector-python:$IMAGE_TAG" services/collector-python
+          docker build -t "$REGISTRY/nlp-penyakit-worker-python:$IMAGE_TAG" services/worker-python
+          docker tag "$REGISTRY/nlp-penyakit-worker-python:$IMAGE_TAG" "$REGISTRY/nlp-penyakit-worker-python:analysis-$IMAGE_TAG"
+          for image in disease-nlp-python disease-backend-rust disease-frontend-next disease-collector-python worker-python; do docker push "$REGISTRY/nlp-penyakit-$image:$IMAGE_TAG"; done
+          docker push "$REGISTRY/nlp-penyakit-worker-python:analysis-$IMAGE_TAG"
+      - name: Deploy K3s
+        working-directory: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
+        run: |
+          set -eu
+          python3 -c 'from pathlib import Path; p=Path("deploy/k3s/overlays/dev/kustomization.yaml"); p.write_text(p.read_text().replace("newTag: dev", "newTag: ${{ gitea.sha }}"))'
+          sudo -n k3s kubectl apply -k deploy/k3s/overlays/dev
+          sudo -n k3s kubectl -n nlp-dev set image deployment/disease-analysis-job-worker analysis-worker="$REGISTRY/nlp-penyakit-worker-python:analysis-$IMAGE_TAG" || true
+      - name: Status
+        if: always()
+        run: sudo -n k3s kubectl -n nlp-dev get pods,svc,ingress -o wide

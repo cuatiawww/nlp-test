@@ -1,0 +1,222 @@
+apiVersion: v1
+kind: Service
+metadata: {name: postgresql}
+spec:
+  selector: {app: postgresql}
+  ports: [{name: postgres, port: 5432, targetPort: postgres}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: postgresql}
+spec:
+  serviceName: postgresql
+  replicas: 1
+  selector: {matchLabels: {app: postgresql}}
+  template:
+    metadata: {labels: {app: postgresql}}
+    spec:
+      nodeSelector: {role: nlp-data}
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports: [{name: postgres, containerPort: 5432}]
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+          readinessProbe: {exec: {command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']}, initialDelaySeconds: 10}
+          resources: {requests: {cpu: 250m, memory: 512Mi}, limits: {cpu: "2", memory: 3Gi}}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec: {accessModes: [ReadWriteOnce], storageClassName: local-path, resources: {requests: {storage: 8Gi}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: disease-rabbitmq}
+spec:
+  selector: {app: disease-rabbitmq}
+  ports: [{name: amqp, port: 5672, targetPort: amqp}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: disease-rabbitmq}
+spec:
+  serviceName: disease-rabbitmq
+  replicas: 1
+  selector: {matchLabels: {app: disease-rabbitmq}}
+  template:
+    metadata: {labels: {app: disease-rabbitmq}}
+    spec:
+      nodeSelector: {role: application}
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13-management-alpine
+          ports: [{name: amqp, containerPort: 5672}]
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          volumeMounts: [{name: data, mountPath: /var/lib/rabbitmq}]
+          readinessProbe: {exec: {command: [rabbitmq-diagnostics, -q, ping]}, initialDelaySeconds: 20}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec: {accessModes: [ReadWriteOnce], storageClassName: local-path, resources: {requests: {storage: 4Gi}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: disease-minio}
+spec:
+  selector: {app: disease-minio}
+  ports: [{name: api, port: 9000, targetPort: api}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: disease-minio}
+spec:
+  serviceName: disease-minio
+  replicas: 1
+  selector: {matchLabels: {app: disease-minio}}
+  template:
+    metadata: {labels: {app: disease-minio}}
+    spec:
+      nodeSelector: {role: application}
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: [server, /data, --console-address, ":9001"]
+          ports: [{name: api, containerPort: 9000}]
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          volumeMounts: [{name: data, mountPath: /data}]
+          readinessProbe: {httpGet: {path: /minio/health/live, port: api}, initialDelaySeconds: 10}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec: {accessModes: [ReadWriteOnce], storageClassName: local-path, resources: {requests: {storage: 8Gi}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: disease-nlp-python}
+spec:
+  selector: {app: disease-nlp-python}
+  ports: [{name: http, port: 8000, targetPort: http}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: disease-nlp-python}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: disease-nlp-python}}
+  template:
+    metadata: {labels: {app: disease-nlp-python}}
+    spec:
+      imagePullSecrets: [{name: gitea-registry}]
+      nodeSelector: {role: nlp-data}
+      containers:
+        - name: nlp
+          image: disease-nlp-python
+          ports: [{name: http, containerPort: 8000}]
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          volumeMounts: [{name: models, mountPath: /app/models}]
+          resources: {requests: {cpu: "2", memory: 4Gi}, limits: {cpu: "12", memory: 12Gi}}
+          startupProbe: {httpGet: {path: /health, port: http}, failureThreshold: 60, periodSeconds: 10}
+      volumes: [{name: models, persistentVolumeClaim: {claimName: nlp-models}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: disease-backend-rust}
+spec:
+  selector: {app: disease-backend-rust}
+  ports: [{name: http, port: 8081, targetPort: http}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: disease-backend-rust}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: disease-backend-rust}}
+  template:
+    metadata: {labels: {app: disease-backend-rust}}
+    spec:
+      imagePullSecrets: [{name: gitea-registry}]
+      nodeSelector: {role: application}
+      containers:
+        - name: backend
+          image: disease-backend-rust
+          ports: [{name: http, containerPort: 8081}]
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 30}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "2", memory: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: disease-frontend-next}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: disease-frontend-next}}
+  template:
+    metadata: {labels: {app: disease-frontend-next}}
+    spec:
+      imagePullSecrets: [{name: gitea-registry}]
+      nodeSelector: {role: application}
+      containers:
+        - name: frontend
+          image: disease-frontend-next
+          ports: [{name: http, containerPort: 3000}]
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          readinessProbe: {httpGet: {path: /nlp, port: http}, initialDelaySeconds: 20}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: disease-frontend-next}
+spec:
+  selector: {app: disease-frontend-next}
+  ports: [{name: http, port: 3000, targetPort: http}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: disease-collector-python}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: disease-collector-python}}
+  template:
+    metadata: {labels: {app: disease-collector-python}}
+    spec:
+      imagePullSecrets: [{name: gitea-registry}]
+      nodeSelector: {role: application}
+      containers:
+        - name: collector
+          image: disease-collector-python
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "2", memory: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: disease-worker-python}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: disease-worker-python}}
+  template:
+    metadata: {labels: {app: disease-worker-python}}
+    spec:
+      imagePullSecrets: [{name: gitea-registry}]
+      nodeSelector: {role: application}
+      containers:
+        - name: worker
+          image: disease-worker-python
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: disease-analysis-job-worker}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: disease-analysis-job-worker}}
+  template:
+    metadata: {labels: {app: disease-analysis-job-worker}}
+    spec:
+      imagePullSecrets: [{name: gitea-registry}]
+      nodeSelector: {role: application}
+      containers:
+        - name: analysis-worker
+          image: disease-analysis-job-worker
+          command: [python, -m, app.analysis_jobs]
+          envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "2", memory: 1Gi}}

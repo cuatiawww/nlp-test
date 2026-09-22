@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: nlp-dev
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - storage.yaml
+  - workloads.yaml
+  - ingress.yaml
+images:
+  - name: disease-nlp-python
+    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-disease-nlp-python
+    newTag: dev
+  - name: disease-backend-rust
+    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-disease-backend-rust
+    newTag: dev
+  - name: disease-frontend-next
+    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-disease-frontend-next
+    newTag: dev
+  - name: disease-collector-python
+    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-disease-collector-python
+    newTag: dev
+  - name: disease-worker-python
+    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-worker-python
+    newTag: dev
+  - name: disease-analysis-job-worker
+    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-worker-python
+    newTag: dev

@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nlp-runtime
+data:
+  DB_HOST: postgresql
+  DB_PORT: "5432"
+  POSTGRES_DB: disease_ai
+  POSTGRES_USER: disease_app
+  DATABASE_URL: postgres://disease_app:CHANGE_ME@postgresql:5432/disease_ai
+  NLP_SERVICE_URL: http://disease-nlp-python:8000
+  API_INTERNAL_URL: http://disease-backend-rust:8081
+  BACKEND_INTERNAL_URL: http://disease-backend-rust:8081
+  COLLECTOR_URL: http://disease-collector-python:8002
+  MINIO_ENDPOINT: http://disease-minio:9000
+  MINIO_BUCKET: disease-documents
+  RABBITMQ_URL: amqp://disease_app:CHANGE_ME@disease-rabbitmq:5672/%2f
+  NEXT_PUBLIC_BASE_PATH: /nlp
+  NEXT_PUBLIC_API_BASE_URL: /api
+  NLP_MODEL: xlm-roberta
+  TRANSLATION_LOCAL_ENABLED: "true"
+  TRANSLATION_LOCAL_MODEL: facebook/nllb-200-distilled-600M
+  TRANSLATION_MAX_CHARS: "7000"
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  COLLECTOR_TIMEZONE: Asia/Jakarta
+  SOCIAL_MEDIA_CSV_DIR: /app/data/social_media
+  SOCIAL_MEDIA_CSV_LOOP: "false"
