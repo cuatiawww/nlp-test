@@ -1026,9 +1026,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             projected_disease = disease
             if projected_disease == "UNKNOWN" and len(relation_diseases) == 1:
                 projected_disease = relation_diseases[0]
-            if projected_disease != "UNKNOWN" and (
-                len(strict_output.disease_classification) <= 1 or len(relation_diseases) == 1
-            ):
+            if projected_disease != "UNKNOWN":
                 def evidence_for_metric_value(value: int) -> tuple[str, Optional[int], Optional[int]]:
                     value_digits = re.sub(r"\D", "", str(value))
                     if not value_digits:
@@ -1268,10 +1266,21 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             or str(sub_events[0].location_name).casefold() == str(sub_events[0].country).casefold()
         )
         if is_country_event:
-            if explicit_case_count and case_count > sub_events[0].case_count:
+            # Synchronize parent and single country child event exactly
+            if sub_events[0].case_count > 0 and case_count > 0:
+                unified_cases = max(case_count, sub_events[0].case_count)
+                case_count = unified_cases
+                sub_events[0].case_count = unified_cases
+            elif explicit_case_count and case_count > sub_events[0].case_count:
                 sub_events[0].case_count = case_count
+            elif sub_events[0].case_count > case_count:
+                case_count = sub_events[0].case_count
+                explicit_case_count = True
+
             if death_count > sub_events[0].death_count:
                 sub_events[0].death_count = death_count
+            elif sub_events[0].death_count > death_count:
+                death_count = sub_events[0].death_count
         else:
             # sub_events[0] is a regional mention. If it has no regional metric but there is a national total,
             # promote the event to country-level rather than pasting national total onto the region.
@@ -1282,6 +1291,43 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 sub_events[0].case_count = case_count
                 if death_count > 0:
                     sub_events[0].death_count = death_count
+
+    # Identify aggregate country total vs regional breakdown events (e.g. Vietnam, Cambodia)
+    country_sub_events = [
+        evt for evt in sub_events
+        if evt.country and str(evt.location_name or "").casefold() == str(evt.country).casefold()
+    ]
+    regional_sub_events = [
+        evt for evt in sub_events
+        if evt.country and str(evt.location_name or "").casefold() != str(evt.country).casefold()
+    ]
+    if country_sub_events and regional_sub_events:
+        for c_evt in country_sub_events:
+            c_evt.provenance.setdefault("role", "aggregate_total")
+            c_evt.provenance["is_aggregate"] = True
+            c_evt.provenance["breakdown_count"] = len(regional_sub_events)
+            if c_evt.case_count > 0:
+                case_count = c_evt.case_count
+                explicit_case_count = True
+            if c_evt.death_count > 0:
+                death_count = max(death_count, c_evt.death_count)
+
+        for r_evt in regional_sub_events:
+            r_evt.provenance.setdefault("role", "regional_breakdown")
+            r_evt.provenance["is_aggregate"] = False
+            r_evt.provenance["aggregate_location"] = r_evt.country
+            if "regional_breakdown_of_national_total" not in r_evt.validation_flags:
+                r_evt.validation_flags.append("regional_breakdown_of_national_total")
+            if not r_evt.disease or r_evt.disease.upper() == "UNKNOWN":
+                matching_country_evt = next((ce for ce in country_sub_events if ce.country == r_evt.country), country_sub_events[0])
+                if matching_country_evt.disease and matching_country_evt.disease.upper() != "UNKNOWN":
+                    r_evt.disease = matching_country_evt.disease
+                    r_evt.needs_review = True
+            r_evt.relations.append({
+                "type": "breakdown_of",
+                "target": r_evt.country,
+                "aggregate_cases": country_sub_events[0].case_count,
+            })
 
     # Split only when the source explicitly binds different counts to
     # different disease names. A shared phrase such as "measles and rubella
@@ -1465,6 +1511,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if "location_country_conflict" not in doc_validation_flags:
             doc_validation_flags.append("location_country_conflict")
 
+    # In multi-country roundup articles, align parent country to the country of the primary surveillance metric
+    if sub_events and len(mentioned_countries) > 1:
+        best_event = max(sub_events, key=lambda e: (e.case_count or 0, e.death_count or 0))
+        if best_event.country and (best_event.case_count or 0) > 0 and str(country or "").casefold() != str(best_event.country).casefold():
+            country = best_event.country
+            location = country
+            hier = extractors.resolve_location_hierarchy(country, country_hint=country)
+            lat = hier.get("latitude")
+            lon = hier.get("longitude")
+            location_country_conflict = False
+
     metric_countries = {
         str(item.country or "").strip()
         for item in strict_projection_locations
@@ -1570,6 +1627,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         for value in (relation_diseases or ([disease] if disease else []))
         if value and extractors.canonical_disease_name(value).upper() != "UNKNOWN"
     ))
+    if not event_disease_candidates and disease and disease.upper() != "UNKNOWN":
+        event_disease_candidates = [extractors.canonical_disease_name(disease)]
+
     if len(event_disease_candidates) == 1:
         inherited_disease = event_disease_candidates[0]
         for evt in sub_events:

@@ -119,6 +119,16 @@ _RE_NEW_CASES = re.compile(
     re.IGNORECASE,
 )
 
+_RE_HISTORICAL = re.compile(
+    r"\b(?:sebelumnya|tahun\s+lalu|wabah\s+sebelumnya|periode\s+sebelumnya|"
+    r"in\s+(?:19\d{2}|20[01]\d|202[0-5])|pada\s+tahun\s+(?:19\d{2}|20[01]\d|202[0-5])|"
+    r"historically|previously|past\s+outbreak|prior\s+outbreak|historical|"
+    r"in\s+the\s+same\s+period\s+last\s+year|compared\s+(?:with|to)\s+last\s+year|"
+    r"for\s+the\s+whole\s+of\s+20\d{2}|in\s+all\s+of\s+20\d{2})\b",
+    re.IGNORECASE,
+)
+
+
 _RE_ACTIVE_CASES = re.compile(
     r"\b(?:kasus\s+aktif|masih\s+dirawat|dalam\s+perawatan|sedang\s+dirawat|"
     r"active\s+cases?|currently\s+hospitali[sz]ed|đang\s+điều\s+trị)\b",
@@ -144,6 +154,8 @@ def qualify_metric_type(
         return "deaths", "persons"
     if _RE_DEATHS.search(sample) and not has_cases:
         return "deaths", "persons"
+    if default_period == "historical" or _RE_HISTORICAL.search(sample):
+        return ("historical_cases", "persons") if has_cases else ("historical_deaths", "persons")
     if _RE_CUMULATIVE.search(sample) or default_period == "cumulative":
         return "cumulative_cases", "persons"
     if _RE_NEW_CASES.search(sample):
@@ -589,6 +601,10 @@ def validate_surveillance_facts(
     elif epistemic_status == "rumor":
         flags.append("unverified_rumor")
 
+    # Historical context flag
+    if count_period_type == "historical" or _RE_HISTORICAL.search(text[:2500]):
+        flags.append("historical_context")
+
     # 5. Conflicting headline vs body numbers
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
     if len(lines) >= 2:
@@ -613,6 +629,9 @@ def validate_surveillance_facts(
             if s_deaths and s_cases and int(s_deaths) > int(s_cases) and int(s_cases) > 0:
                 if "death_exceeds_cases" not in flags:
                     flags.append("death_exceeds_cases")
+            s_temporal = sub.get("temporal_context") if isinstance(sub, dict) else getattr(sub, "temporal_context", "current")
+            if s_temporal == "historical" and "historical_context" not in flags:
+                flags.append("historical_context")
 
     needs_review = bool(flags)
     return needs_review, flags
@@ -635,6 +654,10 @@ def calibrate_outbreak_alert(
         return False
 
     flags = set(validation_flags or [])
+
+    # Historical counts or past comparison data must NEVER trigger an active outbreak alert
+    if count_period_type == "historical" or "historical_context" in flags:
+        return False
 
     # Retracted news or hoaxes must NEVER trigger an outbreak alert
     if epistemic_status == "retracted" or "retracted_report" in flags:

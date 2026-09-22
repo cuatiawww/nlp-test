@@ -404,16 +404,17 @@ def build_atomic_events(
             candidates = direct or sentence_candidates
             if not candidates and len(labels) == 1:
                 candidates = labels
+            if not candidates and len(paragraph_candidates) == 1:
+                candidates = paragraph_candidates
             disease = _nearest_disease(sentence, candidates, evidence_start) if candidates else None
             if disease is None and len(candidates) == 1:
                 disease = candidates[0]
-            if not direct and not sentence_candidates and not paragraph_candidates and primary_disease:
-                # Preserve the caller's explicit fallback label when the article
-                # provides no local disease mention to normalize.
-                disease = str(primary_disease).strip()
+            if disease is None and primary_disease and str(primary_disease).strip().upper() != "UNKNOWN":
+                if not candidates or len(candidates) <= 1:
+                    disease = str(primary_disease).strip()
             resolved = disease or "UNKNOWN"
             explicit = bool(direct or sentence_candidates)
-            confidence = 0.92 if explicit and len(candidates) == 1 else (0.68 if candidates else 0.30)
+            confidence = 0.92 if explicit and len(candidates) == 1 else (0.75 if len(paragraph_candidates) == 1 else (0.68 if candidates else 0.40))
             return resolved, confidence
 
         def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None):
@@ -500,8 +501,8 @@ def build_atomic_events(
         for relation in local_relations:
             evidence_start = sentence.find(relation.evidence) if relation.evidence else 0
             event_disease = relation.disease
-            event_confidence = 0.94 if event_disease else 0.30
-            if not event_disease:
+            event_confidence = 0.94 if (event_disease and str(event_disease).upper() != "UNKNOWN") else 0.30
+            if not event_disease or str(event_disease).upper() == "UNKNOWN":
                 event_disease, event_confidence = resolve_disease(relation.evidence or sentence, max(0, evidence_start))
             relation_evidence = relation.evidence or sentence.strip()
             # Some narrative parsers retain only the numeric span (for

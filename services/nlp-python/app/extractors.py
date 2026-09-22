@@ -1306,6 +1306,13 @@ def count_period_type(text: str) -> str:
         sample,
     ):
         return "cumulative"
+    if re.search(
+        r"\b(?:historically|previous\s+outbreak|prior\s+outbreak|past\s+outbreak|"
+        r"for\s+the\s+whole\s+of\s+20\d{2}|in\s+all\s+of\s+20\d{2}|"
+        r"in\s+(?:19\d{2}|20[01]\d|202[0-5])|pada\s+tahun\s+(?:19\d{2}|20[01]\d|202[0-5]))\b",
+        sample,
+    ):
+        return "historical"
     if re.search(r"\b(?:this week|epi(?:demiological)? week|past 24 hours|yesterday|new cases)\b", sample):
         return "incident"
     return "unknown"

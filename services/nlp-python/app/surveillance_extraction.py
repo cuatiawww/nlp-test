@@ -805,7 +805,7 @@ def _relation_time_frame_for_span(
             re.search(r"\(\s*\d{1,2}\s+[^()\d]{2,24}\s*(?:-|–|to|s/d)\s*\d{1,2}", after_year, re.IGNORECASE)
         )
         if not re.search(r"[.!?;\n]", after_clause) and re.search(
-            r"(?:\b(?:in|during|throughout|year|tahun|pada)\b|ปี|ປີ|ឆ្នាំ|年)\s*$",
+            r"(?:\b(?:in|during|throughout|year|tahun|pada|for\s+the\s+whole\s+of|in\s+all\s+of|sepanjang(?:\s+tahun)?|selama(?:\s+tahun)?)\b|ปี|ປີ|ឆ្នាំ|年)\s*$",
             after_clause,
             re.IGNORECASE | re.UNICODE,
         ) and not has_explicit_range:
@@ -861,7 +861,9 @@ def _relation_time_frame_for_span(
         and match.end() >= start - 80
         for match in named_ranges
     ):
-        return _year_frame(int(year_after_metric.group(1)))
+        after_metric_text = source[end:year_after_metric.start()]
+        if not re.search(r"[.!?\n]", after_metric_text):
+            return _year_frame(int(year_after_metric.group(1)))
     # Preserve a complete date range when the metric is close to its range,
     # but let a closer comparison year win for later historical clauses.
     for match in named_ranges:
@@ -880,7 +882,13 @@ def _relation_time_frame_for_span(
         return global_frame
 
     if nearby_years:
-        return _year_frame(_calendar_year(nearest_year.group(1)))
+        between_text = source[min(end, nearest_year.start()):max(start, nearest_year.end())]
+        if re.search(r"[.!?\n]", between_text):
+            nearest_sentence = _metric_context(source, nearest_year.start(), nearest_year.end())
+            if re.search(r"\b\d+\s+(?:cases?|kasus|deaths?|kematian)\b", nearest_sentence, re.I):
+                nearest_year = None
+        if nearest_year is not None:
+            return _year_frame(_calendar_year(nearest_year.group(1)))
 
     # Keep weekly/location behavior and the old single-period fallback.
     if len(set(_YEAR_TOKEN.findall(source))) <= 1:
@@ -1236,6 +1244,10 @@ def _upsert_relation(
                 or candidate.disease.casefold() == relation.disease.casefold()
             )
             if not same_scope or not disease_compatible:
+                continue
+            candidate_hist = bool(re.search(r"\b(?:last\s+year|previous\s+year|the\s+whole\s+of|in\s+all\s+of|compared\s+(?:with|to)|sebelumnya|tahun\s+lalu)\b", candidate.evidence or "", re.I))
+            relation_hist = bool(re.search(r"\b(?:last\s+year|previous\s+year|the\s+whole\s+of|in\s+all\s+of|compared\s+(?:with|to)|sebelumnya|tahun\s+lalu)\b", relation.evidence or "", re.I))
+            if candidate_hist != relation_hist:
                 continue
             if candidate.evidence_offset_start is None or relation.evidence_offset_start is None:
                 continue
@@ -1707,8 +1719,12 @@ def _select_primary_period(
     """Select the newest observed period without mixing historical values."""
 
     publication_year = _period_year("", published_date)
-    relation_years = {_period_year(item.time_frame) for item in relations if _period_year(item.time_frame)}
-    target_year = publication_year if publication_year in relation_years or not relation_years else max(relation_years)
+    relation_years = {
+        _period_year(item.time_frame, published_date)
+        for item in relations
+        if _period_year(item.time_frame, published_date)
+    }
+    target_year = publication_year if publication_year else (max(relation_years) if relation_years else None)
     if target_year is None:
         return relations, None, ""
     same_year = [item for item in relations if _period_year(item.time_frame, published_date) == target_year]
