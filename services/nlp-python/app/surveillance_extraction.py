@@ -289,6 +289,12 @@ def surveillance_from_analysis(analysis: Any) -> SurveillanceOutput:
         disease_labels = [text(classification)]
     else:
         disease_labels = list(data.get("disease_extracted") or [])
+    for event in events:
+        label = text(event.get("disease"))
+        if label and label.casefold() != "unknown" and label.casefold() not in {
+            text(item).casefold() for item in disease_labels
+        }:
+            disease_labels.append(label)
     return SurveillanceOutput(
         disease_classification=disease_labels,
         published_date=date_value(data.get("published_date") or data.get("published_at")),

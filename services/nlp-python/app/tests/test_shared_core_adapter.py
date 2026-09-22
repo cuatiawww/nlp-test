@@ -40,7 +40,7 @@ class SharedCoreAdapterTest(unittest.TestCase):
 
     def test_multi_disease_events_stay_in_one_country_contract(self):
         output = surveillance_from_analysis({
-            "disease_classification": ["Dengue", "Influenza"],
+            "disease_classification": "Dengue",
             "country": "Vietnam",
             "case_count": 371,
             "death_count": 3,
@@ -69,6 +69,7 @@ class SharedCoreAdapterTest(unittest.TestCase):
         self.assertEqual(output.locations[0].country, "Vietnam")
         self.assertEqual(output.locations[0].reported_cases, 371)
         self.assertEqual(output.locations[0].deaths, 3)
+        self.assertEqual(output.disease_classification, ["Dengue", "Influenza"])
 
     @patch("app.main.pipeline.run")
     def test_surveillance_endpoint_is_only_a_shared_core_adapter(self, run):
