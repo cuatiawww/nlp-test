@@ -220,6 +220,31 @@ def _fold_with_positions(value: str) -> tuple[str, list[int]]:
 # Empty before DB bootstrap: no code-owned fallback vocabulary.
 COUNTRY_ALIASES: dict[str, str] = {}
 
+# The location master is ASEAN-focused. Keep the small external-country
+# fallback needed to classify an explicitly named non-ASEAN article until the
+# country registry is expanded; it is only a country scope hint, never a
+# locality or event metric source.
+EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {"yemen": "Yemen"}
+
+
+def _country_alias_view() -> dict[str, str]:
+    """Merge DB aliases with stable country names used by the scope contract."""
+    aliases = {str(country).casefold(): str(country) for country in config.ASEAN_COUNTRIES}
+    aliases.update(
+        {
+            "viet nam": "Vietnam",
+            "lao pdr": "Laos",
+            "burma": "Myanmar",
+            "philippine": "Philippines",
+            "the philippines": "Philippines",
+            "brunei darussalam": "Brunei",
+            "timor leste": "Timor-Leste",
+        }
+    )
+    aliases.update(EXTERNAL_COUNTRY_ALIASES)
+    aliases.update(COUNTRY_ALIASES)
+    return aliases
+
 # Publisher shorthand is common in Vietnamese news headlines. Keep these
 # aliases local and deterministic so a title such as "TP.HCM" resolves to the
 # gazetteer city instead of falling back to the country only.
@@ -603,7 +628,7 @@ def normalize_country(value: Optional[str]) -> Optional[str]:
     if not raw:
         return None
     folded = _fold_location_text(raw)
-    for alias, standard in COUNTRY_ALIASES.items():
+    for alias, standard in _country_alias_view().items():
         if folded == _fold_location_text(alias):
             return standard
     return raw
@@ -611,7 +636,7 @@ def normalize_country(value: Optional[str]) -> Optional[str]:
 
 def extract_country_hint(text: str) -> Optional[str]:
     config.ensure_location_registry_loaded()
-    lower_text = (text or "").lower()
+    lower_text = _fold_location_text(text or "")
     if not lower_text.strip():
         return None
     contextual = re.compile(
@@ -621,8 +646,9 @@ def extract_country_hint(text: str) -> Optional[str]:
         re.IGNORECASE,
     )
     country_scores: dict[str, float] = {}
-    for alias, standard_country in COUNTRY_ALIASES.items():
-        pattern = re.compile(rf"\b{re.escape(alias)}\b", re.IGNORECASE)
+    for alias, standard_country in _country_alias_view().items():
+        folded_alias = _fold_location_text(alias)
+        pattern = re.compile(rf"\b{re.escape(folded_alias)}\b", re.IGNORECASE)
         matches = list(pattern.finditer(lower_text))
         if not matches:
             continue
@@ -657,7 +683,11 @@ def extract_country_hint(text: str) -> Optional[str]:
     for c in list(country_scores.keys()):
         if c in config.ASEAN_COUNTRIES:
             country_scores[c] += 5.0
-            if any(alias in opening for alias, standard in COUNTRY_ALIASES.items() if standard == c):
+            if any(
+                _fold_location_text(alias) in opening
+                for alias, standard in _country_alias_view().items()
+                if standard == c
+            ):
                 country_scores[c] += 8.0
 
     return max(country_scores.keys(), key=lambda k: country_scores[k])
@@ -666,7 +696,7 @@ def extract_country_hint(text: str) -> Optional[str]:
 def extract_all_mentioned_countries(text: str) -> list[str]:
     """Extract all distinct ASEAN countries explicitly mentioned in text with positive evidence."""
     config.ensure_location_registry_loaded()
-    lower_text = (text or "").lower()
+    lower_text = _fold_location_text(text or "")
     if not lower_text.strip():
         return []
     contextual = re.compile(
@@ -676,10 +706,11 @@ def extract_all_mentioned_countries(text: str) -> list[str]:
         re.IGNORECASE,
     )
     country_scores: dict[str, float] = {}
-    for alias, standard_country in COUNTRY_ALIASES.items():
+    for alias, standard_country in _country_alias_view().items():
         if standard_country not in config.ASEAN_COUNTRIES:
             continue
-        pattern = re.compile(rf"\b{re.escape(alias)}\b", re.IGNORECASE)
+        folded_alias = _fold_location_text(alias)
+        pattern = re.compile(rf"\b{re.escape(folded_alias)}\b", re.IGNORECASE)
         matches = list(pattern.finditer(lower_text))
         if not matches:
             continue
@@ -1228,8 +1259,24 @@ _NON_HEALTH_TOPIC = re.compile(
     r"harga minyak|parlemen|pemilu|election|elections|far[- ]right|"
     r"voting under way|korupsi|corruption|"
     r"ambang batas parlemen|ruu pemilu|budget approaches|"
-    r"super-luxe condos|properties seized"
+    r"super-luxe condos|properties seized|"
+    r"violence|violent|conflict|war|unrest|political unrest|"
+    r"refugees?|displaced people|idps?|humanitarian crisis|"
+    r"casualt(?:y|ies)|airstrike|military operation"
     r")\b",
+    re.IGNORECASE,
+)
+
+_NON_INCIDENT_CONTEXT_FALLBACK = re.compile(
+    r"\b(?:refugees?|displaced|internally displaced|idps?|"
+    r"humanitarian aid|humanitarian assistance|beneficiaries|"
+    r"conflict casualties?|war casualties?|civilian casualties?)\b",
+    re.IGNORECASE,
+)
+
+_NEGATED_HEALTH_CONTEXT = re.compile(
+    r"\b(?:no|not|without|lacks?|denies?)\b[^.!?\n]{0,120}\b(?:disease|infection|"
+    r"outbreak|cases?|health surveillance)\b",
     re.IGNORECASE,
 )
 
@@ -1273,6 +1320,13 @@ def is_clearly_non_health_topic(text: str, diseases: Optional[list[str]] = None)
     sample = text or ""
     if not _NON_HEALTH_TOPIC.search(sample[:4000]):
         return False
+    # A social/conflict article may mention health terms only to say that no
+    # disease or surveillance event is present. That negation is not a health
+    # signal and must not be reversed by the model/translation projection.
+    if _NEGATED_HEALTH_CONTEXT.search(sample) and not (
+        extract_alias_diseases(sample) or extract_diseases(sample)
+    ):
+        return True
     return not has_surveillance_signal(sample, diseases)
 
 
@@ -1887,6 +1941,8 @@ def is_non_incident_metric_context(text: str, start: int, end: int) -> bool:
     left = max(0, start - 180)
     right = min(len(source), end + 180)
     context = source[left:right].casefold()
+    if _NON_INCIDENT_CONTEXT_FALLBACK.search(context):
+        return True
     return any(
         term.strip().casefold() in context
         for term in config.get_lexicon_terms("metric_non_incident")
@@ -1934,7 +1990,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         "death_count": [
             rf"\b({num_token})\s+(?:cases?|kasus|kes)\s+(?:of\s+)?(?:deaths?|kematian|fatalities|tewas|maut)\b",
             rf"(?:deaths?|kematian|korban jiwa|fatalities|maut)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({num_token})",
-            rf"\b({num_token})(?:\s+[a-z-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal|maut)\b",
+            rf"\b({num_token})(?:\s+[\w\u00C0-\u024F\u1EA0-\u1EFF/'’-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal|maut|tử\s+vong)\b",
             rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({num_token})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities|maut)",
             rf"(?:killed|caused|causing|menyebabkan|meragut\s+nyawa|mengorbankan)\s+({num_token})\s+(?:people|persons|residents|orang|warga|jiwa)?",
             rf"(?:death toll|toll)\s+(?:reached|reaches|rose to|stood at|of)\s+({num_token})",

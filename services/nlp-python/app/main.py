@@ -22,9 +22,9 @@ def startup():
     from .config import (NLP_MODEL, load_keywords_from_db, load_outbreak_rules_from_db,
                           load_locations_from_db, load_credibility_from_db,
                           load_language_markers_from_db, load_extraction_rules_from_db,
-                          load_language_models_from_db, load_who_disease_concepts_from_db)
-    from .models.classifier import get_labels, classify
-    logger.info("NLP service starting — model=%s labels=%s", NLP_MODEL, get_labels("disease"))
+                          load_language_models_from_db, load_who_disease_concepts_from_db,
+                          DISEASE_LABELS)
+    logger.info("NLP service starting — model=%s fallback_labels=%d", NLP_MODEL, len(DISEASE_LABELS))
     load_keywords_from_db()
     load_who_disease_concepts_from_db()
     load_outbreak_rules_from_db()
@@ -44,29 +44,24 @@ def startup():
         )
     except Exception as e:
         logger.warning("NLLB translation preload failed: %s", e)
-    if NLP_MODEL != "none":
-        from .models.classifier import classify_disease, _get_pipe
-        warmed: set[str] = set()
-        try:
-            classify_disease("warmup")
-            warmed.add(NLP_MODEL)
-            logger.info("Warmed up model: %s", NLP_MODEL)
-        except Exception as e:
-            logger.warning("Model warmup failed for '%s': %s", NLP_MODEL, e)
-        # Language-specific models are lazy. Loading every configured ASEAN
-        # model at startup wastes RAM and makes a cold container slow; the
-        # first article using a language will warm only its selected model.
+    # Classifier and translation models remain lazy. Extraction and relation
+    # intelligence can serve immediately, while a first model-backed request
+    # pays the model-load cost in its own bounded request path. Warming here
+    # made readiness depend on a heavyweight model that is not authoritative
+    # for source-first surveillance extraction.
 
 
 @app.get("/health")
 def health():
-    from .config import NLP_MODEL
-    from .models.classifier import get_labels
+    # Do not call classifier.get_labels() here: it refreshes labels through
+    # backend-rust, while backend-rust itself waits for this health check.
+    # Readiness must be local and non-blocking to avoid a startup deadlock.
+    from .config import NLP_MODEL, DISEASE_LABELS
     return {
         "status": "ok",
         "service": "nlp-python",
         "model": NLP_MODEL,
-        "disease_labels": get_labels("disease"),
+        "disease_labels": list(DISEASE_LABELS),
     }
 
 
@@ -84,11 +79,7 @@ def analyze(payload: AnalyzeRequest):
         )
 
 
-@app.post(
-    "/nlp/analyze/raw",
-    response_model=AnalyzeResponse,
-    response_model_exclude={"outbreak_alert"},
-)
+@app.post("/nlp/analyze/raw", response_model=AnalyzeResponse)
 def analyze_raw(payload: AnalyzeRequest):
     """Dedicated endpoint for raw news/unstructured text analysis."""
     try:

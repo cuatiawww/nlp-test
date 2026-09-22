@@ -42,8 +42,8 @@ def _guard_event_location_country(
     place_country = extractors.normalize_country(place_hierarchy.get("country"))
     normalized_event = extractors.normalize_country(event_country)
     if (
-        place_country in config.ASEAN_COUNTRIES
-        and normalized_event in config.ASEAN_COUNTRIES
+        place_country
+        and normalized_event
         and place_country.casefold() != normalized_event.casefold()
     ):
         return normalized_event, True
@@ -337,10 +337,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             # Interactive URL analysis must finish inside the worker HTTP
             # budget. Auxiliary zero-shot XLM-RoBERTa heads (sentiment /
             # event_type / relevance) were loading a second model on the
-            # critical path and routinely exceeded the old 90s cap. Disease,
-            # geo, and counts still run; outbreak/relevance labels are filled
-            # from rules later in this function.
-            skip_aux_models = payload.historical_fast or payload.interactive
+            # critical path and routinely exceeded the old 90s cap. A
+            # fine-tuned disease checkpoint is not a zero-shot checkpoint and
+            # its label set does not contain the auxiliary categories, so it
+            # must not fall back to the invalid base XLM-R checkpoint here.
+            # Disease, geo, and counts still run; outbreak/relevance labels
+            # are filled from rules later in this function.
+            skip_aux_models = (
+                payload.historical_fast
+                or payload.interactive
+                or config.NLP_MODEL == "fine-tuned"
+            )
             if skip_aux_models:
                 relevance = "high" if disease != "UNKNOWN" or has_keywords else "low"
                 relevance_confidence = confidence if relevance == "high" else 0.99
@@ -542,7 +549,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         case_count = 0
     if death_count > 0 and not explicit_case_count:
         case_count = 0
-    if structured.get("is_health_related") is True:
+    # Auxiliary translation/structured output is never allowed to override a
+    # source-first non-health decision (e.g. conflict or violence reporting
+    # that happens to contain the word "health").
+    if structured.get("is_health_related") is True and not non_health_topic:
         is_health_related = True
     if is_health_related and disease == "UNKNOWN" and not extracted:
         event_type = "health update"
@@ -1981,7 +1991,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         geocode_confidence=geocode_confidence,
         geocode_needs_review=geocode_needs_review,
         confidence=confidence,
-        outbreak_alert=outbreak_alert,
+        outbreak_alert=bool(outbreak_alert),
         sentiment=sentiment,
         sentiment_score=sentiment_score,
         event_type=event_type,
