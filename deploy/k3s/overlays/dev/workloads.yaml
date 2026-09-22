@@ -78,7 +78,7 @@ spec:
       nodeSelector: {role: application}
       containers:
         - name: minio
-          image: minio/minio:latest
+          image: quay.io/minio/minio:latest
           args: [server, /data, --console-address, ":9001"]
           ports: [{name: api, containerPort: 9000}]
           envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
