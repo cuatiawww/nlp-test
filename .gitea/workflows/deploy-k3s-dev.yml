@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 jobs:
   deploy:
-    runs-on: [self-hosted, k3s-dev-deploy]
+    runs-on: k3s-dev-deploy
     concurrency:
       group: nlp-penyakit-k3s-dev
       cancel-in-progress: true
