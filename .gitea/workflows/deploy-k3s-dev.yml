@@ -37,7 +37,7 @@ jobs:
         working-directory: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
         run: |
           set -eu
-          python3 -c 'from pathlib import Path; p=Path("deploy/k3s/overlays/dev/kustomization.yaml"); p.write_text(p.read_text().replace("newTag: dev", "newTag: ${{ gitea.sha }}"))'
+          python3 -c 'from pathlib import Path; p=Path("deploy/k3s/overlays/dev/kustomization.yaml"); p.write_text(p.read_text().replace("newTag: dev", "newTag: dev-${{ gitea.sha }}"))'
           sudo -n k3s kubectl apply -k deploy/k3s/overlays/dev
           sudo -n k3s kubectl -n nlp-dev set image deployment/disease-analysis-job-worker analysis-worker="$REGISTRY/nlp-penyakit-worker-python:analysis-$IMAGE_TAG" || true
       - name: Status
