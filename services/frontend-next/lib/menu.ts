@@ -157,10 +157,12 @@ export const DEFAULT_NAVIGATION_CONFIG: SidebarGroupConfig[] = [
     enabled: true,
     items: [
       { id: 'mod_home', label: 'Home', labelKey: 'sidebar.items.home', icon: 'Home', href: '/', order: 1, enabled: true },
-      { id: 'mod_regions', label: 'Regions/Country', labelKey: 'sidebar.items.regionsCountry', icon: 'Globe2', href: '/countries', order: 2, enabled: true },
-      { id: 'mod_diseases', label: 'Diseases', labelKey: 'sidebar.items.diseases', icon: 'Stethoscope', href: '/diseases', order: 3, enabled: true },
-      { id: 'mod_sources', label: 'Data Sources', labelKey: 'sidebar.items.sources', icon: 'Radio', href: '/sources', order: 4, enabled: true },
-      { id: 'mod_events', label: 'Events', labelKey: 'sidebar.items.events', icon: 'Database', href: '/events', order: 5, enabled: true },
+      { id: 'mod_asean_countries', label: 'ASEAN Countries', icon: 'Globe2', href: '/asean-countries', order: 2, enabled: true },
+      { id: 'mod_asean_3', label: 'ASEAN +3', icon: 'Globe2', href: '/asean-3', order: 3, enabled: true },
+      { id: 'mod_regions', label: 'Regions/Country', labelKey: 'sidebar.items.regionsCountry', icon: 'Globe2', href: '/countries', order: 4, enabled: true },
+      { id: 'mod_diseases', label: 'Diseases', labelKey: 'sidebar.items.diseases', icon: 'Stethoscope', href: '/diseases', order: 5, enabled: true },
+      { id: 'mod_sources', label: 'Data Sources', labelKey: 'sidebar.items.sources', icon: 'Radio', href: '/sources', order: 6, enabled: true },
+      { id: 'mod_events', label: 'Events', labelKey: 'sidebar.items.events', icon: 'Database', href: '/events', order: 7, enabled: true },
       {
         id: 'mod_analyze',
         label: 'URL Analysis',

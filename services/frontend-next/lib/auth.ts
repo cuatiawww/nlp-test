@@ -21,6 +21,8 @@ export const SYSTEM_MODULES: SystemModule[] = [
   // Surveillance & Monitoring
   { id: 'dashboard', label: 'Dashboard & Map', description: 'Surveillance dashboard, distribution map, and events', category: 'Surveillance & Monitoring', path: '/' },
   { id: 'lite_dashboard', label: 'Lite Dashboard', description: 'Public Guest situational awareness and regional outbreak summary', category: 'Surveillance & Monitoring', path: '/lite-dashboard' },
+  { id: 'asean_countries', label: 'ASEAN Countries', description: 'Surveillance and cross-border threat monitoring across the 11 ASEAN member states', category: 'Surveillance & Monitoring', path: '/asean-countries' },
+  { id: 'asean_3', label: 'ASEAN +3', description: 'Expanded regional surveillance covering 11 ASEAN states plus China, Japan, and South Korea', category: 'Surveillance & Monitoring', path: '/asean-3' },
   { id: 'crawling_dashboard', label: 'Crawling Dashboard', description: 'Web ingestion, scraper operations, and collection pipeline intelligence', category: 'Surveillance & Monitoring', path: '/crawling-dashboard' },
   { id: 'disease_dashboard', label: 'Disease Dashboard', description: 'WHO ICD-11 pathogen concepts, morbidity trends, and disease surveillance', category: 'Surveillance & Monitoring', path: '/disease-dashboard' },
   { id: 'executive_dashboard', label: 'Executive Dashboard', description: 'Macro situational awareness, strategic threat triage, and policy briefing', category: 'Surveillance & Monitoring', path: '/executive-dashboard' },
@@ -71,6 +73,8 @@ export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string):
 
   // Group paths check
   if (moduleKeyOrPath.startsWith('/lite-dashboard')) return true;
+  if (moduleKeyOrPath.startsWith('/asean-countries')) return true;
+  if (moduleKeyOrPath.startsWith('/asean-3')) return true;
   if (moduleKeyOrPath.startsWith('/crawling-dashboard')) return true;
   if (moduleKeyOrPath.startsWith('/disease-dashboard')) return true;
   if (moduleKeyOrPath === '/' && user.permissions?.includes('dashboard')) return true;

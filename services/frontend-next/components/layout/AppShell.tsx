@@ -17,6 +17,8 @@ const guestMenu: SidebarGroup[] = [
     items: [
       { label: "Home", labelKey: "sidebar.items.home", icon: undefined, href: "/" },
       { label: "Lite Dashboard", labelKey: "sidebar.items.liteDashboard", icon: undefined, href: "/lite-dashboard" },
+      { label: "ASEAN Countries", labelKey: "sidebar.items.aseanCountries", icon: undefined, href: "/asean-countries" },
+      { label: "ASEAN +3", labelKey: "sidebar.items.asean3", icon: undefined, href: "/asean-3" },
       { label: "Disease Dashboard", labelKey: "sidebar.items.diseaseDashboard", icon: undefined, href: "/disease-dashboard" },
       { label: "Crawling Dashboard", labelKey: "sidebar.items.crawlingDashboard", icon: undefined, href: "/crawling-dashboard" },
       { label: "TV Mode", labelKey: "header.tvMode", icon: undefined, href: "/tv" },
