@@ -12,6 +12,13 @@ from . import pipeline
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+import threading
+
+# One CPU-bound fine-tuned inference at a time. Extra requests wait rather than
+# stacking torch threadpools that hang /health under load.
+_INFERENCE_SEM = threading.Semaphore(max(1, int(os.getenv("NLP_INFERENCE_CONCURRENCY", "1"))))
+
+
 app = FastAPI(title="Disease NLP Service", version="0.3.0")
 from .bounded_analysis import router as bounded_analysis_router
 app.include_router(bounded_analysis_router)
@@ -68,7 +75,8 @@ def health():
 @app.post("/nlp/analyze", response_model=AnalyzeResponse)
 def analyze(payload: AnalyzeRequest):
     try:
-        return pipeline.run(payload)
+        with _INFERENCE_SEM:
+            return pipeline.run(payload)
     except HTTPException:
         raise
     except Exception as exc:
@@ -83,7 +91,8 @@ def analyze(payload: AnalyzeRequest):
 def analyze_raw(payload: AnalyzeRequest):
     """Dedicated endpoint for raw news/unstructured text analysis."""
     try:
-        return pipeline.run(payload)
+        with _INFERENCE_SEM:
+            return pipeline.run(payload)
     except HTTPException:
         raise
     except Exception as exc:
