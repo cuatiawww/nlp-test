@@ -17,7 +17,7 @@ data:
   RABBITMQ_URL: amqp://disease_app:CHANGE_ME@disease-rabbitmq:5672/%2f
   NEXT_PUBLIC_BASE_PATH: /nlp
   NEXT_PUBLIC_API_BASE_URL: /api
-  NLP_MODEL: xlm-roberta
+  NLP_MODEL: fine-tuned
   TRANSLATION_LOCAL_ENABLED: "true"
   TRANSLATION_LOCAL_MODEL: facebook/nllb-200-distilled-600M
   TRANSLATION_MAX_CHARS: "7000"
