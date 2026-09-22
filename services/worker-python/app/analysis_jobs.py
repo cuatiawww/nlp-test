@@ -390,14 +390,25 @@ def save_completed(conn, job_id, result, raw_report_id=None):
         result.get("source_country"),
     )
     if raw_report_id:
+        # Re-analyze already owns this raw row. Do not rewrite URL/hash identity
+        # columns: that trips uq_raw_reports_*_identity when a sibling live row
+        # shares the same identity (088 partial unique indexes).
         row = conn.execute(
             """UPDATE raw_reports SET
                  source_type='web', source_name='URL Analyzer', published_at=%s,
-                 original_text=%s, summary=%s, url=%s, object_path=%s,
-                 processing_status='PROCESSED', normalized_url=%s, canonical_url=%s,
-                 url_hash=%s, content_hash=%s, final_url=%s, author=%s, source_country=%s
+                 original_text=%s, summary=%s, object_path=%s,
+                 processing_status='PROCESSED',
+                 author=COALESCE(%s, author), source_country=COALESCE(%s, source_country)
                WHERE id=%s RETURNING id""",
-            (*values, raw_report_id),
+            (
+                values[0],
+                values[1],
+                values[2],
+                values[4],
+                values[10],
+                values[11],
+                raw_report_id,
+            ),
         ).fetchone()
     else:
         # Re-analyze / concurrent retain can race when raw_report_id is unset.

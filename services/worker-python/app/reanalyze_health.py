@@ -210,10 +210,49 @@ def update_event(conn: psycopg.Connection, row: dict, result: dict) -> None:
             row["id"],
         ),
     )
-    conn.execute(
-        "UPDATE raw_reports SET processing_status = %s WHERE id = %s",
-        ("PROCESSED" if result.get("is_health_related", False) else "NON_HEALTH", row["raw_report_id"]),
-    )
+    # Partial unique indexes on raw_reports (088) exclude DUPLICATE rows.
+    # Flipping DUPLICATE -> PROCESSED/NON_HEALTH (or colliding live siblings)
+    # raises uq_raw_reports_*_identity. Keep disease_events update; skip status.
+    if not row.get("raw_report_id"):
+        return
+    new_status = "PROCESSED" if result.get("is_health_related", False) else "NON_HEALTH"
+    from psycopg.errors import UniqueViolation
+    try:
+        with conn.transaction():
+            conn.execute(
+                """
+                UPDATE raw_reports rr
+                SET processing_status = %s
+                WHERE rr.id = %s
+                  AND rr.processing_status IS DISTINCT FROM 'DUPLICATE'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM raw_reports other
+                    WHERE other.id IS DISTINCT FROM rr.id
+                      AND other.processing_status IS DISTINCT FROM 'DUPLICATE'
+                      AND (
+                        (NULLIF(BTRIM(other.url), '') IS NOT NULL
+                         AND other.url IS NOT DISTINCT FROM rr.url)
+                        OR (NULLIF(BTRIM(other.normalized_url), '') IS NOT NULL
+                         AND other.normalized_url IS NOT DISTINCT FROM rr.normalized_url)
+                        OR (NULLIF(BTRIM(other.canonical_url), '') IS NOT NULL
+                         AND other.canonical_url IS NOT DISTINCT FROM rr.canonical_url)
+                        OR (NULLIF(BTRIM(other.final_url), '') IS NOT NULL
+                         AND other.final_url IS NOT DISTINCT FROM rr.final_url)
+                        OR (NULLIF(BTRIM(other.url_hash), '') IS NOT NULL
+                         AND other.url_hash IS NOT DISTINCT FROM rr.url_hash)
+                        OR (NULLIF(BTRIM(other.content_hash), '') IS NOT NULL
+                         AND other.content_hash IS NOT DISTINCT FROM rr.content_hash)
+                      )
+                  )
+                """,
+                (new_status, row["raw_report_id"]),
+            )
+    except UniqueViolation:
+        logger.warning(
+            "Skip raw_reports status update for raw_id=%s (identity collision)",
+            row["raw_report_id"],
+        )
 
 
 def main() -> int:
