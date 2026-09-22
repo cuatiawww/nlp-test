@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { usePathname } from 'next/navigation'
 import { Toaster } from 'sonner'
@@ -36,7 +36,10 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
     pathname === '/reports/matrix' ||
     pathname === '/laporan' ||
     pathname.startsWith('/laporan') ||
-    pathname === '/detail-region'
+    pathname === '/detail-region' ||
+    pathname === '/lite-dashboard' ||
+    pathname === '/crawling-dashboard' ||
+    pathname === '/disease-dashboard'
   const isConsolePage = pathname.startsWith('/console')
 
   if (isLoginPage) {

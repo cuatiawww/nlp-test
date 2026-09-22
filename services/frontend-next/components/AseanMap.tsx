@@ -312,8 +312,8 @@ export default function AseanMap({
     const vectorLayer = new VectorLayer({
       source: vectorSrc,
       style: (f: FeatureLike) => {
-        const name = (f.get("name") as string).toLowerCase();
-        const item = countryData?.find((d) => d.name.toLowerCase() === name);
+        const name = String(f.get("name") || "").toLowerCase();
+        const item = countryData?.find((d) => d.name?.toLowerCase() === name);
         const maximum = Math.max(...(countryData || []).map((d) => d.cases || 0), 0);
         const fill = heatFill(item?.cases || 0, maximum);
         return new Style({

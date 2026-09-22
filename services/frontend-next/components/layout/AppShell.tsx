@@ -16,6 +16,9 @@ const guestMenu: SidebarGroup[] = [
     titleKey: "sidebar.sections.monitoring",
     items: [
       { label: "Home", labelKey: "sidebar.items.home", icon: undefined, href: "/" },
+      { label: "Lite Dashboard", labelKey: "sidebar.items.liteDashboard", icon: undefined, href: "/lite-dashboard" },
+      { label: "Disease Dashboard", labelKey: "sidebar.items.diseaseDashboard", icon: undefined, href: "/disease-dashboard" },
+      { label: "Crawling Dashboard", labelKey: "sidebar.items.crawlingDashboard", icon: undefined, href: "/crawling-dashboard" },
       { label: "TV Mode", labelKey: "header.tvMode", icon: undefined, href: "/tv" },
       { label: "Reports", labelKey: "header.reports", icon: undefined, href: "/reports" },
     ],

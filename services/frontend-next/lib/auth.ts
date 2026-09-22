@@ -20,6 +20,10 @@ export interface SystemModule {
 export const SYSTEM_MODULES: SystemModule[] = [
   // Surveillance & Monitoring
   { id: 'dashboard', label: 'Dashboard & Map', description: 'Surveillance dashboard, distribution map, and events', category: 'Surveillance & Monitoring', path: '/' },
+  { id: 'lite_dashboard', label: 'Lite Dashboard', description: 'Public Guest situational awareness and regional outbreak summary', category: 'Surveillance & Monitoring', path: '/lite-dashboard' },
+  { id: 'crawling_dashboard', label: 'Crawling Dashboard', description: 'Web ingestion, scraper operations, and collection pipeline intelligence', category: 'Surveillance & Monitoring', path: '/crawling-dashboard' },
+  { id: 'disease_dashboard', label: 'Disease Dashboard', description: 'WHO ICD-11 pathogen concepts, morbidity trends, and disease surveillance', category: 'Surveillance & Monitoring', path: '/disease-dashboard' },
+  { id: 'executive_dashboard', label: 'Executive Dashboard', description: 'Macro situational awareness, strategic threat triage, and policy briefing', category: 'Surveillance & Monitoring', path: '/executive-dashboard' },
   { id: 'events', label: 'Disease Events', description: 'Disease event logs, cases, and data verification', category: 'Surveillance & Monitoring', path: '/events' },
   { id: 'sources', label: 'Data Sources', description: 'Manage news feeds and API collection sources', category: 'Surveillance & Monitoring', path: '/sources' },
   { id: 'analyze', label: 'URL Analysis', description: 'Analyze a single web article or PDF independently', category: 'Surveillance & Monitoring', path: '/analyze' },
@@ -45,13 +49,13 @@ export const SYSTEM_MODULES: SystemModule[] = [
 
 export const ROLE_PRESET_MODULES: Record<string, string[]> = {
   admin: ['*'],
-  data_analyst: ['dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'processing', 'reports', 'locations', 'disease_master'],
-  epidemiologi: ['dashboard', 'events', 'analyze', 'manual_crawler', 'crawl_history', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
-  executive: ['dashboard', 'events', 'reports', 'tv'],
-  skk: ['dashboard', 'sources', 'manual_crawler', 'crawl_history', 'reports', 'processing'],
+  data_analyst: ['dashboard', 'executive_dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'processing', 'reports', 'locations', 'disease_master'],
+  epidemiologi: ['dashboard', 'executive_dashboard', 'events', 'analyze', 'manual_crawler', 'crawl_history', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
+  executive: ['dashboard', 'executive_dashboard', 'events', 'reports', 'tv'],
+  skk: ['dashboard', 'executive_dashboard', 'sources', 'manual_crawler', 'crawl_history', 'reports', 'processing'],
   // legacy fallbacks
-  operator: ['dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'reports'],
-  viewer: ['dashboard', 'reports'],
+  operator: ['dashboard', 'executive_dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'reports'],
+  viewer: ['dashboard', 'executive_dashboard', 'reports'],
 };
 
 export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string): boolean {
@@ -66,7 +70,11 @@ export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string):
   if (target && user.permissions?.includes(target.id)) return true;
 
   // Group paths check
+  if (moduleKeyOrPath.startsWith('/lite-dashboard')) return true;
+  if (moduleKeyOrPath.startsWith('/crawling-dashboard')) return true;
+  if (moduleKeyOrPath.startsWith('/disease-dashboard')) return true;
   if (moduleKeyOrPath === '/' && user.permissions?.includes('dashboard')) return true;
+  if (moduleKeyOrPath.startsWith('/executive-dashboard') && (user.permissions?.includes('executive_dashboard') || user.permissions?.includes('dashboard') || user.permissions?.includes('reports') || user.permissions?.includes('tv'))) return true;
   if (moduleKeyOrPath.startsWith('/events') && user.permissions?.includes('events')) return true;
   if (moduleKeyOrPath.startsWith('/sources') && user.permissions?.includes('sources')) return true;
   if (moduleKeyOrPath.startsWith('/analyze') && user.permissions?.includes('analyze')) return true;
