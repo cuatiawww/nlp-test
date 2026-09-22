@@ -481,6 +481,72 @@ python3 scripts/train_classifier.py \
   --fp16
 ```
 
+#### Recovery checkpoint dan deployment
+
+Jika training berhenti setelah membuat folder `checkpoint-*`, gunakan
+checkpoint dengan nilai `eval_f1_macro` tertinggi. Nomor checkpoint terbesar
+belum tentu model terbaik. `optimizer.pt`, `scheduler.pt`, dan `rng_state.pth`
+hanya diperlukan untuk melanjutkan training; file tersebut tidak diperlukan
+untuk inference atau deployment.
+
+Untuk deployment, gunakan file model dan tokenizer berikut dari checkpoint
+terbaik atau salin semuanya ke folder kandidat utama:
+
+```text
+config.json
+model.safetensors
+tokenizer.json
+tokenizer_config.json
+sentencepiece.bpe.model
+special_tokens_map.json
+```
+
+Jika folder utama belum memiliki `training_manifest.json`, jalankan recovery
+di Colab setelah cell setup:
+
+```python
+import glob, json, os, shutil
+
+ROOT = "/content/drive/MyDrive/disease-nlp-rare-review/models/disease-candidate-rare-review"
+candidates = []
+
+for checkpoint in sorted(glob.glob(f"{ROOT}/checkpoint-*")):
+    state_file = os.path.join(checkpoint, "trainer_state.json")
+    if not os.path.exists(state_file):
+        continue
+    state = json.load(open(state_file, encoding="utf-8"))
+    evaluations = [x for x in state.get("log_history", []) if "eval_f1_macro" in x]
+    if evaluations:
+        candidates.append((checkpoint, max(evaluations, key=lambda x: x["eval_f1_macro"])))
+
+assert candidates, "Tidak ada checkpoint dengan eval_f1_macro"
+best_checkpoint, best_metrics = max(candidates, key=lambda x: x[1]["eval_f1_macro"])
+print("Checkpoint terbaik:", best_checkpoint)
+print("Macro-F1:", best_metrics["eval_f1_macro"])
+
+os.makedirs(ROOT, exist_ok=True)
+allowed = {
+    "config.json", "model.safetensors", "model.safetensors.index.json",
+    "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
+    "sentencepiece.bpe.model", "spiece.model", "vocab.json", "merges.txt",
+    "added_tokens.json", "training_args.bin",
+}
+for name in os.listdir(best_checkpoint):
+    if name in allowed or name.startswith("model.safetensors-"):
+        shutil.copy2(os.path.join(best_checkpoint, name), os.path.join(ROOT, name))
+
+with open(os.path.join(ROOT, "training_manifest.json"), "w", encoding="utf-8") as f:
+    json.dump({
+        "recovered": True,
+        "selected_checkpoint": best_checkpoint,
+        "metrics": best_metrics,
+    }, f, indent=2)
+```
+
+`checkpoint-1920` boleh langsung digunakan jika itu memiliki `eval_f1_macro`
+tertinggi, tetapi folder utama lebih rapi untuk deployment. Jangan menyalin
+`optimizer.pt` ke image inference.
+
 4. Untuk pipeline otomatis production, selalu mulai dengan dry-run:
 
 ```bash
