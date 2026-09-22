@@ -545,6 +545,10 @@ def split_admin_place(location: Optional[str], country: Optional[str] = None) ->
     hier = resolve_location_hierarchy(name, country_hint=country)
     if hier["admin_level"] == 0:
         return None, None
+    if hier.get("country_conflict"):
+        return None, None
+    if mapped and hier.get("country") and hier["country"].casefold() != mapped.casefold():
+        return None, None
     if hier.get("admin1_name") or hier.get("admin2_name"):
         return hier.get("admin1_name"), hier.get("admin2_name")
 
@@ -937,7 +941,7 @@ def extract_location(
         pattern = config.LOCATION_PATTERNS[0][1]
         for match in pattern.finditer(lower_text):
             m_lower = match.group(0).lower()
-            if country and m_lower not in folded_names:
+            if (country or allowed_countries) and m_lower not in folded_names:
                 continue
             loc = folded_names.get(m_lower, match.group(0))
             raw_position = folded_positions[match.start()]
@@ -1122,19 +1126,27 @@ def extract_all_locations(
     results = []
     for name in distinct_names:
         c = config.LOCATION_COUNTRIES.get(name, country)
+        if allowed_set:
+            folded_c = _fold_location_text(c or "")
+            folded_n = _fold_location_text(name)
+            if folded_c not in allowed_set and folded_n not in allowed_set:
+                continue
         lat, lon, conf, needs_review = geocode_place(name, c)
         hier = resolve_location_hierarchy(name, country_hint=c)
+        if hier.get("country_conflict"):
+            hier = resolve_event_location_hierarchy(name, country_hint=c)
+            needs_review = True
         results.append({
             "name": name,
-            "latitude": lat,
-            "longitude": lon,
-            "country": c,
+            "latitude": hier.get("latitude") if lat is not None else None,
+            "longitude": hier.get("longitude") if lon is not None else None,
+            "country": hier.get("country") or c,
             "admin1": hier.get("admin1_name"),
             "admin2": hier.get("admin2_name"),
             "country_iso3": hier.get("country_iso3"),
             "admin_level": hier.get("admin_level"),
-            "geocode_confidence": conf,
-            "geocode_needs_review": needs_review,
+            "geocode_confidence": conf if not hier.get("country_conflict") else 0.0,
+            "geocode_needs_review": needs_review or hier.get("country_conflict", False),
         })
     return results
 

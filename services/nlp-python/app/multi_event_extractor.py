@@ -541,6 +541,7 @@ def extract_multi_events(
     locations: list[dict],
     case_count: int,
     death_count: int,
+    primary_country: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Decompose one document into N structured events.
 
@@ -703,15 +704,16 @@ def _event_for_disease(
     text: str,
     default_cases: int,
     default_deaths: int,
+    primary_country: Optional[str] = None,
 ) -> dict[str, Any]:
     from . import extractors as ext
 
     loc = location or ""
-    hier = ext.resolve_location_hierarchy(loc) if loc else {}
-    country = hier.get("country") or (_resolve_country(loc) if loc else None)
+    hier = ext.resolve_event_location_hierarchy(loc, country_hint=primary_country) if loc else {}
+    country = hier.get("country") or primary_country or (_resolve_country(loc) if loc else None)
     admin1 = hier.get("admin1_name")
     admin2 = hier.get("admin2_name")
-    iso3 = hier.get("country_iso3")
+    iso3 = hier.get("country_iso3") or (config.COUNTRY_TO_ISO3.get(country.casefold()) if country else None)
     lat = hier.get("latitude") or (_resolve_coords(loc)[0] if loc else None)
     lon = hier.get("longitude") or (_resolve_coords(loc)[1] if loc else None)
     canonical_loc = hier.get("canonical_name") or loc
@@ -751,6 +753,7 @@ def compose_structured_events(
     locations: list[dict],
     case_count: int,
     death_count: int,
+    primary_country: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Location-scoped counts plus per-disease facts for one article.
 
@@ -767,6 +770,7 @@ def compose_structured_events(
         locations=locations,
         case_count=case_count,
         death_count=death_count,
+        primary_country=primary_country,
     )
 
     # Keep one evidence-backed atomic event as the canonical representation;

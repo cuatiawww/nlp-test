@@ -802,6 +802,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             locations=[loc.model_dump() if hasattr(loc, 'model_dump') else loc for loc in all_locations],
             case_count=case_count,
             death_count=death_count,
+            primary_country=country,
         )
         # The persisted/API event view is country-scoped.  Keep the lower
         # level composer location-specific for evidence and hierarchy tests,
@@ -1426,25 +1427,37 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # conflicting gazetteer candidate may remain visible as source evidence,
     # but it must not expose the wrong admin hierarchy or coordinates.
     for item in all_locations:
-        item_country = (
-            country
-            if location_country_conflict and country
-            else item.get("country") or country
-        )
+        raw_item_country = item.get("country")
+        target_item_country = country
+        if raw_item_country and mentioned_countries:
+            if any(raw_item_country.casefold() == mc.casefold() for mc in mentioned_countries):
+                target_item_country = raw_item_country
+
         safe_hierarchy = extractors.resolve_event_location_hierarchy(
-            item.get("name"), country_hint=item_country
+            item.get("name"), country_hint=target_item_country or country
         )
-        if not safe_hierarchy.get("country_conflict"):
-            continue
-        item["original_name"] = item.get("original_name") or item.get("name")
-        item["name"] = safe_hierarchy.get("canonical_name") or item_country or item.get("name")
-        item["country"] = safe_hierarchy.get("country") or item_country
-        item["country_iso3"] = safe_hierarchy.get("country_iso3")
-        item["admin1"] = None
-        item["admin2"] = None
-        item["latitude"] = safe_hierarchy.get("latitude")
-        item["longitude"] = safe_hierarchy.get("longitude")
-        item["geocode_needs_review"] = True
+        if safe_hierarchy.get("country_conflict"):
+            item["original_name"] = item.get("original_name") or item.get("name")
+            item["name"] = safe_hierarchy.get("canonical_name") or target_item_country or item.get("name")
+            item["country"] = safe_hierarchy.get("country") or target_item_country
+            item["country_iso3"] = safe_hierarchy.get("country_iso3")
+            item["admin1"] = None
+            item["admin2"] = None
+            item["latitude"] = safe_hierarchy.get("latitude")
+            item["longitude"] = safe_hierarchy.get("longitude")
+            item["geocode_needs_review"] = True
+
+        norm_c = extractors.normalize_country(item.get("country"))
+        if norm_c:
+            item["country"] = norm_c
+            item["country_iso3"] = config.COUNTRY_TO_ISO3.get(norm_c.casefold(), item.get("country_iso3"))
+            if item.get("latitude") is not None and item.get("longitude") is not None:
+                if not extractors.coords_in_country_bbox(item.get("latitude"), item.get("longitude"), norm_c):
+                    item["latitude"] = None
+                    item["longitude"] = None
+                    item["admin1"] = None
+                    item["admin2"] = None
+                    item["geocode_needs_review"] = True
 
     for evt in sub_events:
         evt.evidence_offset_space = evidence_offset_space
@@ -1510,6 +1523,22 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         needs_review = True
         if "location_country_conflict" not in doc_validation_flags:
             doc_validation_flags.append("location_country_conflict")
+    elif country:
+        norm_country = extractors.normalize_country(country)
+        final_iso3 = config.COUNTRY_TO_ISO3.get(norm_country.casefold(), final_iso3)
+        if lat is not None and lon is not None:
+            if not extractors.coords_in_country_bbox(lat, lon, norm_country):
+                centroid = extractors.ASEAN_COUNTRY_CENTROIDS.get(norm_country)
+                if centroid:
+                    lat, lon = centroid[0], centroid[1]
+                else:
+                    lat, lon = None, None
+                final_province = None
+                final_city = None
+                geocode_needs_review = True
+                needs_review = True
+                if "location_country_conflict" not in doc_validation_flags:
+                    doc_validation_flags.append("location_country_conflict")
 
     # In multi-country roundup articles, align parent country to the country of the primary surveillance metric
     if sub_events and len(mentioned_countries) > 1:
@@ -1533,37 +1562,66 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     for evt in sub_events:
         evt_country = evt.country or country
-        if article_event_country and str(evt_country or "").casefold() != article_event_country.casefold():
-            # A single evidence-backed country projection outranks a locality
-            # candidate that was resolved in another country. Multi-country
-            # articles do not enter this branch because their metric country
-            # set has more than one member.
-            evt_country = article_event_country
+        target_country = article_event_country or country
+        if (
+            target_country
+            and evt_country
+            and str(evt_country).casefold() != target_country.casefold()
+        ):
+            if not any(str(evt_country).casefold() == mc.casefold() for mc in mentioned_countries):
+                evt_country = target_country
+
         event_hier = extractors.resolve_event_location_hierarchy(
             evt.location_name,
             country_hint=evt_country,
         )
-        if not event_hier.get("country_conflict"):
-            continue
-        evt.provenance.setdefault("location_conflict", {})
-        evt.provenance["location_conflict"].update(
-            {
-                "original_location_name": event_hier.get("original_location_name") or evt.location_name,
-                "original_canonical_name": event_hier.get("original_canonical_name"),
-                "original_country": event_hier.get("original_country"),
-                "resolved_country": event_hier.get("country"),
-            }
-        )
-        evt.location_name = event_hier.get("canonical_name") or evt_country or evt.location_name
-        evt.country = event_hier.get("country") or evt_country
-        evt.admin1 = None
-        evt.admin2 = None
-        evt.country_iso3 = event_hier.get("country_iso3")
-        evt.latitude = event_hier.get("latitude")
-        evt.longitude = event_hier.get("longitude")
-        evt.needs_review = True
-        if "location_country_conflict" not in evt.validation_flags:
-            evt.validation_flags.append("location_country_conflict")
+        if event_hier.get("country_conflict"):
+            evt.provenance.setdefault("location_conflict", {})
+            evt.provenance["location_conflict"].update(
+                {
+                    "original_location_name": event_hier.get("original_location_name") or evt.location_name,
+                    "original_canonical_name": event_hier.get("original_canonical_name"),
+                    "original_country": event_hier.get("original_country"),
+                    "resolved_country": event_hier.get("country"),
+                }
+            )
+            evt.location_name = event_hier.get("canonical_name") or evt_country or evt.location_name
+            evt.country = event_hier.get("country") or evt_country
+            evt.admin1 = None
+            evt.admin2 = None
+            evt.country_iso3 = event_hier.get("country_iso3")
+            evt.latitude = event_hier.get("latitude")
+            evt.longitude = event_hier.get("longitude")
+            evt.needs_review = True
+            if "location_country_conflict" not in evt.validation_flags:
+                evt.validation_flags.append("location_country_conflict")
+
+        norm_evt_country = extractors.normalize_country(evt.country)
+        if norm_evt_country:
+            evt.country = norm_evt_country
+            evt.country_iso3 = config.COUNTRY_TO_ISO3.get(norm_evt_country.casefold(), evt.country_iso3)
+            if evt.latitude is not None and evt.longitude is not None:
+                if not extractors.coords_in_country_bbox(evt.latitude, evt.longitude, norm_evt_country):
+                    centroid = extractors.ASEAN_COUNTRY_CENTROIDS.get(norm_evt_country)
+                    if centroid:
+                        evt.latitude, evt.longitude = centroid[0], centroid[1]
+                    else:
+                        evt.latitude, evt.longitude = None, None
+                    evt.admin1 = None
+                    evt.admin2 = None
+                    evt.needs_review = True
+                    if "location_country_conflict" not in evt.validation_flags:
+                        evt.validation_flags.append("location_country_conflict")
+
+            for admin_field in ("admin1", "admin2"):
+                admin_val = getattr(evt, admin_field)
+                if admin_val:
+                    admin_h = extractors.resolve_location_hierarchy(admin_val)
+                    if admin_h.get("country") and admin_h["country"].casefold() != norm_evt_country.casefold():
+                        setattr(evt, admin_field, None)
+                        evt.needs_review = True
+                        if "location_country_conflict" not in evt.validation_flags:
+                            evt.validation_flags.append("location_country_conflict")
 
     # Country-safety normalization can turn a conflicting locality row into
     # the same country row as an existing aggregate. Deduplicate only when
