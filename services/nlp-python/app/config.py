@@ -497,6 +497,10 @@ def load_locations_from_db():
             from . import extractors
             # Country aliases live in the same location master and therefore
             # follow the same DB-over-fallback precedence as place aliases.
+            # Seed EXTERNAL_COUNTRY_ALIASES first so DB rows can still override.
+            extractors.COUNTRY_ALIASES.update(
+                getattr(extractors, "EXTERNAL_COUNTRY_ALIASES", {})
+            )
             extractors.COUNTRY_ALIASES.update(db_country_aliases)
         except Exception:
             pass

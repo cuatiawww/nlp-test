@@ -224,8 +224,95 @@ COUNTRY_ALIASES: dict[str, str] = {}
 # fallback needed to classify an explicitly named non-ASEAN article until the
 # country registry is expanded; it is only a country scope hint, never a
 # locality or event metric source.
-EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {"yemen": "Yemen"}
+EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
+    "yemen": "Yemen",
+    "yaman": "Yemen",
+    "colombia": "Colombia",
+    "kolombia": "Colombia",
+    "panama": "Panama",
+    "panamá": "Panama",
+    "jordan": "Jordan",
+    "yordania": "Jordan",
+    "sudan": "Sudan",
+    "south sudan": "South Sudan",
+    "brazil": "Brazil",
+    "brasil": "Brazil",
+    "burundi": "Burundi",
+    "ethiopia": "Ethiopia",
+    "etiopia": "Ethiopia",
+    "kenya": "Kenya",
+    "uganda": "Uganda",
+    "tanzania": "Tanzania",
+    "somalia": "Somalia",
+    "chad": "Chad",
+    "niger": "Niger",
+    "nigeria": "Nigeria",
+    "ghana": "Ghana",
+    "peru": "Peru",
+    "chile": "Chile",
+    "argentina": "Argentina",
+    "ecuador": "Ecuador",
+    "bolivia": "Bolivia",
+    "paraguay": "Paraguay",
+    "uruguay": "Uruguay",
+    "venezuela": "Venezuela",
+    "haiti": "Haiti",
+    "cuba": "Cuba",
+    "dominican republic": "Dominican Republic",
+    "costa rica": "Costa Rica",
+    "guatemala": "Guatemala",
+    "honduras": "Honduras",
+    "nicaragua": "Nicaragua",
+    "el salvador": "El Salvador",
+    "mexico": "Mexico",
+    "meksiko": "Mexico",
+    "canada": "Canada",
+    "kanada": "Canada",
+    "united states": "United States",
+    "united states of america": "United States",
+    "usa": "United States",
+    "u.s.": "United States",
+    "u.s.a.": "United States",
+    "amerika serikat": "United States",
+    "united kingdom": "United Kingdom",
+    "uk": "United Kingdom",
+    "britain": "United Kingdom",
+    "great britain": "United Kingdom",
+    "inggris": "United Kingdom",
+    "germany": "Germany",
+    "jerman": "Germany",
+    "france": "France",
+    "prancis": "France",
+    "spain": "Spain",
+    "spanyol": "Spain",
+    "italy": "Italy",
+    "italia": "Italy",
+    "russia": "Russia",
+    "rusia": "Russia",
+    "china": "China",
+    "tiongkok": "China",
+    "india": "India",
+    "japan": "Japan",
+    "jepang": "Japan",
+    "south korea": "South Korea",
+    "korea selatan": "South Korea",
+    "australia": "Australia",
+    "new zealand": "New Zealand",
+    "pakistan": "Pakistan",
+    "bangladesh": "Bangladesh",
+    "egypt": "Egypt",
+    "saudi arabia": "Saudi Arabia",
+    "south africa": "South Africa",
+    "democratic republic of the congo": "Democratic Republic of the Congo",
+    "dr congo": "Democratic Republic of the Congo",
+    "rd congo": "Democratic Republic of the Congo",
+}
 
+
+
+
+# Available before DB bootstrap so explicit external countries still resolve offline.
+COUNTRY_ALIASES.update(EXTERNAL_COUNTRY_ALIASES)
 
 def _country_alias_view() -> dict[str, str]:
     """Merge DB aliases with stable country names used by the scope contract."""
@@ -305,6 +392,28 @@ def _has_admin_place_cue(name: str, surrounding_text: str = "", start: int = 0) 
     ))
 
 
+
+_ORG_HQ_AFFILIATION = re.compile(
+    r"(?:"
+    r"headquarters|\bhq\b|regional office|country office|secretariat|"
+    r"based in|berkantor di|berpusat di|"
+    r"who\s+(?:regional|country)\s+office|"
+    r"world health organization|"
+    r"pan american health|\bpaho\b|\bunicef\b|\bunhcr\b|\bfao\b|"
+    r"centers for disease control|\bcdc\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _mention_is_org_affiliation(text: str, start: int, end: int) -> bool:
+    """True when a place mention sits inside an org HQ / affiliation clause."""
+    if not text:
+        return False
+    window = text[max(0, start - 70): min(len(text), end + 70)]
+    return bool(_ORG_HQ_AFFILIATION.search(window))
+
+
 def is_usable_place_name(name: str, surrounding_text: str = "", start: int = 0) -> bool:
     """Reject continents, function words, and publisher brands such as Asia News Network."""
     raw = (name or "").strip()
@@ -333,6 +442,10 @@ def is_usable_place_name(name: str, surrounding_text: str = "", start: int = 0) 
         window = surrounding_text[max(0, start - 12): start + len(raw) + 28]
         if folded == "asia" and re.search(r"asianews|asia\s+news", window, re.I):
             return False
+    if surrounding_text and _mention_is_org_affiliation(
+        surrounding_text, start, start + len(raw)
+    ):
+        return False
     return True
 
 
@@ -689,6 +802,24 @@ def extract_country_hint(text: str) -> Optional[str]:
                 if standard == c
             ):
                 country_scores[c] += 8.0
+            affil_hits = 0
+            total_hits = 0
+            for alias, standard in _country_alias_view().items():
+                if standard != c:
+                    continue
+                folded_alias = _fold_location_text(alias)
+                for match in re.finditer(rf"\b{re.escape(folded_alias)}\b", lower_text, re.I):
+                    total_hits += 1
+                    if _mention_is_org_affiliation(lower_text, match.start(), match.end()):
+                        affil_hits += 1
+            if total_hits and affil_hits == total_hits:
+                country_scores[c] -= 25.0
+        if c not in config.ASEAN_COUNTRIES and any(
+            _fold_location_text(alias) in opening
+            for alias, standard in EXTERNAL_COUNTRY_ALIASES.items()
+            if standard == c
+        ):
+            country_scores[c] += 18.0
 
     return max(country_scores.keys(), key=lambda k: country_scores[k])
 
@@ -1262,7 +1393,14 @@ _NON_HEALTH_TOPIC = re.compile(
     r"super-luxe condos|properties seized|"
     r"violence|violent|conflict|war|unrest|political unrest|"
     r"refugees?|displaced people|idps?|humanitarian crisis|"
-    r"casualt(?:y|ies)|airstrike|military operation"
+    r"casualt(?:y|ies)|airstrike|military operation|"
+    r"messi|ronaldo|fifa|uefa|liga champions|champions league|"
+    r"transfer window|hat-?trick|soccer match|football match|"
+    r"food security|ketahanan pangan|drought|kekeringan|"
+    r"crop failure|gagal panen|famine|kelaparan|"
+    r"armed conflict|konflik bersenjata|border tension|"
+    r"ketegangan|ceasefire|gencatan senjata|"
+    r"aquaculture|akuakultur|perikanan budidaya"
     r")\b",
     re.IGNORECASE,
 )

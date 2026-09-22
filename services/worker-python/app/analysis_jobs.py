@@ -400,11 +400,43 @@ def save_completed(conn, job_id, result, raw_report_id=None):
             (*values, raw_report_id),
         ).fetchone()
     else:
-        row = conn.execute("""INSERT INTO raw_reports(
+        # Re-analyze / concurrent retain can race when raw_report_id is unset.
+        # Bare INSERT trips uq_raw_reports_*_identity (088). Conflict-safe insert,
+        # then resolve + update (same idea as retain_raw_or_get_cached).
+        row = conn.execute(
+            """INSERT INTO raw_reports(
                 source_type,source_name,published_at,original_text,summary,url,object_path,processing_status,
                 normalized_url,canonical_url,url_hash,content_hash,final_url,author,source_country)
             VALUES ('web','URL Analyzer',%s,%s,%s,%s,%s,'PROCESSED',%s,%s,%s,%s,%s,%s,%s)
-            RETURNING id""", values).fetchone()
+            ON CONFLICT DO NOTHING
+            RETURNING id""",
+            values,
+        ).fetchone()
+        if not row:
+            identity_clause, identity_params = identity_where_clause(
+                {**result, "url": result.get("url")}
+            )
+            resolved = conn.execute(
+                f"""SELECT rr.id FROM raw_reports rr
+                    WHERE rr.processing_status IS DISTINCT FROM 'DUPLICATE'
+                      AND ({identity_clause})
+                    ORDER BY rr.created_at ASC, rr.id ASC
+                    LIMIT 1 FOR UPDATE""",
+                identity_params,
+            ).fetchone()
+            if not resolved:
+                raise RuntimeError(
+                    "raw_reports identity conflict did not resolve to an existing row"
+                )
+            row = conn.execute(
+                """UPDATE raw_reports SET
+                     source_type='web', source_name='URL Analyzer', published_at=%s,
+                     original_text=%s, summary=%s, url=%s, object_path=%s,
+                     processing_status='PROCESSED', normalized_url=%s, canonical_url=%s,
+                     url_hash=%s, content_hash=%s, final_url=%s, author=%s, source_country=%s
+                   WHERE id=%s RETURNING id""",
+                (*values, resolved["id"]),
+            ).fetchone()
     from psycopg.types.json import Jsonb
     event = conn.execute(
         """INSERT INTO disease_events(raw_report_id,source_type,source_name,published_at,original_text,

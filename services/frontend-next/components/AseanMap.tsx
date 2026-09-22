@@ -287,6 +287,7 @@ export default function AseanMap({
     locations: { name: string; cases: number }[];
   } | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<OutbreakLocation | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState<{
     name: string;
     country: string;
@@ -1507,7 +1508,17 @@ export default function AseanMap({
           const geometry = feature.getGeometry();
           const metric: RegionMetric = { cases: 0, deaths: 0, eventCount: 0 };
           if (geometry) {
+            const extent = geometry.getExtent();
             points.forEach(({ item, coordinate }) => {
+              // Bounding box pre-filter prevents main-thread freeze from expensive polygon ray-casting
+              if (
+                coordinate[0] < extent[0] ||
+                coordinate[0] > extent[2] ||
+                coordinate[1] < extent[1] ||
+                coordinate[1] > extent[3]
+              ) {
+                return;
+              }
               if (!geometry.intersectsCoordinate(coordinate)) return;
               metric.cases += Math.max(item.cases || 0, 0);
               metric.deaths += Math.max(item.deaths || 0, 0);
@@ -1538,6 +1549,7 @@ export default function AseanMap({
   }, [selected?.name, highlightCountry, showAdmin, outbreakLocations]);
 
   const resetView = () => {
+    setIsNavigating(false);
     setSelected(null);
     setSelectedRegion(null);
     setSelectedLocation(null);
@@ -1716,6 +1728,8 @@ export default function AseanMap({
 
       {selectedRegion && (
         <div
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           className={`absolute ${popupPositionClass} z-30 w-[min(360px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5`}
           style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
@@ -1763,6 +1777,8 @@ export default function AseanMap({
 
       {selectedLocation && (
         <div
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           className={`absolute ${popupPositionClass} z-35 w-[min(410px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5 transition-all duration-300 hover:z-50`}
           style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
@@ -1858,6 +1874,8 @@ export default function AseanMap({
 
       {selected && (
         <div
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           className={`absolute ${popupPositionClass} z-35 w-[min(410px,calc(100%-32px))] overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_16px_45px_rgba(0,96,169,0.18)] backdrop-blur-md ring-1 ring-black/5 transition-all duration-300 hover:z-50`}
           style={{ animation: "fadeSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
@@ -1983,11 +2001,28 @@ export default function AseanMap({
 
           <Link
             href={`/detail-region?country=${encodeURIComponent(selected.name)}`}
-            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#0060A9] to-[#004d88] py-2.5 text-xs font-black text-white shadow-[0_4px_14px_rgba(0,96,169,0.28)] transition hover:brightness-110 active:scale-[0.98]"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isNavigating) {
+                e.preventDefault();
+                return;
+              }
+              setIsNavigating(true);
+            }}
+            className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#0060A9] to-[#004d88] py-2.5 text-xs font-black text-white shadow-[0_4px_14px_rgba(0,96,169,0.28)] transition hover:brightness-110 active:scale-[0.98] ${isNavigating ? 'opacity-85 pointer-events-none cursor-wait' : ''}`}
           >
-            <Activity className="h-3.5 w-3.5" />
-            <span>Lihat Detail Region {selected.name.toLowerCase() === 'indonesia' ? '(Indonesia)' : `(${selected.name})`}</span>
-            <ChevronRight className="h-3.5 w-3.5" />
+            {isNavigating ? (
+              <>
+                <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                <span>{locale === 'id' ? 'Membuka Detail Region...' : 'Loading Region Detail...'}</span>
+              </>
+            ) : (
+              <>
+                <Activity className="h-3.5 w-3.5" />
+                <span>Lihat Detail Region {selected.name.toLowerCase() === 'indonesia' ? '(Indonesia)' : `(${selected.name})`}</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </>
+            )}
           </Link></div>
       )}
 
