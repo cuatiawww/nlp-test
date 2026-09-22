@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.crawl_jobs import _article_matches, _disease_labels, _selected_concept, sanitize_crawl_url
+from app.crawl_jobs import analyze_article, _article_matches, _disease_labels, _selected_concept, sanitize_crawl_url
 from app.crawler_identity import UnsafeUrlError
 
 
@@ -43,6 +43,24 @@ class CrawlJobLogicTests(unittest.TestCase):
             "https://example.org/news",
         )
         self.assertIsNone(sanitize_crawl_url(None))
+
+    def test_collector_calls_shared_surveillance_adapter(self):
+        from unittest.mock import Mock, patch
+
+        response = Mock()
+        response.json.return_value = {"disease_classification": ["Dengue"]}
+        response.raise_for_status.return_value = None
+        with patch("app.crawl_jobs.requests.post", return_value=response) as post:
+            result = analyze_article({
+                "content": "12 dengue cases and one death in Thailand.",
+                "source_name": "example.org",
+                "published_at": "2026-09-22",
+                "url": "https://example.org/dengue",
+            })
+
+        self.assertEqual(result["disease_classification"], ["Dengue"])
+        self.assertIn("/nlp/analyze/surveillance", post.call_args.args[0])
+        self.assertEqual(post.call_args.kwargs["json"]["source_url"], "https://example.org/dengue")
 
 
 if __name__ == "__main__":

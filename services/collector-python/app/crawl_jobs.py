@@ -1,8 +1,8 @@
 """Filtered news crawling for the factual surveillance matrix.
 
-The job deliberately uses the strict surveillance extractor. Alert, severity,
-and outbreak decisions are not part of this workflow; only validated disease,
-location, date, case, death, evidence, and source facts are persisted.
+The collector is an I/O adapter: it fetches articles, calls the shared NLP
+core, applies the crawl request filter, and persists the returned facts. Alert,
+severity, and outbreak decisions are not implemented in this service.
 """
 import asyncio
 import datetime as dt
@@ -193,6 +193,23 @@ def _article_matches(analysis: dict, disease_names: list[str], country: str | No
     return True
 
 
+def analyze_article(article: dict) -> dict:
+    """Call the shared NLP core through the collector compatibility adapter."""
+    response = requests.post(
+        config.NLP_SERVICE_URL.rstrip("/") + "/nlp/analyze/surveillance",
+        json={
+            "text": article.get("content") or "",
+            "source_type": "news",
+            "source_name": article.get("source_name"),
+            "published_at": article.get("published_at"),
+            "source_url": article.get("url"),
+        },
+        timeout=(5, 120),
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 def _ensure_raw_report(conn, article: dict):
     identity = identity_fields(
         article.get("url", ""), article.get("content", ""),
@@ -360,14 +377,7 @@ async def _run_job(job_id: str, payload: dict, reprocess: bool = False):
                     article = item
                 if not (article.get("content") or "").strip():
                     raise ValueError("Artikel tidak memiliki isi")
-                response = requests.post(
-                    config.NLP_SERVICE_URL.rstrip("/") + "/nlp/analyze/surveillance",
-                    json={"text": article["content"], "source_type": "news", "source_name": article.get("source_name"),
-                          "published_at": article.get("published_at"), "source_url": article.get("url")},
-                    timeout=(5, 120),
-                )
-                response.raise_for_status()
-                analysis = response.json()
+                analysis = analyze_article(article)
                 if not _article_matches(analysis, disease_names, payload.get("country")):
                     continue
                 with _connection() as conn:

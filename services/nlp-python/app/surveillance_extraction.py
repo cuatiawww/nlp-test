@@ -125,6 +125,191 @@ class SurveillanceOutput(BaseModel):
         return value
 
 
+def surveillance_from_analysis(analysis: Any) -> SurveillanceOutput:
+    """Adapt the shared ``pipeline.run`` response to the matrix contract.
+
+    This function is intentionally a serialization adapter. It does not
+    detect language, extract entities, attach metrics, or make event
+    decisions. Those decisions must already be present in ``sub_events``
+    and the parent response produced by the shared NLP pipeline.
+    """
+
+    if hasattr(analysis, "model_dump"):
+        data = analysis.model_dump()
+    elif isinstance(analysis, dict):
+        data = dict(analysis)
+    else:
+        raise TypeError("analysis must be an AnalyzeResponse or mapping")
+
+    def text(value: Any) -> str:
+        return str(value or "").strip()
+
+    def integer(value: Any) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def date_value(value: Any) -> Optional[str]:
+        match = re.search(r"\d{4}-\d{2}-\d{2}", text(value))
+        return match.group(0) if match else None
+
+    def event_country(event: dict[str, Any]) -> str:
+        return text(event.get("country")) or text(data.get("country"))
+
+    def event_location(event: dict[str, Any], country: str) -> str:
+        return text(event.get("location_name")) or country
+
+    events = [item for item in (data.get("sub_events") or []) if isinstance(item, dict)]
+    locations = [item for item in (data.get("locations") or []) if isinstance(item, dict)]
+
+    # A country-level event is authoritative for its disease and prevents an
+    # aggregate plus regional breakdown from being summed twice. Different
+    # diseases remain separate and are summed at the country contract level.
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        country = event_country(event)
+        if country:
+            grouped.setdefault(country.casefold(), []).append(event)
+
+    for item in locations:
+        country = text(item.get("country")) or text(data.get("country"))
+        if country:
+            grouped.setdefault(country.casefold(), [])
+
+    primary_country = text(data.get("country"))
+    if primary_country:
+        grouped.setdefault(primary_country.casefold(), [])
+
+    output_locations: list[SurveillanceLocation] = []
+    for country_key, country_events in grouped.items():
+        country = next(
+            (event_country(item) for item in country_events if event_country(item)),
+            next((text(item.get("country")) for item in locations
+                  if text(item.get("country")).casefold() == country_key), country_key),
+        )
+        country_diseases = {
+            text(item.get("disease")).casefold()
+            for item in country_events
+            if text(item.get("disease")) and text(item.get("disease")).casefold() != "unknown"
+        }
+
+        selected_events: list[dict[str, Any]] = []
+        for disease_key in country_diseases or {""}:
+            disease_events = [
+                item for item in country_events
+                if text(item.get("disease")).casefold() == disease_key
+            ]
+            country_level = [
+                item for item in disease_events
+                if event_location(item, country).casefold() == country.casefold()
+            ]
+            selected_events.extend(country_level or disease_events)
+
+        # If no disease was attached to an event, retain the event rather than
+        # dropping a valid metric from the legacy surveillance contract.
+        if not selected_events and country_events:
+            selected_events = list(country_events)
+
+        cases = sum(integer(item.get("case_count")) for item in selected_events)
+        death_values = [integer(item.get("death_count")) for item in selected_events]
+        deaths: Optional[int] = sum(death_values) if any(death_values) else None
+
+        # The parent scalar is the fallback for a single-country response when
+        # the event composer has no metric-bearing child, and for a country
+        # aggregate that is larger than its regional children.
+        if country.casefold() == primary_country.casefold() or len(grouped) == 1:
+            cases = max(cases, 0 if data.get("case_count_unknown") else integer(data.get("case_count")))
+            parent_deaths = integer(data.get("death_count"))
+            if parent_deaths:
+                deaths = max(deaths or 0, parent_deaths)
+
+        time_frame = next(
+            (text(item.get("time_frame")) for item in selected_events if text(item.get("time_frame"))),
+            text(data.get("event_date")),
+        )
+        areas: list[SurveillanceArea] = []
+        provinces: list[str] = []
+        cities: list[str] = []
+        seen_area: set[tuple[str, str]] = set()
+        for event in country_events:
+            name = event_location(event, country)
+            if not name or name.casefold() == country.casefold():
+                continue
+            key = (name.casefold(), text(event.get("disease")).casefold())
+            if key in seen_area:
+                continue
+            seen_area.add(key)
+            admin1 = text(event.get("admin1"))
+            admin2 = text(event.get("admin2"))
+            if admin1:
+                provinces.append(admin1)
+            else:
+                provinces.append(name)
+            if admin2:
+                cities.append(admin2)
+            areas.append(SurveillanceArea(
+                name=name,
+                country=country,
+                reported_cases=integer(event.get("case_count")),
+                deaths=integer(event.get("death_count")) or None,
+                time_frame=text(event.get("time_frame")) or time_frame,
+                latitude=event.get("latitude"),
+                longitude=event.get("longitude"),
+            ))
+
+        for item in locations:
+            if text(item.get("country")).casefold() != country.casefold():
+                continue
+            name = text(item.get("name"))
+            if not name or name.casefold() == country.casefold():
+                continue
+            admin1 = text(item.get("admin1"))
+            admin2 = text(item.get("admin2"))
+            provinces.append(admin1 or name)
+            if admin2:
+                cities.append(admin2)
+
+        output_locations.append(SurveillanceLocation(
+            country=country,
+            provinces=list(dict.fromkeys(provinces)),
+            cities=list(dict.fromkeys(cities)),
+            areas=areas,
+            reported_cases=cases,
+            deaths=deaths,
+            time_frame=time_frame,
+        ))
+
+    relevance = text(data.get("relevance_score")) or "medium"
+    signal = text(data.get("event_category")) or "Disease Outbreak"
+    classification = data.get("disease_classification")
+    if isinstance(classification, list):
+        disease_labels = classification
+    elif text(classification):
+        disease_labels = [text(classification)]
+    else:
+        disease_labels = list(data.get("disease_extracted") or [])
+    return SurveillanceOutput(
+        disease_classification=disease_labels,
+        published_date=date_value(data.get("published_date") or data.get("published_at")),
+        publication_date=date_value(data.get("publication_date") or data.get("published_date")),
+        event_date=date_value(data.get("event_date")),
+        confirmed_cases=data.get("confirmed_cases"),
+        suspected_cases=data.get("suspected_cases"),
+        hospitalizations=data.get("hospitalizations"),
+        evidence=list(data.get("evidence") or []),
+        locations=output_locations,
+        historical_comparisons=[],
+        signal_type=signal,
+        health_relevance=relevance,
+        outbreak_alert=bool(data.get("outbreak_alert")),
+        source_reliability_score=float(
+            data.get("source_reliability_score", data.get("source_credibility", 0.5)) or 0.5
+        ),
+        health_related=bool(data.get("is_health_related", True)),
+    )
+
+
 class RawLLMRelation(BaseModel):
     """Constrained LLM supplement. It cannot bypass local entity linking."""
 

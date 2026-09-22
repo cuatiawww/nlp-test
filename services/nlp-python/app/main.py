@@ -6,7 +6,7 @@ from fastapi import FastAPI, Body, HTTPException, status
 from pydantic import BaseModel
 
 from .schemas import AnalyzeRequest, AnalyzeResponse
-from .surveillance_extraction import SurveillanceOutput, build_surveillance_output
+from .surveillance_extraction import SurveillanceOutput, surveillance_from_analysis
 from . import pipeline
 
 logging.basicConfig(level=logging.INFO)
@@ -116,13 +116,9 @@ def analyze_surveillance(payload: AnalyzeRequest):
     multi-country articles.
     """
     try:
-        return build_surveillance_output(
-            payload.text,
-            published_at=payload.published_at,
-            source_name=payload.source_name,
-            source_type=payload.source_type,
-            source_url=payload.source_url,
-        )
+        # Compatibility adapter for collector consumers. Extraction, relation
+        # attribution, and event composition happen in the shared pipeline.
+        return surveillance_from_analysis(pipeline.run(payload))
     except Exception as exc:
         logger.exception("Failed to build structured surveillance output: %s", exc)
         raise HTTPException(

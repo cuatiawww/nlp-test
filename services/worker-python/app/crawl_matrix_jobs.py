@@ -828,7 +828,10 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             [event.get("location_name")],
             event.get("case_count"),
             event.get("death_count"),
-            event.get("evidence") or "",
+            event.get("time_frame")
+            or event.get("event_date_start")
+            or event.get("event_date_end")
+            or "",
         )
     for item in out.get("locations") or []:
         if not isinstance(item, dict):
