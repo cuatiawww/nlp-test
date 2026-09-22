@@ -132,13 +132,23 @@ async def extract_url(payload: ExtractUrlRequest):
         raise
     except Exception as exc:
         logger.exception("Interactive extraction failed for %s", url)
-        err_msg = str(exc)
-        if "timed out" in err_msg.lower() or "timeout" in err_msg.lower():
+        err_msg = str(exc).lower()
+        if "challenge" in err_msg or "cloudflare" in err_msg or "blocked" in err_msg:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Source returned a browser challenge or blocked access: {exc}"
+            )
+        if "timed out" in err_msg or "timeout" in err_msg:
             raise HTTPException(
                 status_code=408,
                 detail="URL extraction timed out. The source website is slow or blocking crawler access."
             )
-        if "ocr" in err_msg.lower():
+        if "empty" in err_msg or "unrendered" in err_msg or "shell" in err_msg:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Source returned an empty or unextractable article shell: {exc}"
+            )
+        if "ocr" in err_msg:
             raise HTTPException(
                 status_code=422,
                 detail="This PDF contains no digital text and requires OCR review."

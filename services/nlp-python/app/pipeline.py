@@ -177,12 +177,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     event_confidence = 0.0
     relevance = "medium"
     relevance_confidence = 0.0
+    doc_validation_flags = []
 
     location = facts.get("location") or extractors.extract_location(text, allowed_countries=allowed_countries)
     all_locations = facts.get("locations") or extractors.extract_all_locations(text, allowed_countries=allowed_countries)
     all_locations = _attach_location_provenance(all_locations, text)
     original_location = location
-    is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text)))
+    is_challenge_page = extractors.is_challenge_or_blocked_content(text)
+    if is_challenge_page:
+        non_health_topic = True
+        is_health_related = False
+        doc_validation_flags.append("challenge_page_detected")
+        needs_review = True
+    is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text))) or is_challenge_page
     if not location and not is_noisy_early and not payload.historical_fast and not payload.interactive and not non_health_topic:
         try:
             from .deepseek import detect_location
@@ -1764,7 +1771,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if susp_cases is None and doc_epistemic == "suspected" and case_count > 0:
         susp_cases = case_count
 
-    v_needs_review, doc_validation_flags = validate_surveillance_facts(
+    v_needs_review, val_flags = validate_surveillance_facts(
         text=text,
         disease=disease,
         location=location,
@@ -1774,6 +1781,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         count_period_type=count_period,
         sub_events=sub_events,
     )
+    for vf in val_flags:
+        if vf not in doc_validation_flags:
+            doc_validation_flags.append(vf)
     if v_needs_review:
         needs_review = True
     metric_without_disease_relation = (
@@ -1789,6 +1799,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         needs_review = True
         if "location_country_conflict" not in doc_validation_flags:
             doc_validation_flags.append("location_country_conflict")
+
+    if is_challenge_page:
+        disease = "NEGATIVE_NON_HEALTH"
+        case_count = 0
+        death_count = 0
+        sub_events = []
+        outbreak_alert = False
+        is_health_related = False
 
     outbreak_alert = calibrate_outbreak_alert(
         disease=disease,

@@ -1,6 +1,7 @@
 """Isolated interactive URL worker; never consumes the bulk collector queues."""
 import json
 import logging
+import re
 import os
 import threading
 import time
@@ -66,6 +67,12 @@ def _fetch_error_diagnostic(exc):
         return "fetch_timeout", "The source did not respond before the fetch deadline."
     if "challenge" in message.lower() or "cloudflare" in message.lower():
         return "source_challenge", "The source returned a browser challenge instead of article content."
+    if "403" in message or "blocked" in message.lower():
+        return "source_blocked", "Access to the source was blocked by the publisher."
+    if "404" in message or "not found" in message.lower():
+        return "source_not_found", "The requested article was not found at the source."
+    if "empty" in message.lower() or "unextractable" in message.lower() or "shell" in message.lower():
+        return "empty_article", "The page did not contain extractable article content."
     return "fetch_error", "The source could not be fetched or did not contain usable article content."
 
 
@@ -285,11 +292,14 @@ def fetch_article(url, fallback=False):
                 if status in {408, 504}:
                     code = "fetch_timeout"
                 elif status in {403, 429, 451}:
-                    code = "source_blocked"
+                    code = "source_challenge" if "challenge" in detail.lower() or "cloudflare" in detail.lower() else "source_blocked"
                 elif status == 404:
                     code = "source_not_found"
                 elif status in {422}:
-                    code = "empty_article"
+                    if "challenge" in detail.lower() or "cloudflare" in detail.lower():
+                        code = "source_challenge"
+                    else:
+                        code = "empty_article"
                 else:
                     code = "collector_http_error"
                 raise ArticleFetchError(code, detail[:240], status)
@@ -356,6 +366,13 @@ def analyze_article(extracted, fallback=False):
         detail = response.text.replace("\n", " ").strip()[:240]
         raise RuntimeError(f"NLP HTTP {response.status_code}: {detail or response.reason}")
     return response.json()
+
+def _clean_iso_date(value):
+    if not value or not isinstance(value, str):
+        return None
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})", value.strip())
+    return m.group(1) if m else None
+
 def save_completed(conn, job_id, result, raw_report_id=None):
     """Add a new version without deleting any existing report or event."""
     if not raw_report_id:
@@ -410,8 +427,8 @@ def save_completed(conn, job_id, result, raw_report_id=None):
          result.get("source_credibility"),result.get("source_credibility_label"),result.get("needs_review",False),
          result.get("nlp_pipeline_version") or NLP_PIPELINE_VERSION,
          result.get("count_period_type") or "unknown",
-         result.get("event_date_start"),
-         result.get("event_date_end"),
+         _clean_iso_date(result.get("event_date_start")),
+         _clean_iso_date(result.get("event_date_end")),
          result.get("date_needs_review", False))).fetchone()
     conn.execute(
         "UPDATE disease_events SET source_country=%s, surveillance_scope=%s WHERE id=%s",
@@ -893,12 +910,13 @@ def process_job(job_id):
             return True
         except UnknownAnalysisJob:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Analysis job failed: %s", job_id)
             try:
+                err_detail = str(exc).replace("\n", " ").strip()[:240] or "Analysis storage or execution failed"
                 failed = lock_conn.execute(
-                    "UPDATE analysis_jobs SET status='failed',error='Analysis storage failed; please retry',updated_at=NOW() WHERE id=%s",
-                    (job_id,),
+                    "UPDATE analysis_jobs SET status='failed',error=%s,updated_at=NOW() WHERE id=%s",
+                    (f"Analysis storage failed: {err_detail}", job_id),
                 )
                 if failed.rowcount != 1:
                     raise RuntimeError(f"Analysis job failure state was not persisted: {job_id}")

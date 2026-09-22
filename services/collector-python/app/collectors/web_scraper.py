@@ -27,7 +27,12 @@ logger = logging.getLogger(__name__)
 BLOCKED_STATUSES = {403, 429, 503}
 CHALLENGE_MARKERS = (
     "just a moment", "checking your browser", "cf-browser-verification",
-    "cf-chl-", "cloudflare ray id", "challenge-platform",
+    "cf-chl-", "cloudflare ray id", "challenge-platform", "cf-turnstile",
+    "challenges.cloudflare.com", "checking if the site connection is secure",
+    "verifying you are human", "enable javascript and cookies to continue",
+    "attention required", "un instant...", "un momento...", "window._cf_chl_opt",
+    "__cf_chl_rt_tk", 'id="cf-challenge', 'id="challenge-running', 'id="challenge-form',
+    'id="turnstile-wrapper', 'class="cf-browser-verification', 'class="cf-alert',
 )
 
 # ReliefWeb report URLs carry the affected country in a stable path segment,
@@ -235,12 +240,6 @@ def _is_challenge(status: int, html: str) -> bool:
     if not html:
         return False
     sample = html[:50_000].lower()
-    if status == 200:
-        if "<title>just a moment" in sample or "<title>checking your browser" in sample or "<title>attention required" in sample:
-            return True
-        if 'id="cf-challenge' in sample or 'id="challenge-running' in sample or 'id="challenge-form' in sample:
-            return True
-        return False
     return any(marker in sample for marker in CHALLENGE_MARKERS)
 
 
@@ -724,6 +723,12 @@ class WebScraperCollector(BaseCollector):
                     content = soup.get_text(" ", strip=True)[:10000]
                 except Exception:
                     content = ""
+
+        combined_check = f"{title}\n{content}".lower()
+        if any(marker in combined_check for marker in ("just a moment", "checking your browser", "cloudflare ray id", "enable javascript and cookies", "un instant...", "attention required", "turnstile")):
+            raise RuntimeError(f"source returned a browser challenge: {title or 'Cloudflare'}")
+        if len(content.split()) < 15 and not shell_content:
+            raise RuntimeError("source returned an empty or unextractable article shell")
 
         return {
             "url": url,

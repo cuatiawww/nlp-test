@@ -2403,3 +2403,27 @@ def is_content_too_short_or_noisy(text: str, has_health_indicators: bool = False
         return True
 
     return False
+
+CHALLENGE_CONTENT_MARKERS = (
+    "just a moment",
+    "checking your browser",
+    "checking if the site connection is secure",
+    "verifying you are human",
+    "enable javascript and cookies to continue",
+    "attention required! | cloudflare",
+    "cloudflare ray id",
+    "un instant...",
+    "un momento...",
+    "403 forbidden",
+    "access denied",
+    "404 not found",
+    "page not found",
+)
+
+
+def is_challenge_or_blocked_content(text: str) -> bool:
+    """Detect if the input text is a browser challenge, bot wall, or error page."""
+    if not text:
+        return False
+    sample = text[:5000].lower()
+    return any(marker in sample for marker in CHALLENGE_CONTENT_MARKERS)
