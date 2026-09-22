@@ -23,6 +23,9 @@ export const SYSTEM_MODULES: SystemModule[] = [
   { id: 'lite_dashboard', label: 'Lite Dashboard', description: 'Public Guest situational awareness and regional outbreak summary', category: 'Surveillance & Monitoring', path: '/lite-dashboard' },
   { id: 'asean_countries', label: 'ASEAN Countries', description: 'Surveillance and cross-border threat monitoring across the 11 ASEAN member states', category: 'Surveillance & Monitoring', path: '/asean-countries' },
   { id: 'asean_3', label: 'ASEAN +3', description: 'Expanded regional surveillance covering 11 ASEAN states plus China, Japan, and South Korea', category: 'Surveillance & Monitoring', path: '/asean-3' },
+  { id: 'outside_asean', label: 'Outside ASEAN', description: 'Global disease surveillance, international outbreaks, and non-ASEAN threat horizons', category: 'Surveillance & Monitoring', path: '/outside-asean' },
+  { id: 'analysis_dashboard', label: 'Analysis Dashboard', description: 'Consolidated URL and document NLP extraction intelligence, accuracy metrics, and text-mining triage', category: 'Surveillance & Monitoring', path: '/analysis-dashboard' },
+  { id: 'web_services_dashboard', label: 'Web Services Dashboard', description: 'Internal microservices mesh health, external environmental geoproxies, and interoperability API catalog', category: 'Surveillance & Monitoring', path: '/web-services-dashboard' },
   { id: 'crawling_dashboard', label: 'Crawling Dashboard', description: 'Web ingestion, scraper operations, and collection pipeline intelligence', category: 'Surveillance & Monitoring', path: '/crawling-dashboard' },
   { id: 'disease_dashboard', label: 'Disease Dashboard', description: 'WHO ICD-11 pathogen concepts, morbidity trends, and disease surveillance', category: 'Surveillance & Monitoring', path: '/disease-dashboard' },
   { id: 'executive_dashboard', label: 'Executive Dashboard', description: 'Macro situational awareness, strategic threat triage, and policy briefing', category: 'Surveillance & Monitoring', path: '/executive-dashboard' },
@@ -75,6 +78,9 @@ export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string):
   if (moduleKeyOrPath.startsWith('/lite-dashboard')) return true;
   if (moduleKeyOrPath.startsWith('/asean-countries')) return true;
   if (moduleKeyOrPath.startsWith('/asean-3')) return true;
+  if (moduleKeyOrPath.startsWith('/outside-asean')) return true;
+  if (moduleKeyOrPath.startsWith('/analysis-dashboard')) return true;
+  if (moduleKeyOrPath.startsWith('/web-services-dashboard')) return true;
   if (moduleKeyOrPath.startsWith('/crawling-dashboard')) return true;
   if (moduleKeyOrPath.startsWith('/disease-dashboard')) return true;
   if (moduleKeyOrPath === '/' && user.permissions?.includes('dashboard')) return true;

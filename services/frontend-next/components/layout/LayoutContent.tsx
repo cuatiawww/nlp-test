@@ -41,7 +41,10 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
     pathname === '/crawling-dashboard' ||
     pathname === '/disease-dashboard' ||
     pathname === '/asean-countries' ||
-    pathname === '/asean-3'
+    pathname === '/asean-3' ||
+    pathname === '/outside-asean' ||
+    pathname === '/analysis-dashboard' ||
+    pathname === '/web-services-dashboard'
   const isConsolePage = pathname.startsWith('/console')
 
   if (isLoginPage) {
