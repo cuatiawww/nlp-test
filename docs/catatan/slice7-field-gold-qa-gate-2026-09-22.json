@@ -1,0 +1,100 @@
+{
+  "report": "/home/aspire_5/app/NLP-PENYAKIT/docs/catatan/slice7-field-gold-2026-09-22.json",
+  "qa_gate": {
+    "status": "fail",
+    "min_annotated": 5,
+    "fields": {
+      "disease": {
+        "status": "pass",
+        "annotated": 20,
+        "precision": 0.9,
+        "recall": 1.0,
+        "required": {
+          "precision": 0.9,
+          "recall": 0.9
+        },
+        "reasons": []
+      },
+      "country": {
+        "status": "fail",
+        "annotated": 20,
+        "precision": 0.9474,
+        "recall": 0.9474,
+        "required": {
+          "precision": 0.95,
+          "recall": 0.95
+        },
+        "reasons": [
+          "precision=0.9474 < required=0.95",
+          "recall=0.9474 < required=0.95"
+        ]
+      },
+      "cases": {
+        "status": "fail",
+        "annotated": 19,
+        "precision": 0.7895,
+        "recall": 1.0,
+        "required": {
+          "precision": 0.9,
+          "recall": 0.9
+        },
+        "reasons": [
+          "precision=0.7895 < required=0.90"
+        ]
+      },
+      "deaths": {
+        "status": "pass",
+        "annotated": 9,
+        "precision": 1.0,
+        "recall": 1.0,
+        "required": {
+          "precision": 0.9,
+          "recall": 0.9
+        },
+        "reasons": []
+      },
+      "location": {
+        "status": "fail",
+        "annotated": 8,
+        "precision": 0.5,
+        "recall": 0.1429,
+        "required": {
+          "precision": 0.85,
+          "recall": 0.85
+        },
+        "reasons": [
+          "precision=0.5 < required=0.85",
+          "recall=0.1429 < required=0.85"
+        ]
+      },
+      "time": {
+        "status": "fail",
+        "annotated": 0,
+        "precision": null,
+        "recall": null,
+        "required": {
+          "precision": 0.85,
+          "recall": 0.85
+        },
+        "reasons": [
+          "annotated=0 < minimum=5",
+          "precision=None < required=0.85",
+          "recall=None < required=0.85"
+        ]
+      },
+      "evidence": {
+        "status": "fail",
+        "annotated": 20,
+        "precision": 0.75,
+        "recall": 1.0,
+        "required": {
+          "precision": 0.9,
+          "recall": 0.9
+        },
+        "reasons": [
+          "precision=0.75 < required=0.90"
+        ]
+      }
+    }
+  }
+}

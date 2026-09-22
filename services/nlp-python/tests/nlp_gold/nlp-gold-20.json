@@ -63,6 +63,7 @@
         "province_or_city": null,
         "cases": 43,
         "deaths": null,
+        "time": "2026-01-01",
         "notes": "Use 43 (2026 YTD), not 27 (2025), not 152 (2019), not Americas 43559 mentioned later in article.",
         "must_not_contain": [
           "802151",
@@ -87,6 +88,7 @@
         "province_or_city": "Siem Reap",
         "cases": 11,
         "deaths": 6,
+        "time": "2025-07-01",
         "notes": "Primary period count: 11 cases / 6 deaths (Jan–1 Jul 2025). Multi-province; Siem Reap has highest share (4). Province field may be Siem Reap or null if multi-province aggregation preferred—accept either if country+disease+counts correct; do not invent a single false province.",
         "must_not_contain": [
           "Measles",
@@ -152,6 +154,7 @@
         "province_or_city": null,
         "cases": 65979,
         "deaths": 62,
+        "time": "2026-08-30",
         "notes": "EW35 2026: 65979 cases, 62 deaths. Comparators 39616 cases / 32 deaths are 2025 same period—do not use as current.",
         "must_not_contain": [
           "39616 as 2026 cases",
@@ -259,6 +262,7 @@
         "province_or_city": null,
         "cases": 3029,
         "deaths": null,
+        "time": "2026-08-01",
         "notes": "Prefer cumulative 2026 = 3029. Weekly 179 is alternate scoped. Deaths null for reporting period (explicitly none); do not invent. 4712 is 2025 comparator.",
         "must_not_contain": [
           "Cambodia as country",
@@ -390,6 +394,7 @@
         "province_or_city": null,
         "cases": 40915,
         "deaths": 58,
+        "time": "2026-07-26",
         "notes": "Multi-country PDF: extract Cambodia block only for this fixture. 24397 is 2025 comparator.",
         "must_not_contain": [
           "Indonesia 75431 as Cambodia",

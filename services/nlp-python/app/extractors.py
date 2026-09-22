@@ -740,6 +740,14 @@ def validate_location_context(
     # 2. Dominant / Mentioned Country Check (Score 2): City mentioned and country is in mentioned_countries
     if mentioned_countries and city_country in mentioned_countries:
         return {"name": raw_name, "country": city_country, "score": 2, "is_valid": True}
+
+    # A primary country explicitly established by the article is sufficient
+    # context for one of its gazetteer localities, even when the locality is
+    # introduced in a later paragraph. This keeps the guard country-aware
+    # without accepting a publisher country as event geography.
+    article_country = extract_country_hint(text[:1200])
+    if article_country == city_country:
+        return {"name": raw_name, "country": city_country, "score": 2, "is_valid": True}
         
     # 3. Source Context / Standalone Unambiguous City (Score 1):
     norm_source = normalize_country(source_country)
@@ -1550,6 +1558,14 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         if res["is_valid"]:
             if res.get("country"):
                 item["country"] = res["country"]
+            # Never let a secondary/foreign gazetteer hit replace an
+            # explicitly established article country (e.g. Thailand text
+            # with a stray Indonesia locality). Keep the candidate out of
+            # primary event attribution; the raw evidence remains available
+            # through the source text for later multi-country composition.
+            if country and item.get("country") and item["country"] != country:
+                item["country_conflict"] = True
+                continue
             validated_locations.append(item)
     all_locations = validated_locations
 
@@ -1679,6 +1695,10 @@ def _is_embedded_number_word(text: str, start: int) -> bool:
 _FOCAL_SINGULAR = re.compile(
     r"(?:"
     r"this one involving|"
+    # An ordinal cumulative label still refers to the newly reported case;
+    # it must not be replaced by a later historical total in the same story.
+    r"(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+"
+    r"(?:human\s+)?(?:h5n1\s+)?(?:avian\s+(?:influenza|flu)\s+)?(?:case|infection)\b|"
     r"a severe (?:h5n1|avian).{0,80}(?:infection|case)|"
     r"(?:infection|case) involved a \d+-year-old|"
     r"(?:reported|reports|confirms?)\s+(?:a|another|one)\s+(?:severe\s+)?"
@@ -1798,7 +1818,18 @@ def _period_score(window: str, full_text: str) -> int:
     if re.search(r"\b(?:this year|so far|year to date|\bytd\b|nationwide|in the country|nationally|tahun ini|setakat ini|peringkat kebangsaan|seluruh negara)\b", window_l):
         score += 8
     if re.search(r"\b(?:cumulativ(?:e|ely)|a total of|has logged|so far|kumulatif)\b", window_l):
-        score += 6
+        score += 20
+    # Prefer a reporting window anchored to a start period over a shorter
+    # nested update later in the article (for example, ``since January`` vs
+    # ``this month``). These are generic period signals, not article rules.
+    if re.search(
+        r"\b(?:since|from|sejak|mulai|sejak awal|từ|từ đầu)\s+(?:19|20)?\d{0,2}\s*"
+        r"(?:january|januari|february|februari|march|maret|april|may|mei|june|juni|"
+        r"july|juli|august|agustus|september|october|oktober|november|december|desember|"
+        r"q[1-4]|the year|tahun)\b",
+        window_l,
+    ):
+        score += 8
     if re.search(
         r"\b(?:last year|previous year|previous week|compared with|compared to|"
         r"same period|in contrast|in all of|the whole of|tahun lepas|tahun lalu|tempoh sama|berbanding)\b",
@@ -1816,8 +1847,25 @@ def _period_score(window: str, full_text: str) -> int:
             score -= 12
     if has_this_year and years_w and not re.search(r"\bthis year\b", window_l):
         score -= 10
+        # A focal current-year case can be followed by a prior-year country
+        # total.  The prior-year value must not win merely because it is
+        # attached to the same country name.
+        latest_year = max(years_all) if years_all else None
+        if latest_year is not None and max(years_w) <= latest_year:
+            score -= 30
     if re.search(r"\b(?:since 19\d{2}|since 200[0-4]|historical)\b", window_l):
         score -= 12
+    if re.search(r"\b(?:this month|this week|district|previous week|the whole of)\b", window_l):
+        score -= 12
+    if re.search(r"\b(?:the whole of|all of)\s+(?:19|20)\d{2}\b", window_l):
+        score -= 25
+    if re.search(
+        r"\b(?:in|during|pada|selama)\s+(?:january|januari|february|februari|march|maret|"
+        r"april|may|mei|june|juni|july|juli|august|agustus|september|october|oktober|"
+        r"november|december|desember)\b",
+        window_l,
+    ):
+        score += 4
     return score
 
 
@@ -1852,6 +1900,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         for char in (text or "")
     )
     search_text = _compact_spaced_thousands(raw)
+    article_country = extract_country_hint(search_text[:1500])
     disease_terms: list[str] = []
     if disease:
         disease_terms = [t for t in {
@@ -1940,7 +1989,14 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         if re.fullmatch(r"(?:19|20|25)\d{2}", raw_token):
             return
         # 3. Calendar dates (e.g. '23 Agustus', '1 to 23 Aug')
-        if re.match(r"^(?:-|–|\s)*(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|january|february|march|april|may|june|july|august|september|october|november|december|tháng)\b", after, re.I):
+        if re.match(
+            r"^(?:-|–|\s)*(?:januari|februari|maret|april|mei|juni|juli|agustus|"
+            r"september|oktober|november|desember|january|february|march|april|may|"
+            r"june|july|august|october|november|december|tháng|jan|feb|mar|apr|"
+            r"jun|jul|aug|sep|sept|oct|nov|dec)\b",
+            after,
+            re.I,
+        ):
             return
         window = _sentence_window(search_text, match.start(), match.end())
         window_l = window.lower()
@@ -1989,6 +2045,15 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             re.IGNORECASE,
         ):
             return
+        if field == "case_count" and re.search(
+            r"\b(?:of\s+the|among\s+the|of)\s+(?:patients?|people|children|persons?)\s+"
+            r"(?:who\s+)?(?:died|were\s+fatal|fatalities|killed|meninggal|tewas|passed\s+away)\b",
+            after,
+            re.IGNORECASE,
+        ):
+            # A death sub-group such as ``16 of the patients who died`` is
+            # not a second incidence total.
+            return
         if field == "case_count" and _ANIMAL_OUTBREAK.search(window) and re.search(
             r"\b(?:outbreaks?|clusters?|farms?)\b", window_l
         ):
@@ -2018,6 +2083,13 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
                 return
         period = _period_score(window, search_text)
         score = base_score + period
+        # Prefer a metric explicitly attached to the article's named country
+        # over a later locality breakdown.  This keeps a national total such
+        # as ``Thailand has recorded 21,620 cases`` from being replaced by
+        # ``Bangkok has recorded 1,785 cases`` while retaining both source
+        # spans for relation/location intelligence.
+        if article_country and strip_diacritics(str(article_country)).casefold() in strip_diacritics(str(window)).casefold():
+            score += 12
         # Preceding / following year disambiguation (e.g. 2025 vs 2026 comparator)
         all_years = _years_in(search_text)
         latest_year = max(all_years) if all_years else None
@@ -2076,8 +2148,6 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             score += 12
         if re.search(r"\b(?:recorded|confirmed|reported|logged|mencatat|melaporkan)\b", window_l):
             score += 3
-        if re.search(r"\b(?:this month|district|previous week)\b", window_l):
-            score -= 4
         if match.start() < 400:
             score += 3
         candidates.append((score, match.start(), parsed, period))
@@ -2086,6 +2156,23 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         for match in re.finditer(pattern, search_text, re.IGNORECASE):
             try:
                 _consider(match, 1)
+            except Exception:
+                continue
+
+    # Add an explicit country-scoped candidate when the source names the
+    # country immediately before its metric.  This is deliberately built
+    # from the resolved country text, so it works across the configured
+    # ASEAN lexicon without a publisher, disease, or place rule in code.
+    if article_country and field == "case_count":
+        country_pattern = re.compile(
+            rf"\b{re.escape(str(article_country))}\b[^.!?;:]{{0,140}}?"
+            rf"(?P<count>{num_token})\s+(?:[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF()/'-]+\s+)?"
+            rf"{case_label}\b",
+            re.IGNORECASE | re.UNICODE,
+        )
+        for match in country_pattern.finditer(search_text):
+            try:
+                _consider(match, 28)
             except Exception:
                 continue
 
@@ -2122,6 +2209,34 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     if field == "case_count" and override == 2:
         return 2
     if field == "case_count" and override == 1:
+        # Remove older-year totals before deciding whether a focal single
+        # case should win.  A country-scoped historical candidate can have a
+        # high lexical score even though the article's current fact is one
+        # newly reported patient.
+        all_years = _years_in(search_text)
+        if re.search(r"\b(?:this year|so far|year to date|ytd)\b", search_text, re.IGNORECASE):
+            candidates = [
+                item for item in candidates
+                if not (
+                    item[2] > 1
+                    and _years_in(_sentence_window(search_text, item[1], item[1] + 1))
+                    and not re.search(
+                        r"\b(?:this year|so far|year to date|ytd)\b",
+                        _sentence_window(search_text, item[1], item[1] + 1),
+                        re.IGNORECASE,
+                    )
+                    and max(_years_in(_sentence_window(search_text, item[1], item[1] + 1))) <= max(all_years)
+                )
+            ]
+        # A focal single-case construction is authoritative over a later
+        # historical/cumulative total (for example, a fifth human case this
+        # year followed by last year's 19 cases).
+        if re.search(
+            r"\b(?:this\s+one\s+involving|(?:case|infection)\s+involved\s+a)\b",
+            search_text,
+            re.IGNORECASE,
+        ):
+            return 1
         strong = [item for item in candidates if item[2] > 1 and item[3] >= 0 and item[0] >= 12]
         if not strong:
             return 1
@@ -2138,6 +2253,23 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             candidates = [item for item in candidates if item[3] >= 0]
             if not candidates:
                 return default
+
+    # An explicitly cumulative sentence is a stronger scope declaration than
+    # a shorter weekly/monthly breakdown elsewhere in the article. Restrict
+    # the primary metric to those candidates only when such evidence exists;
+    # the individual relation remains available in the source evidence.
+    if field == "case_count":
+        cumulative_candidates = [
+            item for item in candidates
+            if re.search(
+                r"\b(?:cumulativ(?:e|ely)|a\s+total\s+of|total(?:ly)?|has\s+logged|"
+                r"reported\s+in\s+20\d{2})\b",
+                _sentence_window(search_text, item[1], item[1] + 1),
+                re.IGNORECASE,
+            )
+        ]
+        if cumulative_candidates:
+            candidates = cumulative_candidates
 
     if not candidates:
         if field == "death_count" and re.search(r"\bno deaths?\b", search_text, re.I):
@@ -2349,6 +2481,47 @@ def extract_case_count(text: str, disease: Optional[str] = None) -> int:
         default = 0
     default = max(0, default)
     try:
+        source = _compact_spaced_thousands(str(text or ""))
+        article_country = extract_country_hint(source[:1500])
+        if article_country and _focal_human_case_override(source) != 1:
+            number = _runtime_number_word_pattern()
+            case_label = _runtime_metric_label_pattern("metric_case")
+            country_pattern = re.compile(
+                rf"\b{re.escape(str(article_country))}\b[^.!?;:]{{0,140}}?"
+                rf"(?P<count>{number})\s+(?:[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF()/'-]+\s+)?"
+                rf"{case_label}\b",
+                re.IGNORECASE | re.UNICODE,
+            )
+            scoped_candidates = []
+            for match in country_pattern.finditer(source):
+                parsed = _parse_count(match.group("count"), match.group(0))
+                if parsed is None:
+                    continue
+                window = _sentence_window(source, match.start(), match.end())
+                window_l = window.casefold()
+                if re.search(
+                    r"\b(?:last year|previous year|same period|compared with|compared to|"
+                    r"tahun lalu|tahun lepas|berbanding|berbanding dengan)\b",
+                    window_l,
+                ):
+                    continue
+                window_years = _years_in(window)
+                all_years = _years_in(source)
+                if (
+                    window_years
+                    and all_years
+                    and re.search(r"\b(?:this year|so far|year to date|ytd)\b", source, re.IGNORECASE)
+                    and max(window_years) < max(all_years)
+                    and not re.search(r"\b(?:this year|so far|year to date|ytd)\b", window, re.IGNORECASE)
+                ):
+                    continue
+                scoped_candidates.append((
+                    _period_score(window, source),
+                    -match.start(),
+                    parsed,
+                ))
+            if scoped_candidates:
+                return max(scoped_candidates)[2]
         parsed = _extract_count(text, "case_count", default, disease=disease)
         max_count = int(os.getenv("MAX_EVENT_CASE_COUNT", "2000000"))
         if parsed is None or parsed > max_count:

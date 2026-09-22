@@ -1,0 +1,823 @@
+{
+  "dataset": "nlp-gold-20",
+  "fields": {
+    "disease": {
+      "annotated": 20,
+      "tp": 18,
+      "fp": 2,
+      "fn": 0,
+      "precision": 0.9,
+      "recall": 1.0
+    },
+    "country": {
+      "annotated": 20,
+      "tp": 19,
+      "fp": 0,
+      "fn": 1,
+      "precision": 1.0,
+      "recall": 0.95
+    },
+    "location": {
+      "annotated": 8,
+      "tp": 8,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "cases": {
+      "annotated": 19,
+      "tp": 19,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "deaths": {
+      "annotated": 9,
+      "tp": 9,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "time": {
+      "annotated": 5,
+      "tp": 5,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "evidence": {
+      "annotated": 20,
+      "tp": 20,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0
+    }
+  },
+  "fixtures": [
+    {
+      "id": "asean-001",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Avian influenza (H5N1)",
+          "predicted": "Avian influenza"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Cambodia",
+          "predicted": "Cambodia"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 1,
+          "predicted": 1
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "Earlier this week Cambodian officials announced the country's fifth human H5N1 avian flu case this year, this one involving a 9-month-old girl. ... Cambodia reported 19 human cases of H5N1 in 2025, eight of which were fatal.",
+          "predicted": "Cambodia confirms human H5N1 avian flu case as H5N1 hits more Utah egg farms Earlier this week Cambodian officials announced the country's fifth human H5N1 avian flu case this year, this one involving a 9-month-old girl ... Cambodia reported 19 human cases of H5N1 in 2025, eight of which were fatal. 19 human case 1 avian flu case"
+        }
+      }
+    },
+    {
+      "id": "asean-002",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Measles",
+          "predicted": "Measles"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Singapore",
+          "predicted": "Singapore"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 43,
+          "predicted": 43
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "tp",
+          "expected": "2026-01-01",
+          "predicted": "2026-01-01"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "Singapore has recorded 43 cases of measles in 2026 so far, its highest number of cases since 2020. ... In contrast, 27 cases were recorded in 2025. However, this year's number falls well below the 152 cases logged in 2019.",
+          "predicted": "S'pore sees highest number of measles cases in 6 years, vaccinated individuals among 2026 cases Singapore has recorded 43 cases of measles in 2026 so far, its highest number of cases since 2020 ... In contrast, 27 cases were recorded in 2025 However, this year's number falls well below the 152 cases logged in 2019. Singapore has recorded 43 cases S'pore sees highest number of measles cases in 6 years, vaccinated individuals among 2026 cases 43 case 2026 case 27 case 152 case"
+        }
+      }
+    },
+    {
+      "id": "asean-003",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Avian influenza (H5N1)",
+          "predicted": "Avian influenza"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Cambodia",
+          "predicted": "Cambodia"
+        },
+        "location": {
+          "status": "tp",
+          "expected": "Siem Reap",
+          "predicted": [
+            "Kampong Cham",
+            "Kampong Speu",
+            "Svay Rieng",
+            "Siem Reap",
+            "Prey Veng",
+            "Kratie",
+            "Takeo"
+          ]
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 11,
+          "predicted": 11
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 6,
+          "predicted": 6
+        },
+        "time": {
+          "status": "tp",
+          "expected": "2025-07-01",
+          "predicted": "2025-07-01"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "Between 1 January and 1 July 2025, the World Health Organization (WHO) was notified by Cambodia's International Health Regulations (IHR) National Focal Point (NFP) of 11 laboratory-confirmed cases of human infection with avian influenza A(H5N1) virus. ... including six deaths [CFR: 54%]. These cases are reported from the provinces of Siem Reap (4), Takeo (2), Kampong Cham (1), Kampong Speu (1), Kratie (1), Prey Veng (1), Svay Rieng (1).",
+          "predicted": "Cumulative reporting window 2025-01-01 to 2025-07-01 Between 1 January and 1 July 2025, the World Health Organization (WHO) was notified by Cambodia's International Health Regulations (IHR) National Focal Point (NFP) of 11 laboratory-confirmed cases of human infection with avian influenza A(H5N1) virus ... including six deaths [CFR: 54%] These cases are reported from the provinces of Siem Reap (4), Takeo (2), Kampong Cham (1), Kampong Speu (1), Kratie (1), Prey Veng (1), Svay Rieng (1). 11 laboratory-confirmed case"
+        }
+      }
+    },
+    {
+      "id": "asean-004",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Dengue",
+          "predicted": "Dengue"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Philippines",
+          "predicted": "Philippines"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 128634,
+          "predicted": 128634
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "The Department of Health (DOH) said Monday that 15,763 dengue cases were recorded nationwide from August 2 to 15... So far, DOH has logged 128,634 dengue cases in 2026. The current number of dengue cases is 39% lower than the 209,631 cases in the same period in 2025.",
+          "predicted": "DOH logs over 15k dengue cases from Aug 2 to 15, higher than previous period The Department of Health (DOH) said Monday that 15,763 dengue cases were recorded nationwide from August 2 to 15... So far, DOH has logged 128,634 dengue cases in 2026 The current number of dengue cases is 39% lower than the 209,631 cases in the same period in 2025. 15k dengue case 128,634 dengue case 15,763 dengue case"
+        }
+      }
+    },
+    {
+      "id": "asean-005",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Measles",
+          "predicted": "Measles"
+        },
+        "country": {
+          "status": "fn",
+          "expected": "Philippines",
+          "predicted": null
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 5159,
+          "predicted": 5159
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "From Jan. 1, 2025 to Jan. 3, 2026, measles and rubella cases reached 5,159. This is 32 percent higher compared to 3,901 cases posted in 2024... Of the total cases, 73 percent were unvaccinated.",
+          "predicted": "3, 2026, measles and rubella cases reached 5,159 This is 32 percent higher compared to 3,901 cases posted in 2024... Of the total cases, 73 percent were unvaccinated."
+        }
+      }
+    },
+    {
+      "id": "asean-006",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Dengue",
+          "predicted": "Dengue"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Malaysia",
+          "predicted": "Malaysia"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 65979,
+          "predicted": 65979
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 62,
+          "predicted": 62
+        },
+        "time": {
+          "status": "tp",
+          "expected": "2026-08-30",
+          "predicted": "2026-08-30"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "The number of dengue fever cases in the country rose 66 per cent to 65,979 as of epidemiological week 35 this year, compared with 39,616 cases recorded during the same period last year. ... cumulative number of deaths from dengue fever up to epidemiological week 35 in 2025 stood at 32, while in the same period in 2026, the figure was 62",
+          "predicted": "Dengue Fever Cases Rise 66 Per Cent - Fahmi The number of dengue fever cases in the country rose 66 per cent to 65,979 as of epidemiological week 35 this year, compared with 39,616 cases recorded during the same period last year ... cumulative number of deaths from dengue fever up to epidemiological week 35 in 2025 stood at 32, while in the same period in 2026, the figure was 62 39,616 case"
+        }
+      }
+    },
+    {
+      "id": "asean-007",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Dengue",
+          "predicted": "Dengue"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Indonesia",
+          "predicted": "Indonesia"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 30465,
+          "predicted": 30465
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 79,
+          "predicted": 79
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "As of mid-April alone, 30,465 cases and 79 deaths had been confirmed in 401 of 514 regencies and cities across the country.",
+          "predicted": "Cumulative reporting window As of mid-April alone, 30,465 cases and 79 deaths had been confirmed in 401 of 514 regencies and cities across the country. 30,465 case 79 death cases and 79 deaths"
+        }
+      }
+    },
+    {
+      "id": "asean-008",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Measles",
+          "predicted": "Measles"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Indonesia",
+          "predicted": "Indonesia"
+        },
+        "location": {
+          "status": "tp",
+          "expected": "Jakarta",
+          "predicted": [
+            "Jakarta",
+            "Kota Administrasi Jakarta Selatan",
+            "DKI Jakarta",
+            "DKI Jakarta",
+            "Kota Administrasi Jakarta Selatan"
+          ]
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 1900,
+          "predicted": 1900
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "As of Sunday, nearly 1,900 suspected measles cases have been recorded since January, primarily in western and northern parts of the capital, according to data from the Jakarta Health Agency. This month alone, the city reported 361 new suspected cases... Cengkareng district in West Jakarta is among the areas reporting the highest number of infections with 25 suspected cases this month",
+          "predicted": "Cumulative reporting window As of Sunday, nearly 1,900 suspected measles cases have been recorded since January, primarily in western and northern parts of the capital, according to data from the Jakarta Health Agency This month alone, the city reported 361 new suspected cases... Cengkareng district in West Jakarta is among the areas reporting the highest number of infections with 25 suspected cases this month 361 new suspected case 25 suspected case"
+        }
+      }
+    },
+    {
+      "id": "asean-009",
+      "fields": {
+        "disease": {
+          "status": "fp",
+          "expected": "Polio (cVDPV2)",
+          "predicted": "Poliomyelitis"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Indonesia",
+          "predicted": "Indonesia"
+        },
+        "location": {
+          "status": "tp",
+          "expected": "Aceh",
+          "predicted": [
+            "Papua",
+            "Aceh",
+            "Began",
+            "Jawa Timur",
+            "Lamongan"
+          ]
+        },
+        "cases": {
+          "status": "not_scored"
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "Indonesia has officially ended its outbreak of poliovirus type 2... The outbreak began in October 2022, when the first confirmed case was reported in Aceh province. ... The last confirmed cVDPV2 case was in South Papua on 27 June 2024. Since June 2024, no poliovirus has been detected in children or the environment.",
+          "predicted": "Indonesia has officially ended its outbreak of poliovirus type 2... The outbreak began in October 2022, when the first confirmed case was reported in Aceh province ... The last confirmed cVDPV2 case was in South Papua on 27 June 2024 2 case"
+        }
+      }
+    },
+    {
+      "id": "asean-010",
+      "fields": {
+        "disease": {
+          "status": "fp",
+          "expected": "Mpox (clade Ib)",
+          "predicted": "Mpox"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Singapore",
+          "predicted": "Singapore"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 2,
+          "predicted": 2
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "Singapore has confirmed its first locally transmitted cases of mpox... The two cases – both men aged 30 and 34 - are also the country's first reported infections of the more serious clade 1b variant. ... there have been seven mpox cases this year, as of Mar 21. Twenty-three cases were reported in the whole of 2025.",
+          "predicted": "Cumulative reporting window Singapore confirms first two locally transmitted mpox cases; authorities say risk to public is low Singapore has confirmed its first locally transmitted cases of mpox... The two cases – both men aged 30 and 34 - are also the country's first reported infections of the more serious clade 1b variant ... there have been seven mpox cases this year, as of Mar 21 Twenty-three cases were reported in the whole of 2025."
+        }
+      }
+    },
+    {
+      "id": "asean-011",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Dengue",
+          "predicted": "Dengue"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Lao PDR",
+          "predicted": "Laos"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 3029,
+          "predicted": 3029
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "tp",
+          "expected": "2026-08-01",
+          "predicted": "2026-08-01"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "From 26 July to 1 August 2026, 179 dengue cases were reported, a decrease from 203 cases in the previous week (Figure 4). No deaths were reported in this reporting period. Cumulatively, a total of 3 029 cases have been reported in 2026, which is 35.7% lower than 4 712 cases reported during the same period in 2025.",
+          "predicted": "Cumulative reporting window 2026-07-26 to 2026-08-01 From 26 July to 1 August 2026, 179 dengue cases were reported, a decrease from 203 cases in the previous week (Figure 4) Cumulatively, a total of 3 029 cases have been reported in 2026, which is 35.7% lower than 4 712 cases reported during the same period in 2025. 203 case 179 dengue case"
+        }
+      }
+    },
+    {
+      "id": "asean-012",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Measles",
+          "predicted": "Measles"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Singapore",
+          "predicted": "Singapore"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 11,
+          "predicted": 11
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "Eleven measles cases were recorded in January, compared with two cases in the same month last year. There were 27 cases for the whole of 2025. Of the 11 cases, laboratory testing confirmed that three were genetically linked... All 11 cases in January were not fully vaccinated, including three infants under 12 months old",
+          "predicted": "Singapore imposes mandatory isolation of measles cases, contact tracing, as infections rise Eleven measles cases were recorded in January, compared with two cases in the same month last year There were 27 cases for the whole of 2025 Of the 11 cases, laboratory testing confirmed that three were genetically linked... All 11 cases in January were not fully vaccinated, including three infants under 12 months old 27 case 11 case"
+        }
+      }
+    },
+    {
+      "id": "asean-013",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Dengue",
+          "predicted": "Dengue"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Thailand",
+          "predicted": "Thailand"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 21620,
+          "predicted": 21620
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 31,
+          "predicted": 31
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "Thailand has recorded 21,620 dengue cases and 31 deaths this year... figures cover January 1 to August 19. ... Bangkok has recorded 1,785 cases and four deaths",
+          "predicted": "Cumulative reporting window 2026-01-01 to 2026-08-19 Thailand dengue cases hit 21,620, death toll reaches 31 in 2026 Thailand has recorded 21,620 dengue cases and 31 deaths this year... figures cover January 1 to August 19 ... Bangkok has recorded 1,785 cases and four deaths Bangkok has recorded 1,785 cases Bangkok has recorded 1,785 cases and four deaths 21,620 dengue case 31 death Thailand has recorded 21,620 dengue cases and 31 deaths"
+        }
+      }
+    },
+    {
+      "id": "asean-014",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Measles",
+          "predicted": "Measles"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Indonesia",
+          "predicted": "Indonesia"
+        },
+        "location": {
+          "status": "tp",
+          "expected": "East Java",
+          "predicted": [
+            "Jawa Timur",
+            "Jawa Timur",
+            "Jawa Timur",
+            "Sumenep"
+          ]
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 2000,
+          "predicted": 2000
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 17,
+          "predicted": 17
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "A measles outbreak centered in Indonesia's East Java has sickened more than 2,000 children, 17 of them fatally... 16 of the patients who died are from Sumenep district, according the report, which cited data from the Sumenep District Health Agency.",
+          "predicted": "Indonesia reports 17 deaths in measles outbreak, launches vaccine drive A measles outbreak centered in Indonesia's East Java has sickened more than 2,000 children, 17 of them fatally... 16 of the patients who died are from Sumenep district, according the report, which cited data from the Sumenep District Health Agency. 16 of the patient"
+        }
+      }
+    },
+    {
+      "id": "asean-015",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Avian influenza (H5N1)",
+          "predicted": "Avian influenza"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Viet Nam",
+          "predicted": "Vietnam"
+        },
+        "location": {
+          "status": "tp",
+          "expected": "Tay Ninh",
+          "predicted": [
+            "Tay Ninh",
+            "Tây Ninh"
+          ]
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 1,
+          "predicted": 1
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "Health officials in Vietnam have reported a severe H5N1 avian flu infection in an 8-year-old girl who is experiencing encephalitis symptoms... The girl is from Tay Ninh province... The patient remains hospitalized on a ventilator with stable vital signs.",
+          "predicted": "Vietnam reports H5N1 avian flu case with encephalitis Health officials in Vietnam have reported a severe H5N1 avian flu infection in an 8-year-old girl who is experiencing encephalitis symptoms... The girl is from Tay Ninh province... The patient remains hospitalized on a ventilator with stable vital signs. 1 avian flu case 1 avian flu infection"
+        }
+      }
+    },
+    {
+      "id": "asean-016",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Avian influenza (H5N1)",
+          "predicted": "Avian influenza"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Viet Nam",
+          "predicted": "Vietnam"
+        },
+        "location": {
+          "status": "tp",
+          "expected": "Khanh Hoa",
+          "predicted": [
+            "Khánh Hòa"
+          ]
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 1,
+          "predicted": 1
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 1,
+          "predicted": 1
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "The infection involved a 21-year-old college student... the patient died from his infection on March 23. ... No other cases have been detected during monitoring of the patient's contacts. ... six avian flu outbreaks have been reported across six provinces, including Khanh Hoa, where the man lived.",
+          "predicted": "Vietnam confirms H5N1 in man's avian flu death The infection involved a 21-year-old college student... the patient died from his infection on March 23 ... No other cases have been detected during monitoring of the patient's contacts ... six avian flu outbreaks have been reported across six provinces, including Khanh Hoa, where the man lived."
+        }
+      }
+    },
+    {
+      "id": "asean-017",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Dengue",
+          "predicted": "Dengue"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Cambodia",
+          "predicted": "Cambodia"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 40915,
+          "predicted": 40915
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 58,
+          "predicted": 58
+        },
+        "time": {
+          "status": "tp",
+          "expected": "2026-07-26",
+          "predicted": "2026-07-26"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "As of 26 July 2026, a total of 40 915 dengue cases, including 58 deaths (case fatality rate: 0.1%), have been reported through the National Dengue Surveillance System. This represents a 67.7% increase in the reported number of cases, compared to the same period in 2025, when 24 397 cases were reported.",
+          "predicted": "As of 26 July 2026, a total of 40 915 dengue cases, including 58 deaths (case fatality rate: 0.1%), have been reported through the National Dengue Surveillance System This represents a 67.7% increase in the reported number of cases, compared to the same period in 2025, when 24 397 cases were reported. 24 397 case"
+        }
+      }
+    },
+    {
+      "id": "asean-018",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Dengue",
+          "predicted": "Dengue"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Viet Nam",
+          "predicted": "Vietnam"
+        },
+        "location": {
+          "status": "not_scored"
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 73828,
+          "predicted": 73828
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 9,
+          "predicted": 9
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "In July 2026, Viet Nam recorded 15 940 cases, including one death... From January to July 2026, a total of 73 828 cases, including nine deaths, were cumulatively reported nationwide, representing a 1.3-fold increase compared with the same period in 2025.",
+          "predicted": "In July 2026, Viet Nam recorded 15 940 cases, including one death... From January to July 2026, a total of 73 828 cases, including nine deaths, were cumulatively reported nationwide, representing a 1.3-fold increase compared with the same period in 2025. 73 828 case 15 940 case"
+        }
+      }
+    },
+    {
+      "id": "asean-019",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Dengue",
+          "predicted": "Dengue"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Timor-Leste",
+          "predicted": "Timor-Leste"
+        },
+        "location": {
+          "status": "tp",
+          "expected": "Dili",
+          "predicted": [
+            "Bobonaro",
+            "Viqueque",
+            "Ainaro",
+            "Dili"
+          ]
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 288,
+          "predicted": 288
+        },
+        "deaths": {
+          "status": "tp",
+          "expected": 20,
+          "predicted": 20
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "There were 288 suspected cases of dengue in seven municipalities in the first week of 2022... The death toll reached 20 people by 31 January 2022... of the 20 fatalities, 11 had happened in Dili, the country's capital, along with four in Ermera, two in Covalima, and one each in Ainaro, Bobonaro, and Viqueque.",
+          "predicted": "Timor-Leste: Dengue Outbreak Response - Final Report, DREF n° MDRTP005 There were 288 suspected cases of dengue in seven municipalities in the first week of 2022... The death toll reached 20 people by 31 January 2022... of the 20 fatalities, 11 had happened in Dili, the country's capital, along with four in Ermera, two in Covalima, and one each in Ainaro, Bobonaro, and Viqueque. 288 suspected case 20 people 20 fatalities"
+        }
+      }
+    },
+    {
+      "id": "asean-020",
+      "fields": {
+        "disease": {
+          "status": "tp",
+          "expected": "Measles",
+          "predicted": "Measles"
+        },
+        "country": {
+          "status": "tp",
+          "expected": "Cambodia",
+          "predicted": "Cambodia"
+        },
+        "location": {
+          "status": "tp",
+          "expected": "Phnom Penh",
+          "predicted": [
+            "Phnom Penh",
+            "Siem Reap"
+          ]
+        },
+        "cases": {
+          "status": "tp",
+          "expected": 2150,
+          "predicted": 2150
+        },
+        "deaths": {
+          "status": "not_scored"
+        },
+        "time": {
+          "status": "not_scored"
+        },
+        "evidence": {
+          "status": "tp",
+          "expected": "From January to April 2025, Cambodia reported 2,150 measles confirmed cases. This is a sharp increase compared to the 666 cases reported in all of 2024. The current outbreak has affected all 25 provinces, with Phnom Penh the hardest hit, reporting 394 cases, followed by Siem Reap with 208 and Kandal with 167.",
+          "predicted": "Cumulative reporting window From January to April 2025, Cambodia reported 2,150 measles confirmed cases This is a sharp increase compared to the 666 cases reported in all of 2024 The current outbreak has affected all 25 provinces, with Phnom Penh the hardest hit, reporting 394 cases, followed by Siem Reap with 208 and Kandal with 167. 2,150 measles confirmed case 666 case 394 case"
+        }
+      }
+    }
+  ]
+}

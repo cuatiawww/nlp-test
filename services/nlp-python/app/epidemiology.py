@@ -478,19 +478,38 @@ def extract_labeled_counts(text: str) -> dict[str, Optional[int]]:
     return result
 
 
-def evidence_sentences(text: str, limit: int = 5) -> list[str]:
+def evidence_sentences(text: str, limit: int = 10) -> list[str]:
     """Retain short source spans containing an explicit surveillance fact."""
     evidence = []
+    number_words = tuple(str(term) for term in config.get_lexicon_values("number_word"))
     metric = re.compile(
         r"(?:\b(?:cases?|kasus|patients?|pasien|deaths?|kematian|died|meninggal|"
-        r"hospitali[sz]|dirawat|confirmed|terkonfirmasi|suspected|suspek|outbreak|wabah|cluster)\b|"
+        r"infection(?:s)?|infeksi|hospitali[sz]|dirawat|confirmed|terkonfirmasi|"
+        r"suspected|suspek|outbreak|wabah|cluster|fatal(?:ly|ities)?)\b|"
         r"ผู้ป่วย|ผู้เสียชีวิต|เสียชีวิต|ราย|ติดเชื้อ|ករណី|អ្នកស្លាប់|"
         r"ເສຍຊີວິດ|ກໍລະນີ|သေဆုံး|လူနာ)",
         re.IGNORECASE | re.UNICODE,
     )
-    for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text or ""):
+    context = re.compile(
+        r"\b(?:province|district|municipalit(?:y|ies)|capital|city|region|"
+        r"hospitali[sz]ed|ventilator|stable|contacts?|where .* lived|"
+        r"provinsi|kabupaten|kota|wilayah|dirawat|kontak)\b",
+        re.IGNORECASE | re.UNICODE,
+    )
+    # Do not split on the first dot in an editorial ellipsis (``...``). The
+    # full source span often carries the period/location qualifier needed to
+    # interpret the metric.
+    for sentence in re.split(r"(?<!\.)[.!?。！？](?!\.)\s+|\n+", text or ""):
         clean = " ".join(sentence.split()).strip()
-        if 20 <= len(clean) <= 800 and re.search(r"\d", clean) and metric.search(clean):
+        has_number = bool(re.search(r"\d", clean)) or any(
+            re.search(rf"(?<!\w){re.escape(word)}(?!\w)", clean, re.IGNORECASE)
+            for word in number_words
+            if word
+        )
+        if 20 <= len(clean) <= 800 and (
+            (has_number and (metric.search(clean) or context.search(clean)))
+            or context.search(clean)
+        ):
             evidence.append(clean)
         if len(evidence) >= limit:
             break

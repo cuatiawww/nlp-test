@@ -96,6 +96,33 @@ class TestSlice6LanguageVocabulary(unittest.TestCase):
         self.assertEqual(result.case_count, 53362)
         self.assertEqual(result.death_count, 1)
 
+    def test_thailand_multidisease_country_is_not_replaced_by_foreign_locality(self):
+        text = (
+            "Thailand DDC warns during the rainy season. Thailand recorded 2,190 "
+            "leptospirosis cases and 30 deaths, while the country logged 1,654 "
+            "melioidosis cases causing 77 deaths. The highest infection rates were "
+            "reported in the Southern and Northeastern regions."
+        )
+        facts = extractors.predict_surveillance_facts(text, source_country="Thailand")
+        self.assertEqual(facts.get("country"), "Thailand")
+        self.assertNotEqual(facts.get("country"), "Indonesia")
+
+    def test_source_death_metric_wins_over_projected_case_total(self):
+        text = (
+            "Thailand recorded 53,362 hand, foot and mouth disease cases "
+            "and one death nationwide this year."
+        )
+        result = pipeline.run(
+            AnalyzeRequest(
+                text=text,
+                url="https://example.com/hfmd",
+                rules_only=True,
+                interactive=True,
+            )
+        )
+        self.assertEqual(result.case_count, 53362)
+        self.assertEqual(result.death_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

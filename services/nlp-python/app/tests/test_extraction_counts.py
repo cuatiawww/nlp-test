@@ -8,6 +8,8 @@ from app import extractors, config
 
 class ExtractionCountsAndLocationTest(unittest.TestCase):
     def setUp(self):
+        self._original_location_coords = config.LOCATION_COORDS
+        self._original_location_countries = config.LOCATION_COUNTRIES
         config.LOCATION_COORDS = {
             "Kuala Lumpur": (3.139, 101.6869),
             "Selangor": (3.0738, 101.5183),
@@ -17,6 +19,7 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
             "Jakarta": (-6.2088, 106.8456),
             "Semarang": (-6.9667, 110.4167),
             "Bima": (-8.4606, 118.7272),
+            "Aceh": (4.6951, 96.7494),
             "Ho Chi Minh City": (10.8231, 106.6297),
         }
         config.LOCATION_COUNTRIES = {
@@ -28,8 +31,14 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
             "Jakarta": "Indonesia",
             "Semarang": "Indonesia",
             "Bima": "Indonesia",
+            "Aceh": "Indonesia",
             "Ho Chi Minh City": "Vietnam",
         }
+        config.build_location_patterns()
+
+    def tearDown(self):
+        config.LOCATION_COORDS = self._original_location_coords
+        config.LOCATION_COUNTRIES = self._original_location_countries
         config.build_location_patterns()
 
     def test_extract_infections_as_case_count(self):
@@ -72,6 +81,17 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         )
         loc = extractors.extract_location(text)
         self.assertEqual(loc, "Selangor")
+
+    def test_location_context_keeps_explicit_country_for_later_admin1(self):
+        text = (
+            "Indonesia ended the polio outbreak response. The first confirmed case "
+            "was reported in Aceh province, while the last case was in South Papua."
+        )
+        result = extractors.validate_location_context(
+            "Aceh", text, source_country="Indonesia", mentioned_countries=["Indonesia"]
+        )
+        self.assertTrue(result["is_valid"])
+        self.assertEqual(result["country"], "Indonesia")
 
     def test_asia_news_network_does_not_beat_malaysia(self):
         config.LOCATION_COORDS = {
@@ -201,6 +221,28 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         text = "Cumulatively, a total of 3 029 dengue cases have been reported in 2026."
         self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 3029)
 
+    def test_current_cumulative_period_beats_nested_weekly_update(self):
+        text = (
+            "From 26 July to 1 August 2026, 179 dengue cases were reported, a decrease "
+            "from 203 cases in the previous week. Cumulatively, a total of 3 029 cases "
+            "have been reported in 2026."
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 3029)
+
+    def test_since_start_period_beats_nested_monthly_update(self):
+        text = (
+            "Nearly 1,900 suspected measles cases have been recorded since January. "
+            "This month alone, the city reported 361 new suspected cases."
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="Measles"), 1900)
+
+    def test_reporting_month_beats_full_year_comparator(self):
+        text = (
+            "Eleven measles cases were recorded in January, compared with two cases "
+            "in the same month last year. There were 27 cases for the whole of 2025."
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="Measles"), 11)
+
     def test_percent_change_does_not_hide_following_case_total(self):
         text = (
             "The number of dengue fever cases in the country rose 66 per cent "
@@ -208,6 +250,14 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
             "39,616 cases recorded during the same period last year."
         )
         self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 65979)
+
+    def test_country_total_beats_later_locality_breakdown(self):
+        text = (
+            "Thailand has recorded 21,620 dengue cases and 31 deaths this year. "
+            "Bangkok has recorded 1,785 cases and four deaths."
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 21620)
+        self.assertEqual(extractors.extract_death_count(text, disease="Dengue"), 31)
 
     def test_focal_h5n1_case_is_one_not_prior_year_total(self):
         text = (

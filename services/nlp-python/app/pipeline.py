@@ -464,10 +464,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         is_health_related = False
         case_count = 0
 
-    case_count = facts.get("case_count") if facts.get("disease") else extractors.extract_case_count(
+    # The original article is the metric authority.  ``predict_surveillance_facts``
+    # may select a nearby regional candidate while building its broad fact
+    # bundle (for example Bangkok 1,785 before the Thailand total 21,620).
+    # Always run the source metric selectors first, and use the broad bundle
+    # only when the source selector found no value at all.
+    source_extracted_cases = extractors.extract_case_count(
         text, disease=disease if disease != "UNKNOWN" else None
     )
-    death_count = facts.get("death_count") if facts.get("disease") else extractors.extract_death_count(text)
+    source_extracted_deaths = extractors.extract_death_count(text)
+    facts_case_count = facts.get("case_count") if facts.get("disease") else 0
+    facts_death_count = facts.get("death_count") if facts.get("disease") else 0
+    case_count = source_extracted_cases or facts_case_count or 0
+    death_count = source_extracted_deaths or facts_death_count or 0
     explicit_case_count = not facts.get("case_count_unknown", True) if facts.get("disease") else extractors.has_explicit_case_count(
         text, disease=disease if disease != "UNKNOWN" else None
     )
@@ -496,6 +505,23 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         explicit_case_count = False
     if death_count == 0 and isinstance(structured.get("death_count"), int):
         death_count = max(0, structured["death_count"])
+    # Source-first death invariant: a structured/translated projection must
+    # not copy the case total into deaths. If the original article contains a
+    # scoped explicit death metric, that source value is authoritative.
+    source_death_explicit = extractors.has_explicit_death_count(
+        text, disease=disease if disease != "UNKNOWN" else None
+    )
+    if source_death_explicit:
+        source_death_count = extractors.extract_death_count(
+            text, disease=disease if disease != "UNKNOWN" else None
+        )
+        if death_count != source_death_count:
+            logger.info(
+                "Preserving source death metric %s over projected value %s",
+                source_death_count,
+                death_count,
+            )
+        death_count = source_death_count
     reference_markers = (
         "signs and symptoms", "diagnosis", "treatment", "prevention",
         "symptoms", "health information", "fact sheet", "clinical features",
@@ -895,6 +921,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     relational_events = []
     relation_diseases = []
     article_disease_candidates = []
+    source_case_count = case_count
+    source_death_count = death_count
+    source_death_explicit = extractors.has_explicit_death_count(
+        text, disease=disease if disease != "UNKNOWN" else None
+    )
     try:
         from .surveillance_extraction import (
             GazetteerLinker, build_surveillance_output,
@@ -960,6 +991,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if strict_current_deaths > 0:
                 death_count = max(death_count, strict_current_deaths)
             death_count = max(0, death_count)
+        # Keep the original-language article metric authoritative for a
+        # single-disease projection. Relation parsing still powers sub-events
+        # and multi-disease attribution, but it must not replace a focal
+        # current-period value with a historical/comparator candidate.
+        if len(relation_diseases) == 1 and source_case_count and explicit_case_count:
+            case_count = source_case_count
+        if source_death_explicit:
+            death_count = source_death_count
         # The classifier may choose a disease from a page title or a health
         # reference section.  When the metric relation has exactly one
         # disease identity, prefer that evidence-backed identity for the
@@ -1346,6 +1385,25 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 "target": r_evt.country,
                 "aggregate_cases": country_sub_events[0].case_count,
             })
+
+    # Re-apply the source-first scalar metric after event composition. The
+    # composer may have a historical or nested relation candidate, while the
+    # deterministic source extractor already selected the article's focal
+    # single-disease scope. Multi-disease articles continue through their
+    # disease-specific relation rows below.
+    source_disease_labels = {
+        extractors.canonical_disease_name(value)
+        for value in extracted
+        if value and extractors.canonical_disease_name(value).upper() != "UNKNOWN"
+    }
+    if len(source_disease_labels) == 1 and source_case_count and explicit_case_count:
+        case_count = source_case_count
+        if len(sub_events) == 1:
+            sub_events[0].case_count = source_case_count
+    if len(source_disease_labels) == 1 and source_death_explicit:
+        death_count = source_death_count
+        if len(sub_events) == 1:
+            sub_events[0].death_count = source_death_count
 
     # Split only when the source explicitly binds different counts to
     # different disease names. A shared phrase such as "measles and rubella

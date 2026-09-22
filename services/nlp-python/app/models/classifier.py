@@ -29,6 +29,28 @@ _BACKEND_URL = os.getenv("BACKEND_LABELS_URL", "http://backend-rust:8080")
 _DEFAULT_LABELS: dict[str, list[str]] = {}
 
 
+def validate_sequence_classification_checkpoint(model_id: str) -> dict[str, object]:
+    """Validate a local checkpoint before Transformers constructs a pipeline.
+
+    ``xlm-roberta-base`` is an encoder checkpoint.  It is useful as the
+    starting point for fine-tuning, but it is not a zero-shot/NLI checkpoint.
+    Passing it to ``zero-shot-classification`` would create an untrained head
+    and produce plausible-looking but invalid scores.  Keep this check
+    explicit so the deterministic source extractor remains authoritative.
+    """
+    from transformers import AutoConfig
+
+    model_config = AutoConfig.from_pretrained(model_id, local_files_only=True)
+    architectures = model_config.to_dict().get("architectures") or []
+    supported = any("SequenceClassification" in str(item) for item in architectures)
+    return {
+        "model_id": model_id,
+        "model_type": getattr(model_config, "model_type", None),
+        "architectures": architectures,
+        "supports_sequence_classification": supported,
+    }
+
+
 def _fetch_paginated_collection(path: str, category: str) -> list[dict]:
     """Read the complete DB collection instead of silently taking page one.
 
@@ -191,14 +213,8 @@ def _get_pipe(model_key: str):
                 # zero-shot-classification silently creates random classifier
                 # weights. Reject it so deterministic source extraction stays
                 # safer than an untrained prediction.
-                from transformers import AutoConfig
-
-                model_config = AutoConfig.from_pretrained(
-                    resolved_model_id,
-                    local_files_only=True,
-                )
-                architectures = model_config.to_dict().get("architectures") or []
-                if not any("SequenceClassification" in str(item) for item in architectures):
+                checkpoint = validate_sequence_classification_checkpoint(resolved_model_id)
+                if not checkpoint["supports_sequence_classification"]:
                     raise RuntimeError(
                         f"model {resolved_model_id} is not a sequence-classification/NLI checkpoint"
                     )

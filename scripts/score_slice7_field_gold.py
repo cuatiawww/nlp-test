@@ -28,12 +28,30 @@ def _expected_block(fixture: dict) -> dict:
     return fixture.get("expected") or fixture.get("expect") or {}
 
 
-def _pred_location(prediction: dict) -> str | None:
-    value = str(prediction.get("location") or "").strip()
+def _pred_locations(prediction: dict) -> list[str]:
+    """Return all source-backed location candidates, not only the parent row.
+
+    A country-level aggregate can correctly remain the event parent while a
+    regional breakdown is retained in ``locations``.  Scoring only
+    ``location_name`` would mark that preserved evidence as a false negative.
+    """
     country = str(prediction.get("country") or "").strip()
-    if not value or _fold(value) == _fold(country) or value.upper() in {"UNKNOWN", "NONE"}:
-        return None
-    return value
+    values: list[str] = []
+    for key in ("location_name", "city", "province", "admin1_name", "admin2_name", "location"):
+        value = str(prediction.get(key) or "").strip()
+        if not value or _fold(value) == _fold(country) or value.upper() in {"UNKNOWN", "NONE"}:
+            continue
+        values.append(value)
+    for item in prediction.get("locations") or []:
+        if not isinstance(item, dict):
+            continue
+        for key in ("name", "original_name", "admin1", "admin2"):
+            value = str(item.get(key) or "").strip()
+            if not value or _fold(value) == _fold(country) or value.upper() in {"UNKNOWN", "NONE"}:
+                continue
+            if value not in values:
+                values.append(value)
+    return values
 
 
 def _pred_evidence(prediction: dict) -> str:
@@ -62,9 +80,7 @@ def _field_value(fixture: dict, prediction: dict, field: str):
     if field == "country":
         return expected.get("country"), prediction.get("country")
     if field == "location":
-        return expected.get("province_or_city", expected.get("location")), _pred_location(
-            {**prediction, "location": prediction.get("location_name") or prediction.get("location")}
-        )
+        return expected.get("province_or_city", expected.get("location")), _pred_locations(prediction)
     if field == "cases":
         return expected.get("cases"), prediction.get("case_count")
     if field == "deaths":
@@ -103,7 +119,15 @@ def _equal(field: str, expected: Any, predicted: Any) -> bool:
         aliases = {"viet nam": "vietnam", "lao pdr": "laos", "brunei darussalam": "brunei"}
         return aliases.get(_fold(expected), _fold(expected)) == aliases.get(_fold(predicted), _fold(predicted))
     if field == "location":
-        return _fold(expected) == _fold(predicted)
+        expected_hierarchy = extractors.resolve_location_hierarchy(str(expected or ""))
+        expected_canonical = expected_hierarchy.get("canonical_name") or expected
+        candidates = predicted if isinstance(predicted, list) else [predicted]
+        for candidate in candidates:
+            predicted_hierarchy = extractors.resolve_location_hierarchy(str(candidate or ""))
+            predicted_canonical = predicted_hierarchy.get("canonical_name") or candidate
+            if _fold(expected_canonical) == _fold(predicted_canonical):
+                return True
+        return False
     return _fold(expected) == _fold(predicted)
 
 
