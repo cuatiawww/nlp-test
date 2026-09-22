@@ -52,7 +52,7 @@ spec:
           ports: [{name: amqp, containerPort: 5672}]
           envFrom: [{configMapRef: {name: nlp-runtime}}, {secretRef: {name: nlp-runtime-secrets}}]
           volumeMounts: [{name: data, mountPath: /var/lib/rabbitmq}]
-          readinessProbe: {exec: {command: [rabbitmq-diagnostics, -q, ping]}, initialDelaySeconds: 20}
+          readinessProbe: {exec: {command: [rabbitmq-diagnostics, -q, ping]}, initialDelaySeconds: 30, timeoutSeconds: 5, periodSeconds: 10, failureThreshold: 6}
           resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
   volumeClaimTemplates:
     - metadata: {name: data}
