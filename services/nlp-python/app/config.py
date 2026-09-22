@@ -209,6 +209,7 @@ COUNTRY_TO_ISO3: dict[str, str] = {
 # Empty before DB bootstrap: no code-owned fallback vocabulary.
 LOCATION_ALIASES: dict[str, str] = {}
 LOCATION_LOAD_ATTEMPTED = False
+LOCATION_REGISTRY_REFERENCE_ID: int | None = None
 LOCATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
 LOCATION_STOPWORDS = {
     # Indonesian time/grammatical words that collide with foreign/rare gazetteer entries
@@ -258,7 +259,26 @@ LOCATION_STOPWORDS = {
     "merebak", "khawatir", "perlukah",
     "long",
 }
-LANGUAGE_MARKERS: dict[str, list[str]] = {}
+DEFAULT_LANGUAGE_MARKERS: dict[str, list[str]] = {
+    "ms": [
+        "kes", "kesihatan", "pesakit", "wabak", "jangkitan", "kkm",
+        "kementerian kesihatan", "kerajaan madani", "kanak-kanak",
+        "ogos", "disember", "julai", "mac", "maut", "bilangan", "negeri", "demam denggi",
+    ],
+    "id": [
+        "kasus", "kesehatan", "pasien", "wabah", "infeksi", "kemenkes",
+        "kementerian kesehatan", "agustus", "desember", "juli", "maret",
+        "meninggal dunia", "jumlah", "provinsi", "demam berdarah",
+    ],
+    "tl": ["kaso", "pasyente", "kamatayan", "kalusugan", "kagawaran ng kalusugan"],
+    "vi": ["ca mắc", "ca nhiễm", "bệnh nhân", "tử vong", "bộ y tế"],
+    "th": ["ผู้ป่วย", "ติดเชื้อ", "ผู้เสียชีวิต", "กระทรวงสาธารณสุข"],
+    "lo": ["ກໍລະນີ", "ຄົນເຈັບ", "ເສຍຊີວິດ", "ກະຊວງສາທາລະນະສຸກ"],
+    "km": ["ករណី", "អ្នកឆ្លង", "ស្លាប់", "ក្រសួងសុខាភិបាល"],
+    "my": ["လူနာ", "ကူးစက်သူ", "သေဆုံး", "ကျန်းမာရေးဝန်ကြီးဌာန"],
+    "en": ["cases", "infections", "patients", "deaths", "health department", "ministry of health"],
+}
+LANGUAGE_MARKERS: dict[str, list[str]] = {k: list(v) for k, v in DEFAULT_LANGUAGE_MARKERS.items()}
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
 WHO_DISEASE_CONCEPTS: list[dict[str, Any]] = []
@@ -410,7 +430,7 @@ def build_location_patterns():
 
 
 def load_locations_from_db():
-    global LOCATION_LOAD_ATTEMPTED
+    global LOCATION_LOAD_ATTEMPTED, LOCATION_REGISTRY_REFERENCE_ID
     LOCATION_LOAD_ATTEMPTED = True
     global LOCATION_COORDS, LOCATION_COUNTRIES, LOCATION_PATTERNS
     global LOCATION_ADMIN1, LOCATION_ADMIN2, LOCATION_ISO3, LOCATION_ADMIN_LEVEL, LOCATION_ALIASES
@@ -549,6 +569,7 @@ def load_locations_from_db():
         logging.getLogger(__name__).info(
             "Loaded %d locations, %d aliases from DB", len(LOCATION_COORDS), len(LOCATION_ALIASES),
         )
+        LOCATION_REGISTRY_REFERENCE_ID = id(LOCATION_COORDS)
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(
@@ -559,7 +580,18 @@ def load_locations_from_db():
 def ensure_location_registry_loaded() -> None:
     """Lazily load DB-owned locations for direct library/test callers."""
 
-    if not LOCATION_LOAD_ATTEMPTED:
+    # A caller may temporarily replace the registries (for example an
+    # isolated unit test). If that replacement is restored after the first
+    # lazy load, the attempted flag alone would leave the next caller with an
+    # empty registry forever.
+    if (
+        not LOCATION_LOAD_ATTEMPTED
+        or (not LOCATION_COORDS and not LOCATION_COUNTRIES)
+        or (
+            LOCATION_REGISTRY_REFERENCE_ID is not None
+            and id(LOCATION_COORDS) != LOCATION_REGISTRY_REFERENCE_ID
+        )
+    ):
         load_locations_from_db()
 
 
@@ -634,6 +666,13 @@ def load_language_markers_from_db():
                     logging.getLogger(__name__).warning(
                         "Ignoring invalid metric magnitude lexicon value for %s/%s", lang, word
                     )
+        for lang, words in DEFAULT_LANGUAGE_MARKERS.items():
+            if lang not in markers:
+                markers[lang] = list(words)
+            else:
+                for w in words:
+                    if w not in markers[lang]:
+                        markers[lang].append(w)
         LANGUAGE_MARKERS = markers
         LEXICON_TERMS = lexicon
         LEXICON_VALUES = lexicon_values
@@ -646,7 +685,7 @@ def load_language_markers_from_db():
             sum(len(v) for v in markers.values()), len(markers),
         )
     except Exception as e:
-        LANGUAGE_MARKERS = {}
+        LANGUAGE_MARKERS = {k: list(v) for k, v in DEFAULT_LANGUAGE_MARKERS.items()}
         LEXICON_TERMS = {}
         LEXICON_VALUES = {}
         TEMPORAL_MONTH_MAP = {}
@@ -655,6 +694,15 @@ def load_language_markers_from_db():
         logging.getLogger(__name__).warning(
             "Lexicon registry unavailable; lexical metric/date extraction is disabled: %s", e
         )
+
+
+def get_language_markers() -> dict[str, list[str]]:
+    global LANGUAGE_MARKERS
+    if not LEXICON_LOAD_ATTEMPTED:
+        load_language_markers_from_db()
+    if not LANGUAGE_MARKERS:
+        return {k: list(v) for k, v in DEFAULT_LANGUAGE_MARKERS.items()}
+    return LANGUAGE_MARKERS
 
 
 def get_lexicon_terms(marker_type: str, language: Optional[str] = None) -> list[str]:
@@ -667,6 +715,18 @@ def get_lexicon_terms(marker_type: str, language: Optional[str] = None) -> list[
         selected = by_language.get(str(language).strip().casefold(), [])
         return list(dict.fromkeys(selected))
     return list(dict.fromkeys(term for values in by_language.values() for term in values))
+
+
+def get_location_stopwords() -> set[str]:
+    """Return the static and DB-reviewed non-geographic location terms."""
+
+    terms = {str(term).strip().casefold() for term in LOCATION_STOPWORDS if str(term).strip()}
+    terms.update(
+        str(term).strip().casefold()
+        for term in get_lexicon_terms("location_stopword")
+        if str(term).strip()
+    )
+    return terms
 
 
 def get_temporal_month_map() -> dict[str, int]:

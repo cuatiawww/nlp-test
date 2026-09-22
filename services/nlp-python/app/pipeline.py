@@ -134,7 +134,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     language_profile = detect_language_profile(
         text,
         payload.source_language,
-        markers=config.LANGUAGE_MARKERS,
+        markers=config.get_language_markers(),
     )
     language = str(language_profile.get("language") or "unknown")
     if language == "unknown" and payload.source_language:
@@ -957,7 +957,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 case_count = max(case_count, strict_current_cases)
                 explicit_case_count = True
             case_count = max(0, case_count)
-            death_count = max(0, strict_current_deaths)
+            if strict_current_deaths > 0:
+                death_count = max(death_count, strict_current_deaths)
+            death_count = max(0, death_count)
         # The classifier may choose a disease from a page title or a health
         # reference section.  When the metric relation has exactly one
         # disease identity, prefer that evidence-backed identity for the
@@ -1149,14 +1151,22 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     metric_relation = event_relation if event_relation is not None else country_relation
                     if metric_relation is not None and event_relation is not None:
                         evt.case_count = int(metric_relation.cases or 0)
-                        evt.death_count = int(metric_relation.deaths or 0)
+                        # A relation can carry cases without a death metric.
+                        # Do not erase a stronger article-level death value
+                        # during strict location projection.
+                        if metric_relation.deaths is not None:
+                            evt.death_count = int(metric_relation.deaths)
                         evt.time_frame = metric_relation.time_frame or evt.time_frame
                     else:
                         projection_cases = int(projection.reported_cases or 0)
                         if len(by_country) == 1:
                             projection_cases = max(projection_cases, case_count)
                         evt.case_count = projection_cases
-                        evt.death_count = int(projection.deaths or 0)
+                        # ``None`` means no death metric was attributed to this
+                        # projection, not zero deaths. Preserve the source
+                        # extraction in that case.
+                        if projection.deaths is not None:
+                            evt.death_count = int(projection.deaths)
                         evt.time_frame = projection.time_frame or evt.time_frame
                     if count_period and count_period != "unknown":
                         evt.temporal_context = count_period
@@ -1360,6 +1370,34 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 event.disease = label
                 event.case_count = int(metric["case_count"] or 0)
                 event.death_count = 0
+                # A disease-specific metric row may refer to a different
+                # country/locality than the first article event. Resolve its
+                # location from the original evidence before creating the
+                # child event; cloning the first event would attach every
+                # disease to the same place in a multi-country roundup.
+                metric_evidence = str(metric.get("evidence") or "").strip()
+                metric_start = metric.get("evidence_offset_start")
+                metric_end = metric.get("evidence_offset_end")
+                metric_context = metric_evidence
+                if isinstance(metric_start, int) and isinstance(metric_end, int):
+                    metric_context = extractors._sentence_window(text, metric_start, metric_end)
+                metric_locations = extractors.extract_all_locations(metric_context)
+                metric_location = next(
+                    (
+                        item for item in metric_locations
+                        if item.get("country") in config.ASEAN_COUNTRIES
+                        and extractors.is_usable_place_name(str(item.get("name") or ""), metric_evidence)
+                    ),
+                    None,
+                )
+                if metric_location:
+                    event.location_name = metric_location.get("name") or event.location_name
+                    event.country = metric_location.get("country") or event.country
+                    event.country_iso3 = metric_location.get("country_iso3") or event.country_iso3
+                    event.admin1 = metric_location.get("admin1")
+                    event.admin2 = metric_location.get("admin2")
+                    event.latitude = metric_location.get("latitude")
+                    event.longitude = metric_location.get("longitude")
                 # Evidence must come from the original sentence that contains the exact number
                 value_digits = re.sub(r"\D", "", str(event.case_count))
                 sentence_evidence = None

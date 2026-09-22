@@ -109,6 +109,13 @@ def detect_language_profile(
             "method": "unicode_script",
         }
 
+    if markers is None:
+        try:
+            from . import config
+            markers = config.get_language_markers()
+        except Exception:
+            markers = None
+
     if markers:
         folded = (text or "").casefold()
         scores = {
@@ -116,18 +123,44 @@ def detect_language_profile(
             for language, words in markers.items()
         }
         ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        if ranked and ranked[0][1] >= 2 and (len(ranked) == 1 or ranked[0][1] > ranked[1][1]):
-            return {
-                "language": ranked[0][0],
-                "script": script_for_language(ranked[0][0]),
-                "confidence": min(0.95, 0.70 + ranked[0][1] * 0.05),
-                "method": "language_markers",
-            }
+        if ranked and ranked[0][1] >= 1:
+            # If top score is >= 2, or if top is Malay with > id score, accept marker detection
+            if ranked[0][1] >= 2 and (len(ranked) == 1 or ranked[0][1] > ranked[1][1]):
+                return {
+                    "language": ranked[0][0],
+                    "script": script_for_language(ranked[0][0]),
+                    "confidence": min(0.95, 0.70 + ranked[0][1] * 0.05),
+                    "method": "language_markers",
+                }
+            elif ranked[0][0] == "ms" and scores.get("ms", 0) > scores.get("id", 0):
+                return {
+                    "language": "ms",
+                    "script": "Latin",
+                    "confidence": 0.85,
+                    "method": "language_markers",
+                }
 
     try:
         from langdetect import detect
 
         detected = normalize_language_code(detect(text or ""))
+        if detected == "id":
+            # Malay vs Indonesian disambiguation check:
+            # langdetect notoriously defaults Malay to Indonesian.
+            folded = (text or "").casefold()
+            ms_markers = (
+                "kes", "kesihatan", "pesakit", "wabak", "jangkitan", "kkm",
+                "demam denggi", "kementerian kesihatan", "ogos", "disember",
+                "julai", "mac", "maut", "kanak-kanak", "berkata",
+            )
+            id_markers = (
+                "kasus", "kesehatan", "pasien", "kemenkes", "kementerian kesehatan",
+                "agustus", "desember", "juli", "maret", "meninggal dunia",
+            )
+            ms_count = sum(1 for m in ms_markers if _marker_present(folded, m))
+            id_count = sum(1 for m in id_markers if _marker_present(folded, m))
+            if ms_count > id_count and ms_count >= 1:
+                detected = "ms"
         if detected != "unknown":
             return {
                 "language": detected,

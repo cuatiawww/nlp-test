@@ -286,11 +286,12 @@ def is_usable_place_name(name: str, surrounding_text: str = "", start: int = 0) 
     if not raw:
         return False
     folded = _fold_location_text(raw)
-    if folded in CONTINENT_AND_REGION_LABELS or folded in config.LOCATION_STOPWORDS:
+    location_stopwords = config.get_location_stopwords()
+    if folded in CONTINENT_AND_REGION_LABELS or folded in location_stopwords:
         return False
     # One-word English auxiliaries are never provinces, even when capitalized
     # at the start of a sentence ("Were monitoring the farm outbreaks").
-    if " " not in folded and folded.isascii() and folded in config.LOCATION_STOPWORDS:
+    if " " not in folded and folded.isascii() and folded in location_stopwords:
         return False
     if " " not in folded and folded in MEDIA_FILLER_PLACE_TOKENS:
         if not _has_admin_place_cue(raw, surrounding_text, start):
@@ -539,10 +540,17 @@ def split_admin_place(location: Optional[str], country: Optional[str] = None) ->
     folded_name = _fold_location_text(name)
     if folded_name in {_fold_location_text(alias) for alias in COUNTRY_ALIASES}:
         return None, None
-    if not is_usable_place_name(name):
-        return None, None
-
     hier = resolve_location_hierarchy(name, country_hint=country)
+    # A common-language token can also be a real locality (for example
+    # ``Negara`` in Indonesia). Keep the hierarchy available when the caller
+    # supplied the matching country, while still rejecting the same token for
+    # a conflicting country or an article-context location scan.
+    if not is_usable_place_name(name) and not (
+        mapped
+        and hier.get("country")
+        and str(hier.get("country")).casefold() == mapped.casefold()
+    ):
+        return None, None
     if hier["admin_level"] == 0:
         return None, None
     if hier.get("country_conflict"):
@@ -1403,27 +1411,35 @@ def disease_has_textual_evidence(disease: str, text: str) -> bool:
     if any(part in token for part in ("avian", "h5n1", "bird flu", "flu burung")):
         return any(marker in folded for marker in _AVIAN_EVIDENCE)
     aliases = {
-        "measles": ("measles", "campak", "rubella", "sởi", "โรคหัด"),
-        "rabies": ("rabies", "anjing gila", "lyssavirus", "bệnh dại", "พิษสุนัขบ้า"),
-        "dengue": ("dengue", "dbd", "demam berdarah", "sot xuat huyet", "sốt xuất huyết", "ไข้เลือดออก", "ໄຂ້ຍຸງລາຍ", "ໄຂ້ເລືອດອອກ"),
-        "covid-19": ("covid", "coronavirus", "sars-cov", "โควิด"),
-        "malaria": ("malaria", "sốt rét", "sot ret", "มาลาเรีย"),
-        "cholera": ("cholera", "kolera", "bệnh tả", "อหิวาตกโรค"),
+        "measles": ("measles", "campak", "rubella", "sởi", "โรคหัด", "ဝက်သက်", "កញ្ជ្រឹល", "ໝາກແດງ"),
+        "rabies": ("rabies", "anjing gila", "lyssavirus", "bệnh dại", "พิษสุนัขบ้า", "ခွေးရူးရောဂါ", "ជំងឺឆ្កែឆ្កួត", "ພະຍາດວໍ້"),
+        "dengue": (
+            "dengue", "dbd", "demam berdarah", "sot xuat huyet", "sốt xuất huyết",
+            "demam denggi", "denggi", "ไข้เลือดออก", "ໄຂ້ຍຸງລາຍ", "ໄຂ້ເລືອດອອກ",
+            "သွေးလွန်တုပ်ကွေး", "គ្រុនឈាម",
+        ),
+        "covid-19": ("covid", "coronavirus", "sars-cov", "โควิด", "ကိုဗစ်", "កូវីដ", "ໂຄວິດ"),
+        "malaria": ("malaria", "sốt rét", "sot ret", "มาลาเรีย", "ငှက်ဖျား", "គ្រុនចាញ់", "ໄຂ້ມာລາເຣຍ"),
+        "cholera": ("cholera", "kolera", "taun", "bệnh tả", "อหิวาตกโรค", "ကာလဝမ်းရောဂါ", "អាសន្នរោគ", "ອະຫິວາ"),
         "mpox": ("mpox", "monkeypox", "cacar monyet", "đậu mùa khỉ", "dau mua khi", "เอ็มพ็อกซ์"),
-        "hfmd": ("hfmd", "hand foot", "tangan kaki", "flu singapura", "tay chân miệng", "tay chan mieng", "มือเท้าปาก", "โรคมือเท้าปาก"),
+        "hfmd": (
+            "hfmd", "hand foot", "tangan kaki", "flu singapura", "tay chân miệng", "tay chan mieng",
+            "มือเท้าปาก", "โรคมือเท้าปาก", "penyakit tangan, kaki dan mulut",
+            "လက်၊ ခြေ၊ ခံတွင်းရောဂါ", "ជំងឺពងបែកដៃជើងនិងក្នុងមាត់",
+        ),
         "poliomyelitis": ("polio", "poliovirus", "cvdpv", "poliomyelitis"),
         "hantavirus": ("hantavirus",),
         "influenza": ("influenza", "hmpv", "ไข้หวัดใหญ่", "ໄຂ້ຫວັດໃຫຍ່"),
         "rsv": ("rsv", "respiratory syncytial"),
         "syncytial": ("rsv", "respiratory syncytial", "syncytial"),
         "nipah": ("nipah",),
-        "tuberculosis": ("tbc", "tuberculosis", "tuberkulosis", "bệnh lao", "lao", "วัณโรค"),
+        "tuberculosis": ("tbc", "tuberculosis", "tuberkulosis", "tibi", "penyakit tibi", "batuk kering", "bệnh lao", "lao", "วัณโรค", "တီဘီ", "របេង", "ວັນນະໂລກ"),
         "acute respiratory": ("ispa", "ari", "infeksi saluran pernapasan", "infeksi saluran pernafasan", "acute respiratory infection", "upper respiratory", "lower respiratory"),
         "pneumonia": ("pneumonia", "radang paru", "viêm phổi", "ปอดบวม"),
         "hepatitis": ("hepatitis",),
         "typhoid": ("typhoid", "tifus", "tipes", "demam tifoid", "thương hàn"),
         "chikungunya": ("chikungunya", "ไข้ชิคุนกุนยา"),
-        "leptospirosis": ("leptospirosis",),
+        "leptospirosis": ("leptospirosis", "kencing tikus", "penyakit kencing tikus", "โรคฉี่หนู"),
         "diarrhea": ("diare", "diarrhea", "diarrhoea", "tiêu chảy", "ท้องร่วง"),
         "acute diarrhea": ("diare", "diarrhea", "diarrhoea", "diare akut", "acute diarrhea"),
         "pertussis": ("pertussis", "pertusis", "batuk rejan", "whooping cough"),
@@ -1779,13 +1795,13 @@ def _period_score(window: str, full_text: str) -> int:
     score = 0
     window_l = (window or "").lower()
     full_l = (full_text or "").lower()
-    if re.search(r"\b(?:this year|so far|year to date|\bytd\b|nationwide|in the country|nationally)\b", window_l):
+    if re.search(r"\b(?:this year|so far|year to date|\bytd\b|nationwide|in the country|nationally|tahun ini|setakat ini|peringkat kebangsaan|seluruh negara)\b", window_l):
         score += 8
-    if re.search(r"\b(?:cumulativ(?:e|ely)|a total of|has logged|so far)\b", window_l):
+    if re.search(r"\b(?:cumulativ(?:e|ely)|a total of|has logged|so far|kumulatif)\b", window_l):
         score += 6
     if re.search(
         r"\b(?:last year|previous year|previous week|compared with|compared to|"
-        r"same period|in contrast|in all of|the whole of)\b",
+        r"same period|in contrast|in all of|the whole of|tahun lepas|tahun lalu|tempoh sama|berbanding)\b",
         window_l,
     ):
         score -= 10
@@ -1851,7 +1867,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     case_label = _runtime_metric_label_pattern("metric_case")
     localized_patterns = {
         "case_count": [
-            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF()-]+){{0,4}}\s*{case_label}(?!\w)"
+            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF(),/'-]+){{0,7}}\s*{case_label}(?!\w)"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has|of)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
             rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({num_token})\s*\)",
@@ -1867,13 +1883,18 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
         ],
         "death_count": [
-            rf"\b({num_token})\s+(?:cases?|kasus)\s+(?:of\s+)?(?:deaths?|kematian|fatalities|tewas)\b",
-            rf"(?:deaths?|kematian|korban jiwa|fatalities)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({num_token})",
-            rf"\b({num_token})(?:\s+[a-z-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal)\b",
-            rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({num_token})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities)",
+            rf"\b({num_token})\s+(?:cases?|kasus|kes)\s+(?:of\s+)?(?:deaths?|kematian|fatalities|tewas|maut)\b",
+            rf"(?:deaths?|kematian|korban jiwa|fatalities|maut)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({num_token})",
+            rf"\b({num_token})(?:\s+[a-z-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal|maut)\b",
+            rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({num_token})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities|maut)",
+            rf"(?:killed|caused|causing|menyebabkan|meragut\s+nyawa|mengorbankan)\s+({num_token})\s+(?:people|persons|residents|orang|warga|jiwa)?",
             rf"(?:death toll|toll)\s+(?:reached|reaches|rose to|stood at|of)\s+({num_token})",
             rf"({num_token})\s+of them fatally",
             rf"in 20\d{{2}},\s+the figure was\s+({num_token})",
+            rf"(?:kumulatif\s+)?(?:kematian|angka\s+korban|maut|korban\s+jiwa)\b[^.\n;:]{{0,140}}?\b(?:terdapat|mencatat|mencatatkan|sebanyak|ialah|adalah|mencapai)\s+({num_token})\s*(?:kes)?",
+            rf"\b(?:deaths?|kematian|angka\s+korban|maut|korban\s+jiwa|meninggal(?:\s+dunia)?)\b[^.\n;:]{{0,180}}?\b(?:bagi|pada|in|for)\s+(?:tahun\s+|year\s+)?20\d{{2}}[^.\n;:]{{0,80}}?\b(?:terdapat|sebanyak|adalah|mencatat|mencatatkan|to|stood at)\s+({num_token})\s*(?:kes)?",
+            rf"\b(?:bagi|pada|in|for)\s+(?:tahun\s+|year\s+)?20\d{{2}}[^.\n;:]{{0,80}}?\b(?:terdapat|sebanyak|adalah|mencatat|mencatatkan|to|stood at)\s+({num_token})\s*(?:kes)?",
+            rf"\b({num_token})\s*(?:kes)?\s+(?:kematian|maut|korban\s+jiwa)\b",
             r"ယမန်နေ့တွင်\s*သေဆုံးသူ\s*([0-9][0-9,.]*)\s*ဦး",
             r"(?:ผู้เสียชีวิต|เสียชีวิต)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីស្លាប់|អ្នកស្លាប់)\s*([0-9][0-9,.]*)\s*នាក់",
@@ -1897,6 +1918,12 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return
         after = search_text[match.end(1): match.end(1) + 30].strip()
         before = search_text[max(0, match.start(1) - 30): match.start(1)].strip()
+
+        # Percentages qualify a nearby metric; they are not incident totals.
+        # This prevents a broad narrative pattern from reading
+        # ``46 percent from 35,390 cases`` as 46 cases.
+        if re.match(r"^(?:percent|percentage|%)\b", after, re.IGNORECASE):
+            return
         
         # 1. Multilingual Age Filtering: Prevent patient ages from being captured as case or death counts
         # e.g., 'balita 3 tahun' (age 3), 'lansia 65 tahun meninggal' (age 65), 'bé 4 tuổi'
@@ -1917,18 +1944,45 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return
         window = _sentence_window(search_text, match.start(), match.end())
         window_l = window.lower()
+        if field == "death_count" and re.search(
+            r"\b(?:bagi|pada|in|for)\s+(?:tahun\s+|year\s+)?20\d{2}\b",
+            match.group(0),
+            re.IGNORECASE,
+        ) and not re.search(
+            r"\b(?:death|deaths|fatalit(?:y|ies)|died|meninggal(?:\s+dunia)?|"
+            r"kematian|maut|korban\s+jiwa|tewas|tử\s+vong|เสียชีวิต|"
+            r"ស្លាប់|ເສຍຊີວິດ|သေဆုံး)\b",
+            search_text[max(0, match.start(1) - 180): match.start(1)],
+            re.IGNORECASE,
+        ):
+            # A year-to-number phrase is not a death metric unless the
+            # surrounding source sentence actually declares deaths.
+            return
         if field == "case_count" and is_non_incident_metric_context(
             search_text, match.start(1), match.end(1)
         ):
             return
         if field == "case_count" and _VACCINE_WINDOW.search(window):
             return
+        # A death clause may use the generic case unit (for example Malay
+        # ``kematian ... terdapat 62 kes``). The number is a death metric,
+        # not a second disease-incidence total. Only reject a case candidate
+        # when the death label is immediately to its left.
+        if field == "case_count" and re.search(
+            r"\b(?:death|deaths|fatalit(?:y|ies)|died|meninggal(?:\s+dunia)?|"
+            r"kematian|maut|korban\s+jiwa|tewas|tử\s+vong|เสียชีวิต|"
+            r"ស្លាប់|ເສຍຊີວິດ|သေဆုံး)\b[^.!?;:]{0,100}$",
+            search_text[max(0, match.start(1) - 180): match.start(1)],
+            re.IGNORECASE,
+        ):
+            return
         # "10 patients were hospitalized/admitted and later discharged" is a
         # care-utilization fact, not ten new disease cases. Keep it available
         # to typed hospitalization extraction, but never promote it to a
         # disease total.
         if field == "case_count" and re.search(r"\bpatients?\b", match.group(0), re.IGNORECASE) and re.search(
-            r"\b(?:hospitali[sz](?:ed|ation)?|admitted|in hospital|discharged|returned home|"
+            r"\b(?:hospitali[sz](?:ed|ation)?|hospital\s+(?:treatment|care|admission|ward)|"
+            r"required\s+hospital|admitted|in hospital|discharged|returned home|"
             r"hospitalis(?:é|e|és|ées)|admis(?:e|es)?|sort(?:i|is|ie|ies) de l(?:['’]hôpital|hôpital)|"
             r"dirawat|rawat inap|pulang)\b",
             window_l,
@@ -1947,8 +2001,66 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return
         if field == "death_count" and re.search(r"\bno deaths?\b", window_l):
             return
+        if field == "death_count" and re.search(
+            r"\b(?:cases?|infections?|kasus|kes|patients?)\b[^.!?;:]{0,30}\b(?:and|&|dan)\b",
+            after,
+            re.IGNORECASE,
+        ):
+            # Do not let ``53,362 cases and one death`` attach the case total
+            # to the death metric while scanning the same sentence.
+            if not re.search(
+                r"\b(?:death|deaths|fatalit(?:y|ies)|died|meninggal(?:\s+dunia)?|"
+                r"kematian|maut|korban\s+jiwa|tewas|tử\s+vong|เสียชีวิต|"
+                r"ស្លាប់|ເສຍຊີວິດ|သေဆုံး)\b",
+                search_text[max(0, match.start(1) - 180): match.start(1)],
+                re.IGNORECASE,
+            ):
+                return
         period = _period_score(window, search_text)
         score = base_score + period
+        # Preceding / following year disambiguation (e.g. 2025 vs 2026 comparator)
+        all_years = _years_in(search_text)
+        latest_year = max(all_years) if all_years else None
+        preceding_text = search_text[max(0, match.start(1) - 60): match.start(1)]
+        preceding_years = _years_in(preceding_text)
+        if preceding_years and latest_year:
+            if any(y == latest_year for y in preceding_years):
+                score += 15
+            elif all(y < latest_year for y in preceding_years):
+                score -= 15
+        following_text = search_text[match.end(1): min(len(search_text), match.end(1) + 40)]
+        following_years = _years_in(following_text)
+        if following_years and latest_year:
+            if any(y == latest_year for y in following_years):
+                # A year after the number usually scopes a comparator phrase
+                # (``up from five fatalities during 2025``). It remains a
+                # valid candidate when alone, but must not outrank an
+                # unscoped/current number in the same article.
+                score -= 15
+            elif all(y < latest_year for y in following_years):
+                score -= 15
+        if field in {"case_count", "death_count"} and re.search(
+            r"\b(?:compared\s+(?:to|with)|versus|vs\.?|dibanding(?:kan)?(?:\s+dengan)?|berbanding|than)\b",
+            before,
+            re.IGNORECASE,
+        ):
+            # Keep comparator values available as historical evidence, but
+            # never let them win the article-level primary metric.
+            score -= 50
+        if field in {"case_count", "death_count"} and re.search(
+            r"\b(?:from|dari|daripada)\s*$",
+            before,
+            re.IGNORECASE,
+        ):
+            # ``down from 99 deaths`` and ``decline ... from 35,390 cases``
+            # are comparison values, not the active total.
+            score -= 50
+        if field == "case_count" and re.search(
+            r"\b(?:percent|percentage|per\s+cent|%)\s+from\s*$",
+            before,
+            re.IGNORECASE,
+        ):
+            score -= 50
         # Approximate wording must not outrank a nearby exact surveillance
         # total. This covers Indonesian ``11.000-an`` and equivalent
         # qualifiers without hardcoding a disease or publisher.
@@ -1985,6 +2097,24 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
                     _consider(match, 0)
                 except Exception:
                     continue
+
+    if field == "death_count":
+        # Preserve a singular death in the common ``cases and one death``
+        # construction. The broader count patterns intentionally reject the
+        # preceding case total, but that rejection must not discard the
+        # separate number word.
+        adjacent = re.search(
+            rf"(?:{_runtime_metric_label_pattern('metric_case')})\s+(?:and|dan)\s+"
+            rf"(?P<count>{num_token})\s*{_runtime_metric_label_pattern('metric_death')}\b",
+            search_text,
+            re.IGNORECASE | re.UNICODE,
+        )
+        if adjacent:
+            parsed = _parse_count(adjacent.group("count"), adjacent.group(0))
+            if parsed is not None:
+                candidates.append((40, adjacent.start("count"), parsed, _period_score(
+                    _sentence_window(search_text, adjacent.start(), adjacent.end()), search_text
+                )))
 
     override = _focal_human_case_override(search_text)
     if field == "case_count" and _OUTBREAK_CLOSED.search(search_text):
@@ -2273,7 +2403,42 @@ def extract_terms(text: str, dictionary: dict[str, str]) -> list[str]:
     return sorted(matches)
 
 
-DISEASE_ALIASES: dict[str, str] = {}
+DISEASE_ALIASES: dict[str, str] = {
+    "denggi": "Dengue",
+    "demam denggi": "Dengue",
+    "penyakit tibi": "Tuberculosis",
+    "tibi": "Tuberculosis",
+    "kencing tikus": "Leptospirosis",
+    "penyakit kencing tikus": "Leptospirosis",
+    "taun": "Cholera",
+    "penyakit taun": "Cholera",
+    "campak": "Measles",
+    "batuk kering": "Tuberculosis",
+    "anjing gila": "Rabies",
+    "penyakit tangan, kaki dan mulut": "hand foot mouth disease",
+    "သွေးလွန်တုပ်ကွေး": "Dengue",
+    "ဝက်သက်": "Measles",
+    "ကာလဝမ်းရောဂါ": "Cholera",
+    "ခွေးရူးရောဂါ": "Rabies",
+    "ငှက်ဖျား": "Malaria",
+    "တီဘီ": "Tuberculosis",
+    "လက်၊ ခြေ၊ ခံတွင်းရောဂါ": "hand foot mouth disease",
+    "គ្រុនឈាម": "Dengue",
+    "កញ្ជ្រឹល": "Measles",
+    "អាសន្នរោគ": "Cholera",
+    "ជំងឺឆ្កែឆ្កួត": "Rabies",
+    "គ្រុនចាញ់": "Malaria",
+    "របេង": "Tuberculosis",
+    "ជំងឺពងបែកដៃជើងនិងក្នុងមាត់": "hand foot mouth disease",
+    "ໄຂ້ຍຸງລາຍ": "Dengue",
+    "ໄຂ້ເລືອດອອກ": "Dengue",
+    "ໝາກແດງ": "Measles",
+    "ອະຫິວາ": "Cholera",
+    "ພະຍາດວໍ້": "Rabies",
+    "ໄຂ້ມາລາເຣຍ": "Malaria",
+    "ວັນນະໂລກ": "Tuberculosis",
+    "โรคฉี่หนู": "Leptospirosis",
+}
 
 def active_disease_aliases() -> dict[str, str]:
     """Return the DB disease vocabulary with compatibility aliases layered last."""

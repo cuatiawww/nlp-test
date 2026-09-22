@@ -577,41 +577,52 @@ def _runtime_relation_patterns() -> dict[str, tuple[re.Pattern[str], ...]]:
 
     case_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_case")))
     death_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_death")))
+    number = extractors._runtime_number_word_pattern()
     magnitude_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_magnitude")))
     magnitude_group = rf"(?P<multiplier>{magnitude_term})?"
-    location = r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’-]*){0,5})"
-    location_dotted = r"(?P<location>[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÿ'’.-]*){0,5})"
+    # The surrounding patterns are case-insensitive for metric vocabulary,
+    # but locality starts must remain title-cased. Otherwise ``Thailand
+    # reported 12 cases`` is captured as the fake locality ``Thailand
+    # reported`` and cannot be linked to the country.
+    location = r"(?P<location>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’-]*){0,5})"
+    location_dotted = r"(?P<location>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){0,5})"
     return {
         "cases": (
             re.compile(
-                rf"(?<![\w.,])(?P<count>{_NUMBER})(?![\w])\s*{magnitude_group}\s*"
+                rf"(?<![\w.,])(?P<count>{number})(?![\w])\s*{magnitude_group}\s*"
                 rf"{case_term}\s+(?:[\w\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]+\s+){{0,4}}"
                 rf"(?:di|in|from|among)\s+(?:provinsi\s+|prov\.\s+|kabupaten\s+|kab\.\s+|kota\s+)?{location}",
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
                 rf"{location}(?:\s+[^.\n;:()]{{0,100}}?\s*[:,-]?\s*)"
-                rf"(?P<count>{_NUMBER})\s*{magnitude_group}\s*{case_term}\b",
+                rf"(?P<count>{number})\s*{magnitude_group}\s*{case_term}\b",
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
-                rf"{location_dotted}\s*\(\s*(?P<count>{_NUMBER})\s*{magnitude_group}\s*{case_term}\s*\)",
+                rf"{location_dotted}\s*\(\s*(?P<count>{number})\s*{magnitude_group}\s*{case_term}\s*\)",
                 re.IGNORECASE | re.UNICODE,
             ),
         ),
         "deaths": (
             re.compile(
-                rf"(?P<count>{_NUMBER})\s*{magnitude_group}\s*{death_term}\s+(?:di|in)\s+{location_dotted}",
+                rf"(?P<count>{number})\s*{magnitude_group}\s*{death_term}\s+(?:di|in)\s+{location_dotted}",
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
-                rf"(?P<count>{_NUMBER})\s+[^.\n;:()]{{0,60}}?{death_term}\s+"
+                rf"(?P<count>{number})\s+[^.\n;:()]{{0,60}}?{death_term}\s+"
                 rf"(?:pada\s+[^.\n;:()]{{0,40}}?\s+)?(?:di|in)\s+{location}",
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
                 rf"{location}(?:\s+[^.\n;:()]{{0,120}}?\s*[:,-]?\s*)"
-                rf"(?P<count>{_NUMBER})\s*{magnitude_group}\s*{death_term}\b",
+                rf"(?P<count>{number})\s*{magnitude_group}\s*{death_term}\b",
+                re.IGNORECASE | re.UNICODE,
+            ),
+        ),
+        "deaths_after_cases": (
+            re.compile(
+                rf"{case_term}\s+(?:and|dan)\s+(?P<count>{number})\s*{death_term}\b",
                 re.IGNORECASE | re.UNICODE,
             ),
         ),
@@ -1108,8 +1119,18 @@ def _metric_is_valid(text: str, start: int, end: int) -> bool:
 
     if extractors.is_non_incident_metric_context(text, start, end):
         return False
-    context = text[max(0, start - 32):min(len(text), end + 48)]
-    if _NON_CASE_NUMBER_CONTEXT.search(context):
+    short_context = text[max(0, start - 32):min(len(text), end + 48)]
+    if _NON_CASE_NUMBER_CONTEXT.search(short_context):
+        return False
+    context = text[max(0, start - 100):min(len(text), end + 100)]
+    if re.search(
+        r"\b(?:patients?|pasien|pesakit)\b[^.!?;:]{0,80}\b(?:required\s+hospital|hospital\s+(?:treatment|care|admission|ward)|"
+        r"hospitali[sz](?:ed|ation)|admitted|in\s+hospital|dirawat|rawat\s+inap)\b",
+        context,
+        re.IGNORECASE,
+    ):
+        # Hospital utilization is a separate metric. It must not inflate the
+        # incident-case total merely because ``patients`` is a case alias.
         return False
     return not _looks_like_calendar_year(text, start, end)
 
@@ -1526,6 +1547,36 @@ def extract_metric_relations(
                 disease=_relation_disease(source, match.start(), match.end()),
                 metric_type="deaths", qualifier=_relation_qualifier(source, match.start(), match.end()),
                 value=death_count, evidence_offset_start=match.start(), evidence_offset_end=match.end(),
+                source_sentence_id=_source_sentence_id(source, match.start()),
+            ))
+
+    # Narrative shorthand such as ``53,362 cases and one death`` has no
+    # second location token. Attach the death to the nearest validated
+    # location in the source sentence rather than dropping it or reusing the
+    # case total.
+    for pattern in relation_patterns["deaths_after_cases"]:
+        for match in pattern.finditer(working):
+            if not _metric_is_valid(source, match.start("count"), match.end()):
+                continue
+            linked = _nearest_location(match.start(), match.end(), locations, text=source)
+            if not linked:
+                linked = fallback_location
+            if not linked:
+                continue
+            death_count = _number(match.group("count"), match.groupdict().get("multiplier", ""))
+            _upsert_relation(relations, MetricRelation(
+                location=linked,
+                deaths=death_count,
+                time_frame=_relation_time_frame_for_span(
+                    source, linked, published_date, match.start("count"), match.end("count")
+                ),
+                evidence=source[match.start():match.end()].strip(),
+                disease=_relation_disease(source, match.start(), match.end()),
+                metric_type="deaths",
+                qualifier=_relation_qualifier(source, match.start(), match.end()),
+                value=death_count,
+                evidence_offset_start=match.start(),
+                evidence_offset_end=match.end(),
                 source_sentence_id=_source_sentence_id(source, match.start()),
             ))
 
