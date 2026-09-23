@@ -90,7 +90,6 @@ export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; 
 
 export const ALL_LOG_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 52, sticky: true },
-  { key: 'source_country', label: 'Source Country', width: 130 },
   { key: 'surveillance_scope', label: 'Scope', width: 110 },
   { key: 'country', label: 'Case Country', width: 150 },
   { key: 'disease', label: 'Disease Name', width: 180 },
@@ -611,7 +610,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
 
   const cards = [
     {
-      label: 'Surveillance Events',
+      label: 'Health Events',
       value: summary ? fmtNum(summary.quality?.surveillance ?? summary.matrix_rows) || '0' : '—',
       icon: Activity,
       color: 'text-[#0060A9] bg-blue-50 border-blue-200',
@@ -635,7 +634,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       color: 'text-rose-700 bg-rose-50 border-rose-200',
     },
     {
-      label: 'Filtered Non-Health',
+      label: 'Non Health',
       value: summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) || '0' : '—',
       icon: Filter,
       color: 'text-slate-600 bg-slate-50 border-slate-200',
@@ -679,32 +678,23 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       </div>
 
       {/* Quality Summary Distribution Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1 py-0.5">
-        <span className="font-medium text-slate-600">
-          {summary?.note || t('pages.crawlHistory.qualityHint')}
-        </span>
-        {summary?.quality ? (
-          <div className="flex flex-wrap items-center gap-3 text-[11px]">
-            <span className="inline-flex items-center gap-1.5 font-medium">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              Surveillance: <strong className="text-slate-800">{fmtNum(summary.quality.surveillance) || '0'}</strong>
+      {summary?.quality ? (
+        <div className="flex flex-wrap items-center justify-end gap-3 text-[11px] text-slate-500 px-1 py-0.5">
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            Health: <strong className="text-slate-800">{fmtNum(summary.quality.surveillance) || '0'}</strong>
+          </span>
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <span className="h-2 w-2 rounded-full bg-slate-400" />
+            Non Health: <strong className="text-slate-800">{fmtNum(summary.quality.noise) || '0'}</strong>
+          </span>
+          {typeof summary.disease_events === 'number' && (
+            <span className="inline-flex items-center gap-1.5 text-slate-400">
+              (Total events: <strong className="text-slate-700">{fmtNum(summary.disease_events) || '0'}</strong>)
             </span>
-            <span className="inline-flex items-center gap-1.5 font-medium">
-              <span className="h-2 w-2 rounded-full bg-amber-500" />
-              Needs Review: <strong className="text-slate-800">{fmtNum(summary.quality.review) || '0'}</strong>
-            </span>
-            <span className="inline-flex items-center gap-1.5 font-medium">
-              <span className="h-2 w-2 rounded-full bg-slate-400" />
-              Non-Health: <strong className="text-slate-800">{fmtNum(summary.quality.noise) || '0'}</strong>
-            </span>
-            {typeof summary.disease_events === 'number' && (
-              <span className="inline-flex items-center gap-1.5 text-slate-400">
-                (Total events: <strong className="text-slate-700">{fmtNum(summary.disease_events) || '0'}</strong>)
-              </span>
-            )}
-          </div>
-        ) : null}
-      </div>
+          )}
+        </div>
+      ) : null}
 
       {/* Main Filter & Navigation Card */}
       <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs space-y-3.5">
@@ -833,15 +823,15 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               ))}
             </div>
 
-            {/* Quick Quality Filter Pills (Mirrors Events Page mental model) */}
+            {/* Quick Quality Filter Pills (Mirrors Events Page: All, Health, Non Health) */}
             <div className="flex items-center gap-1 rounded-xl bg-slate-100/90 p-1 text-xs">
               <span className="px-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                Status:
+                Filter:
               </span>
               {[
-                { id: 'surveillance' as QualityFilter, label: t('pages.crawlHistory.qualitySurveillance') },
-                { id: 'review' as QualityFilter, label: t('pages.crawlHistory.qualityReview') },
-                { id: 'all' as QualityFilter, label: t('pages.crawlHistory.qualityAll') },
+                { id: 'all' as QualityFilter, label: t('pages.events.filterAll') || 'All' },
+                { id: 'surveillance' as QualityFilter, label: t('pages.events.filterHealth') || 'Health' },
+                { id: 'noise' as QualityFilter, label: t('pages.events.filterNonHealth') || 'Non Health' },
               ].map((opt) => (
                 <button
                   key={opt.id}

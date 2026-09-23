@@ -1906,7 +1906,7 @@ pub async fn summary(
         success: true,
         data: json!({
             "phase": "phase2",
-            "note": "Default matrix is one row per article URL, read from the same disease_events / raw_reports inventory as Events. Health surveillance uses known disease, health relevance, confidence ≥ 0.15, and the 11 ASEAN jurisdictions when a country is known. Non-health feeds remain stored for Events quality checks.",
+            "note": "",
             "default_quality": "surveillance",
             "jobs": counts.get::<_, i64>(0),
             "matrix_rows": counts.get::<_, i64>(1),
