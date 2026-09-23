@@ -103,7 +103,7 @@ spec:
   template:
     metadata: {labels: {app: disease-nlp-python}}
     spec:
-      imagePullSecrets: [{name: gitea-registry}]
+      imagePullSecrets: [{name: registry-pull}]
       nodeSelector: {role: nlp-data}
       containers:
         - name: nlp
@@ -131,7 +131,7 @@ spec:
   template:
     metadata: {labels: {app: disease-backend-rust}}
     spec:
-      imagePullSecrets: [{name: gitea-registry}]
+      imagePullSecrets: [{name: registry-pull}]
       nodeSelector: {role: application}
       containers:
         - name: backend
@@ -150,7 +150,7 @@ spec:
   template:
     metadata: {labels: {app: disease-frontend-next}}
     spec:
-      imagePullSecrets: [{name: gitea-registry}]
+      imagePullSecrets: [{name: registry-pull}]
       nodeSelector: {role: application}
       containers:
         - name: frontend
@@ -176,7 +176,7 @@ spec:
   template:
     metadata: {labels: {app: disease-collector-python}}
     spec:
-      imagePullSecrets: [{name: gitea-registry}]
+      imagePullSecrets: [{name: registry-pull}]
       nodeSelector: {role: application}
       containers:
         - name: collector
@@ -193,7 +193,7 @@ spec:
   template:
     metadata: {labels: {app: disease-worker-python}}
     spec:
-      imagePullSecrets: [{name: gitea-registry}]
+      imagePullSecrets: [{name: registry-pull}]
       nodeSelector: {role: application}
       containers:
         - name: worker
@@ -210,7 +210,7 @@ spec:
   template:
     metadata: {labels: {app: disease-analysis-job-worker}}
     spec:
-      imagePullSecrets: [{name: gitea-registry}]
+      imagePullSecrets: [{name: registry-pull}]
       nodeSelector: {role: application}
       containers:
         - name: analysis-worker

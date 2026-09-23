@@ -9,37 +9,93 @@ jobs:
     runs-on: k3s-dev-deploy
     concurrency:
       group: nlp-penyakit-k3s-dev
-      cancel-in-progress: true
+      cancel-in-progress: false
     env:
-      REGISTRY: gitea.mediaciptainformasi.co.id/arlansyah
+      REGISTRY: registry.dev.abvc-surveillance.org
       IMAGE_TAG: dev-${{ gitea.sha }}
       WORKSPACE: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
     steps:
       - name: Checkout
         run: |
           set -eu
-          rm -rf "$WORKSPACE"; mkdir -p "$WORKSPACE"; cd "$WORKSPACE"
+          rm -rf "$WORKSPACE"
+          mkdir -p "$WORKSPACE"
+          cd "$WORKSPACE"
           git -c http.version=HTTP/1.1 -c http.extraHeader="Authorization: token ${{ gitea.token }}" clone --depth 1 --branch "${{ gitea.ref_name }}" https://gitea.mediaciptainformasi.co.id/KEMKES/NLP-PENYAKIT.git .
-      - name: Build and push images
+      - name: Build and push images to private registry
         working-directory: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
         run: |
           set -eu
+          set +x
+          AUTH_FILE=/home/nlpdev/.config/registry/registry-dev-login.txt
+          test -r "$AUTH_FILE"
+          registry_field() {
+            python3 - "$AUTH_FILE" "$1" <<'PY'
+          from pathlib import Path
+          import sys
+
+          key = sys.argv[2].lower() + ":"
+          for line in Path(sys.argv[1]).read_text().splitlines():
+              name, sep, value = line.partition(":")
+              if sep and name.strip().lower() + ":" == key:
+                  print(value.strip())
+                  break
+          else:
+              raise SystemExit(f"missing registry credential field: {sys.argv[2]}")
+          PY
+          }
+          REGISTRY_USER=$(registry_field Username)
+          REGISTRY_PASSWORD=$(registry_field Password)
+          test -n "$REGISTRY_USER"
+          test -n "$REGISTRY_PASSWORD"
+          export DOCKER_CONFIG="$(mktemp -d)"
+          chmod 700 "$DOCKER_CONFIG"
+          trap 'docker logout "$REGISTRY" >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
           docker info >/dev/null
-          docker build -t "$REGISTRY/nlp-penyakit-disease-nlp-python:$IMAGE_TAG" services/nlp-python
-          docker build -t "$REGISTRY/nlp-penyakit-disease-backend-rust:$IMAGE_TAG" services/backend-rust
-          docker build --build-arg NEXT_PUBLIC_API_BASE_URL=/api --build-arg NEXT_PUBLIC_BASE_PATH=/nlp --build-arg BACKEND_INTERNAL_URL=http://disease-backend-rust:8081 -t "$REGISTRY/nlp-penyakit-disease-frontend-next:$IMAGE_TAG" services/frontend-next
-          docker build -t "$REGISTRY/nlp-penyakit-disease-collector-python:$IMAGE_TAG" services/collector-python
-          docker build -t "$REGISTRY/nlp-penyakit-worker-python:$IMAGE_TAG" services/worker-python
-          docker tag "$REGISTRY/nlp-penyakit-worker-python:$IMAGE_TAG" "$REGISTRY/nlp-penyakit-worker-python:analysis-$IMAGE_TAG"
-          for image in disease-nlp-python disease-backend-rust disease-frontend-next disease-collector-python worker-python; do docker push "$REGISTRY/nlp-penyakit-$image:$IMAGE_TAG"; done
-          docker push "$REGISTRY/nlp-penyakit-worker-python:analysis-$IMAGE_TAG"
-      - name: Deploy K3s
+          printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USER" --password-stdin
+          unset REGISTRY_PASSWORD
+          docker build -t "$REGISTRY/nlp/disease-nlp-python:$IMAGE_TAG" services/nlp-python
+          docker build -t "$REGISTRY/nlp/disease-backend-rust:$IMAGE_TAG" services/backend-rust
+          docker build --build-arg NEXT_PUBLIC_API_BASE_URL=/api --build-arg NEXT_PUBLIC_BASE_PATH=/nlp --build-arg BACKEND_INTERNAL_URL=http://disease-backend-rust:8081 -t "$REGISTRY/nlp/disease-frontend-next:$IMAGE_TAG" services/frontend-next
+          docker build -t "$REGISTRY/nlp/disease-collector-python:$IMAGE_TAG" services/collector-python
+          docker build -t "$REGISTRY/nlp/worker-python:$IMAGE_TAG" services/worker-python
+          docker tag "$REGISTRY/nlp/worker-python:$IMAGE_TAG" "$REGISTRY/nlp/worker-python:analysis-$IMAGE_TAG"
+          docker push "$REGISTRY/nlp/disease-nlp-python:$IMAGE_TAG"
+          docker push "$REGISTRY/nlp/disease-backend-rust:$IMAGE_TAG"
+          docker push "$REGISTRY/nlp/disease-frontend-next:$IMAGE_TAG"
+          docker push "$REGISTRY/nlp/disease-collector-python:$IMAGE_TAG"
+          docker push "$REGISTRY/nlp/worker-python:$IMAGE_TAG"
+          docker push "$REGISTRY/nlp/worker-python:analysis-$IMAGE_TAG"
+      - name: Prepare immutable manifest tags
         working-directory: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
         run: |
           set -eu
-          python3 -c 'from pathlib import Path; p=Path("deploy/k3s/overlays/dev/kustomization.yaml"); p.write_text(p.read_text().replace("newTag: dev", "newTag: dev-${{ gitea.sha }}"))'
+          python3 - "$IMAGE_TAG" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          tag = sys.argv[1]
+          path = Path("deploy/k3s/overlays/dev/kustomization.yaml")
+          text = path.read_text()
+          text, dev_count = re.subn(r"(?m)^(\s+newTag: )dev$", rf"\g<1>{tag}", text)
+          text, analysis_count = re.subn(r"(?m)^(\s+newTag: )analysis-dev$", rf"\g<1>analysis-{tag}", text)
+          if dev_count != 5 or analysis_count != 1:
+              raise SystemExit(f"unexpected image tag map counts: dev={dev_count}, analysis={analysis_count}")
+          path.write_text(text)
+          PY
+      - name: Apply manifests and verify rollout
+        working-directory: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
+        run: |
+          set -eu
           sudo -n k3s kubectl apply -k deploy/k3s/overlays/dev
-          sudo -n k3s kubectl -n nlp-dev set image deployment/disease-analysis-job-worker analysis-worker="$REGISTRY/nlp-penyakit-worker-python:analysis-$IMAGE_TAG" || true
+          for deployment in disease-nlp-python disease-backend-rust disease-frontend-next disease-collector-python disease-worker-python disease-analysis-job-worker; do
+            sudo -n k3s kubectl -n nlp-dev rollout status "deployment/$deployment" --timeout=15m
+          done
+          for statefulset in postgresql disease-rabbitmq disease-minio; do
+            sudo -n k3s kubectl -n nlp-dev rollout status "statefulset/$statefulset" --timeout=15m
+          done
+          sudo -n k3s kubectl -n nlp-dev get deployments,statefulsets -o wide
       - name: Status
         if: always()
         run: sudo -n k3s kubectl -n nlp-dev get pods,svc,ingress -o wide

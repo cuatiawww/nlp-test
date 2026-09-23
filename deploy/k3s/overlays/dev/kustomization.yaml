@@ -9,20 +9,29 @@ resources:
   - ingress.yaml
 images:
   - name: disease-nlp-python
-    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-disease-nlp-python
+    newName: registry.dev.abvc-surveillance.org/nlp/disease-nlp-python
     newTag: dev
   - name: disease-backend-rust
-    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-disease-backend-rust
+    newName: registry.dev.abvc-surveillance.org/nlp/disease-backend-rust
     newTag: dev
   - name: disease-frontend-next
-    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-disease-frontend-next
+    newName: registry.dev.abvc-surveillance.org/nlp/disease-frontend-next
     newTag: dev
   - name: disease-collector-python
-    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-disease-collector-python
+    newName: registry.dev.abvc-surveillance.org/nlp/disease-collector-python
     newTag: dev
   - name: disease-worker-python
-    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-worker-python
+    newName: registry.dev.abvc-surveillance.org/nlp/worker-python
     newTag: dev
   - name: disease-analysis-job-worker
-    newName: gitea.mediaciptainformasi.co.id/arlansyah/nlp-penyakit-worker-python
-    newTag: dev
+    newName: registry.dev.abvc-surveillance.org/nlp/worker-python
+    newTag: analysis-dev
+  - name: postgis/postgis
+    newName: registry.dev.abvc-surveillance.org/postgres/postgis
+    newTag: 17-3.5-alpine
+  - name: rabbitmq
+    newName: registry.dev.abvc-surveillance.org/infra/rabbitmq
+    newTag: 3.13-management-alpine
+  - name: quay.io/minio/minio
+    newName: registry.dev.abvc-surveillance.org/infra/minio
+    newTag: sha-14cea493d9a3
