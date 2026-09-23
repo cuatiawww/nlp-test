@@ -65,8 +65,10 @@ export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; 
   { key: 'disease', label: 'Disease', width: 160 },
   { key: 'cases', label: 'Cases', width: 90 },
   { key: 'deaths', label: 'Deaths', width: 90 },
+  { key: 'language', label: 'Language', width: 80 },
+  { key: 'article_date', label: 'Article Date', width: 110 },
   { key: 'crawling_date', label: 'Crawling Date', width: 130 },
-  { key: 'action', label: 'Action', width: 95 },
+  { key: 'action', label: 'Action', width: 90 },
 ]
 
 export const ALL_LOG_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
@@ -763,10 +765,10 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                   </span>
                 </div>
               ) : null}
-              <table className="border-separate border-spacing-0 text-left text-[11px]" style={{ minWidth: tableMinWidth }}>
+              <table className="w-full border-separate border-spacing-0 text-left text-[11px]" style={{ minWidth: tableMinWidth }}>
                 <colgroup>
                   {activeColumns.map((col) => (
-                    <col key={col.key} style={{ width: col.width }} />
+                    <col key={col.key} style={viewMode === 'surveillance' ? {} : { width: col.width }} />
                   ))}
                 </colgroup>
                 <thead>

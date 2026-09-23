@@ -966,6 +966,84 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             published_date=published_at,
             source_country=source_country,
         )
+        # The composer may start from the classifier's primary location. Add
+        # any additional country-level relation that is explicitly backed by
+        # the strict projection, otherwise a multi-country article can lose a
+        # valid country event before the shared metric attribution pass runs.
+        existing_event_countries = {
+            str(evt.country or "").casefold()
+            for evt in sub_events
+            if evt.country
+        }
+        for projection in strict_output.locations:
+            projection_country = str(projection.country or "").strip()
+            if not projection_country or projection_country.casefold() in existing_event_countries:
+                continue
+            country_relations = [
+                relation for relation in relational_events
+                if relation.location.country.casefold() == projection_country.casefold()
+                and relation.evidence
+                and (relation.cases or relation.deaths is not None)
+            ]
+            if not country_relations:
+                continue
+            relation = max(
+                country_relations,
+                key=lambda item: (item.cases or 0) + (item.deaths or 0),
+            )
+            event_disease = extractors.canonical_disease_name(
+                relation.disease or disease or "UNKNOWN"
+            )
+            if event_disease.upper() == "UNKNOWN":
+                continue
+            hierarchy = extractors.resolve_location_hierarchy(
+                projection_country,
+                country_hint=projection_country,
+            )
+            sub_events.append(
+                SubEvent(
+                    disease=event_disease,
+                    location_name=projection_country,
+                    country=projection_country,
+                    country_iso3=hierarchy.get("country_iso3"),
+                    latitude=hierarchy.get("latitude"),
+                    longitude=hierarchy.get("longitude"),
+                    case_count=int(relation.cases or projection.reported_cases or 0),
+                    death_count=int(
+                        relation.deaths
+                        if relation.deaths is not None
+                        else projection.deaths or 0
+                    ),
+                    metric_type=relation.metric_type or "cases",
+                    unit=relation.unit or "persons",
+                    metric_qualifier=relation.qualifier,
+                    time_frame=relation.time_frame or projection.time_frame,
+                    temporal_context=extractors.count_period_type(relation.evidence),
+                    evidence=relation.evidence,
+                    evidence_offset_start=relation.evidence_offset_start,
+                    evidence_offset_end=relation.evidence_offset_end,
+                    relations=[{
+                        "type": "reported_in",
+                        "evidence": relation.evidence,
+                        "source_sentence_id": relation.source_sentence_id,
+                        "evidence_is_translated": False,
+                    }],
+                    metrics=[],
+                    provenance={
+                        "method": "evidence_relation",
+                        "source": "surveillance_extraction",
+                        "source_sentence_id": relation.source_sentence_id,
+                        "source_text": "original",
+                    },
+                    source_language=language,
+                    source_script=str(language_profile.get("script") or "Latin"),
+                    source_sentence_id=relation.source_sentence_id,
+                    source_evidence=relation.evidence,
+                    evidence_is_translated=False,
+                    evidence_offset_space=evidence_offset_space,
+                )
+            )
+            existing_event_countries.add(projection_country.casefold())
         # Relation evidence is authoritative for the public evidence view as
         # well as for event construction.  Keep the original source span;
         # translation must never be the only visible proof of a metric.
