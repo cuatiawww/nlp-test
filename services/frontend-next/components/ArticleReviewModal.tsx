@@ -234,29 +234,26 @@ function EventCorrectionModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="relative w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-gradient-to-r from-slate-900 to-slate-800 text-white border-b border-slate-700">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400 font-bold text-xs ring-1 ring-emerald-500/40">
-              #{index + 1}
-            </span>
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>Human-in-the-Loop Event Correction #{index + 1}</span>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  AI Feedback Learning
-                </span>
+        <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-slate-200">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h3 className="text-base font-bold text-slate-900">
+                Edit Event Record #{index + 1}
               </h3>
-              <p className="text-[11px] text-slate-300 truncate max-w-[480px]">
-                {stripHtml(articleTitle) || 'Article Event Review'}
-              </p>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-[#0060A9] border border-blue-200">
+                Event Revision
+              </span>
             </div>
+            <p className="text-xs text-slate-500 truncate max-w-xl mt-0.5">
+              {stripHtml(articleTitle) || 'Article Event Review'}
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -265,37 +262,38 @@ function EventCorrectionModal({
         {/* Body */}
         <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs text-slate-800">
           {/* Baseline vs Target Highlight */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                Baseline NLP Prediction (Original)
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">
+                Baseline NLP Prediction
               </span>
-              <div className="space-y-1 text-[11px]">
-                <div><span className="text-slate-500">Disease:</span> <strong className="text-slate-800">{originalDisease}</strong></div>
-                <div><span className="text-slate-500">Country / Region:</span> <strong className="text-slate-800">{originalCountry} ({originalRegion})</strong></div>
-                <div><span className="text-slate-500">Province / City:</span> <strong className="text-slate-800">{originalProvince}, {originalCity}</strong></div>
+              <div className="space-y-1 text-xs">
+                <div><span className="text-slate-500">Disease:</span> <strong className="text-slate-900">{originalDisease}</strong></div>
+                <div><span className="text-slate-500">Country / Region:</span> <strong className="text-slate-900">{originalCountry} ({originalRegion})</strong></div>
+                <div><span className="text-slate-500">Province / City:</span> <strong className="text-slate-900">{originalProvince}, {originalCity}</strong></div>
                 <div><span className="text-slate-500">Cases / Deaths:</span> <span className="font-mono font-bold text-emerald-700">{originalCases.toLocaleString()}</span> / <span className="font-mono font-bold text-rose-700">{originalDeaths.toLocaleString()}</span></div>
               </div>
             </div>
 
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                Original Evidence Excerpt
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">
+                Evidence Excerpt
               </span>
-              <div className="rounded-lg bg-white border border-slate-200 p-2.5 max-h-24 overflow-y-auto italic text-slate-600 text-[11px] leading-relaxed">
+              <div className="rounded-lg bg-white border border-slate-200 p-3 max-h-28 overflow-y-auto italic text-slate-600 text-xs leading-relaxed">
                 "{originalEvidence}"
               </div>
             </div>
           </div>
 
           {/* Form Fields Grid */}
-          <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/20 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-emerald-100">
-              <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-                <Edit3 className="h-3.5 w-3.5 text-emerald-700" />
-                Human Reviewer Correction & Validation Form
+          <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-2xs space-y-3.5">
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Event Details & Corrections
+              </h4>
+              <span className="text-[11px] text-slate-500">
+                All updated fields are recorded for this event
               </span>
-              <span className="text-[10px] text-emerald-700 font-medium">All edited fields will be recorded for continuous AI training</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -460,11 +458,11 @@ function EventCorrectionModal({
           )}
 
           {/* Footer Actions */}
-          <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+          <div className="flex items-center justify-between pt-3.5 border-t border-slate-200">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+              className="px-4 py-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs cursor-pointer"
             >
               Cancel
             </button>
@@ -472,10 +470,10 @@ function EventCorrectionModal({
             <button
               type="submit"
               disabled={submitting}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs transition disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg bg-[#0060A9] text-xs font-bold text-white hover:bg-[#004b85] shadow-xs transition disabled:opacity-50 cursor-pointer"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              <span>{submitting ? 'Saving to AI...' : 'Save Event Correction'}</span>
+              <span>{submitting ? 'Saving...' : 'Save Event Correction'}</span>
             </button>
           </div>
         </form>
@@ -616,30 +614,27 @@ export default function ArticleReviewModal({
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-        <div className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+        <div className="relative w-full max-w-7xl xl:max-w-[1440px] max-h-[94vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100">
-                <FileText className="h-5 w-5" />
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-base font-bold text-slate-900">
+                  Article Review & NLP Predictions Matrix
+                </h2>
+                {isReviewed ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Reviewed
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                    <Clock className="h-3.5 w-3.5" /> Needs Review
+                  </span>
+                )}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold text-slate-900">Article Review & NLP Predictions Matrix</h2>
-                  {isReviewed ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <CheckCircle2 className="h-3 w-3" /> Reviewed
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                      <Clock className="h-3 w-3" /> Needs Review
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500">
-                  Verify epidemiological facts, multi-disease, and multi-event extraction from NLP predictions
-                </p>
-              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Verify epidemiological facts, multi-disease, and multi-event extraction from NLP predictions
+              </p>
             </div>
             <button
               type="button"
@@ -751,14 +746,13 @@ export default function ArticleReviewModal({
             </section>
 
             {/* ───────────────────────────────────────────────────────────── */}
-            {/* EVENT PREDICTIONS MATRIX TABLE (Core Feature requested)       */}
+            {/* EVENT PREDICTIONS MATRIX TABLE                                */}
             {/* ───────────────────────────────────────────────────────────── */}
             <section className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-              <div className="bg-slate-50/90 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div className="bg-slate-50/90 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                    <Activity className="h-4 w-4 text-[#0060A9]" />
-                    <span>NLP Prediction Matrix & Human Review Corrections ({eventsList.length} Event{eventsList.length === 1 ? '' : 's'})</span>
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    NLP Prediction Matrix & Event Corrections ({eventsList.length} Event{eventsList.length === 1 ? '' : 's'})
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     Click <strong>Edit</strong> on any event row to correct disease, country, region, province, city, cases, or deaths.
@@ -766,19 +760,19 @@ export default function ArticleReviewModal({
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="w-full overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-100/70 text-[10px] uppercase font-bold text-slate-600 border-b border-slate-200">
-                      <th className="px-3 py-2.5 text-center w-12">#</th>
-                      <th className="px-3 py-2.5 min-w-[170px]">Disease & ICD-11</th>
-                      <th className="px-3 py-2.5 min-w-[150px]">Country & Region</th>
-                      <th className="px-3 py-2.5 min-w-[170px]">Province & City / Location</th>
-                      <th className="px-3 py-2.5 text-right w-24">Cases</th>
-                      <th className="px-3 py-2.5 text-right w-24">Deaths</th>
-                      <th className="px-3 py-2.5 min-w-[100px]">Event Date</th>
-                      <th className="px-3 py-2.5 min-w-[200px]">Evidence Span</th>
-                      <th className="px-3 py-2.5 text-center w-28">Action</th>
+                    <tr className="bg-slate-50 text-[10px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                      <th className="px-3.5 py-2.5 text-center w-10">#</th>
+                      <th className="px-3.5 py-2.5 w-44">Disease & ICD-11</th>
+                      <th className="px-3.5 py-2.5 w-40">Country & Region</th>
+                      <th className="px-3.5 py-2.5 w-48">Province & City</th>
+                      <th className="px-3.5 py-2.5 text-right w-24">Cases</th>
+                      <th className="px-3.5 py-2.5 text-right w-24">Deaths</th>
+                      <th className="px-3.5 py-2.5 w-28">Event Date</th>
+                      <th className="px-3.5 py-2.5">Evidence Excerpt</th>
+                      <th className="px-3.5 py-2.5 text-center w-24">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -888,9 +882,9 @@ export default function ArticleReviewModal({
                           </td>
 
                           {/* Evidence */}
-                          <td className="px-3 py-3">
+                          <td className="px-3.5 py-3">
                             <span
-                              className="block max-w-[230px] truncate text-[11px] text-slate-600 italic cursor-help"
+                              className="block max-w-sm xl:max-w-md 2xl:max-w-xl truncate text-[11px] text-slate-600 italic cursor-help"
                               title={evidenceVal}
                             >
                               {evidenceVal !== '-' ? `"${evidenceVal}"` : '-'}
@@ -902,10 +896,10 @@ export default function ArticleReviewModal({
                             <button
                               type="button"
                               onClick={() => setEditingIndex(idx)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-[11px] font-bold hover:bg-emerald-600 hover:text-white transition shadow-2xs cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:border-[#0060A9] hover:bg-blue-50/60 hover:text-[#0060A9] text-[11px] font-bold transition shadow-2xs cursor-pointer"
                               title="Edit this event record"
                             >
-                              <Edit3 className="h-3 w-3" />
+                              <Edit3 className="h-3 w-3 text-[#0060A9]" />
                               <span>Edit</span>
                             </button>
                           </td>
