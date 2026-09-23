@@ -139,24 +139,27 @@ export default function DiseaseDashboardPage() {
         disease: diseaseFilter,
       }
 
-      const [dashRes, morbRes, conceptsRes] = await Promise.all([
+      // Morbidity trends are useful but not required to render the dashboard
+      // shell. Start them in parallel, then let the primary dashboard finish
+      // independently so a slow aggregation does not block first paint.
+      const morbidityPromise = fetchMorbidityMortality(params).catch(() => null)
+      const [dashRes, conceptsRes] = await Promise.all([
         fetchPublicDashboard(params).catch((err) => {
           console.error('Failed to load disease dashboard data:', err)
           return null
         }),
-        fetchMorbidityMortality(params).catch(() => null),
         fetchDiseaseConcepts().catch(() => []),
       ])
 
       if (dashRes) {
         setData(dashRes)
       }
-      if (morbRes) {
-        setMorbidityData(morbRes)
-      }
       if (Array.isArray(conceptsRes)) {
         setDiseaseConcepts(conceptsRes)
       }
+      void morbidityPromise.then((morbRes) => {
+        if (morbRes) setMorbidityData(morbRes)
+      })
     } catch (err: any) {
       console.error('Disease dashboard fetch error:', err)
       setError(err?.message || 'Failed to refresh disease surveillance data')

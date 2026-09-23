@@ -141,7 +141,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                   return (
                     <li key={itemKey}>
                       <div className="flex items-center">
-                        <a
+                        <Link
                           href={hasSubs && (!item.href || item.href === "#") ? "#" : targetUrl}
                           onClick={(e) => {
                             if (hasSubs && (!item.href || item.href === "#")) {
@@ -177,7 +177,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                               {item.badge}
                             </span>
                           )}
-                        </a>
+                        </Link>
 
                         {hasSubs && (
                           <button
@@ -206,7 +206,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
 
                             return (
                               <li key={subKey}>
-                                <a
+                                <Link
                                   href={subUrl}
                                   onClick={(e) => {
                                     onClose();
@@ -235,7 +235,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                                       {sub.badge}
                                     </span>
                                   )}
-                                </a>
+                                </Link>
                               </li>
                             );
                           })}
