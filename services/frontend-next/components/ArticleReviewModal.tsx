@@ -31,6 +31,8 @@ export interface ReviewTarget {
   disease?: string | null
   country?: string | null
   locationName?: string | null
+  latitude?: number | null
+  longitude?: number | null
   cases?: number | null
   deaths?: number | null
   language?: string | null
@@ -240,6 +242,11 @@ export default function ArticleReviewModal({
                 <span className="text-xs font-bold text-slate-900 mt-0.5 block truncate">
                   {[target.locationName, target.country].filter(Boolean).join(', ') || 'Not specified'}
                 </span>
+                {target.latitude != null && target.longitude != null ? (
+                  <span className="text-[10px] font-mono text-slate-500 block mt-0.5 truncate">
+                    {target.latitude.toFixed(4)}, {target.longitude.toFixed(4)}
+                  </span>
+                ) : null}
               </div>
 
               {/* Cases */}

@@ -62,6 +62,7 @@ export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; 
   { key: 'needs_review', label: 'Status', width: 125 },
   { key: 'title', label: 'Article Title & Link', width: 320 },
   { key: 'country', label: 'Country & Location', width: 180 },
+  { key: 'lat_long', label: 'Lat / Long', width: 125 },
   { key: 'disease', label: 'Disease', width: 160 },
   { key: 'cases', label: 'Cases', width: 90 },
   { key: 'deaths', label: 'Deaths', width: 90 },
@@ -137,6 +138,36 @@ function casesCell(row: CrawlHistoryRow) {
 
 function deathsCell(row: CrawlHistoryRow) {
   return fmtTrunc(row.deaths_display || fmtNum(row.deaths), 'max-w-[170px]')
+}
+
+function fmtCoord(val: number | string | null | undefined): string {
+  if (val == null || val === '') return ''
+  const num = typeof val === 'number' ? val : parseFloat(String(val))
+  if (isNaN(num)) return String(val)
+  return parseFloat(num.toFixed(4)).toString()
+}
+
+function latLongCell(row: CrawlHistoryRow) {
+  if (row.geo_summary) {
+    return <span className="text-[10px] text-slate-500 font-medium" title={row.geo_summary}>{row.geo_summary}</span>
+  }
+  const latStr = fmtCoord(row.latitude)
+  const lonStr = fmtCoord(row.longitude)
+  if (!latStr && !lonStr) {
+    return <span className="text-slate-400">—</span>
+  }
+  if (latStr && lonStr) {
+    return (
+      <span className="font-mono text-[10px] text-slate-700 whitespace-nowrap" title={`${row.latitude}, ${row.longitude}`}>
+        {latStr}, {lonStr}
+      </span>
+    )
+  }
+  return (
+    <span className="font-mono text-[10px] text-slate-700">
+      {latStr || lonStr}
+    </span>
+  )
 }
 
 function latCell(row: CrawlHistoryRow) {
@@ -243,6 +274,8 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
       return latCell(row)
     case 'longitude':
       return lonCell(row)
+    case 'lat_long':
+      return latLongCell(row)
     case 'confidence':
     case 'source_credibility': {
       const raw = row[key as keyof CrawlHistoryRow]
@@ -472,6 +505,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       disease: row.disease,
       country: row.country,
       locationName: row.province_city_case || row.province || row.city || row.location_name,
+      latitude: row.latitude,
+      longitude: row.longitude,
       cases: row.cases,
       deaths: row.deaths,
       language: row.language,
@@ -493,6 +528,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           snippet: full.snippet || prev.snippet,
           evidence: full.evidence || prev.evidence,
           disease: full.disease || prev.disease,
+          latitude: full.latitude ?? prev.latitude,
+          longitude: full.longitude ?? prev.longitude,
           country: full.country || prev.country,
           locationName: full.province_city_case || full.location_name || prev.locationName,
           cases: full.cases != null ? full.cases : prev.cases,
