@@ -83,7 +83,7 @@ export default function AppShell({
       ? convertConfigToSidebarGroups(settings.navigation_menu)
       : sidebarMenu;
 
-    const baseGroups = consoleMode
+    const baseGroups = (consoleMode && consoleMenu && consoleMenu.length > 0)
       ? [
           consoleMenu[0], // SYSTEM MANAGEMENT (Console tools: Settings, Modul, CMS, Users, etc.)
           ...dynamicGroups, // Dynamic Navigation configured by administrator!

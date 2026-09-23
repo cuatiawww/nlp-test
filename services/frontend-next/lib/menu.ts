@@ -283,25 +283,26 @@ export function convertConfigToSidebarGroups(config: SidebarGroupConfig[]): Side
 export const sidebarMenu: SidebarGroup[] = convertConfigToSidebarGroups(DEFAULT_NAVIGATION_CONFIG)
 
 // Dedicated Console Menu in Full English
-export const consoleMenu: SidebarGroup[] = [
-  {
-    title: 'SYSTEM MANAGEMENT',
-    items: [
-      { label: 'Configuration & Branding', icon: Settings, href: '/console/settings' },
-      { label: 'Configuration Modul', icon: SlidersHorizontal, href: '/console/configuration-modul' },
-      { label: 'Publication CMS & Reports', icon: FileText, href: '/reports/cms' },
-      { label: 'User Management', icon: Users, href: '/console/users' },
-      { label: 'Activity Audit Logs', icon: FileText, href: '/console/settings?tab=audit' },
-    ],
-  },
-  {
-    title: 'NAVIGATION',
-    items: [
-      { label: 'Home Portal', icon: Home, href: '/' },
-      { label: 'Main Dashboard', icon: LayoutDashboard, href: '/main-dashboard' },
-      { label: 'TV Command Center', icon: Activity, href: '/tv' },
-      { label: 'Reports', icon: FileText, href: '/reports' },
-      { label: 'Matrix & ledger', icon: FileSpreadsheet, href: '/reports/matrix' },
-    ],
-  },
-]
+export const consoleMenu: SidebarGroup[] = []
+// export const consoleMenu: SidebarGroup[] = [
+//   {
+//     title: 'SYSTEM MANAGEMENT',
+//     items: [
+//       { label: 'Configuration & Branding', icon: Settings, href: '/console/settings' },
+//       { label: 'Configuration Modul', icon: SlidersHorizontal, href: '/console/configuration-modul' },
+//       { label: 'Publication CMS & Reports', icon: FileText, href: '/reports/cms' },
+//       { label: 'User Management', icon: Users, href: '/console/users' },
+//       { label: 'Activity Audit Logs', icon: FileText, href: '/console/settings?tab=audit' },
+//     ],
+//   },
+//   {
+//     title: 'NAVIGATION',
+//     items: [
+//       { label: 'Home Portal', icon: Home, href: '/' },
+//       { label: 'Main Dashboard', icon: LayoutDashboard, href: '/main-dashboard' },
+//       { label: 'TV Command Center', icon: Activity, href: '/tv' },
+//       { label: 'Reports', icon: FileText, href: '/reports' },
+//       { label: 'Matrix & ledger', icon: FileSpreadsheet, href: '/reports/matrix' },
+//     ],
+//   },
+// ]
