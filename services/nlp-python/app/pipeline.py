@@ -1770,9 +1770,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if article_event_country is None and len(mentioned_countries) == 1:
         article_event_country = next(iter(mentioned_countries))
 
+    safe_parent_country = country if country != "MULTI_COUNTRY" else None
     for evt in sub_events:
-        evt_country = evt.country or country
-        target_country = article_event_country or country
+        evt_country = evt.country or safe_parent_country
+        target_country = article_event_country or safe_parent_country
         if (
             target_country
             and evt_country
@@ -1806,6 +1807,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if "location_country_conflict" not in evt.validation_flags:
                 evt.validation_flags.append("location_country_conflict")
 
+        if evt.country == "MULTI_COUNTRY":
+            evt.country = None
+        if evt.location_name == "MULTI_COUNTRY":
+            evt.location_name = None
         norm_evt_country = extractors.normalize_country(evt.country)
         if norm_evt_country:
             evt.country = norm_evt_country

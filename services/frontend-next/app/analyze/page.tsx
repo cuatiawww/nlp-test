@@ -349,12 +349,15 @@ export default function AnalyzePage() {
             const eventCountries = Array.from(new Set(
               subEvents
                 .map((evt: { country?: string }) => (evt.country || '').trim())
-                .filter(Boolean),
+                .filter((c: string) => Boolean(c) && c !== 'MULTI_COUNTRY'),
             ))
-            const matrixCountry = eventCountries.length > 0
-              ? eventCountries.join('; ')
-              : (result.country || '-')
             const hasScopedMetrics = subEvents.length >= 2
+            const isMultiCountryOrScoped = hasScopedMetrics || eventCountries.length > 1
+            const matrixCountry = isMultiCountryOrScoped
+              ? 'See event rows'
+              : eventCountries.length === 1
+                ? eventCountries[0]
+                : (result.country && result.country !== 'MULTI_COUNTRY' ? result.country : (hasScopedMetrics ? 'See event rows' : '-'))
             const matrixCases = hasScopedMetrics
               ? 'See event rows'
               : ((result as any).case_count_unknown
@@ -417,10 +420,12 @@ export default function AnalyzePage() {
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Location / Country</span>
-                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={matrixCountry}>
-                      {eventCountries.length > 1 ? matrixCountry : (result.location_name || result.province || result.country || '-')}
+                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={isMultiCountryOrScoped ? 'See event rows' : matrixCountry}>
+                      {isMultiCountryOrScoped
+                        ? 'See event rows'
+                        : ((result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || result.province || matrixCountry || '-')}
                     </p>
-                    {eventCountries.length <= 1 && result.country && (result.location_name || result.province) !== result.country && (
+                    {!isMultiCountryOrScoped && result.country && result.country !== 'MULTI_COUNTRY' && (result.location_name || result.province) !== result.country && (
                       <span className="text-[11px] text-slate-500 font-medium">({result.country})</span>
                     )}
                   </div>
@@ -520,7 +525,11 @@ export default function AnalyzePage() {
                             </div>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            {matrixCountry}
+                            {isMultiCountryOrScoped ? (
+                              <span className="text-slate-500 font-medium italic">See event rows</span>
+                            ) : (
+                              matrixCountry
+                            )}
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono uppercase">
                             {result.language || '-'}
@@ -551,8 +560,12 @@ export default function AnalyzePage() {
                             </div>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            <span className="block max-w-[150px] truncate" title={matrixCountry}>
-                              {eventCountries.length > 1 ? matrixCountry : (result.location_name || result.province || result.country || '-')}
+                            <span className="block max-w-[150px] truncate" title={isMultiCountryOrScoped ? 'See event rows' : matrixCountry}>
+                              {isMultiCountryOrScoped ? (
+                                <span className="text-slate-500 font-medium italic">See event rows</span>
+                              ) : (
+                                (result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || result.province || result.country || '-'
+                              )}
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-mono text-slate-600">
@@ -662,7 +675,11 @@ export default function AnalyzePage() {
                                 1.{sIdx + 1}
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-700 font-medium">
-                                {evt.country || result.country || '-'}
+                                {evt.country && evt.country !== 'MULTI_COUNTRY'
+                                  ? evt.country
+                                  : result.country && result.country !== 'MULTI_COUNTRY'
+                                    ? result.country
+                                    : '-'}
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400 font-mono text-[10px]">
                                 {result.language || '-'}
@@ -687,7 +704,11 @@ export default function AnalyzePage() {
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-semibold text-slate-800">
                                 <div className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3 text-red-500 shrink-0" />
-                                  <span>{evt.location_name || evt.province || evt.city || result.location_name || result.province || result.country || '-'}</span>
+                                  <span>{
+                                    (evt.location_name && evt.location_name !== 'MULTI_COUNTRY')
+                                      ? evt.location_name
+                                      : evt.province || evt.city || (result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || '-'
+                                  }</span>
                                 </div>
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-mono text-slate-600">

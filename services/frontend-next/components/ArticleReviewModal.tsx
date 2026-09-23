@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   X,
   ExternalLink,
@@ -15,13 +15,16 @@ import {
   Activity,
   MapPin,
   Save,
-  Edit3
+  Edit3,
+  Bug,
+  ShieldCheck,
+  Check,
+  RotateCcw,
+  Quote
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { markArticleReviewed, submitNLPCorrection } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
-
-type EditableField = 'disease' | 'country' | 'location' | 'cases' | 'deaths'
 
 export interface ReviewTarget {
   id?: string | null
@@ -37,6 +40,8 @@ export interface ReviewTarget {
   country?: string | null
   region?: string | null
   locationName?: string | null
+  province?: string | null
+  city?: string | null
   latitude?: number | null
   longitude?: number | null
   cases?: number | null
@@ -44,6 +49,7 @@ export interface ReviewTarget {
   language?: string | null
   crawlingDate?: string | null
   articleDate?: string | null
+  dateCase?: string | null
   eventType?: string | null
   outbreakAlert?: boolean | null
   sourceType?: string | null
@@ -79,70 +85,408 @@ function stripHtml(text?: string | null): string {
     .trim()
 }
 
-function ReviewValue({
-  label,
-  value,
-  tone,
-  field,
-  selected,
-  onClick,
-}: {
-  label: string
-  value: string
-  tone?: 'cases' | 'deaths'
-  field?: EditableField
-  selected?: boolean
-  onClick?: (field: EditableField) => void
-}) {
-  const toneClass = tone === 'cases'
-    ? 'text-emerald-800'
-    : tone === 'deaths'
-      ? 'text-rose-800'
-      : 'text-slate-900'
+// ─────────────────────────────────────────────────────────────
+// Sub-Modal: Event Correction Modal
+// ─────────────────────────────────────────────────────────────
+interface EventCorrectionModalProps {
+  open: boolean
+  event: any | null
+  index: number
+  articleTitle?: string | null
+  articleUrl?: string | null
+  articleContent?: string | null
+  rawReportId?: string | null
+  language?: string | null
+  onClose: () => void
+  onSave: (updatedEvent: any) => Promise<void>
+}
+
+function EventCorrectionModal({
+  open,
+  event,
+  index,
+  articleTitle,
+  articleUrl,
+  articleContent,
+  rawReportId,
+  language,
+  onClose,
+  onSave,
+}: EventCorrectionModalProps) {
+  const [submitting, setSubmitting] = useState(false)
+  const [draft, setDraft] = useState({
+    disease: '',
+    icd11: '',
+    country: '',
+    region: '',
+    province: '',
+    city: '',
+    cases: '',
+    deaths: '',
+    dateCase: '',
+    reviewReason: '',
+  })
+
+  useEffect(() => {
+    if (event) {
+      setDraft({
+        disease: event.disease || event.disease_classification || '',
+        icd11: event.icd11_code || event.disease_icd11_code || '',
+        country: (event.country !== 'MULTI_COUNTRY' ? event.country : '') || (event.case_country !== 'MULTI_COUNTRY' ? event.case_country : '') || '',
+        region: (event.region !== 'MULTI_COUNTRY' ? event.region : '') || (event.surveillance_scope !== 'MULTI_COUNTRY' ? event.surveillance_scope : '') || '',
+        province: event.province || '',
+        city: (event.city !== 'MULTI_COUNTRY' ? event.city : '') || (event.location_name !== 'MULTI_COUNTRY' ? event.location_name : '') || (event.province_city_case !== 'MULTI_COUNTRY' ? event.province_city_case : '') || '',
+        cases: event.cases != null ? String(event.cases) : event.case_count != null ? String(event.case_count) : '',
+        deaths: event.deaths != null ? String(event.deaths) : event.death_count != null ? String(event.death_count) : '',
+        dateCase: event.date_case || event.article_date || event.published_at || '',
+        reviewReason: '',
+      })
+    }
+  }, [event])
+
+  if (!open || !event) return null
+
+  const originalDisease = event.disease || event.disease_classification || 'Unknown'
+  const originalCountry = event.country || event.case_country || 'Unknown'
+  const originalRegion = event.region || event.surveillance_scope || '-'
+  const originalProvince = event.province || '-'
+  const originalCity = event.city || event.location_name || event.province_city_case || '-'
+  const originalCases = event.cases != null ? Number(event.cases) : event.case_count != null ? Number(event.case_count) : 0
+  const originalDeaths = event.deaths != null ? Number(event.deaths) : event.death_count != null ? Number(event.death_count) : 0
+  const originalEvidence = event.evidence || '-'
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    try {
+      const eventId = event.disease_event_id || event.id || null
+      const fieldsToSave: Array<{ field: 'disease' | 'country' | 'location' | 'case_count' | 'death_count'; orig: string; val: string }> = []
+
+      if (draft.disease.trim() !== originalDisease) {
+        fieldsToSave.push({ field: 'disease', orig: originalDisease, val: draft.disease.trim() })
+      }
+      if (draft.country.trim() !== originalCountry) {
+        fieldsToSave.push({ field: 'country', orig: originalCountry, val: draft.country.trim() })
+      }
+      const combinedLoc = [draft.city.trim(), draft.province.trim()].filter(Boolean).join(', ')
+      const origCombinedLoc = [originalCity !== '-' ? originalCity : '', originalProvince !== '-' ? originalProvince : ''].filter(Boolean).join(', ')
+      if (combinedLoc && combinedLoc !== origCombinedLoc) {
+        fieldsToSave.push({ field: 'location', orig: origCombinedLoc, val: combinedLoc })
+      }
+      if (draft.cases.trim() !== String(originalCases)) {
+        fieldsToSave.push({ field: 'case_count', orig: String(originalCases), val: draft.cases.trim() || '0' })
+      }
+      if (draft.deaths.trim() !== String(originalDeaths)) {
+        fieldsToSave.push({ field: 'death_count', orig: String(originalDeaths), val: draft.deaths.trim() || '0' })
+      }
+
+      if (fieldsToSave.length > 0) {
+        await Promise.all(
+          fieldsToSave.map((item) =>
+            submitNLPCorrection({
+              event_id: eventId || undefined,
+              raw_report_id: event.raw_report_id || rawReportId || undefined,
+              field_name: item.field,
+              original_value: item.orig,
+              corrected_value: item.val,
+              correction_source: 'review_modal_matrix',
+              text_snippet: originalEvidence !== '-' ? originalEvidence : undefined,
+              language: language || undefined,
+              corrected_by: 'operator_ui',
+              review_reason: draft.reviewReason.trim() || undefined,
+              prediction_version: 'crawl-history-review-matrix',
+              review_action: 'corrected',
+            })
+          )
+        )
+      }
+
+      const updatedEvent = {
+        ...event,
+        disease: draft.disease.trim(),
+        disease_classification: draft.disease.trim(),
+        icd11_code: draft.icd11.trim() || event.icd11_code,
+        country: draft.country.trim(),
+        case_country: draft.country.trim(),
+        region: draft.region.trim(),
+        surveillance_scope: draft.region.trim(),
+        province: draft.province.trim(),
+        city: draft.city.trim(),
+        province_city_case: combinedLoc || draft.city.trim(),
+        location_name: draft.city.trim() || combinedLoc,
+        cases: draft.cases ? parseInt(draft.cases, 10) : 0,
+        case_count: draft.cases ? parseInt(draft.cases, 10) : 0,
+        deaths: draft.deaths ? parseInt(draft.deaths, 10) : 0,
+        death_count: draft.deaths ? parseInt(draft.deaths, 10) : 0,
+        date_case: draft.dateCase.trim() || event.date_case,
+        is_corrected: true,
+      }
+
+      await onSave(updatedEvent)
+      toast.success(`Koreksi Event #${index + 1} berhasil disimpan ke basis data AI feedback.`)
+      onClose()
+    } catch (err: any) {
+      toast.error(err?.message || 'Gagal menyimpan koreksi event.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
-    <button
-      type="button"
-      disabled={!field}
-      onClick={() => field && onClick?.(field)}
-      className={`w-full rounded-lg border bg-white p-2.5 text-left transition ${
-        selected ? 'border-emerald-500 ring-2 ring-emerald-100' : 'border-slate-200 hover:border-emerald-300'
-      } ${field ? 'cursor-pointer' : 'cursor-default'}`}
-    >
-      <span className="block text-[10px] font-medium text-slate-500">{label}</span>
-      <span className={`mt-0.5 block truncate text-xs font-bold ${toneClass}`}>{value}</span>
-      {field ? <span className="mt-1 block text-[9px] font-medium text-emerald-700">Klik untuk koreksi</span> : null}
-    </button>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+      <div className="relative w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 bg-gradient-to-r from-slate-900 to-slate-800 text-white border-b border-slate-700">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400 font-bold text-xs ring-1 ring-emerald-500/40">
+              #{index + 1}
+            </span>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Koreksi Human-in-the-Loop Event #{index + 1}</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  AI Feedback Learning
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-300 truncate max-w-[480px]">
+                {stripHtml(articleTitle) || 'Article Event Review'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs text-slate-800">
+          {/* Baseline vs Target Highlight */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                Baseline Prediksi NLP (Original)
+              </span>
+              <div className="space-y-1 text-[11px]">
+                <div><span className="text-slate-500">Penyakit:</span> <strong className="text-slate-800">{originalDisease}</strong></div>
+                <div><span className="text-slate-500">Negara / Region:</span> <strong className="text-slate-800">{originalCountry} ({originalRegion})</strong></div>
+                <div><span className="text-slate-500">Provinsi / Kota:</span> <strong className="text-slate-800">{originalProvince}, {originalCity}</strong></div>
+                <div><span className="text-slate-500">Kasus / Kematian:</span> <span className="font-mono font-bold text-emerald-700">{originalCases.toLocaleString()}</span> / <span className="font-mono font-bold text-rose-700">{originalDeaths.toLocaleString()}</span></div>
+              </div>
+            </div>
+
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                Kutipan Bukti Asli (Evidence)
+              </span>
+              <div className="rounded-lg bg-white border border-slate-200 p-2.5 max-h-24 overflow-y-auto italic text-slate-600 text-[11px] leading-relaxed">
+                "{originalEvidence}"
+              </div>
+            </div>
+          </div>
+
+          {/* Form Fields Grid */}
+          <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/20 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-emerald-100">
+              <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                <Edit3 className="h-3.5 w-3.5 text-emerald-700" />
+                Form Perbaikan & Validasi Human Reviewer
+              </span>
+              <span className="text-[10px] text-emerald-700 font-medium">Semua field yang diubah akan dicatat untuk melatih AI</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Disease */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Penyakit / Diagnosis <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={draft.disease}
+                  onChange={(e) => setDraft((p) => ({ ...p, disease: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="Misal: Measles, COVID-19, Pneumonia"
+                />
+              </div>
+
+              {/* ICD-11 Code */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Kode WHO ICD-11 (Opsional)
+                </label>
+                <input
+                  type="text"
+                  value={draft.icd11}
+                  onChange={(e) => setDraft((p) => ({ ...p, icd11: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="Misal: 1D60, RA01"
+                />
+              </div>
+
+              {/* Country */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Negara (Country) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={draft.country}
+                  onChange={(e) => setDraft((p) => ({ ...p, country: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="Misal: Indonesia, Bangladesh, Thailand"
+                />
+              </div>
+
+              {/* Region */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Region Scope
+                </label>
+                <input
+                  type="text"
+                  value={draft.region}
+                  onChange={(e) => setDraft((p) => ({ ...p, region: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="Misal: ASEAN, Outside ASEAN"
+                />
+              </div>
+
+              {/* Province */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Provinsi (Admin Level 1)
+                </label>
+                <input
+                  type="text"
+                  value={draft.province}
+                  onChange={(e) => setDraft((p) => ({ ...p, province: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="Misal: Riau, Jawa Barat, Dhaka Division"
+                />
+              </div>
+
+              {/* City / Locality */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Kota / Titik Lokasi Spesifik (Admin Level 2)
+                </label>
+                <input
+                  type="text"
+                  value={draft.city}
+                  onChange={(e) => setDraft((p) => ({ ...p, city: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="Misal: Kota Pekanbaru, Dhaka, Bandung"
+                />
+              </div>
+
+              {/* Cases */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Jumlah Kasus (Cases) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  required
+                  value={draft.cases}
+                  onChange={(e) => setDraft((p) => ({ ...p, cases: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-emerald-800 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="0"
+                />
+              </div>
+
+              {/* Deaths */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Jumlah Kematian (Deaths) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  required
+                  value={draft.deaths}
+                  onChange={(e) => setDraft((p) => ({ ...p, deaths: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-rose-800 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="0"
+                />
+              </div>
+
+              {/* Event Date */}
+              <div className="sm:col-span-2">
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Tanggal Kejadian Kasus (Event Date)
+                </label>
+                <input
+                  type="text"
+                  value={draft.dateCase}
+                  onChange={(e) => setDraft((p) => ({ ...p, dateCase: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-800 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                  placeholder="YYYY-MM-DD"
+                />
+              </div>
+            </div>
+
+            {/* Review Reason */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                Alasan Koreksi / Catatan Reviewer (Opsional)
+              </label>
+              <textarea
+                rows={2}
+                value={draft.reviewReason}
+                onChange={(e) => setDraft((p) => ({ ...p, reviewReason: e.target.value }))}
+                placeholder="Contoh: Angka 1.000 adalah kasus kumulatif campak, bukan COVID-19."
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+              />
+            </div>
+          </div>
+
+          {/* Source Article Collapsible Excerpt */}
+          {articleContent && (
+            <details className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-[11px]">
+              <summary className="font-bold text-slate-700 cursor-pointer select-none">
+                Buka Teks Lengkap Artikel Sumber ({articleContent.length.toLocaleString()} karakter)
+              </summary>
+              <div className="mt-2.5 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-white border border-slate-200 p-3 leading-relaxed text-slate-600 font-sans">
+                {articleContent}
+              </div>
+            </details>
+          )}
+
+          {/* Footer Actions */}
+          <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+            >
+              Batal
+            </button>
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs transition disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              <span>{submitting ? 'Menyimpan ke AI...' : 'Simpan Koreksi Event'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }
 
-function ReviewInput({
-  label,
-  value,
-  onChange,
-  inputMode,
-  active,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  inputMode?: 'numeric'
-  active?: boolean
-}) {
-  return (
-    <label className="block text-[10px] font-semibold text-slate-600">
-      {label}
-      <input
-        type={inputMode === 'numeric' ? 'number' : 'text'}
-        min={inputMode === 'numeric' ? 0 : undefined}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        inputMode={inputMode}
-        className={`mt-1 w-full rounded-lg border bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-100 ${active ? 'border-emerald-500 ring-1 ring-emerald-100' : 'border-emerald-200'}`}
-      />
-    </label>
-  )
-}
-
+// ─────────────────────────────────────────────────────────────
+// Main Modal: ArticleReviewModal
+// ─────────────────────────────────────────────────────────────
 export default function ArticleReviewModal({
   open,
   target,
@@ -151,74 +495,79 @@ export default function ArticleReviewModal({
   onCorrected,
 }: ArticleReviewModalProps) {
   const [submitting, setSubmitting] = useState(false)
-  const [savingCorrections, setSavingCorrections] = useState(false)
   const [isReviewed, setIsReviewed] = useState(target?.needsReview === false)
-  const [reviewReason, setReviewReason] = useState('')
-  const [selectedField, setSelectedField] = useState<EditableField | null>(null)
-  const [activeChildId, setActiveChildId] = useState<string | null>(null)
+  const [eventsList, setEventsList] = useState<any[]>([])
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
 
-  const activeChild = React.useMemo(() => {
-    if (!target || !activeChildId) return null
-    return (target.children || []).find((child: any) =>
-      String(child.disease_event_id || child.id || '') === activeChildId,
-    ) || null
-  }, [target, activeChildId])
-
-  const currentTarget = React.useMemo<ReviewTarget | null>(() => {
-    if (!target) return null
-    if (!activeChild) return target
-    return {
-      ...target,
-      eventId: activeChild.disease_event_id || activeChild.id || target.eventId,
-      rawReportId: activeChild.raw_report_id || target.rawReportId,
-      disease: activeChild.disease || activeChild.disease_classification || target.disease,
-      country: activeChild.country || target.country,
-      locationName: activeChild.province_city_case || activeChild.location_name || target.locationName,
-      latitude: activeChild.latitude ?? target.latitude,
-      longitude: activeChild.longitude ?? target.longitude,
-      cases: activeChild.cases ?? activeChild.case_count ?? target.cases,
-      deaths: activeChild.deaths ?? activeChild.death_count ?? target.deaths,
-      evidence: activeChild.evidence || target.evidence,
-    }
-  }, [target, activeChild])
-  const [draft, setDraft] = useState({
-    disease: '',
-    country: '',
-    location: '',
-    cases: '',
-    deaths: '',
-  })
-
-  // Sync review status when target updates
-  React.useEffect(() => {
+  // Initialize events list from target
+  useEffect(() => {
     if (target) {
       setIsReviewed(target.needsReview === false)
-      setDraft({
-        disease: target.disease || '',
-        country: target.country || '',
-        location: target.locationName || '',
-        cases: target.cases == null ? '' : String(target.cases),
-        deaths: target.deaths == null ? '' : String(target.deaths),
-      })
-      setReviewReason('')
-      setSelectedField(null)
-      const firstChild = (target.children || []).find((child: any) => child.disease_event_id || child.id)
-      setActiveChildId(firstChild ? String(firstChild.disease_event_id || firstChild.id) : null)
+      if (target.children && target.children.length > 0) {
+        setEventsList(target.children.map((c) => ({ ...c })))
+      } else {
+        // Fallback to single primary event row
+        setEventsList([
+          {
+            id: target.eventId || target.id,
+            disease_event_id: target.eventId || target.id,
+            raw_report_id: target.rawReportId,
+            disease: target.disease,
+            disease_classification: target.disease,
+            country: target.country,
+            region: target.region,
+            province: target.province,
+            city: target.city || target.locationName,
+            location_name: target.locationName,
+            province_city_case: target.locationName,
+            latitude: target.latitude,
+            longitude: target.longitude,
+            cases: target.cases,
+            case_count: target.cases,
+            deaths: target.deaths,
+            death_count: target.deaths,
+            date_case: target.articleDate,
+            evidence: target.evidence || target.snippet,
+            confidence: target.confidence,
+          },
+        ])
+      }
     }
   }, [target])
 
-  React.useEffect(() => {
-    if (!currentTarget) return
-    setDraft({
-      disease: currentTarget.disease || '',
-      country: currentTarget.country || '',
-      location: currentTarget.locationName || '',
-      cases: currentTarget.cases == null ? '' : String(currentTarget.cases),
-      deaths: currentTarget.deaths == null ? '' : String(currentTarget.deaths),
+  // Computed totals across eventsList
+  const totals = useMemo(() => {
+    let totalCases = 0
+    let totalDeaths = 0
+    const casesByDisease: Record<string, number> = {}
+    const deathsByDisease: Record<string, number> = {}
+
+    eventsList.forEach((evt) => {
+      const c = evt.cases != null ? Number(evt.cases) : evt.case_count != null ? Number(evt.case_count) : 0
+      const d = evt.deaths != null ? Number(evt.deaths) : evt.death_count != null ? Number(evt.death_count) : 0
+      totalCases += c
+      totalDeaths += d
+      const dis = evt.disease || evt.disease_classification || 'Unknown'
+      casesByDisease[dis] = (casesByDisease[dis] || 0) + c
+      if (d > 0) {
+        deathsByDisease[dis] = (deathsByDisease[dis] || 0) + d
+      }
     })
-    setReviewReason('')
-    setSelectedField(null)
-  }, [currentTarget])
+
+    const casesDisplay = Object.entries(casesByDisease)
+      .map(([k, v]) => `${k}(${v.toLocaleString()})`)
+      .join('; ')
+    const deathsDisplay = Object.entries(deathsByDisease)
+      .map(([k, v]) => `${k}(${v.toLocaleString()})`)
+      .join('; ')
+
+    return {
+      cases: totalCases,
+      deaths: totalDeaths,
+      casesDisplay: casesDisplay || (target?.casesDisplay || '-'),
+      deathsDisplay: deathsDisplay || (target?.deathsDisplay || '0'),
+    }
+  }, [eventsList, target])
 
   if (!open || !target) return null
 
@@ -241,370 +590,398 @@ export default function ArticleReviewModal({
 
       toast.success(
         newStatus
-          ? 'Article marked as Reviewed / Read.'
-          : 'Article marked as Pending Review.'
+          ? 'Artikel ditandai sebagai Sudah Direview / Terverifikasi.'
+          : 'Artikel ditandai sebagai Perlu Review.'
       )
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to update review status.')
+      toast.error(err?.message || 'Gagal mengubah status review.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const saveCorrections = async () => {
-    if (!currentTarget) return
-    const fields = [
-      ['disease', currentTarget.disease || '', draft.disease],
-      ['country', currentTarget.country || '', draft.country],
-      ['location', currentTarget.locationName || '', draft.location],
-      ['case_count', currentTarget.cases == null ? '' : String(currentTarget.cases), draft.cases],
-      ['death_count', currentTarget.deaths == null ? '' : String(currentTarget.deaths), draft.deaths],
-    ] as const
-    const changed = fields.filter(([, original, corrected]) => corrected.trim() !== original.trim())
-    if (changed.length === 0) {
-      toast.info('Belum ada perubahan nilai untuk disimpan.')
-      return
-    }
-    if (changed.some(([, , corrected]) => !corrected.trim())) {
-      toast.error('Nilai koreksi tidak boleh kosong. Gunakan 0 untuk metrik yang memang nol.')
-      return
-    }
-
-    setSavingCorrections(true)
-    try {
-      await Promise.all(changed.map(([fieldName, originalValue, correctedValue]) =>
-        submitNLPCorrection({
-          event_id: currentTarget.eventId || undefined,
-          raw_report_id: currentTarget.rawReportId || currentTarget.id || undefined,
-          field_name: fieldName,
-          original_value: originalValue,
-          corrected_value: correctedValue.trim(),
-          correction_source: 'review_modal',
-          text_snippet: currentTarget.evidence || currentTarget.snippet || currentTarget.summary || undefined,
-          language: currentTarget.language || undefined,
-          corrected_by: 'operator_ui',
-          review_reason: reviewReason.trim() || undefined,
-          prediction_version: 'crawl-history-review',
-          review_action: 'corrected',
-        })
-      ))
-      toast.success(`${changed.length} koreksi disimpan sebagai audit human review.`)
-      onCorrected?.()
-    } catch (err: any) {
-      toast.error(err?.message || 'Gagal menyimpan koreksi.')
-    } finally {
-      setSavingCorrections(false)
-    }
+  const handleUpdateEvent = async (updatedEvent: any) => {
+    if (editingIndex == null) return
+    setEventsList((prev) => {
+      const next = [...prev]
+      next[editingIndex] = updatedEvent
+      return next
+    })
+    onCorrected?.()
   }
 
-  // Determine cleanest summary text
-  const displayed = currentTarget || target
-  const hasChildEvents = Boolean(target.children && target.children.length > 1)
-  const canEditCurrentEvent = !hasChildEvents || Boolean(activeChild)
-  const cleanSummary = stripHtml(target.summary)
-  const cleanSnippet = stripHtml(target.snippet)
-  const cleanContent = stripHtml(target.content)
-  const effectiveSummary =
-    cleanSummary ||
-    (cleanSnippet
-      ? cleanSnippet.slice(0, 500) + (cleanSnippet.length > 500 ? '...' : '')
-      : null) ||
-    target.evidence ||
-    'No summary text available for this article.'
+  const effectiveSummary = target.summary || target.snippet || target.evidence || 'Summary belum tersedia untuk artikel ini.'
+  const cleanContent = stripHtml(target.content || target.originalText)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-[1500px] max-h-[94vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
-        
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-[#0060A9]">
-              <FileText className="h-5 w-5" />
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-900">Article Review & NLP Predictions Matrix</h2>
+                  {isReviewed ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <CheckCircle2 className="h-3 w-3" /> Reviewed
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                      <Clock className="h-3 w-3" /> Needs Review
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500">
+                  Verifikasi fakta epidemiologi, multi-disease, dan multi-event hasil prediksi NLP
+                </p>
+              </div>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900">
-                  Article Summary
-                </h2>
-                {isReviewed ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                    <CheckCircle2 className="h-3 w-3" /> Reviewed
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Modal Body */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-5 text-slate-800 text-xs leading-relaxed">
+            {/* Article Title & Source Metadata */}
+            <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-900 leading-snug">
+                {stripHtml(target.title) || 'Untitled Article'}
+              </h3>
+              {target.url && (
+                <a
+                  href={target.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[#0060A9] hover:underline"
+                >
+                  <span className="truncate max-w-[650px]">{target.url}</span>
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                </a>
+              )}
+
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                {target.country && (
+                  <span className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
+                    <CountryFlag countryName={target.country} size={14} />
+                    <span>{target.country}</span>
                   </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                    <Clock className="h-3 w-3" /> Needs Review
+                )}
+                {target.sourceName && (
+                  <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
+                    <Radio className="h-3 w-3 text-slate-400" />
+                    <span>{target.sourceName}</span>
+                  </span>
+                )}
+                {target.articleDate && (
+                  <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
+                    <Calendar className="h-3 w-3 text-slate-400" />
+                    <span>Published: {target.articleDate.slice(0, 10)}</span>
+                  </span>
+                )}
+                {target.language && (
+                  <span className="bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium uppercase text-[10px] text-slate-600">
+                    Lang: {target.language}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-500">
-                Surveillance article summary and verified epidemiological indicators
+            </div>
+
+            {/* AI / Article Summary Card */}
+            <div className="rounded-xl border border-blue-200/90 bg-gradient-to-br from-blue-50/50 via-white to-sky-50/30 p-4 shadow-xs">
+              <div className="flex items-center gap-2 text-blue-900 font-bold text-xs uppercase tracking-wider mb-2">
+                <Sparkles className="h-4 w-4 text-[#0060A9]" />
+                <span>Article Summary</span>
+              </div>
+              <p className="text-slate-700 whitespace-pre-wrap leading-relaxed text-xs">
+                {effectiveSummary}
               </p>
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
 
-        {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5 text-slate-800 text-xs leading-relaxed">
-          
-          {/* Article Title & Source Link */}
-          <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80">
-            <h3 className="text-sm font-bold text-slate-900 leading-snug">
-              {stripHtml(target.title) || 'Untitled Article'}
-            </h3>
-            {target.url ? (
-              <a
-                href={target.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[#0060A9] hover:underline"
-              >
-                <span className="truncate max-w-[550px]">{target.url}</span>
-                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-              </a>
-            ) : null}
-
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-              {target.country && (
-                <span className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
-                  <CountryFlag countryName={target.country} size={14} />
-                  <span>{target.country}</span>
-                </span>
-              )}
-              {target.sourceName && (
-                <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
-                  <Radio className="h-3 w-3 text-slate-400" />
-                  <span>{target.sourceName}</span>
-                </span>
-              )}
-              {target.articleDate && (
-                <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
-                  <Calendar className="h-3 w-3 text-slate-400" />
-                  <span>Published: {target.articleDate.slice(0, 10)}</span>
-                </span>
-              )}
-              {target.language && (
-                <span className="bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium uppercase text-[10px] text-slate-600">
-                  Lang: {target.language}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* AI / Article Summary Card */}
-          <div className="rounded-xl border border-blue-200/90 bg-gradient-to-br from-blue-50/50 via-white to-sky-50/30 p-4 shadow-xs">
-            <div className="flex items-center gap-2 text-blue-900 font-bold text-xs uppercase tracking-wider mb-2">
-              <Sparkles className="h-4 w-4 text-[#0060A9]" />
-              <span>Article Summary</span>
-            </div>
-            <p className="text-slate-700 whitespace-pre-wrap leading-relaxed text-xs">
-              {effectiveSummary}
-            </p>
-          </div>
-
-          {/* Article-level totals are derived from all atomic events and are never editable. */}
-          <section className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-indigo-800">Article total · otomatis</h4>
-                <p className="mt-0.5 text-[10px] text-indigo-900/60">Agregasi seluruh event dari artikel ini. Nilai ini bukan field koreksi langsung.</p>
-              </div>
-              <span className="rounded-full border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700">
-                {target.eventCount ?? target.children?.length ?? 1} event · {target.locationCount ?? '-'} lokasi
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <ReviewValue label="Total Cases" value={target.cases == null ? 'Not detected' : Number(target.cases).toLocaleString()} />
-              <ReviewValue label="Total Deaths" value={target.deaths == null ? 'Not detected' : Number(target.deaths).toLocaleString()} tone="deaths" />
-              <ReviewValue label="Cases breakdown" value={target.casesDisplay || '-'} />
-              <ReviewValue label="Deaths breakdown" value={target.deathsDisplay || '0'} tone="deaths" />
-            </div>
-          </section>
-
-          {/* Human review: keep the left prediction immutable and edit only the review copy. */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            {/* Aggregated Totals Card */}
+            <section className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">NLP prediction</h4>
-                <span className="text-[10px] text-slate-500">{activeChild ? 'Selected child event · read-only baseline' : 'Parent event · read-only baseline'}</span>
+                <div>
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">
+                    Article Totals (Agregasi Otomatis Seluruh Event)
+                  </h4>
+                  <p className="mt-0.5 text-[10px] text-indigo-900/60">
+                    Nilai dihitung secara otomatis dari seluruh dekomposisi event di bawah.
+                  </p>
+                </div>
+                <span className="rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-bold text-indigo-700">
+                  {eventsList.length} Event Terdekomposisi
+                </span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <ReviewValue label="Disease" field="disease" selected={selectedField === 'disease'} onClick={setSelectedField} value={displayed.disease || 'Unknown'} />
-                <ReviewValue label="Country" field="country" selected={selectedField === 'country'} onClick={setSelectedField} value={displayed.country || 'Unknown'} />
-                <ReviewValue label="Location" field="location" selected={selectedField === 'location'} onClick={setSelectedField} value={[displayed.locationName, displayed.region].filter(Boolean).join(', ') || 'Not specified'} />
-                <ReviewValue label="Cases" field="cases" selected={selectedField === 'cases'} onClick={setSelectedField} value={displayed.cases == null ? 'Not detected' : Number(displayed.cases).toLocaleString()} tone="cases" />
-                <ReviewValue label="Deaths" field="deaths" selected={selectedField === 'deaths'} onClick={setSelectedField} value={displayed.deaths == null ? 'Not detected' : Number(displayed.deaths).toLocaleString()} tone="deaths" />
-                <ReviewValue label="Confidence" value={displayed.confidence == null ? 'Not available' : `${(Number(displayed.confidence) * 100).toFixed(1)}%`} />
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                  <span className="block text-[10px] font-medium text-slate-500">Total Cases</span>
+                  <span className="mt-0.5 block font-mono text-sm font-bold text-emerald-700">
+                    {totals.cases.toLocaleString()}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                  <span className="block text-[10px] font-medium text-slate-500">Total Deaths</span>
+                  <span className="mt-0.5 block font-mono text-sm font-bold text-rose-700">
+                    {totals.deaths.toLocaleString()}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                  <span className="block text-[10px] font-medium text-slate-500">Cases Breakdown</span>
+                  <span className="mt-0.5 block truncate text-xs font-semibold text-slate-800" title={totals.casesDisplay}>
+                    {totals.casesDisplay}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                  <span className="block text-[10px] font-medium text-slate-500">Deaths Breakdown</span>
+                  <span className="mt-0.5 block truncate text-xs font-semibold text-rose-700" title={totals.deathsDisplay}>
+                    {totals.deathsDisplay}
+                  </span>
+                </div>
               </div>
-              <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Evidence asli</span>
-                <p className="mt-1 text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap max-h-36 overflow-y-auto">
-                  {displayed.evidence || displayed.snippet || 'Evidence asli belum tersedia pada row ini.'}
-                </p>
-              </div>
-              {displayed.latitude != null && displayed.longitude != null ? (
-                <p className="mt-3 text-[10px] font-mono text-slate-500">Coordinates: {displayed.latitude.toFixed(4)}, {displayed.longitude.toFixed(4)}</p>
-              ) : null}
             </section>
 
-            <section className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-emerald-800">Human review / koreksi</h4>
-                <Edit3 className="h-4 w-4 text-emerald-700" />
+            {/* ───────────────────────────────────────────────────────────── */}
+            {/* EVENT PREDICTIONS MATRIX TABLE (Core Feature requested)       */}
+            {/* ───────────────────────────────────────────────────────────── */}
+            <section className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+              <div className="bg-slate-50/90 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-[#0060A9]" />
+                    <span>Matriks Prediksi NLP & Koreksi Human Review ({eventsList.length} Event)</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Klik tombol <strong>Edit / Koreksi</strong> pada baris event untuk memperbaiki penyakit, lokasi, provinsi, region, kasus, atau kematian.
+                  </p>
+                </div>
               </div>
-              <div className="mb-3 rounded-lg border border-emerald-200 bg-white p-3">
-                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Korelasi artikel sumber</span>
-                {target.url ? (
-                  <a href={target.url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[11px] font-semibold text-[#0060A9] hover:underline">
-                    {target.url}
-                  </a>
-                ) : null}
-                <p className="mt-1 max-h-[42vh] overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-700">
-                  {cleanContent || effectiveSummary}
-                </p>
-                {cleanContent ? <span className="mt-2 block text-[9px] text-slate-400">Full captured article · {cleanContent.length.toLocaleString()} characters</span> : null}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <ReviewInput label="Disease" value={draft.disease} active={selectedField === 'disease'} onChange={(value) => setDraft((p) => ({ ...p, disease: value }))} />
-                <ReviewInput label="Country" value={draft.country} active={selectedField === 'country'} onChange={(value) => setDraft((p) => ({ ...p, country: value }))} />
-                <ReviewInput label="Location / city / region" value={draft.location} active={selectedField === 'location'} onChange={(value) => setDraft((p) => ({ ...p, location: value }))} />
-                <ReviewInput label="Cases" value={draft.cases} active={selectedField === 'cases'} onChange={(value) => setDraft((p) => ({ ...p, cases: value }))} inputMode="numeric" />
-                <ReviewInput label="Deaths" value={draft.deaths} active={selectedField === 'deaths'} onChange={(value) => setDraft((p) => ({ ...p, deaths: value }))} inputMode="numeric" />
-              </div>
-              <label className="block mt-3 text-[10px] font-semibold text-slate-600">
-                Alasan / korelasi dengan artikel (opsional)
-                <textarea value={reviewReason} onChange={(e) => setReviewReason(e.target.value)} rows={3} placeholder="Contoh: angka 4 adalah kematian, bukan total kasus." className="mt-1 w-full rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-[11px] font-normal text-slate-800 outline-none focus:border-emerald-500" />
-              </label>
-              <p className="mt-2 text-[10px] leading-relaxed text-emerald-900/70">Nilai kiri tetap tersimpan sebagai prediksi awal. Setiap perubahan disimpan sebagai audit correction untuk review dan dataset berikutnya.</p>
-              {!canEditCurrentEvent ? <p className="mt-3 text-[10px] font-semibold text-amber-700">Event belum memiliki ID tersimpan, jadi koreksi dinonaktifkan agar total parent tidak salah tertimpa.</p> : null}
-              <button type="button" onClick={() => void saveCorrections()} disabled={savingCorrections || !canEditCurrentEvent} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
-                {savingCorrections ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                {savingCorrections ? 'Menyimpan...' : 'Simpan koreksi & audit'}
-              </button>
-            </section>
-          </div>
 
-          {/* Epidemiological Evidence Quote */}
-          {displayed.evidence && (
-            <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200/70">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 block mb-1">
-                Extracted Epidemiological Evidence
-              </span>
-              <blockquote className="italic text-slate-600 border-l-2 border-blue-400 pl-3 py-0.5">
-                "{displayed.evidence}"
-              </blockquote>
-            </div>
-          )}
-
-          {/* Multi-location children breakdown if available */}
-          {target.children && target.children.length > 1 && (
-            <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
-              <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
-                  Event Breakdown ({target.children.length} records)
-                </span>
-                <span className="text-[11px] text-slate-500 font-medium">Klik event untuk mengoreksi event tersebut</span>
-              </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] uppercase font-semibold text-slate-500">
-                      <th className="px-3 py-2">Location</th>
-                      <th className="px-3 py-2">Disease</th>
-                      <th className="px-3 py-2 text-right">Cases</th>
-                      <th className="px-3 py-2 text-right">Deaths</th>
+                    <tr className="bg-slate-100/70 text-[10px] uppercase font-bold text-slate-600 border-b border-slate-200">
+                      <th className="px-3 py-2.5 text-center w-12">#</th>
+                      <th className="px-3 py-2.5 min-w-[170px]">Penyakit & ICD-11</th>
+                      <th className="px-3 py-2.5 min-w-[150px]">Negara & Region</th>
+                      <th className="px-3 py-2.5 min-w-[170px]">Provinsi & Kota / Lokasi</th>
+                      <th className="px-3 py-2.5 text-right w-24">Kasus</th>
+                      <th className="px-3 py-2.5 text-right w-24">Kematian</th>
+                      <th className="px-3 py-2.5 min-w-[100px]">Tanggal Kasus</th>
+                      <th className="px-3 py-2.5 min-w-[200px]">Bukti Evidence</th>
+                      <th className="px-3 py-2.5 text-center w-28">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {target.children.map((child: any, idx: number) => {
-                      const childEventId = child.disease_event_id || child.id
-                      const childId = String(childEventId || `row-${idx}`)
-                      const canEditChild = Boolean(childEventId)
-                      const isActive = childId === activeChildId
+                    {eventsList.map((evt, idx) => {
+                      const diseaseName = evt.disease || evt.disease_classification || 'Unknown'
+                      const icdCode = evt.icd11_code || evt.disease_icd11_code
+                      const rawCountry = evt.country || evt.case_country
+                      const countryName = (rawCountry && rawCountry !== 'MULTI_COUNTRY') ? rawCountry : '-'
+                      const rawRegion = evt.region || evt.surveillance_scope
+                      const regionName = (rawRegion && rawRegion !== 'MULTI_COUNTRY') ? rawRegion : '-'
+                      const provinceName = evt.province
+                      const rawCity = evt.city || evt.location_name || evt.province_city_case
+                      const cityName = (rawCity && rawCity !== 'MULTI_COUNTRY') ? rawCity : '-'
+                      const casesVal = evt.cases != null ? Number(evt.cases) : evt.case_count != null ? Number(evt.case_count) : 0
+                      const deathsVal = evt.deaths != null ? Number(evt.deaths) : evt.death_count != null ? Number(evt.death_count) : 0
+                      const dateVal = evt.date_case || evt.article_date || evt.published_at || '-'
+                      const evidenceVal = evt.evidence || '-'
+                      const isCorrected = evt.is_corrected
+
                       return (
-                      <tr key={childId} onClick={() => canEditChild && setActiveChildId(childId)} className={`${canEditChild ? 'cursor-pointer hover:bg-emerald-50' : 'opacity-80'} ${isActive ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-300' : ''}`}>
-                        <td className="px-3 py-2 font-medium text-slate-800">
-                          {[child.province_city_case || child.province || child.city || child.location_name, child.country].filter(Boolean).join(', ') || '—'}
-                        </td>
-                        <td className="px-3 py-2 text-slate-700">{child.disease || child.disease_classification || '—'}</td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold text-emerald-700">
-                          {child.cases != null ? Number(child.cases).toLocaleString() : '0'}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold text-rose-700">
-                          {child.deaths != null ? Number(child.deaths).toLocaleString() : '0'}
-                        </td>
-                      </tr>
+                        <tr
+                          key={idx}
+                          className={`hover:bg-blue-50/30 transition-colors ${
+                            isCorrected ? 'bg-emerald-50/30' : idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'
+                          }`}
+                        >
+                          {/* No / Badge */}
+                          <td className="px-3 py-3 text-center font-mono font-bold text-slate-500">
+                            {idx + 1}
+                          </td>
+
+                          {/* Disease */}
+                          <td className="px-3 py-3">
+                            <div className="flex items-start gap-1.5">
+                              <Bug className="h-3.5 w-3.5 text-[#0060A9] shrink-0 mt-0.5" />
+                              <div>
+                                <span className="font-bold text-slate-900 block leading-tight">
+                                  {diseaseName}
+                                </span>
+                                {icdCode && (
+                                  <span className="text-[10px] font-mono text-blue-700 bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
+                                    ICD: {icdCode}
+                                  </span>
+                                )}
+                                {isCorrected && (
+                                  <span className="mt-1 inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    <Check className="h-2.5 w-2.5" /> Terkoreksi
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Country & Region */}
+                          <td className="px-3 py-3">
+                            <div className="flex items-center gap-1.5">
+                              {countryName !== '-' && <CountryFlag countryName={countryName} size={14} />}
+                              <div>
+                                <span className="font-semibold text-slate-800 block">
+                                  {countryName}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                  {regionName}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Province & City */}
+                          <td className="px-3 py-3">
+                            <div className="flex items-start gap-1.5">
+                              <MapPin className="h-3.5 w-3.5 text-rose-500 shrink-0 mt-0.5" />
+                              <div className="text-[11px]">
+                                <span className="font-bold text-slate-900 block">
+                                  {cityName || '-'}
+                                </span>
+                                {provinceName && (
+                                  <span className="text-[10px] text-slate-500 block">
+                                    Provinsi: {provinceName}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Cases */}
+                          <td className="px-3 py-3 text-right">
+                            <span className="font-mono font-extrabold text-emerald-700 text-xs">
+                              {casesVal.toLocaleString()}
+                            </span>
+                          </td>
+
+                          {/* Deaths */}
+                          <td className="px-3 py-3 text-right">
+                            <span
+                              className={`font-mono font-bold text-xs ${
+                                deathsVal > 0 ? 'text-rose-700 font-extrabold' : 'text-slate-500'
+                              }`}
+                            >
+                              {deathsVal.toLocaleString()}
+                            </span>
+                          </td>
+
+                          {/* Event Date */}
+                          <td className="px-3 py-3 font-mono text-[11px] text-slate-600">
+                            {dateVal ? dateVal.slice(0, 10) : '-'}
+                          </td>
+
+                          {/* Evidence */}
+                          <td className="px-3 py-3">
+                            <span
+                              className="block max-w-[230px] truncate text-[11px] text-slate-600 italic cursor-help"
+                              title={evidenceVal}
+                            >
+                              {evidenceVal !== '-' ? `"${evidenceVal}"` : '-'}
+                            </span>
+                          </td>
+
+                          {/* Action Button */}
+                          <td className="px-3 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setEditingIndex(idx)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-[11px] font-bold hover:bg-emerald-600 hover:text-white transition shadow-2xs cursor-pointer"
+                              title="Koreksi field event ini"
+                            >
+                              <Edit3 className="h-3 w-3" />
+                              <span>Koreksi</span>
+                            </button>
+                          </td>
+                        </tr>
                       )
                     })}
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
-
-        </div>
-
-        {/* Modal Footer Actions */}
-        <div className="flex items-center justify-between px-6 py-3.5 bg-slate-50 border-t border-slate-200">
-          <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
-            {isReviewed ? (
-              <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Verified by surveillance reviewer
-              </span>
-            ) : (
-              <span className="text-amber-700 font-medium flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5" /> Awaiting reviewer confirmation
-              </span>
-            )}
+            </section>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-            >
-              Close
-            </button>
-
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={handleToggleReviewed}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-bold transition shadow-xs cursor-pointer ${
-                isReviewed
-                  ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
-                  : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/20'
-              }`}
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Updating...</span>
-                </>
-              ) : isReviewed ? (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>Mark as Unread</span>
-                </>
+          {/* Modal Footer Actions */}
+          <div className="flex items-center justify-between px-6 py-3.5 bg-slate-50 border-t border-slate-200">
+            <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+              {isReviewed ? (
+                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Terverifikasi oleh Epidemiolog
+                </span>
               ) : (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-white" />
-                  <span>Mark as Read / Reviewed</span>
-                </>
+                <span className="text-amber-700 font-medium flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" /> Menunggu Konfirmasi Reviewer
+                </span>
               )}
-            </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              >
+                Tutup
+              </button>
+
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleToggleReviewed}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold text-white transition shadow-2xs cursor-pointer ${
+                  isReviewed
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                } disabled:opacity-50`}
+              >
+                {submitting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : isReviewed ? (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                )}
+                <span>{isReviewed ? 'Tandai Belum Selesai' : 'Tandai Sudah Direview'}</span>
+              </button>
+            </div>
           </div>
         </div>
-
       </div>
-    </div>
+
+      {/* ───────────────────────────────────────────────────────────── */}
+      {/* SUB-MODAL: Event Correction Modal Popup                      */}
+      {/* ───────────────────────────────────────────────────────────── */}
+      {editingIndex != null && eventsList[editingIndex] && (
+        <EventCorrectionModal
+          open={true}
+          event={eventsList[editingIndex]}
+          index={editingIndex}
+          articleTitle={target.title}
+          articleUrl={target.url}
+          articleContent={cleanContent || effectiveSummary}
+          rawReportId={target.rawReportId}
+          language={target.language}
+          onClose={() => setEditingIndex(null)}
+          onSave={handleUpdateEvent}
+        />
+      )}
+    </>
   )
 }
