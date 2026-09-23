@@ -49,6 +49,10 @@ export interface ReviewTarget {
   sourceType?: string | null
   sourceName?: string | null
   confidence?: number | null
+  casesDisplay?: string | null
+  deathsDisplay?: string | null
+  eventCount?: number | null
+  locationCount?: number | null
   originalText?: string | null
   needsReview?: boolean | null
   children?: any[] | null
@@ -98,6 +102,7 @@ function ReviewValue({
   return (
     <button
       type="button"
+      disabled={!field}
       onClick={() => field && onClick?.(field)}
       className={`w-full rounded-lg border bg-white p-2.5 text-left transition ${
         selected ? 'border-emerald-500 ring-2 ring-emerald-100' : 'border-slate-200 hover:border-emerald-300'
@@ -197,7 +202,8 @@ export default function ArticleReviewModal({
       })
       setReviewReason('')
       setSelectedField(null)
-      setActiveChildId(null)
+      const firstChild = (target.children || []).find((child: any) => child.disease_event_id || child.id)
+      setActiveChildId(firstChild ? String(firstChild.disease_event_id || firstChild.id) : null)
     }
   }, [target])
 
@@ -293,6 +299,8 @@ export default function ArticleReviewModal({
 
   // Determine cleanest summary text
   const displayed = currentTarget || target
+  const hasChildEvents = Boolean(target.children && target.children.length > 1)
+  const canEditCurrentEvent = !hasChildEvents || Boolean(activeChild)
   const cleanSummary = stripHtml(target.summary)
   const cleanSnippet = stripHtml(target.snippet)
   const cleanContent = stripHtml(target.content)
@@ -401,6 +409,25 @@ export default function ArticleReviewModal({
             </p>
           </div>
 
+          {/* Article-level totals are derived from all atomic events and are never editable. */}
+          <section className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-indigo-800">Article total · otomatis</h4>
+                <p className="mt-0.5 text-[10px] text-indigo-900/60">Agregasi seluruh event dari artikel ini. Nilai ini bukan field koreksi langsung.</p>
+              </div>
+              <span className="rounded-full border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700">
+                {target.eventCount ?? target.children?.length ?? 1} event · {target.locationCount ?? '-'} lokasi
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <ReviewValue label="Total Cases" value={target.cases == null ? 'Not detected' : Number(target.cases).toLocaleString()} />
+              <ReviewValue label="Total Deaths" value={target.deaths == null ? 'Not detected' : Number(target.deaths).toLocaleString()} tone="deaths" />
+              <ReviewValue label="Cases breakdown" value={target.casesDisplay || '-'} />
+              <ReviewValue label="Deaths breakdown" value={target.deathsDisplay || '0'} tone="deaths" />
+            </div>
+          </section>
+
           {/* Human review: keep the left prediction immutable and edit only the review copy. */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
@@ -456,7 +483,8 @@ export default function ArticleReviewModal({
                 <textarea value={reviewReason} onChange={(e) => setReviewReason(e.target.value)} rows={3} placeholder="Contoh: angka 4 adalah kematian, bukan total kasus." className="mt-1 w-full rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-[11px] font-normal text-slate-800 outline-none focus:border-emerald-500" />
               </label>
               <p className="mt-2 text-[10px] leading-relaxed text-emerald-900/70">Nilai kiri tetap tersimpan sebagai prediksi awal. Setiap perubahan disimpan sebagai audit correction untuk review dan dataset berikutnya.</p>
-              <button type="button" onClick={() => void saveCorrections()} disabled={savingCorrections} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
+              {!canEditCurrentEvent ? <p className="mt-3 text-[10px] font-semibold text-amber-700">Event belum memiliki ID tersimpan, jadi koreksi dinonaktifkan agar total parent tidak salah tertimpa.</p> : null}
+              <button type="button" onClick={() => void saveCorrections()} disabled={savingCorrections || !canEditCurrentEvent} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
                 {savingCorrections ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 {savingCorrections ? 'Menyimpan...' : 'Simpan koreksi & audit'}
               </button>

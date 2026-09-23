@@ -619,6 +619,10 @@ export default function AnalyzePage() {
                                 locationName: result?.location_name,
                                 cases: result?.case_count,
                                 deaths: result?.death_count,
+                                casesDisplay: (result as any)?.cases_display,
+                                deathsDisplay: (result as any)?.deaths_display,
+                                eventCount: subEvents.length || 1,
+                                locationCount: new Set(subEvents.map((evt: any) => evt.country || evt.location_name).filter(Boolean)).size || 1,
                                 language: result?.language,
                                 children: subEvents.map((evt: any) => ({
                                   id: evt.event_id,
