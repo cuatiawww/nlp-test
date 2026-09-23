@@ -68,7 +68,7 @@ export default function CorrectionModal({ open, target, onClose, onSuccess }: Pr
       })
 
       toast.success(
-        res.message || 'Koreksi berhasil disimpan! Prioritas training example dinaikkan ke 1.0 (Human Verified).'
+        res.message || 'Koreksi berhasil disimpan sebagai audit human review.'
       )
       onSuccess?.(target.fieldName, newValue.trim())
       onClose()
@@ -93,7 +93,7 @@ export default function CorrectionModal({ open, target, onClose, onSuccess }: Pr
             <span>Continuous Learning Loop</span>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-indigo-800/80">
-            Setiap koreksi yang Anda masukkan akan langsung mengupdate database dan diberi bobot tertinggi (confidence 1.0) untuk fine-tuning model berikutnya di Google Colab.
+            Koreksi disimpan sebagai audit terpisah dari prediksi awal, beserta konteks teksnya. Data ini dapat dipakai untuk kurasi dan fine-tuning berikutnya; tidak ada retraining otomatis dari modal ini.
           </p>
         </div>
 

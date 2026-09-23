@@ -1168,6 +1168,11 @@ export interface NLPCorrectionPayload {
   text_snippet?: string;
   language?: string;
   corrected_by?: string;
+  review_reason?: string;
+  evidence_offset_start?: number;
+  evidence_offset_end?: number;
+  prediction_version?: string;
+  review_action?: 'corrected' | 'confirmed' | 'rejected';
 }
 
 export async function submitNLPCorrection(

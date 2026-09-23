@@ -13,10 +13,12 @@ import {
   Radio,
   Globe,
   Activity,
-  MapPin
+  MapPin,
+  Save,
+  Edit3
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { markArticleReviewed } from '@/lib/api'
+import { markArticleReviewed, submitNLPCorrection } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
 
 export interface ReviewTarget {
@@ -43,6 +45,8 @@ export interface ReviewTarget {
   outbreakAlert?: boolean | null
   sourceType?: string | null
   sourceName?: string | null
+  confidence?: number | null
+  originalText?: string | null
   needsReview?: boolean | null
   children?: any[] | null
 }
@@ -52,6 +56,7 @@ interface ArticleReviewModalProps {
   target: ReviewTarget | null
   onClose: () => void
   onReviewed?: (identifier: string, isReviewed: boolean) => void
+  onCorrected?: () => void
 }
 
 function stripHtml(text?: string | null): string {
@@ -67,19 +72,77 @@ function stripHtml(text?: string | null): string {
     .trim()
 }
 
+function ReviewValue({ label, value, tone }: { label: string; value: string; tone?: 'cases' | 'deaths' }) {
+  const toneClass = tone === 'cases'
+    ? 'text-emerald-800'
+    : tone === 'deaths'
+      ? 'text-rose-800'
+      : 'text-slate-900'
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+      <span className="block text-[10px] font-medium text-slate-500">{label}</span>
+      <span className={`mt-0.5 block truncate text-xs font-bold ${toneClass}`}>{value}</span>
+    </div>
+  )
+}
+
+function ReviewInput({
+  label,
+  value,
+  onChange,
+  inputMode,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  inputMode?: 'numeric'
+}) {
+  return (
+    <label className="block text-[10px] font-semibold text-slate-600">
+      {label}
+      <input
+        type={inputMode === 'numeric' ? 'number' : 'text'}
+        min={inputMode === 'numeric' ? 0 : undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        inputMode={inputMode}
+        className="mt-1 w-full rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-100"
+      />
+    </label>
+  )
+}
+
 export default function ArticleReviewModal({
   open,
   target,
   onClose,
   onReviewed,
+  onCorrected,
 }: ArticleReviewModalProps) {
   const [submitting, setSubmitting] = useState(false)
+  const [savingCorrections, setSavingCorrections] = useState(false)
   const [isReviewed, setIsReviewed] = useState(target?.needsReview === false)
+  const [reviewReason, setReviewReason] = useState('')
+  const [draft, setDraft] = useState({
+    disease: '',
+    country: '',
+    location: '',
+    cases: '',
+    deaths: '',
+  })
 
   // Sync review status when target updates
   React.useEffect(() => {
     if (target) {
       setIsReviewed(target.needsReview === false)
+      setDraft({
+        disease: target.disease || '',
+        country: target.country || '',
+        location: target.locationName || '',
+        cases: target.cases == null ? '' : String(target.cases),
+        deaths: target.deaths == null ? '' : String(target.deaths),
+      })
+      setReviewReason('')
     }
   }, [target])
 
@@ -114,6 +177,51 @@ export default function ArticleReviewModal({
     }
   }
 
+  const saveCorrections = async () => {
+    const fields = [
+      ['disease', target.disease || '', draft.disease],
+      ['country', target.country || '', draft.country],
+      ['location', target.locationName || '', draft.location],
+      ['case_count', target.cases == null ? '' : String(target.cases), draft.cases],
+      ['death_count', target.deaths == null ? '' : String(target.deaths), draft.deaths],
+    ] as const
+    const changed = fields.filter(([, original, corrected]) => corrected.trim() !== original.trim())
+    if (changed.length === 0) {
+      toast.info('Belum ada perubahan nilai untuk disimpan.')
+      return
+    }
+    if (changed.some(([, , corrected]) => !corrected.trim())) {
+      toast.error('Nilai koreksi tidak boleh kosong. Gunakan 0 untuk metrik yang memang nol.')
+      return
+    }
+
+    setSavingCorrections(true)
+    try {
+      await Promise.all(changed.map(([fieldName, originalValue, correctedValue]) =>
+        submitNLPCorrection({
+          event_id: target.eventId || undefined,
+          raw_report_id: target.rawReportId || target.id || undefined,
+          field_name: fieldName,
+          original_value: originalValue,
+          corrected_value: correctedValue.trim(),
+          correction_source: 'review_modal',
+          text_snippet: target.evidence || target.snippet || target.summary || undefined,
+          language: target.language || undefined,
+          corrected_by: 'operator_ui',
+          review_reason: reviewReason.trim() || undefined,
+          prediction_version: 'crawl-history-review',
+          review_action: 'corrected',
+        })
+      ))
+      toast.success(`${changed.length} koreksi disimpan sebagai audit human review.`)
+      onCorrected?.()
+    } catch (err: any) {
+      toast.error(err?.message || 'Gagal menyimpan koreksi.')
+    } finally {
+      setSavingCorrections(false)
+    }
+  }
+
   // Determine cleanest summary text
   const cleanSummary = stripHtml(target.summary)
   const cleanSnippet = stripHtml(target.snippet)
@@ -127,7 +235,7 @@ export default function ArticleReviewModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="relative w-full max-w-[1500px] max-h-[94vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
         
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
@@ -222,58 +330,65 @@ export default function ArticleReviewModal({
             </p>
           </div>
 
-          {/* Structured Surveillance Findings */}
-          <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-              Key Epidemiological Facts
-            </h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              
-              {/* Disease */}
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80">
-                <span className="text-[10px] font-medium text-slate-500 block">Disease</span>
-                <span className="text-xs font-bold text-slate-900 mt-0.5 block truncate">
-                  {target.disease || 'Unknown'}
-                </span>
+          {/* Human review: keep the left prediction immutable and edit only the review copy. */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">NLP prediction</h4>
+                <span className="text-[10px] text-slate-500">Read-only baseline</span>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <ReviewValue label="Disease" value={target.disease || 'Unknown'} />
+                <ReviewValue label="Country" value={target.country || 'Unknown'} />
+                <ReviewValue label="Location" value={[target.locationName, target.region].filter(Boolean).join(', ') || 'Not specified'} />
+                <ReviewValue label="Cases" value={target.cases == null ? 'Not detected' : Number(target.cases).toLocaleString()} tone="cases" />
+                <ReviewValue label="Deaths" value={target.deaths == null ? 'Not detected' : Number(target.deaths).toLocaleString()} tone="deaths" />
+                <ReviewValue label="Confidence" value={target.confidence == null ? 'Not available' : `${(Number(target.confidence) * 100).toFixed(1)}%`} />
+              </div>
+              <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Evidence asli</span>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap max-h-36 overflow-y-auto">
+                  {target.evidence || target.snippet || 'Evidence asli belum tersedia pada row ini.'}
+                </p>
+              </div>
+              {target.latitude != null && target.longitude != null ? (
+                <p className="mt-3 text-[10px] font-mono text-slate-500">Coordinates: {target.latitude.toFixed(4)}, {target.longitude.toFixed(4)}</p>
+              ) : null}
+            </section>
 
-              {/* Location */}
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-medium text-slate-500 block">Location</span>
-                  {target.region ? (
-                    <span className="rounded bg-white border border-slate-200 px-1.5 py-0.2 text-[9px] font-bold text-slate-600 uppercase tracking-tight">
-                      {target.region}
-                    </span>
-                  ) : null}
-                </div>
-                <span className="text-xs font-bold text-slate-900 mt-0.5 block truncate">
-                  {[target.locationName, target.country].filter(Boolean).join(', ') || 'Not specified'}
-                </span>
-                {target.latitude != null && target.longitude != null ? (
-                  <span className="text-[10px] font-mono text-slate-500 block mt-0.5 truncate">
-                    {target.latitude.toFixed(4)}, {target.longitude.toFixed(4)}
-                  </span>
+            <section className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-emerald-800">Human review / koreksi</h4>
+                <Edit3 className="h-4 w-4 text-emerald-700" />
+              </div>
+              <div className="mb-3 rounded-lg border border-emerald-200 bg-white p-3">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Korelasi artikel sumber</span>
+                {target.url ? (
+                  <a href={target.url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[11px] font-semibold text-[#0060A9] hover:underline">
+                    {target.url}
+                  </a>
                 ) : null}
+                <p className="mt-1 max-h-20 overflow-y-auto text-[11px] leading-relaxed text-slate-700">
+                  {effectiveSummary}
+                </p>
               </div>
-
-              {/* Cases */}
-              <div className="bg-emerald-50/60 rounded-xl p-3 border border-emerald-200/80">
-                <span className="text-[10px] font-medium text-emerald-700 block">Reported Cases</span>
-                <span className="text-sm font-extrabold text-emerald-900 mt-0.5 block">
-                  {target.cases != null ? Number(target.cases).toLocaleString() : '0'}
-                </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <ReviewInput label="Disease" value={draft.disease} onChange={(value) => setDraft((p) => ({ ...p, disease: value }))} />
+                <ReviewInput label="Country" value={draft.country} onChange={(value) => setDraft((p) => ({ ...p, country: value }))} />
+                <ReviewInput label="Location / city / region" value={draft.location} onChange={(value) => setDraft((p) => ({ ...p, location: value }))} />
+                <ReviewInput label="Cases" value={draft.cases} onChange={(value) => setDraft((p) => ({ ...p, cases: value }))} inputMode="numeric" />
+                <ReviewInput label="Deaths" value={draft.deaths} onChange={(value) => setDraft((p) => ({ ...p, deaths: value }))} inputMode="numeric" />
               </div>
-
-              {/* Deaths */}
-              <div className="bg-rose-50/60 rounded-xl p-3 border border-rose-200/80">
-                <span className="text-[10px] font-medium text-rose-700 block">Reported Deaths</span>
-                <span className="text-sm font-extrabold text-rose-900 mt-0.5 block">
-                  {target.deaths != null ? Number(target.deaths).toLocaleString() : '0'}
-                </span>
-              </div>
-
-            </div>
+              <label className="block mt-3 text-[10px] font-semibold text-slate-600">
+                Alasan / korelasi dengan artikel (opsional)
+                <textarea value={reviewReason} onChange={(e) => setReviewReason(e.target.value)} rows={3} placeholder="Contoh: angka 4 adalah kematian, bukan total kasus." className="mt-1 w-full rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-[11px] font-normal text-slate-800 outline-none focus:border-emerald-500" />
+              </label>
+              <p className="mt-2 text-[10px] leading-relaxed text-emerald-900/70">Nilai kiri tetap tersimpan sebagai prediksi awal. Setiap perubahan disimpan sebagai audit correction untuk review dan dataset berikutnya.</p>
+              <button type="button" onClick={() => void saveCorrections()} disabled={savingCorrections} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
+                {savingCorrections ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                {savingCorrections ? 'Menyimpan...' : 'Simpan koreksi & audit'}
+              </button>
+            </section>
           </div>
 
           {/* Epidemiological Evidence Quote */}

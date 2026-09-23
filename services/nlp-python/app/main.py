@@ -278,12 +278,17 @@ class NLPCorrectionRequest(BaseModel):
     text_snippet: Optional[str] = None
     language: Optional[str] = None
     corrected_by: Optional[str] = "operator"
+    review_reason: Optional[str] = None
+    evidence_offset_start: Optional[int] = None
+    evidence_offset_end: Optional[int] = None
+    prediction_version: Optional[str] = None
+    review_action: Optional[str] = "corrected"
 
 
 @app.post("/correct")
 @app.post("/api/nlp/correct")
 def submit_nlp_correction(payload: NLPCorrectionRequest):
-    """Save user correction to nlp_corrections and boost training example confidence to 1.0."""
+    """Record a human correction without discarding the original prediction."""
     import psycopg
     from . import config
     try:
@@ -292,8 +297,10 @@ def submit_nlp_correction(payload: NLPCorrectionRequest):
         cur.execute(
             """INSERT INTO nlp_corrections (
                 event_id, raw_report_id, field_name, original_value, 
-                corrected_value, correction_source, text_snippet, language, corrected_by
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;""",
+                corrected_value, correction_source, text_snippet, language, corrected_by,
+                review_reason, evidence_offset_start, evidence_offset_end,
+                prediction_version, review_action, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) RETURNING id;""",
             (
                 payload.event_id if payload.event_id else None,
                 payload.raw_report_id if payload.raw_report_id else None,
@@ -304,15 +311,33 @@ def submit_nlp_correction(payload: NLPCorrectionRequest):
                 payload.text_snippet,
                 payload.language,
                 payload.corrected_by or "operator",
+                payload.review_reason,
+                payload.evidence_offset_start,
+                payload.evidence_offset_end,
+                payload.prediction_version,
+                payload.review_action or "corrected",
             )
         )
         row = cur.fetchone()
+        # The legacy correction trigger stores country edits in ``province``.
+        # Keep the normalized country field authoritative for new review edits.
+        if payload.field_name == "country":
+            if payload.event_id:
+                cur.execute(
+                    "UPDATE disease_events SET source_country = %s WHERE id = %s",
+                    (payload.corrected_value.strip(), payload.event_id),
+                )
+            elif payload.raw_report_id:
+                cur.execute(
+                    "UPDATE disease_events SET source_country = %s WHERE raw_report_id = %s",
+                    (payload.corrected_value.strip(), payload.raw_report_id),
+                )
         conn.commit()
         correction_id = str(row[0]) if row else None
         logger.info("Saved NLP correction %s: %s -> %s", correction_id, payload.field_name, payload.corrected_value)
         return {
             "status": "ok",
-            "message": "Correction recorded and applied to continuous learning loop.",
+            "message": "Correction recorded with the original prediction and evidence context.",
             "correction_id": correction_id,
         }
     except Exception as e:
@@ -362,6 +387,25 @@ def mark_article_reviewed(payload: MarkReviewedRequest):
                 (status_val, payload.raw_report_id)
             )
             updated_reports += cur.rowcount
+
+        # Keep the review decision auditable even when no field value changed.
+        cur.execute(
+            """INSERT INTO nlp_corrections (
+                event_id, raw_report_id, field_name, original_value,
+                corrected_value, correction_source, text_snippet,
+                corrected_by, review_reason, review_action, updated_at
+            ) VALUES (%s, %s, 'review_status', %s, %s, 'review_ui', %s, %s, %s, %s, NOW())""",
+            (
+                payload.event_id or None,
+                payload.raw_report_id or None,
+                "needs_review" if not payload.reviewed else "reviewed",
+                "reviewed" if payload.reviewed else "needs_review",
+                payload.notes,
+                payload.reviewed_by or "operator",
+                payload.notes,
+                "confirmed" if payload.reviewed else "reopened",
+            ),
+        )
 
         conn.commit()
         conn.close()

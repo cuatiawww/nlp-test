@@ -524,6 +524,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       outbreakAlert: row.outbreak_alert,
       sourceType: row.source_type,
       sourceName: row.source_name,
+      confidence: row.confidence,
       needsReview: row.needs_review,
     })
 
@@ -543,6 +544,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           locationName: full.province_city_case || full.location_name || prev.locationName,
           cases: full.cases != null ? full.cases : prev.cases,
           deaths: full.deaths != null ? full.deaths : prev.deaths,
+          confidence: full.confidence ?? prev.confidence,
           children: full.children,
         } : prev))
       }
@@ -936,6 +938,9 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           if (detail && (detail.id === idKey || detail.disease_event_id === idKey || detail.raw_report_id === idKey)) {
             setDetail({ ...detail, needs_review: !isRev, status: isRev ? 'reviewed' : detail.status })
           }
+        }}
+        onCorrected={() => {
+          void loadRows()
         }}
       />
 
