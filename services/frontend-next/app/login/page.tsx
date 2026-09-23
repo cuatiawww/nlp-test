@@ -2,8 +2,7 @@
 
 import { useState, Suspense } from 'react'
 import Image from 'next/image'
-import Link from 'next/link'
-import { Eye, EyeOff, Lock, LogIn, ShieldCheck, User, Globe2, Activity, Settings, LayoutDashboard } from 'lucide-react'
+import { Eye, EyeOff, Lock, LogIn, ShieldCheck, User, Globe2, Activity } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { loginUser } from '@/lib/api'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
@@ -14,11 +13,6 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryRedirect = searchParams.get('redirect')
-  
-  // Destination mode: "dashboard" or "console"
-  const [destination, setDestination] = useState<"dashboard" | "console">(
-    queryRedirect?.includes('console') ? "console" : "dashboard"
-  )
   
   const [username, setUsername] = useState('webmaster')
   const [password, setPassword] = useState('')
@@ -36,11 +30,7 @@ function LoginForm() {
       localStorage.setItem('auth_token', data.token)
       localStorage.setItem('auth_user', JSON.stringify(data))
       
-      if (destination === "console") {
-        router.push('/console/settings')
-      } else {
-        router.push(queryRedirect || '/')
-      }
+      router.push(queryRedirect || '/')
     } catch (e: any) {
       setError(e.message || 'Invalid credentials or network connection failed.')
     }
@@ -148,39 +138,11 @@ function LoginForm() {
               ACCESS PORTAL
             </span>
             <h2 className="mt-2 text-2xl xl:text-3xl font-black tracking-tight text-slate-900">
-              {destination === "console" ? "Sign in to System Console" : "Sign in to Dashboard"}
+              Sign in to Dashboard
             </h2>
             <p className="mt-1 text-xs sm:text-sm text-slate-500">
-              {destination === "console" 
-                ? "Restricted administrator access to manage configuration, logos, and users." 
-                : "Enter your account credentials to access the disease surveillance platform."}
+              Enter your account credentials to access the disease surveillance platform.
             </p>
-          </div>
-
-          {/* Destination Selector: Dashboard vs Console */}
-          <div className="mt-6 grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-100 p-1.5 shadow-xs">
-            <button
-              type="button"
-              onClick={() => setDestination("dashboard")}
-              className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition ${
-                destination === "dashboard"
-                  ? "bg-white text-[#0060A9] shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
-            </button>
-            <button
-              type="button"
-              onClick={() => setDestination("console")}
-              className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition ${
-                destination === "console"
-                  ? "bg-[#0060A9] text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <Settings className="h-3.5 w-3.5" /> System Console
-            </button>
           </div>
 
           {/* Form */}
@@ -247,7 +209,7 @@ function LoginForm() {
               ) : (
                 <>
                   <LogIn className="h-4 w-4" />
-                  <span>{destination === "console" ? "SIGN IN TO SYSTEM CONSOLE" : "SIGN IN TO DASHBOARD"}</span>
+                  <span>SIGN IN TO DASHBOARD</span>
                 </>
               )}
             </button>
@@ -261,12 +223,12 @@ function LoginForm() {
               </span>
             </div>
 
-            <Link
-              href="/"
+            <a
+              href="https://abvc-surveillance.org/"
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-bold uppercase tracking-wider text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900"
             >
-              Return to Surveillance Dashboard
-            </Link>
+              Return to Main Website
+            </a>
           </form>
         </div>
 

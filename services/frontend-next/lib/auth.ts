@@ -6,6 +6,7 @@ import {
   type ActiveModule,
 } from './modules';
 import type { SidebarGroupConfig } from './menu';
+import { PUBLIC_BASE_PATH } from './public-path';
 
 export { SYSTEM_MODULES, type SystemModule };
 
@@ -186,10 +187,7 @@ export function authHeaders(): Record<string, string> {
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
-  const configured = process.env.NEXT_PUBLIC_API_BASE_URL || "/nlp";
-  let basePath = configured.replace(/\/$/, "");
-  try {
-    basePath = new URL(configured).pathname.replace(/\/$/, "");
-  } catch {}
-  window.location.href = basePath || "/";
+  localStorage.removeItem(NAV_CACHE_KEY);
+  const basePath = (PUBLIC_BASE_PATH || "/nlp").replace(/\/$/, "");
+  window.location.href = `${basePath}/login`;
 }
