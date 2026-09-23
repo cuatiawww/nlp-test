@@ -56,6 +56,8 @@
     "subtitle": "Pemantauan data multibahasa secara real-time",
     "kemenkes": "ASEAN Surveillance Centre",
     "dashboard": "DASHBOARD",
+    "home": "BERANDA",
+    "mainDashboard": "DASHBOARD",
     "tvMode": "TV MODE",
     "reports": "REPORTS",
     "login": "MASUK",
@@ -71,6 +73,7 @@
     },
     "items": {
       "home": "Beranda",
+      "mainDashboard": "Main Dashboard",
       "regionsCountry": "Regions/Country",
       "diseases": "Diseases",
       "sources": "Sumber Data",

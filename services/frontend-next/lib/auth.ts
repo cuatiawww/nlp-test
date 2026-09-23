@@ -46,17 +46,20 @@ export type AuthUser = {
   username: string;
   role: string;
   permissions?: string[];
+  full_name?: string;
+  display_name?: string;
+  email?: string;
 };
 
 export const ROLE_PRESET_MODULES: Record<string, string[]> = {
   admin: ['*'],
-  data_analyst: ['dashboard', 'executive_dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'processing', 'reports', 'locations', 'disease_master'],
-  epidemiologi: ['dashboard', 'executive_dashboard', 'events', 'analyze', 'manual_crawler', 'crawl_history', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
-  executive: ['dashboard', 'executive_dashboard', 'events', 'reports', 'tv'],
-  skk: ['dashboard', 'executive_dashboard', 'sources', 'manual_crawler', 'crawl_history', 'reports', 'processing'],
+  data_analyst: ['home', 'main_dashboard', 'dashboard', 'executive_dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'processing', 'reports', 'locations', 'disease_master'],
+  epidemiologi: ['home', 'main_dashboard', 'dashboard', 'executive_dashboard', 'events', 'analyze', 'manual_crawler', 'crawl_history', 'reports', 'locations', 'disease_master', 'outbreak_rules', 'nlp_config'],
+  executive: ['home', 'main_dashboard', 'dashboard', 'executive_dashboard', 'events', 'reports', 'tv'],
+  skk: ['home', 'main_dashboard', 'dashboard', 'executive_dashboard', 'sources', 'manual_crawler', 'crawl_history', 'reports', 'processing'],
   // legacy fallbacks
-  operator: ['dashboard', 'executive_dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'reports'],
-  viewer: ['dashboard', 'executive_dashboard', 'reports'],
+  operator: ['home', 'main_dashboard', 'dashboard', 'executive_dashboard', 'events', 'sources', 'analyze', 'manual_crawler', 'crawl_history', 'reports'],
+  viewer: ['home', 'main_dashboard', 'dashboard', 'executive_dashboard', 'reports'],
 };
 
 export function hasModuleAccess(
@@ -130,7 +133,8 @@ export function hasModuleAccess(
   if (cleanPath.startsWith('/web-services-dashboard') && (user.permissions?.includes('web_services_dashboard') || user.permissions?.includes('dashboard'))) return true;
   if (cleanPath.startsWith('/crawling-dashboard') && (user.permissions?.includes('crawling_dashboard') || user.permissions?.includes('dashboard'))) return true;
   if (cleanPath.startsWith('/disease-dashboard') && (user.permissions?.includes('disease_dashboard') || user.permissions?.includes('dashboard'))) return true;
-  if (cleanPath === '/' && user.permissions?.includes('dashboard')) return true;
+  if (cleanPath === '/') return true;
+  if (cleanPath.startsWith('/main-dashboard') && (user.permissions?.includes('main_dashboard') || user.permissions?.includes('dashboard'))) return true;
   if (cleanPath.startsWith('/executive-dashboard') && (user.permissions?.includes('executive_dashboard') || user.permissions?.includes('dashboard') || user.permissions?.includes('reports') || user.permissions?.includes('tv'))) return true;
   if (cleanPath.startsWith('/events') && user.permissions?.includes('events')) return true;
   if (cleanPath.startsWith('/sources') && user.permissions?.includes('sources')) return true;

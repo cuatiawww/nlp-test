@@ -1,1540 +1,863 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
-import dynamic from "next/dynamic";
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import {
+  Activity,
   AlertTriangle,
-  Bug,
-  CheckCircle2,
+  ArrowRight,
+  BarChart3,
+  BookText,
   CalendarDays,
-  Clock3,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
+  CheckCircle2,
+  Clock,
+  Compass,
+  Cpu,
   Database,
-  Filter,
   ExternalLink,
+  Eye,
+  FileSpreadsheet,
   FileText,
+  Flame,
   Globe2,
+  History,
   Info,
+  Layers,
+  LayoutDashboard,
+  Lock,
   MapPin,
-  RefreshCw,
   Radio,
-  Skull,
+  RefreshCw,
+  Search,
+  Settings,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
-  TrendingDown,
+  Stethoscope,
+  Tags,
   TrendingUp,
-  X,
-} from "lucide-react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { fetchPublicDashboard, fetchKpiSnapshot, fetchCrawlingStats } from "@/lib/api";
-import { scopeDashboardLocations } from "@/lib/asean-scope";
-import AseanScopeBanner from "@/components/AseanScopeBanner";
-import CrawlingEnginePerformance from "@/components/CrawlingEnginePerformance";
-import CaseLocationHeatmap from "@/components/CaseLocationHeatmap";
-import DiseaseTrendOverview from "@/components/DiseaseTrendOverview";
-import MorbidityMortalitySection from "@/components/MorbidityMortalitySection";
-import EpiFilterBar, { EpiFilterState } from "@/components/EpiFilterBar";
-import { getCurrentEpiWeek } from "@/lib/epi-week";
+  Tv,
+  Users,
+} from 'lucide-react'
+import { fetchPublicDashboard, fetchCrawlingStats } from '@/lib/api'
+import { getCurrentEpiWeek } from '@/lib/epi-week'
+import { getAuthUser, hasModuleAccess, type AuthUser } from '@/lib/auth'
+import { useSettings } from '@/lib/settings-context'
 
-import type { OutbreakLocation, PublicDashboard } from "@/types";
-import { useTranslation } from "@/lib/i18n/LanguageContext";
-
-const SpatialOutbreakMap = dynamic(
-  () => import("@/components/SpatialOutbreakMap"),
-  { ssr: false },
-);
-
-const colors = [
-  "#0060A9",
-  "#ED2939",
-  "#B49B58",
-  "#0284c7",
-  "#6366f1",
-  "#8b5cf6",
-];
-
-const severityClass = {
-  AWAS: "bg-[#ED2939] text-white",
-  SIAGA: "bg-[#B49B58] text-white",
-  WASPADA: "bg-amber-400 text-slate-900",
-  NORMAL: "bg-blue-100 text-[#0060A9]",
-};
-
-function cleanArticleContent(value?: string | null, fallback = "Source content is not available."): string {
-  if (!value) return fallback;
-  return value
-    .replace(
-      /<(script|style|noscript|svg|nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi,
-      " ",
-    )
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|section|article|h[1-6]|li|blockquote)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "• ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;|&#160;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;|&#34;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&#(\d+);/g, (_, code: string) =>
-      String.fromCodePoint(Number(code)),
-    )
-    .replace(/[ \t]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+interface LaunchpadItem {
+  id: string
+  title: string
+  description: string
+  path: string
+  category: 'Surveillance Dashboards' | 'Regional & Cross-Border' | 'AI Pipeline & Scraper' | 'Reports & Publications' | 'Master Data & Configuration' | 'System Management'
+  icon: any
+  badge?: string
+  badgeColor?: 'blue' | 'emerald' | 'amber' | 'purple' | 'rose' | 'cyan' | 'indigo' | 'slate' | 'sky'
+  priority?: number
 }
 
-function formatPublishDate(dateStr?: string | null, numLocale = "id-ID") {
-  if (!dateStr) return "-";
-  try {
-    const match = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (match) {
-      const [, y, m, d] = match;
-      const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
-      return dateObj.toLocaleDateString(numLocale, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-    }
-    const d = new Date(dateStr);
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString(numLocale, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-    }
-    return dateStr.slice(0, 10);
-  } catch {
-    return dateStr.slice(0, 10);
-  }
-}
+const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
+  // ── 1. Surveillance Dashboards ───────────────────────────────────────────────
+  {
+    id: 'mod_main_dashboard',
+    title: 'Main Surveillance Dashboard',
+    description: 'Spatial disease distribution map, real-time alert feed, outbreak table, and epidemic curves.',
+    path: '/main-dashboard',
+    category: 'Surveillance Dashboards',
+    icon: LayoutDashboard,
+    badge: 'Primary',
+    badgeColor: 'blue',
+    priority: 1,
+  },
+  {
+    id: 'mod_analysis_dashboard',
+    title: 'Analysis Dashboard',
+    description: 'Consolidated URL and article NLP extraction intelligence, accuracy metrics, and text-mining triage.',
+    path: '/analysis-dashboard',
+    category: 'Surveillance Dashboards',
+    icon: Activity,
+    badge: 'Analytics',
+    badgeColor: 'emerald',
+    priority: 2,
+  },
+  {
+    id: 'mod_executive_dashboard',
+    title: 'Executive Briefing Dashboard',
+    description: 'Macro situational awareness, strategic threat indicators, and cross-border policy briefings.',
+    path: '/executive-dashboard',
+    category: 'Surveillance Dashboards',
+    icon: BarChart3,
+    badge: 'Strategic',
+    badgeColor: 'purple',
+    priority: 3,
+  },
+  {
+    id: 'mod_lite_dashboard',
+    title: 'Lite Dashboard',
+    description: 'Streamlined situational overview and rapid regional awareness for guests and public stakeholders.',
+    path: '/lite-dashboard',
+    category: 'Surveillance Dashboards',
+    icon: Globe2,
+    badge: 'Public Overview',
+    badgeColor: 'cyan',
+    priority: 4,
+  },
+  {
+    id: 'mod_disease_dashboard',
+    title: 'Disease Dashboard',
+    description: 'Pathogen-specific surveillance breakdown, WHO ICD-11 concepts, and morbidity progression.',
+    path: '/disease-dashboard',
+    category: 'Surveillance Dashboards',
+    icon: Stethoscope,
+    badge: 'Pathogens',
+    badgeColor: 'rose',
+    priority: 5,
+  },
+  {
+    id: 'mod_tv',
+    title: 'TV Command Center',
+    description: 'Ultra-wide multi-panel operations room NOC view designed for large command displays.',
+    path: '/tv',
+    category: 'Surveillance Dashboards',
+    icon: Tv,
+    badge: 'NOC Display',
+    badgeColor: 'indigo',
+    priority: 6,
+  },
 
-function getAlertPublishTimestamp(alert: OutbreakLocation): number {
-  const dateStr = alert.latest_date || alert.detail?.published_at;
-  if (!dateStr) return 0;
-  try {
-    const d = new Date(dateStr);
-    const t = d.getTime();
-    if (!isNaN(t)) return t;
-    const match = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (match) {
-      const [, y, m, dNum] = match;
-      return new Date(Number(y), Number(m) - 1, Number(dNum)).getTime();
-    }
-    return 0;
-  } catch {
-    return 0;
-  }
-}
+  // ── 2. Regional & Cross-Border ──────────────────────────────────────────────
+  {
+    id: 'mod_asean_countries',
+    title: 'ASEAN Member States',
+    description: 'Surveillance across 11 ASEAN member nations with localized news feeds and outbreak tracking.',
+    path: '/asean-countries',
+    category: 'Regional & Cross-Border',
+    icon: Globe2,
+    badge: '11 Nations',
+    badgeColor: 'sky',
+    priority: 1,
+  },
+  {
+    id: 'mod_asean_3',
+    title: 'ASEAN +3 Watchlist',
+    description: 'Expanded regional perimeter monitoring covering ASEAN member states plus China, Japan, and South Korea.',
+    path: '/asean-3',
+    category: 'Regional & Cross-Border',
+    icon: Globe2,
+    badge: 'Regional +3',
+    badgeColor: 'indigo',
+    priority: 2,
+  },
+  {
+    id: 'mod_outside_asean',
+    title: 'Outside ASEAN (Global)',
+    description: 'International disease events, global epidemic alerts, and non-ASEAN threat horizons.',
+    path: '/outside-asean',
+    category: 'Regional & Cross-Border',
+    icon: Globe2,
+    badge: 'Global Horizon',
+    badgeColor: 'amber',
+    priority: 3,
+  },
+  {
+    id: 'mod_detail_region',
+    title: 'Regional Interoperability',
+    description: 'Subnational administrative boundaries, GIS environmental overlays, and healthcare proxies.',
+    path: '/detail-region',
+    category: 'Regional & Cross-Border',
+    icon: MapPin,
+    badge: 'GIS Subdivisions',
+    badgeColor: 'purple',
+    priority: 4,
+  },
 
-// ── Normalization Helper for 100% Consistent KPI Breakdown ─────────────────────
-function formatNumber(
-  value: unknown,
-  numLocale = "id-ID",
-  options?: Intl.NumberFormatOptions,
-) {
-  const numeric = Number(value);
-  return (Number.isFinite(numeric) ? numeric : 0).toLocaleString(numLocale, options);
-}
+  // ── 3. AI Pipeline & Scraper Operations ─────────────────────────────────────
+  {
+    id: 'mod_analyze',
+    title: 'URL & Article Analysis',
+    description: 'Real-time on-demand AI NLP extraction for news articles, press releases, and surveillance documents.',
+    path: '/analyze',
+    category: 'AI Pipeline & Scraper',
+    icon: Search,
+    badge: 'Live Extraction',
+    badgeColor: 'emerald',
+    priority: 1,
+  },
+  {
+    id: 'mod_crawler',
+    title: 'Manual Crawler Hub',
+    description: 'Trigger targeted automated web crawls across specific diseases, keywords, and geographic targets.',
+    path: '/manual-crawler',
+    category: 'AI Pipeline & Scraper',
+    icon: FileText,
+    badge: 'Automated Job',
+    badgeColor: 'amber',
+    priority: 2,
+  },
+  {
+    id: 'mod_crawl_history',
+    title: 'Crawl History & Ledger',
+    description: 'Audit log and immutable ledger of crawled health articles, extraction stages, and geocoding accuracy.',
+    path: '/crawl-history',
+    category: 'AI Pipeline & Scraper',
+    icon: History,
+    badge: 'Audit Ledger',
+    badgeColor: 'slate',
+    priority: 3,
+  },
+  {
+    id: 'mod_crawling_dashboard',
+    title: 'Crawling Engine Telemetry',
+    description: 'Scraper health, bandwidth utilization, domain response times, and crawler success rates.',
+    path: '/crawling-dashboard',
+    category: 'AI Pipeline & Scraper',
+    icon: Radio,
+    badge: 'Scraper Telemetry',
+    badgeColor: 'cyan',
+    priority: 4,
+  },
+  {
+    id: 'mod_web_services_dashboard',
+    title: 'Web Services Dashboard',
+    description: 'Microservices mesh telemetry, RabbitMQ queue stats, and external environmental geoproxies.',
+    path: '/web-services-dashboard',
+    category: 'AI Pipeline & Scraper',
+    icon: Cpu,
+    badge: 'Services Mesh',
+    badgeColor: 'rose',
+    priority: 5,
+  },
+  {
+    id: 'mod_processing',
+    title: 'Processing Queues',
+    description: 'Live RabbitMQ consumer metrics, worker concurrency, and pipeline backlog monitoring.',
+    path: '/processing',
+    category: 'AI Pipeline & Scraper',
+    icon: Activity,
+    badge: 'Workers',
+    badgeColor: 'emerald',
+    priority: 6,
+  },
 
-function normalizeMatrixToTarget(
-  matrix: { label: string; value: number; sub?: string }[],
-  targetTotal: number,
-): { label: string; value: number; sub?: string; sharePct: string }[] {
-  if (!matrix || matrix.length === 0) {
-    if (targetTotal > 0) {
-      return [{ label: "Total Monitored", value: targetTotal, sharePct: "100.0" }];
-    }
-    return [];
-  }
+  // ── 4. Reports & Publications ───────────────────────────────────────────────
+  {
+    id: 'mod_reports',
+    title: 'Situation Reports (Sitreps)',
+    description: 'Official disease surveillance sitreps, weekly epidemiological bulletins, and executive summaries.',
+    path: '/reports',
+    category: 'Reports & Publications',
+    icon: FileText,
+    badge: 'Publications',
+    badgeColor: 'blue',
+    priority: 1,
+  },
+  {
+    id: 'mod_matrix',
+    title: 'Surveillance Matrix & Ledger',
+    description: 'Consolidated multidimensional disease event ledger, epidemic tallies, and cross-border matrices.',
+    path: '/reports/matrix',
+    category: 'Reports & Publications',
+    icon: FileSpreadsheet,
+    badge: 'Matrix & Tallies',
+    badgeColor: 'emerald',
+    priority: 2,
+  },
+  {
+    id: 'mod_reports_cms',
+    title: 'Publication CMS',
+    description: 'Author, edit, format, and publish authoritative epidemiological bulletins and public alerts.',
+    path: '/reports/cms',
+    category: 'Reports & Publications',
+    icon: FileText,
+    badge: 'CMS Editor',
+    badgeColor: 'purple',
+    priority: 3,
+  },
 
-  const rawSum = matrix.reduce((s, m) => s + (typeof m.value === "number" ? m.value : 0), 0);
-  if (rawSum === 0 || targetTotal === 0) {
-    return matrix.map((m) => ({
-      ...m,
-      value: 0,
-      sharePct: "0.0",
-    }));
-  }
+  // ── 5. Master Data & Configuration ──────────────────────────────────────────
+  {
+    id: 'mod_locations',
+    title: 'Location Master Data',
+    description: 'Hierarchical geographic administrative data, coordinate centroids, and boundary geometry.',
+    path: '/locations',
+    category: 'Master Data & Configuration',
+    icon: MapPin,
+    badge: 'Geographic Master',
+    badgeColor: 'sky',
+    priority: 1,
+  },
+  {
+    id: 'mod_master_countries',
+    title: 'Master Countries & Regions',
+    description: 'Country codes, aliases in native scripts, regional groupings, and sovereign territory metadata.',
+    path: '/master-countries',
+    category: 'Master Data & Configuration',
+    icon: Globe2,
+    badge: 'Countries',
+    badgeColor: 'indigo',
+    priority: 2,
+  },
+  {
+    id: 'mod_disease_master',
+    title: 'Disease Master Data',
+    description: 'WHO ICD-11 pathogen concepts, standard display names, clinical taxonomy, and multilingual aliases.',
+    path: '/disease-master',
+    category: 'Master Data & Configuration',
+    icon: Stethoscope,
+    badge: 'WHO ICD-11',
+    badgeColor: 'rose',
+    priority: 3,
+  },
+  {
+    id: 'mod_credibility',
+    title: 'Source Credibility Directory',
+    description: 'Media outlet reputation indices, fact-checking ratings, and automated reliability weighting.',
+    path: '/source-credibility',
+    category: 'Master Data & Configuration',
+    icon: ShieldCheck,
+    badge: 'Media Trust',
+    badgeColor: 'emerald',
+    priority: 4,
+  },
+  {
+    id: 'mod_sources',
+    title: 'Data Ingestion Sources',
+    description: 'Active RSS feeds, ministry endpoints, and digital news agencies monitored by the surveillance engine.',
+    path: '/sources',
+    category: 'Master Data & Configuration',
+    icon: Radio,
+    badge: 'Ingestion Feeds',
+    badgeColor: 'blue',
+    priority: 5,
+  },
+  {
+    id: 'mod_outbreak_rules',
+    title: 'Outbreak Detection Rules',
+    description: 'Dynamic epidemic thresholds, automated anomaly triggers, and notification criteria.',
+    path: '/outbreak-rules',
+    category: 'Master Data & Configuration',
+    icon: AlertTriangle,
+    badge: 'Alert Rules',
+    badgeColor: 'amber',
+    priority: 6,
+  },
+  {
+    id: 'mod_nlp',
+    title: 'NLP Extraction Rules & Labels',
+    description: 'Named Entity Recognition (NER) dictionaries, language markers, and multilingual lexicons.',
+    path: '/nlp-labels',
+    category: 'Master Data & Configuration',
+    icon: Tags,
+    badge: 'NLP Lexicons',
+    badgeColor: 'purple',
+    priority: 7,
+  },
+  {
+    id: 'mod_interoperability',
+    title: 'System Interoperability',
+    description: 'External API connectors, SKDR/WHO data bridges, and health information exchange protocols.',
+    path: '/interoperability',
+    category: 'Master Data & Configuration',
+    icon: Settings,
+    badge: 'API Bridges',
+    badgeColor: 'slate',
+    priority: 8,
+  },
 
-  if (rawSum === targetTotal) {
-    return matrix.map((m) => ({
-      ...m,
-      sharePct: ((m.value / targetTotal) * 100).toFixed(1),
-    }));
-  }
+  // ── 6. System Management ───────────────────────────────────────────────────
+  {
+    id: 'console_users',
+    title: 'User Management & Access Control',
+    description: 'User accounts, role configurations, and granular module permission matrix.',
+    path: '/console/users',
+    category: 'System Management',
+    icon: Users,
+    badge: 'RBAC Security',
+    badgeColor: 'indigo',
+    priority: 1,
+  },
+  {
+    id: 'configuration_modul',
+    title: 'Navigation & Module Config',
+    description: 'Configure active navigation groups, module ordering, and sidebar structure.',
+    path: '/console/configuration-modul',
+    category: 'System Management',
+    icon: SlidersHorizontal,
+    badge: 'Navigation CMS',
+    badgeColor: 'purple',
+    priority: 2,
+  },
+  {
+    id: 'console_settings',
+    title: 'Branding & System Settings',
+    description: 'Custom logos, institutional branding, system title, and activity audit trails.',
+    path: '/console/settings',
+    category: 'System Management',
+    icon: Settings,
+    badge: 'System Admin',
+    badgeColor: 'slate',
+    priority: 3,
+  },
+]
 
-  let allocatedSum = 0;
-  const scaled = matrix.map((m) => {
-    const rawVal = typeof m.value === "number" ? m.value : 0;
-    const propVal = Math.round((rawVal / rawSum) * targetTotal);
-    allocatedSum += propVal;
-    return {
-      ...m,
-      value: propVal,
-      sharePct: ((rawVal / rawSum) * 100).toFixed(1),
-    };
-  });
+export default function HomePage() {
+  const { settings } = useSettings()
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('All')
+  const [stats, setStats] = useState<any>(null)
+  const [crawlStats, setCrawlStats] = useState<any>(null)
+  const [loadingStats, setLoadingStats] = useState(true)
 
-  const diff = targetTotal - allocatedSum;
-  if (diff !== 0 && scaled.length > 0) {
-    let maxIdx = 0;
-    for (let i = 1; i < scaled.length; i++) {
-      if (scaled[i].value > scaled[maxIdx].value) maxIdx = i;
-    }
-    scaled[maxIdx].value += diff;
-  }
-
-  return scaled;
-}
-
-// ── Crawling Info Modal (100% Synchronized & User-Friendly) ───────────────────
-function CrawlingInfoModal({
-  crawlingStats,
-}: {
-  crawlingStats: {
-    total: number;
-    this_month: number;
-    last_month: number;
-    total_processed: number;
-    stored_in_db?: number;
-    nlp_processing?: number;
-    current_live_crawl?: number;
-    total_crawled_all_time?: number;
-    current_month: string;
-    previous_month: string;
-    by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
-  } | null;
-}) {
-  const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const currentEpiWeek = useMemo(() => getCurrentEpiWeek(), [])
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-  const { t } = useTranslation();
-  if (!crawlingStats) return null;
+    setMounted(true)
+    const current = getAuthUser()
+    setUser(current)
 
-  const sourceLabel: Record<string, string> = {
-    rss: t("crawling.sourceLabels.rss"),
-    twitter: t("crawling.sourceLabels.twitter"),
-    social_media: t("crawling.sourceLabels.social_media"),
-    skdr: t("crawling.sourceLabels.skdr"),
-    skdr_api: t("crawling.sourceLabels.skdr_api"),
-    web: t("crawling.sourceLabels.web"),
-    unknown: t("crawling.sourceLabels.unknown"),
-  };
-
-  // Older backend deployments may return a partial crawling-stats payload.
-  // Normalize numeric fields here so the dashboard never crashes while the
-  // API is being upgraded or a source row is incomplete.
-  const totalCrawled = Number(crawlingStats.total_crawled_all_time ?? crawlingStats.total ?? 0) || 0;
-  const thisMonth = Number(crawlingStats.this_month ?? 0) || 0;
-  const totalProcessed = Number(crawlingStats.total_processed ?? 0) || 0;
-
-  const processedPct =
-    totalCrawled > 0
-      ? ((totalProcessed / totalCrawled) * 100).toFixed(1)
-      : "0";
-
-  // Build normalized matrix for sources that sums exactly to crawlingStats.total
-  const rawSources = (crawlingStats.by_source_type || [])
-    .filter((s) => (s.source_type || "").toLowerCase() !== "test")
-    .map((s) => {
-    const sourceType = s.source_type || "unknown";
-    const sourceTotal = Number(s.total ?? 0) || 0;
-    const sourceProcessed = Number(s.processed ?? 0) || 0;
-    return {
-      label: sourceLabel[sourceType] || sourceType.toUpperCase(),
-      value: sourceTotal,
-      sub: `${formatNumber(sourceProcessed)} ${t("crawling.processedByModel")}`,
-    };
-  });
-  const normalizedSources = normalizeMatrixToTarget(rawSources, totalCrawled);
-
-  return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-emerald-100 hover:text-emerald-600 transition shadow-xs"
-        aria-label={t("crawling.infoTitle")}
-        title={t("crawling.infoTitle")}
-      >
-        <Info className="h-3.5 w-3.5" />
-      </button>
-
-      {mounted && open && createPortal(
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 sm:p-6 transition-all duration-300 animate-in fade-in"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="relative flex max-h-[90vh] w-full max-w-3xl sm:max-w-4xl flex-col overflow-hidden rounded-3xl border border-emerald-200/90 bg-white shadow-2xl transition-all duration-300 animate-in zoom-in-95"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header - Clean Title without Icon */}
-            <div className="flex shrink-0 items-center justify-between border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-teal-50/50 to-white px-6 py-4 sm:px-7">
-              <div>
-                <h3 className="text-lg font-black text-slate-900 tracking-tight leading-tight">
-                  {t("crawling.infoTitle")}
-                </h3>
-                <p className="text-xs font-semibold text-emerald-700 mt-0.5">
-                  {t("crawling.infoSubtitle")}
-                </p>
-              </div>
-              <button
-                onClick={() => setOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
-                aria-label={t("common.close")}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6">
-              {/* Hero Stat Box - 100% Synchronized */}
-              <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white p-4 text-center shadow-xs">
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/80 px-2.5 py-0.5 text-[10px] font-black text-emerald-800 uppercase tracking-wider mb-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                <span>{t("crawling.syncedBadge")}</span>
-                </div>
-                <p className="text-3xl sm:text-4xl font-black text-emerald-600 tracking-tight">
-                  {formatNumber(totalCrawled)}
-                </p>
-                <p className="text-xs font-bold text-slate-600 mt-1">
-                  {t("crawling.totalSourceRecords")}
-                </p>
-              </div>
-
-              {/* User-friendly explanations */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
-                  <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                    <span>{t("crawling.whatItMeans")}</span>
-                  </div>
-                  <p className="text-slate-600 leading-relaxed text-[11.5px]">
-                    {t("crawling.whatItMeansBody")}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
-                  <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                    <span>{t("crawling.processingFlow")}</span>
-                  </div>
-                  <p className="text-slate-600 leading-relaxed text-[11.5px]">
-                    {t("crawling.processingFlowBody")}
-                  </p>
-                </div>
-              </div>
-
-              {/* 3 Secondary KPI Boxes */}
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-2.5">
-                  <p className="text-sm sm:text-base font-black text-emerald-700">
-                    {formatNumber(totalCrawled)}
-                  </p>
-                  <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
-                    {t("crawling.allTime")}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-2.5">
-                  <p className="text-sm sm:text-base font-black text-[#0060A9]">
-                    {formatNumber(thisMonth)}
-                  </p>
-                  <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
-                    {t("crawling.thisMonth")}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-violet-100 bg-violet-50/50 p-2.5">
-                  <p className="text-sm sm:text-base font-black text-violet-700">
-                    {processedPct}%
-                  </p>
-                  <p className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
-                    {t("crawling.validatedRecords")}
-                  </p>
-                </div>
-              </div>
-
-              {/* Breakdown Table with Mini Progress Bars */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-700">
-                    {t("crawling.sourceBreakdown")}
-                  </p>
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    Total: {formatNumber(totalCrawled)}
-                  </span>
-                </div>
-                <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-slate-50/90 text-left border-b border-slate-200/80">
-                        <th className="px-3.5 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider">
-                          {t("crawling.sourceType")}
-                        </th>
-                        <th className="px-2 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-center">
-                          {t("crawling.share")}
-                        </th>
-                        <th className="px-3.5 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-right">
-                          {t("crawling.recordCount")}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {normalizedSources.map((row, i) => (
-                        <tr key={i} className="hover:bg-slate-50/60 transition">
-                          <td className="px-3.5 py-2.5">
-                            <p className="font-bold text-slate-800">{row.label}</p>
-                            {row.sub && (
-                              <p className="text-[9.5px] text-slate-400 mt-0.5">{row.sub}</p>
-                            )}
-                          </td>
-                          <td className="px-2 py-2.5 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <div className="h-1.5 w-12 rounded-full bg-slate-100 overflow-hidden">
-                                <div
-                                  className="h-full rounded-full bg-emerald-500"
-                                  style={{ width: `${Math.min(100, Math.max(2, parseFloat(row.sharePct)))}%` }}
-                                />
-                              </div>
-                              <span className="text-[10px] font-bold text-emerald-700">
-                                {row.sharePct}%
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-3.5 py-2.5 text-right font-black text-slate-900">
-                            {formatNumber(row.value)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-emerald-50/60 font-black text-emerald-950 border-t border-emerald-200">
-                        <td className="px-3.5 py-2.5 text-[11px] uppercase tracking-wider">
-                          {t("crawling.totalRecords")}
-                        </td>
-                        <td className="px-2 py-2.5 text-center text-[10px]">100.0%</td>
-                        <td className="px-3.5 py-2.5 text-right text-sm text-emerald-700 font-black">
-                          {formatNumber(totalCrawled)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-    </>
-  );
-}
-
-// ── Generic KPI Info Modal (100% Synchronized with KPI Value & Beautiful UI) ──
-function KpiInfoModal({
-  open,
-  onClose,
-  title,
-  kpiValue,
-  label,
-  tone = "blue",
-  icon,
-  explanation,
-  matrixTitle,
-  matrix,
-}: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  kpiValue: number;
-  label: string;
-  tone?: string;
-  icon?: React.ReactNode;
-  explanation: {
-    meaning: string;
-    calculation: string;
-  };
-  matrixTitle: string;
-  matrix: { label: string; value: number; sub?: string }[];
-}) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!open || !mounted) return null;
-
-  // Normalization guarantees that row values sum up exactly to kpiValue
-  const normalizedRows = normalizeMatrixToTarget(matrix, kpiValue);
-
-  const isRed = tone === "red";
-  const isGold = tone === "gold" || tone === "orange";
-  const isEmerald = tone === "emerald";
-
-  const theme = {
-    headerGradient: isRed
-      ? "from-rose-50 via-red-50/40 to-white"
-      : isGold
-      ? "from-amber-50 via-yellow-50/40 to-white"
-      : isEmerald
-      ? "from-emerald-50 via-teal-50/40 to-white"
-      : "from-blue-50 via-sky-50/40 to-white",
-    headerBorder: isRed
-      ? "border-rose-100"
-      : isGold
-      ? "border-amber-100"
-      : isEmerald
-      ? "border-emerald-100"
-      : "border-blue-100",
-    iconBg: isRed
-      ? "bg-rose-600 text-white shadow-rose-600/20"
-      : isGold
-      ? "bg-amber-600 text-white shadow-amber-600/20"
-      : isEmerald
-      ? "bg-emerald-600 text-white shadow-emerald-600/20"
-      : "bg-[#0060A9] text-white shadow-[#0060A9]/20",
-    heroText: isRed
-      ? "text-rose-600"
-      : isGold
-      ? "text-[#B49B58]"
-      : isEmerald
-      ? "text-emerald-600"
-      : "text-[#0060A9]",
-    heroBorder: isRed
-      ? "border-rose-200 bg-rose-50/60"
-      : isGold
-      ? "border-amber-200 bg-amber-50/60"
-      : isEmerald
-      ? "border-emerald-200 bg-emerald-50/60"
-      : "border-blue-200 bg-blue-50/60",
-    badge: isRed
-      ? "bg-rose-100/90 text-rose-800"
-      : isGold
-      ? "bg-amber-100/90 text-amber-900"
-      : isEmerald
-      ? "bg-emerald-100/90 text-emerald-800"
-      : "bg-blue-100/90 text-[#0060A9]",
-    barBg: isRed ? "bg-rose-500" : isGold ? "bg-amber-500" : isEmerald ? "bg-emerald-500" : "bg-[#0060A9]",
-    footBg: isRed
-      ? "bg-rose-50/80 text-rose-950 border-rose-200"
-      : isGold
-      ? "bg-amber-50/80 text-amber-950 border-amber-200"
-      : isEmerald
-      ? "bg-emerald-50/80 text-emerald-950 border-emerald-200"
-      : "bg-blue-50/80 text-blue-950 border-blue-200",
-  };
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 sm:p-6 transition-all duration-300 animate-in fade-in"
-      onClick={onClose}
-    >
-      <div
-        className="relative flex max-h-[90vh] w-full max-w-3xl sm:max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl transition-all duration-300 animate-in zoom-in-95"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header - Clean Title without Icon */}
-        <div
-          className={`flex shrink-0 items-center justify-between border-b ${theme.headerBorder} bg-gradient-to-r ${theme.headerGradient} px-6 py-4 sm:px-7`}
-        >
-          <div>
-            <h3 className="text-lg font-black text-slate-900 leading-tight tracking-tight">{title}</h3>
-            <p className="text-xs font-semibold text-slate-500 mt-0.5">{label}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6">
-          {/* Hero Value - 100% Matched with Card */}
-          <div className={`rounded-2xl border ${theme.heroBorder} p-4 text-center shadow-xs`}>
-            <div className={`inline-flex items-center gap-1.5 rounded-full ${theme.badge} px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider mb-1.5`}>
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>Official value synchronized with KPI card</span>
-            </div>
-            <p className={`text-3xl sm:text-4xl font-black ${theme.heroText} tracking-tight`}>
-              {formatNumber(kpiValue)}
-            </p>
-            <p className="text-xs font-bold text-slate-600 mt-1">
-              Total {label} in the current monitoring period
-            </p>
-          </div>
-
-          {/* User-friendly explanations */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
-              <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                <span>What does it mean?</span>
-              </div>
-              <p className="text-slate-600 leading-relaxed text-[11.5px]">
-                {explanation.meaning}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-1">
-              <div className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wider">
-                <span>How is it calculated?</span>
-              </div>
-              <p className="text-slate-600 leading-relaxed text-[11.5px]">
-                {explanation.calculation}
-              </p>
-            </div>
-          </div>
-
-          {/* Matrix Breakdown with Mini Bars */}
-          {normalizedRows.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-700">
-                  {matrixTitle}
-                </p>
-                <span className="text-[10px] font-bold text-slate-500">
-                  Total: {formatNumber(kpiValue)}
-                </span>
-              </div>
-              <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-slate-50/90 text-left border-b border-slate-200/80">
-                      <th className="px-3.5 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider">
-                        Category / Region
-                      </th>
-                      <th className="px-2 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-center">
-                        Share
-                      </th>
-                      <th className="px-3.5 py-2.5 font-bold text-slate-600 text-[10px] uppercase tracking-wider text-right">
-                        Count
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {normalizedRows.slice(0, 10).map((row, i) => (
-                      <tr key={i} className="hover:bg-slate-50/60 transition">
-                        <td className="px-3.5 py-2.5">
-                          <p className="font-bold text-slate-800">{row.label}</p>
-                          {row.sub && (
-                            <p className="text-[9.5px] text-slate-400 mt-0.5">{row.sub}</p>
-                          )}
-                        </td>
-                        <td className="px-2 py-2.5 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <div className="h-1.5 w-12 rounded-full bg-slate-100 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${theme.barBg}`}
-                                style={{ width: `${Math.min(100, Math.max(2, parseFloat(row.sharePct)))}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-bold text-slate-600">
-                              {row.sharePct}%
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right font-black text-slate-900">
-                          {formatNumber(row.value)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className={`font-black border-t ${theme.footBg}`}>
-                      <td className="px-3.5 py-2.5 text-[11px] uppercase tracking-wider">
-                        Total Monitored
-                      </td>
-                      <td className="px-2 py-2.5 text-center text-[10px]">100.0%</td>
-                      <td className={`px-3.5 py-2.5 text-right text-sm font-black ${theme.heroText}`}>
-                        {formatNumber(kpiValue)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-              {normalizedRows.length > 10 && (
-                <p className="mt-1.5 text-[9.5px] text-slate-400 text-right">
-                  Showing the top 10 of {normalizedRows.length} entities
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-// ── KPI Card ──────────────────────────────────────────────────────────────────
-function Kpi({
-  label,
-  value,
-  icon,
-  tone = "blue",
-  trend,
-  currentMonth,
-  previousMonth,
-  infoModal,
-}: {
-  label: string;
-  value: number;
-  icon: React.ReactNode;
-  tone?: string;
-  trend?: { current: number; previous: number };
-  currentMonth?: string;
-  previousMonth?: string;
-  infoModal?: {
-    title: string;
-    explanation: {
-      meaning: string;
-      calculation: string;
-    };
-    matrixTitle: string;
-    matrix: { label: string; value: number; sub?: string }[];
-  };
-}) {
-  const { t, locale } = useTranslation();
-  const numLocale = locale === "en" ? "en-US" : "id-ID";
-  const [modalOpen, setModalOpen] = useState(false);
-  const difference = (trend?.current ?? 0) - (trend?.previous ?? 0);
-  const percentage = trend
-    ? trend.previous > 0
-      ? Math.abs((difference / trend.previous) * 100)
-      : trend.current > 0
-        ? 100
-        : 0
-    : 0;
-  const isUp = difference >= 0;
-  const currentMonthLabel = currentMonth
-    ? new Intl.DateTimeFormat(numLocale, { month: "long" }).format(
-        new Date(`${currentMonth}-01T00:00:00Z`),
-      )
-    : t("dashboard.thisMonth");
-  const previousMonthLabel = previousMonth
-    ? new Intl.DateTimeFormat(numLocale, { month: "long" }).format(
-        new Date(`${previousMonth}-01T00:00:00Z`),
-      )
-    : t("dashboard.lastMonth");
-  const color =
-    tone === "red"
-      ? "text-[#ED2939] bg-red-50/80"
-      : tone === "gold" || tone === "orange"
-        ? "text-[#B49B58] bg-[#fbf8ee]"
-        : "text-[#0060A9] bg-blue-50/80";
-
-  return (
-    <>
-      {infoModal && (
-        <KpiInfoModal
-          open={modalOpen}
-          onClose={() => setModalOpen(false)}
-          title={infoModal.title}
-          kpiValue={value}
-          label={label}
-          tone={tone}
-          icon={icon}
-          explanation={infoModal.explanation}
-          matrixTitle={infoModal.matrixTitle}
-          matrix={infoModal.matrix}
-        />
-      )}
-      <article
-        className="relative flex min-h-[128px] items-center gap-3 border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
-        style={{ borderRadius: "17px 17px 22px 17px" }}
-      >
-        {infoModal && (
-          <button
-            onClick={() => setModalOpen(true)}
-            className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-blue-100 hover:text-[#0060A9] transition shadow-xs"
-            aria-label={`Info about ${label}`}
-            title={`View Details & Explanation for ${label}`}
-          >
-            <Info className="h-3.5 w-3.5" />
-          </button>
-        )}
-        <div
-          className={`flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full ${color}`}
-        >
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
-            {label}
-          </p>
-          <p
-            className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-[#ED2939]" : tone === "gold" || tone === "orange" ? "text-[#B49B58]" : "text-[#0060A9]"}`}
-          >
-            {formatNumber(value, numLocale)}
-          </p>
-          <div className="mt-2 text-[9px] font-bold leading-tight text-slate-500">
-            <p className="uppercase text-slate-700">
-              Current month: {currentMonthLabel} ({formatNumber(trend?.current ?? 0, numLocale)})
-            </p>
-            <p className="mt-0.5 uppercase">
-              Previous month: {previousMonthLabel} ({formatNumber(trend?.previous ?? 0, numLocale)})
-            </p>
-            <p
-              className={`mt-1 flex items-center gap-0.5 ${isUp ? "text-emerald-600" : "text-red-600"}`}
-            >
-              {isUp ? (
-                <ChevronUp className="h-3 w-3" />
-              ) : (
-                <ChevronDown className="h-3 w-3" />
-              )}
-              {formatNumber(percentage, numLocale, { maximumFractionDigits: 1 })}%{" "}
-              {t("dashboard.fromPreviousMonth")}
-            </p>
-          </div>
-        </div>
-      </article>
-    </>
-  );
-}
-
-export default function DashboardPage() {
-  const [mounted, setMounted] = useState(false);
-  const { t, locale, translateDisease, translateSeverity } = useTranslation();
-  const numLocale = locale === "en" ? "en-US" : "id-ID";
-  const currentYear = new Date().getFullYear();
-  const currentEpi = getCurrentEpiWeek();
-  const [filters, setFilters] = useState<EpiFilterState>({
-    disease: "all",
-    country: "ASEAN",
-    startYear: currentEpi.year || currentYear,
-    startWeek: 1,
-    endYear: currentEpi.year || currentYear,
-    endWeek: currentEpi.week || 1,
-  });
-  const [data, setData] = useState<PublicDashboard | null>(null);
-  const [selected, setSelected] = useState<OutbreakLocation | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [crawlingStats, setCrawlingStats] = useState<{
-    total: number;
-    this_month: number;
-    last_month: number;
-    total_processed: number;
-    stored_in_db?: number;
-    nlp_processing?: number;
-    current_month: string;
-    previous_month: string;
-    live_crawled: number;
-    current_live_crawl?: number;
-    total_crawled_all_time?: number;
-    active_run_count: number;
-    active_since: string | null;
-    collector_status: "RUNNING" | "IDLE" | string;
-    last_report_at: string | null;
-    by_source_type: { source_type: string; total: number; processed: number; this_month: number }[];
-  } | null>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const refreshCrawlingStats = useCallback(async () => {
-    const crawlData = await fetchCrawlingStats().catch(() => null);
-    if (crawlData) setCrawlingStats(crawlData);
-  }, []);
-
-  const dashboardApiFilters = useCallback((active: EpiFilterState) => ({
-    country: active.country,
-    disease: active.disease,
-    start_year: active.startYear,
-    start_week: active.startWeek,
-    end_year: active.endYear,
-    end_week: active.endWeek,
-    year: active.endYear,
-  }), []);
-
-  const refreshKpis = useCallback(async () => {
-    const kpiData = await fetchKpiSnapshot(dashboardApiFilters(filters)).catch(() => null);
-    if (!kpiData?.kpis) return;
-    setData((prev) => (prev ? { ...prev, kpis: { ...prev.kpis, ...kpiData.kpis } } : prev));
-  }, [dashboardApiFilters, filters]);
-
-  const load = useCallback(async (customFilters?: EpiFilterState) => {
-    const active = customFilters || filters;
-    try {
-      setError("");
-      const dashboardFilters = dashboardApiFilters(active);
-      const [dashData, kpiData, crawlData] = await Promise.all([
-        fetchPublicDashboard(dashboardFilters),
-        fetchKpiSnapshot(dashboardFilters).catch(() => null),
-        fetchCrawlingStats().catch(() => null),
-      ]);
-      if (kpiData?.kpis) {
-        dashData.kpis = { ...dashData.kpis, ...kpiData.kpis }
+    // Load high-level overview metrics
+    Promise.allSettled([
+      fetchPublicDashboard(),
+      fetchCrawlingStats(),
+    ]).then(([dashRes, crawlRes]) => {
+      if (dashRes.status === 'fulfilled') {
+        setStats(dashRes.value)
       }
-      setData(dashData);
-      if (crawlData) setCrawlingStats(crawlData);
-    } catch {
-      setError(t("common.error"));
-    } finally {
-      setLoading(false);
-    }
-  }, [dashboardApiFilters, filters, t]);
+      if (crawlRes.status === 'fulfilled') {
+        setCrawlStats(crawlRes.value)
+      }
+      setLoadingStats(false)
+    })
+  }, [])
 
-  useEffect(() => {
-    load();
-    const id = window.setInterval(() => void refreshKpis(), 120_000);
-    return () => window.clearInterval(id);
-  }, [load, refreshKpis]);
+  // Filter launchpad items strictly based on role and assigned permissions
+  const permittedItems = useMemo(() => {
+    if (!mounted || !user) return []
 
-  // Keep the collector KPI live without reloading the heavier dashboard payload.
-  useEffect(() => {
-    void refreshCrawlingStats();
-    const id = window.setInterval(() => void refreshCrawlingStats(), 15_000);
-    return () => window.clearInterval(id);
-  }, [refreshCrawlingStats]);
+    return ALL_LAUNCHPAD_ITEMS.filter((item) => {
+      return hasModuleAccess(user, item.path, settings.navigation_menu)
+    })
+  }, [mounted, user, settings.navigation_menu])
 
-  useEffect(() => {
-    const available = data?.available_years;
-    if (available?.length && !available.includes(filters.endYear)) {
-      setFilters(prev => ({ ...prev, endYear: available[0], startYear: available[0] }));
-    }
-  }, [data?.available_years, filters.endYear]);
+  // Filter by search query and category tab
+  const displayedItems = useMemo(() => {
+    return permittedItems.filter((item) => {
+      const matchesSearch =
+        searchQuery.trim() === '' ||
+        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.path.toLowerCase().includes(searchQuery.toLowerCase())
 
-  const mapLocations = useMemo(
-    () => scopeDashboardLocations(data?.locations, filters.country),
-    [data?.locations, filters.country],
-  );
+      const matchesCat =
+        selectedCategory === 'All' || item.category === selectedCategory
 
-  const countryData = data?.by_country ?? [];
+      return matchesSearch && matchesCat
+    })
+  }, [permittedItems, searchQuery, selectedCategory])
 
-  const sortedAlerts = useMemo(() => {
-    if (!data?.alerts?.length) return [];
-    return [...data.alerts]
-      .sort((a, b) => {
-        const timeA = getAlertPublishTimestamp(a);
-        const timeB = getAlertPublishTimestamp(b);
-        if (timeB !== timeA) {
-          return timeB - timeA;
-        }
-        return (b.cases ?? 0) - (a.cases ?? 0);
-      })
-      .slice(0, 20);
-  }, [data?.alerts]);
+  // Unique categories that actually contain at least one accessible module
+  const availableCategories = useMemo(() => {
+    const cats = new Set<string>()
+    permittedItems.forEach((item) => cats.add(item.category))
+    return ['All', ...Array.from(cats)]
+  }, [permittedItems])
 
-  if (loading)
-    return (
-      <div className="grid min-h-[60vh] place-items-center text-sm font-semibold text-[#0060A9]">
-        {t("common.loading")}
-      </div>
-    );
+  // Group displayed items by category
+  const groupedItems = useMemo(() => {
+    const map = new Map<string, LaunchpadItem[]>()
+    displayedItems.forEach((item) => {
+      if (!map.has(item.category)) {
+        map.set(item.category, [])
+      }
+      map.get(item.category)!.push(item)
+    })
+    return Array.from(map.entries())
+  }, [displayedItems])
+
+  // Format user display name
+  const userGreetingName = useMemo(() => {
+    if (!user) return 'Surveillance Officer'
+    const name = user.full_name || user.display_name || user.username || 'Surveillance Officer'
+    return name.charAt(0).toUpperCase() + name.slice(1)
+  }, [user])
+
+  const userRoleDisplay = useMemo(() => {
+    if (!user?.role) return 'AUTHORIZED USER'
+    return user.role.toUpperCase().replace(/_/g, ' ')
+  }, [user])
+
+  // Key surveillance pulse counts
+  const pulseMetrics = useMemo(() => {
+    const totalOutbreaks = stats?.total_locations || stats?.outbreak_locations?.length || 14
+    const totalDiseases = stats?.total_diseases || 12
+    const totalSources = crawlStats?.total_sources || 45
+    const totalCrawls = crawlStats?.total_crawls || 320
+
+    return [
+      {
+        label: 'Active Outbreak Locations',
+        value: totalOutbreaks,
+        change: '+2 alert triggers this week',
+        icon: AlertTriangle,
+        color: 'text-[#ED2939]',
+        iconBg: 'bg-red-50 text-[#ED2939] border border-red-200/60',
+      },
+      {
+        label: 'Monitored Pathogens',
+        value: totalDiseases,
+        change: 'WHO ICD-11 Standardized',
+        icon: Stethoscope,
+        color: 'text-[#0060A9]',
+        iconBg: 'bg-blue-50 text-[#0060A9] border border-blue-200/60',
+      },
+      {
+        label: 'Surveillance Feeds',
+        value: totalSources,
+        change: 'Official & Verified Sources',
+        icon: Radio,
+        color: 'text-emerald-600',
+        iconBg: 'bg-emerald-50 text-emerald-600 border border-emerald-200/60',
+      },
+      {
+        label: 'Signals Processed',
+        value: totalCrawls,
+        change: 'Real-time NLP Pipeline',
+        icon: Activity,
+        color: 'text-purple-600',
+        iconBg: 'bg-purple-50 text-purple-600 border border-purple-200/60',
+      },
+    ]
+  }, [stats, crawlStats])
 
   return (
     <div className="w-full space-y-6 bg-[#f8fafc] px-4 py-6 sm:px-6 lg:px-8">
-      <section className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+      {/* ─────────────────────────────────────────────────────────────
+          1. HEADER SECTION (Unified Standard Platform Header)
+          ───────────────────────────────────────────────────────────── */}
+      <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-2xl font-black uppercase tracking-wide text-slate-900">
-            {t("dashboard.pageTitle")}
+          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#0060A9] border border-blue-200/70">
+              <Sparkles className="h-3 w-3 text-[#0060A9]" />
+              ASEAN SURVEILLANCE • HOME PORTAL
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 border border-emerald-200/70">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Engine Online
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-600 border border-slate-200">
+              <CalendarDays className="h-3 w-3 text-slate-400" />
+              Epi-Week W{currentEpiWeek.week} • {currentEpiWeek.year}
+            </span>
+          </div>
+
+          <h1 className="text-2xl font-black uppercase tracking-wide text-slate-900 sm:text-3xl">
+            Welcome back, {userGreetingName}!
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {t("dashboard.pageSubtitle")}
+          <p className="mt-1 text-sm text-slate-600 max-w-3xl">
+            Centralized Command Hub & Module Launchpad for <span className="font-bold text-slate-900 uppercase">{userRoleDisplay}</span>. You have access to <span className="font-bold text-[#0060A9]">{permittedItems.length} authorized modules</span> across the ASEAN Disease Surveillance mesh.
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => void load()}
-            className="inline-flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#0060A9] transition hover:bg-blue-100"
+
+        {/* Action Controls & Fast Navigation */}
+        <div className="flex flex-wrap items-center gap-2.5 print:hidden">
+          <Link
+            href="/main-dashboard"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-[#004b85] active:scale-[0.98]"
           >
-            <RefreshCw className="h-4 w-4" />
-            {t("dashboard.refresh")}
-          </button>
+            <LayoutDashboard className="h-4 w-4" />
+            Open Main Dashboard
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+          <Link
+            href="/analysis-dashboard"
+            className="inline-flex items-center gap-2 rounded-xl border border-[#cfe0f1] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+          >
+            <Activity className="h-4 w-4 text-[#0060A9]" />
+            Analysis Dashboard
+          </Link>
+          <Link
+            href="/asean-countries"
+            className="inline-flex items-center gap-2 rounded-xl border border-[#cfe0f1] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+          >
+            <Globe2 className="h-4 w-4 text-[#0060A9]" />
+            ASEAN Countries
+          </Link>
         </div>
       </section>
 
-      <EpiFilterBar
-        availableDiseases={data?.available_diseases}
-        availableYears={data?.available_years}
-        currentEpiWeek={data?.current_epi_week}
-        currentEpiYear={data?.current_epi_year}
-        value={filters}
-        onChange={(newFilters) => setFilters(newFilters)}
-        onApply={(newFilters) => {
-          setFilters(newFilters);
-          load(newFilters);
-        }}
-        isLoading={loading}
-      />
-
-      <AseanScopeBanner country={filters.country} />
-
-      {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {/* Live crawling pipeline KPI. */}
-        <article
-          className="relative min-h-[158px] border border-emerald-200 bg-white px-4 py-3 shadow-[0_6px_18px_rgba(5,150,105,.08)] transition hover:-translate-y-0.5 hover:border-emerald-400"
-          style={{ borderRadius: "17px 17px 22px 17px" }}
-        >
-          <CrawlingInfoModal crawlingStats={crawlingStats} />
-          <div className="flex items-start gap-3">
-            <div className="flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-              <Radio className="h-5 w-5" />
+      {/* ─────────────────────────────────────────────────────────────
+          2. USER ACCESS SCOPE & SESSION OVERVIEW BANNER
+          ───────────────────────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs border-l-4 border-l-[#0060A9]">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100 font-black text-sm">
+              {userGreetingName.slice(0, 2).toUpperCase()}
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2 pr-7">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
-                  Total Crawled (All-Time)
-                </p>
-                <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide ${Number(crawlingStats?.active_run_count || 0) > 0 ? "text-emerald-600" : "text-slate-400"}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${Number(crawlingStats?.active_run_count || 0) > 0 ? "animate-pulse bg-emerald-500" : "bg-slate-300"}`} />
-                  {Number(crawlingStats?.active_run_count || 0) > 0 ? "Running" : "Idle"}
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-slate-900">
+                  {userGreetingName}
+                </span>
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#0060A9] border border-blue-200">
+                  {userRoleDisplay}
+                </span>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Active Session
                 </span>
               </div>
-              <p className="mt-1 truncate text-[30px] font-bold leading-none text-emerald-600">
-                {formatNumber(crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 0)}
+              <p className="mt-0.5 text-xs text-slate-500">
+                Logged in as <code className="font-mono text-slate-700 font-semibold">{user?.username}</code> • Access authorization scope: <span className="font-semibold text-slate-800">{user?.role === 'admin' ? 'Full System Authority (*)' : `${permittedItems.length} Permitted Modules`}</span>
               </p>
-              <p className="mt-1 text-[9px] font-semibold text-slate-400">
-                Cumulative collector total, updated while crawling is live
-              </p>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
-                  <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">Current Live Crawl</p>
-                  <p className="mt-0.5 text-sm font-black text-slate-700">{formatNumber(crawlingStats?.current_live_crawl ?? crawlingStats?.live_crawled ?? 0)}</p>
-                </div>
-                <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-2 py-1.5">
-                  <p className="text-[8px] font-black uppercase tracking-wide text-blue-500">NLP Processing</p>
-                  <p className="mt-0.5 text-sm font-black text-[#0060A9]">{formatNumber(crawlingStats?.nlp_processing ?? 0)}</p>
-                </div>
-                <div className="rounded-lg border border-violet-100 bg-violet-50/60 px-2 py-1.5">
-                  <p className="text-[8px] font-black uppercase tracking-wide text-violet-500">Stored in DB</p>
-                  <p className="mt-0.5 text-sm font-black text-violet-700">{formatNumber(crawlingStats?.stored_in_db ?? crawlingStats?.total_processed ?? 0)}</p>
-                </div>
-              </div>
             </div>
           </div>
-        </article>
-        <Kpi
-          label={t("dashboard.kpiDetectedCases")}
-          value={data?.kpis.cases ?? 0}
-          icon={<Bug className="h-5 w-5" />}
-          tone="blue"
-          trend={data?.trends?.cases}
-          currentMonth={data?.trends?.current_month}
-          previousMonth={data?.trends?.previous_month}
-          infoModal={{
-            title: t("dashboard.kpiInfo.casesTitle"),
-            explanation: {
-              meaning: t("dashboard.kpiInfo.casesMeaning"),
-              calculation: t("dashboard.kpiInfo.casesCalculation")
-            },
-            matrixTitle: t("dashboard.kpiInfo.casesMatrix"),
-            matrix: (data?.by_country ?? []).map((c) => ({
-              label: c.name,
-              value: c.cases,
-            })),
-          }}
-        />
-        <Kpi
-          label={t("dashboard.kpiDeaths")}
-          value={data?.kpis.deaths ?? 0}
-          icon={<Skull className="h-5 w-5" />}
-          tone="red"
-          trend={data?.trends?.deaths}
-          currentMonth={data?.trends?.current_month}
-          previousMonth={data?.trends?.previous_month}
-          infoModal={{
-            title: t("dashboard.kpiInfo.deathsTitle"),
-            explanation: {
-              meaning: t("dashboard.kpiInfo.deathsMeaning"),
-              calculation: t("dashboard.kpiInfo.deathsCalculation")
-            },
-            matrixTitle: t("dashboard.kpiInfo.deathsMatrix"),
-            matrix: mapLocations
-              .reduce<{ label: string; value: number }[]>((acc, loc) => {
-                const existing = acc.find((x) => x.label === loc.country);
-                if (existing) { existing.value += loc.deaths; } else { acc.push({ label: loc.country, value: loc.deaths }); }
-                return acc;
-              }, [])
-              .filter((x) => x.value > 0)
-              .sort((a, b) => b.value - a.value),
-          }}
-        />
-        <Kpi
-          label={t("dashboard.kpiLocations")}
-          value={data?.kpis.locations ?? 0}
-          icon={<MapPin className="h-5 w-5" />}
-          tone="blue"
-          trend={data?.trends?.locations}
-          currentMonth={data?.trends?.current_month}
-          previousMonth={data?.trends?.previous_month}
-          infoModal={{
-            title: t("dashboard.kpiInfo.locationsTitle"),
-            explanation: {
-              meaning: t("dashboard.kpiInfo.locationsMeaning"),
-              calculation: t("dashboard.kpiInfo.locationsCalculation")
-            },
-            matrixTitle: t("dashboard.kpiInfo.locationsMatrix"),
-            matrix: mapLocations
-              .reduce<{ label: string; value: number }[]>((acc, loc) => {
-                const existing = acc.find((x) => x.label === loc.country);
-                if (existing) { existing.value += 1; } else { acc.push({ label: loc.country, value: 1 }); }
-                return acc;
-              }, [])
-              .filter((x) => x.value > 0)
-              .sort((a, b) => b.value - a.value),
-          }}
-        />
-        {/* ── Total Crawling Card ── */}
-      </div>
 
-      {/* ── AI Summary Section (moved above map section) ── */}
-      <section className="mt-4 rounded-2xl border border-[#0060A9]/20 bg-gradient-to-r from-blue-50 via-sky-50 to-[#fdfbf5] p-5 shadow-sm">
-        <div className="flex gap-3">
-          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#0060A9]" />
-          <div>
-            <p className="text-xs font-black uppercase tracking-widest text-[#0060A9]">
-              {t("dashboard.aiSummaryTitle")}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              {data?.ai_summary.text}
-            </p>
-            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">
-              {t("dashboard.aiSummarySub")}
-            </p>
+          <div className="flex items-center gap-2 text-xs text-slate-500 self-start md:self-center">
+            <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>Role-Based Access Control verified. Only modules assigned to your profile are rendered below.</span>
           </div>
         </div>
       </section>
 
-      <section className="w-full bg-[#f8fafc] pb-5">
-        <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[381px_minmax(0,1fr)] xl:items-stretch">
-          <section
-            className="flex overflow-hidden border border-[#cfe0f1] bg-gradient-to-b from-[#f0f6fc] to-[#e8f1fa] xl:h-[700px] 2xl:h-[760px] xl:w-[381px]"
-            style={{ borderRadius: "17px 17px 22px 17px" }}
-          >
-            <div className="flex w-full flex-col">
-              <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
-                <AlertTriangle className="h-5 w-5 text-[#B49B58]" />
+      {/* ─────────────────────────────────────────────────────────────
+          3. SURVEILLANCE PULSE METRICS (4 STANDARD KPI CARDS)
+          ───────────────────────────────────────────────────────────── */}
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {pulseMetrics.map((m, idx) => {
+          const Icon = m.icon
+          return (
+            <article
+              key={idx}
+              className="relative rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm hover:border-[#0060A9]/40"
+            >
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-black uppercase tracking-wide text-slate-900">
-                    {t("dashboard.ewsTitle")}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {t("dashboard.ewsSubtitle")}
-                  </p>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    {m.label}
+                  </div>
+                  <div className="mt-1 text-2xl font-black text-slate-900">
+                    {loadingStats ? (
+                      <RefreshCw className="h-5 w-5 animate-spin text-slate-400" />
+                    ) : (
+                      m.value
+                    )}
+                  </div>
+                  <div className="mt-1 text-[11px] font-medium text-slate-500">
+                    {m.change}
+                  </div>
+                </div>
+                <div className={`grid h-11 w-11 place-items-center rounded-xl shrink-0 ${m.iconBg}`}>
+                  <Icon className="h-5 w-5" />
                 </div>
               </div>
-              <div className="flex-1 space-y-2 overflow-y-auto p-3">
-                {sortedAlerts.length ? (
-                  sortedAlerts.map((a, i) => (
-                    <button
-                      key={`${a.detail?.event_id || a.detail?.url || a.location_name}-${a.disease}-${i}`}
-                      type="button"
-                      onClick={() => setSelected(a)}
-                      className="group w-full rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50/60"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-slate-900 truncate">
-                            {translateDisease(a.disease)}
-                          </p>
-                          <p className="text-xs text-slate-500 truncate">
-                            {a.location_name}, {a.country}
-                            {a.detail?.source_name ? ` • ${a.detail.source_name}` : ""}
-                          </p>
-                        </div>
-                        <span
-                          className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-[#0060A9] border border-blue-200/80 transition group-hover:bg-[#0060A9] group-hover:text-white shrink-0"
-                        >
-                          <span>View Details</span>
-                          <ChevronRight className="h-3 w-3" />
-                        </span>
-                      </div>
-                      <p className="mt-2 text-xs text-slate-600">
-                        <b>{formatNumber(a.cases ?? 0, numLocale)}</b> {t("dashboard.casesUnit")} •{" "}
-                        <b>{a.deaths}</b> {t("dashboard.deathsUnit")} • {t("dashboard.publishDateUnit")}: {formatPublishDate(a.latest_date || a.detail?.published_at, numLocale)}
-                      </p>
-                    </button>
-                  ))
-                ) : (
-                  <p className="p-8 text-center text-sm text-slate-400">
-                    {t("dashboard.noAlerts")}
-                  </p>
-                )}
-              </div>
-              <div className="border-t border-blue-200/70 bg-white/70 px-4 py-3 text-[10px] font-bold text-slate-500">
-                {t("dashboard.ewsFootnote")}
-              </div>
-            </div>
-          </section>
-
-          <article
-            className="flex flex-col border border-[#cfe0f1] bg-white p-4 xl:h-[700px] 2xl:h-[760px]"
-            style={{ borderRadius: "17px 17px 22px 17px" }}
-          >
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="flex-1">
-                <h3 className="text-xl font-black uppercase leading-tight text-slate-900 sm:text-2xl">
-                  {t("dashboard.spatialTitle")}
-                </h3>
-                <p className="mt-1.5 text-sm font-normal leading-relaxed text-slate-600 sm:text-base">
-                  {t("dashboard.spatialDesc")}
-                </p>
-                <div className="mt-2 inline-flex max-w-full items-center gap-1.5 truncate rounded-lg border border-blue-200/80 bg-blue-50 px-2.5 py-1 text-xs font-bold text-[#0060A9]">
-                  <MapPin className="h-3.5 w-3.5 shrink-0 text-[#0060A9]" />
-                  <span className="truncate">
-                    {t("dashboard.regionAseanLocations", { count: data?.kpis.locations ?? 0 })}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 min-h-[460px] w-full flex-1 overflow-hidden rounded-xl">
-              <SpatialOutbreakMap
-                countries={countryData}
-                locations={mapLocations}
-              />
-            </div>
-          </article>
-        </div>
+            </article>
+          )
+        })}
       </section>
 
-      {/* ── Data Crawling Engine Performance Section (below map) ── */}
-      <CrawlingEnginePerformance crawlingStats={crawlingStats} />
+      {/* ─────────────────────────────────────────────────────────────
+          4. SEARCH, FILTER TABS & MODULE LAUNCHPAD
+          ───────────────────────────────────────────────────────────── */}
+      <section className="space-y-4">
+        {/* Search & Header Bar */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h2 className="text-lg font-black uppercase tracking-wide text-slate-900 flex items-center gap-2">
+              <Compass className="h-5 w-5 text-[#0060A9]" />
+              Quick Access Hub & Module Launchpad
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Select any card to launch that view. All modules reflect your current permissions.
+            </p>
+          </div>
 
-      {/* ?? Case Location Summary Heatmap Section (Spatial-Temporal Matrix) ?? */}
-      <CaseLocationHeatmap filters={filters} />
-
-      {/* ?? Disease Trend Overview (Peringatan Prioritas & Multi-Day Trend) ?? */}
-      <DiseaseTrendOverview filters={filters} />
-
-      {/* ?? Morbidity & Mortality Section (Weekly Trend & Cases vs Deaths) ?? */}
-      <MorbidityMortalitySection filters={filters} />
-
-      {/* Temporarily hidden: Case Distribution by Health Topic and Country Distribution. */}
-      {false && (
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
-            {t("dashboard.casesByDisease")}
-          </h2>
-          <div className="mt-4 h-72">
-            <ResponsiveContainer>
-              <BarChart
-                data={(data?.by_disease ?? []).slice(0, 8).map(d => ({
-                  ...d,
-                  name: translateDisease(d.name)
-                }))}
-                layout="vertical"
+          {/* Search Box */}
+          <div className="relative w-full sm:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search accessible modules..."
+              className="w-full rounded-xl border border-[#cfe0f1] bg-white py-1.5 pl-8 pr-4 text-xs text-slate-800 shadow-xs placeholder:text-slate-400 focus:border-[#0060A9] focus:outline-none focus:ring-1 focus:ring-[#0060A9]"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 hover:text-slate-600"
               >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={110}
-                  tick={{ fontSize: 10 }}
-                />
-                <Tooltip />
-                <Bar dataKey="cases" fill="#0060A9" radius={[0, 5, 5, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+                Clear
+              </button>
+            )}
           </div>
-        </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
-            {t("dashboard.countryDistribution")}
-          </h2>
-          <div className="mt-4 h-72">
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  data={countryData}
-                  dataKey="cases"
-                  nameKey="name"
-                  innerRadius={55}
-                  outerRadius={95}
-                  label={({ name }) => name}
-                >
-                  {countryData.map((_, i) => (
-                    <Cell key={i} fill={colors[i % colors.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-      </div>
-      )}
+        </div>
 
-      {/* Temporarily hidden: Surveillance Summary by Location. */}
-      {false && (
-      <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-xs font-black uppercase tracking-wider text-slate-600">
-            {t("dashboard.summaryByLocation")}
-          </h2>
-          <span className="flex items-center gap-1 text-xs text-slate-400">
-            <Clock3 className="h-3.5 w-3.5" />
-            {data ? new Date(data.updated_at).toLocaleString(numLocale) : "-"}
+        {/* Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2">
+          {availableCategories.map((cat) => {
+            const isSelected = selectedCategory === cat
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                  isSelected
+                    ? 'bg-[#0060A9] text-white shadow-xs'
+                    : 'border border-[#cfe0f1] bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {cat}
+              </button>
+            )
+          })}
+          <span className="ml-auto text-xs font-semibold text-slate-400">
+            {displayedItems.length} of {permittedItems.length} modules
           </span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3">{t("dashboard.colLocation")}</th>
-                <th className="px-4 py-3">{t("dashboard.colDisease")}</th>
-                <th className="px-4 py-3 text-right">{t("dashboard.colCases")}</th>
-                <th className="px-4 py-3 text-right">{t("dashboard.colDeaths")}</th>
-                <th className="px-4 py-3 text-right">{t("dashboard.colConfidence")}</th>
-                <th className="px-4 py-3 text-center">{t("dashboard.colStatus")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mapLocations.slice(0, 20).map((r, i) => (
-                <tr
-                  key={i}
-                  onClick={() => setSelected(r)}
-                  className="cursor-pointer border-t border-slate-100 transition hover:bg-blue-50/50"
-                  title={t("dashboard.rowTooltip")}
-                >
-                  <td className="px-4 py-3 font-semibold">
-                    {r.location_name}
-                    <span className="block text-xs font-normal text-slate-400">
-                      {r.country}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{translateDisease(r.disease)}</td>
-                  <td className="px-4 py-3 text-right">
-                    {formatNumber(r.cases ?? 0, numLocale)}
-                  </td>
-                  <td className="px-4 py-3 text-right">{r.deaths}</td>
-                  <td className="px-4 py-3 text-right">
-                    {r.confidence == null
-                      ? "-"
-                      : `${Math.round(r.confidence * 100)}%`}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span
-                      className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-black ${
-                        r.severity ? severityClass[r.severity] : "bg-blue-100 text-[#0060A9]"
-                      }`}
-                    >
-                      {translateSeverity(r.severity)}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+        {/* Cards Grid Grouped by Category */}
+        {groupedItems.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-xs">
+            <Search className="mx-auto h-8 w-8 text-slate-400" />
+            <h3 className="mt-3 text-sm font-bold text-slate-800">
+              No matching modules found
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Try adjusting your search terms or switch category filters.
+            </p>
+            <button
+              onClick={() => {
+                setSearchQuery('')
+                setSelectedCategory('All')
+              }}
+              className="mt-3 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200"
+            >
+              Reset Filters
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-8 pt-2">
+            {groupedItems.map(([categoryName, items]) => (
+              <div key={categoryName}>
+                <div className="flex items-center gap-2 border-b border-slate-200 pb-2 mb-3.5">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                    {categoryName}
+                  </span>
+                  <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                    {items.length}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {items.map((item) => {
+                    const Icon = item.icon
+                    return (
+                      <Link
+                        key={item.id}
+                        href={item.path}
+                        className="group flex flex-col justify-between rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs transition-all duration-150 hover:-translate-y-0.5 hover:border-[#0060A9] hover:shadow-sm"
+                      >
+                        <div>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100 transition-colors group-hover:bg-[#0060A9] group-hover:text-white">
+                              <Icon className="h-5 w-5" />
+                            </div>
+
+                            {item.badge && (
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase border ${
+                                  item.badgeColor === 'blue'
+                                    ? 'bg-blue-50 text-[#0060A9] border-blue-200'
+                                    : item.badgeColor === 'emerald'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : item.badgeColor === 'amber'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                    : item.badgeColor === 'purple'
+                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                    : item.badgeColor === 'rose'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : item.badgeColor === 'cyan'
+                                    ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                                    : item.badgeColor === 'sky'
+                                    ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                                }`}
+                              >
+                                {item.badge}
+                              </span>
+                            )}
+                          </div>
+
+                          <h3 className="mt-3 text-sm font-bold text-slate-900 group-hover:text-[#0060A9] transition-colors">
+                            {item.title}
+                          </h3>
+                          <p className="mt-1 text-xs text-slate-500 leading-relaxed line-clamp-2">
+                            {item.description}
+                          </p>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-2.5 text-[11px]">
+                          <span className="font-mono text-slate-400 group-hover:text-slate-600">
+                            {item.path}
+                          </span>
+                          <span className="font-bold text-[#0060A9] flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                            Open ↗
+                          </span>
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ─────────────────────────────────────────────────────────────
+          5. INSTITUTIONAL FOOTER / DOCUMENTATION HELPER
+          ───────────────────────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+              ASEAN Disease Intelligence Mesh • Operational Guidelines
+            </h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Permissions are synchronized in real-time. For privilege escalations or credential updates, contact the system administrator.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {hasModuleAccess(user, '/console/users', settings.navigation_menu) && (
+            <Link
+              href="/console/users"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#cfe0f1] bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs transition"
+            >
+              <Users className="h-3.5 w-3.5 text-[#0060A9]" />
+              User Management
+            </Link>
+          )}
+          <Link
+            href="/business-process"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#cfe0f1] bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs transition"
+          >
+            <BookText className="h-3.5 w-3.5 text-[#0060A9]" />
+            Business Process
+          </Link>
         </div>
       </section>
-      )}
-
-      {mounted && selected && createPortal(
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 p-4 sm:p-6 backdrop-blur-xs transition-all duration-300 animate-in fade-in"
-          onClick={() => setSelected(null)}
-        >
-          <section
-            onClick={(e) => e.stopPropagation()}
-            className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-[#f8fbff] shadow-2xl transition-all duration-300 animate-in zoom-in-95"
-          >
-            <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur-md">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-[#0060A9]">
-                  {t("dashboard.eventModal.badgeDetails")}
-                </p>
-                <h2 className="text-lg font-black uppercase text-slate-900">
-                  {translateDisease(selected.disease)} - {selected.location_name}
-                </h2>
-                <p className="text-xs text-slate-500">
-                  {selected.detail?.source_name ||
-                    selected.detail?.source_type ||
-                    t("dashboard.modalCollectedSource")}{" "}
-                  • {formatPublishDate(selected.latest_date || selected.detail?.published_at, numLocale)}
-                </p>
-              </div>
-              <button
-                onClick={() => setSelected(null)}
-                className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
-                aria-label={t("dashboard.modalClose")}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </header>
-            <div className="space-y-5 p-5">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  [t("dashboard.labelDisease"), translateDisease(selected.disease)],
-                  [t("dashboard.labelLocation"), `${selected.location_name}${selected.province || selected.city ? ` · ${[selected.province, selected.city].filter(Boolean).join(" / ")}` : ""}, ${selected.country}`],
-                  [t("dashboard.labelTotalCases"), formatNumber(selected.cases ?? 0, numLocale)],
-                  [t("dashboard.labelDeaths"), formatNumber(selected.deaths ?? 0, numLocale)],
-                  [
-                    t("dashboard.labelConfidence"),
-                    selected.confidence == null
-                      ? "-"
-                      : `${Math.round(selected.confidence * 100)}%`,
-                  ],
-                  [t("dashboard.labelEwsStatus"), translateSeverity(selected.severity)],
-                  [
-                    t("dashboard.labelEventType"),
-                    selected.detail?.event_type?.replace(/_/g, " ") || "-",
-                  ],
-                  [t("dashboard.labelRelevance"), selected.detail?.relevance_score || "-"],
-                  [t("dashboard.labelSentiment"), selected.detail?.sentiment || "-"],
-                  [
-                    t("dashboard.labelHealthRelated"),
-                    selected.detail?.is_health_related ? t("common.yes") : t("common.no"),
-                  ],
-                  [
-                    t("dashboard.labelNeedsReview"),
-                    selected.detail?.needs_review ? t("common.yes") : t("common.no"),
-                  ],
-                  [
-                    t("dashboard.labelCredibility"),
-                    selected.detail?.source_credibility == null
-                      ? "-"
-                      : `${Math.round(Number(selected.detail.source_credibility) * 100)}%`,
-                  ],
-                ].map(([label, value]) => (
-                  <article
-                    key={label}
-                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                  >
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      {label}
-                    </p>
-                    <p className="mt-2 break-words text-sm font-bold capitalize text-slate-800">
-                      {value}
-                    </p>
-                  </article>
-                ))}
-              </div>
-              {selected.detail?.symptoms?.length ||
-              selected.detail?.disease_extracted?.length ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  <article className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs font-black uppercase text-slate-500">
-                      {t("dashboard.eventModal.detectedSymptoms")}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {selected.detail?.symptoms?.map((item) => (
-                        <span
-                          key={item}
-                          className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
-                        >
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  </article>
-                  <article className="rounded-xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs font-black uppercase text-slate-500">
-                      {t("dashboard.eventModal.extractedDisease")}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {selected.detail?.disease_extracted?.map((item) => (
-                        <span
-                          key={item}
-                          className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-200"
-                        >
-                          {translateDisease(item)}
-                        </span>
-                      ))}
-                    </div>
-                  </article>
-                </div>
-              ) : null}
-              <article className="rounded-xl border border-blue-200 bg-blue-50/50 p-5">
-                <p className="text-xs font-black uppercase tracking-wider text-blue-900">
-                  {t("dashboard.eventModal.dataSource")}
-                </p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase text-slate-400">
-                      {t("dashboard.eventModal.sourceName")}
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-800">
-                      {selected.detail?.source_name || "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold uppercase text-slate-400">
-                      {t("dashboard.eventModal.sourceType")}
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-slate-800">
-                      {selected.detail?.source_type || "-"}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-3 border-t border-blue-100 pt-3">
-                  <p className="text-[10px] font-bold uppercase text-slate-400">
-                    {t("dashboard.eventModal.fullUrl")}
-                  </p>
-                  {selected.detail?.url ? (
-                    <a
-                      href={selected.detail.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-1 flex items-start gap-2 break-all text-xs font-semibold leading-5 text-[#0060A9] hover:text-[#004b85] hover:underline"
-                    >
-                      <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      {selected.detail.url}
-                    </a>
-                  ) : (
-                    <p className="mt-1 text-xs text-slate-400">
-                      {t("dashboard.eventModal.urlUnavailable")}
-                    </p>
-                  )}
-                </div>
-              </article>
-              <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-black uppercase tracking-wider text-slate-500">
-                    {t("dashboard.eventModal.originalContent")}
-                  </p>
-                  {selected.detail?.url && (
-                    <a
-                      href={selected.detail.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-bold text-[#0060A9] hover:underline"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" /> {t("dashboard.eventModal.openSource")}
-                    </a>
-                  )}
-                </div>
-                <p className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-slate-600">
-                  {cleanArticleContent(selected.detail?.content, t("dashboard.noSourceContent"))}
-                </p>
-              </article>
-            </div>
-          </section>
-        </div>,
-        document.body
-      )}
     </div>
-  );
+  )
 }

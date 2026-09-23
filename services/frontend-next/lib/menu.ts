@@ -157,9 +157,10 @@ export const DEFAULT_NAVIGATION_CONFIG: SidebarGroupConfig[] = [
     enabled: true,
     items: [
       { id: 'mod_home', label: 'Home', labelKey: 'sidebar.items.home', icon: 'Home', href: '/', order: 1, enabled: true },
-      { id: 'mod_asean_countries', label: 'ASEAN Countries', icon: 'Globe2', href: '/asean-countries', order: 2, enabled: true },
-      { id: 'mod_asean_3', label: 'ASEAN +3', icon: 'Globe2', href: '/asean-3', order: 3, enabled: true },
-      { id: 'mod_outside_asean', label: 'Outside ASEAN', icon: 'Globe2', href: '/outside-asean', order: 4, enabled: true },
+      { id: 'mod_main_dashboard', label: 'Main Dashboard', labelKey: 'sidebar.items.mainDashboard', icon: 'LayoutDashboard', href: '/main-dashboard', order: 2, enabled: true },
+      { id: 'mod_asean_countries', label: 'ASEAN Countries', icon: 'Globe2', href: '/asean-countries', order: 3, enabled: true },
+      { id: 'mod_asean_3', label: 'ASEAN +3', icon: 'Globe2', href: '/asean-3', order: 4, enabled: true },
+      { id: 'mod_outside_asean', label: 'Outside ASEAN', icon: 'Globe2', href: '/outside-asean', order: 5, enabled: true },
       { id: 'mod_analysis_dashboard', label: 'Analysis Dashboard', icon: 'Activity', href: '/analysis-dashboard', order: 5, enabled: true },
       { id: 'mod_web_services_dashboard', label: 'Web Services Dashboard', icon: 'Cpu', href: '/web-services-dashboard', order: 6, enabled: true },
       { id: 'mod_regions', label: 'Regions/Country', labelKey: 'sidebar.items.regionsCountry', icon: 'Globe2', href: '/countries', order: 7, enabled: true },
@@ -296,7 +297,8 @@ export const consoleMenu: SidebarGroup[] = [
   {
     title: 'NAVIGATION',
     items: [
-      { label: 'Surveillance Dashboard', icon: Home, href: '/' },
+      { label: 'Home Portal', icon: Home, href: '/' },
+      { label: 'Main Dashboard', icon: LayoutDashboard, href: '/main-dashboard' },
       { label: 'TV Command Center', icon: Activity, href: '/tv' },
       { label: 'Reports', icon: FileText, href: '/reports' },
       { label: 'Matrix & ledger', icon: FileSpreadsheet, href: '/reports/matrix' },

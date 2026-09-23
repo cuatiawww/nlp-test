@@ -16,6 +16,7 @@ const guestMenu: SidebarGroup[] = [
     titleKey: "sidebar.sections.monitoring",
     items: [
       { label: "Home", labelKey: "sidebar.items.home", icon: undefined, href: "/" },
+      { label: "Main Dashboard", labelKey: "sidebar.items.mainDashboard", icon: undefined, href: "/main-dashboard" },
       { label: "Lite Dashboard", labelKey: "sidebar.items.liteDashboard", icon: undefined, href: "/lite-dashboard" },
       { label: "ASEAN Countries", labelKey: "sidebar.items.aseanCountries", icon: undefined, href: "/asean-countries" },
       { label: "ASEAN +3", labelKey: "sidebar.items.asean3", icon: undefined, href: "/asean-3" },

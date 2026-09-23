@@ -13,7 +13,9 @@ export interface SystemModule {
 
 export const SYSTEM_MODULES: SystemModule[] = [
   // Surveillance & Monitoring
-  { id: 'dashboard', label: 'Dashboard & Map', description: 'Surveillance dashboard, distribution map, and events', category: 'Surveillance & Monitoring', path: '/' },
+  { id: 'home', label: 'Home Portal', description: 'Personalized command landing page, surveillance overview, and launchpad', category: 'Surveillance & Monitoring', path: '/' },
+  { id: 'main_dashboard', label: 'Main Dashboard', description: 'ASEAN disease spatial outbreak map, outbreak events, and epidemiological surveillance metrics', category: 'Surveillance & Monitoring', path: '/main-dashboard' },
+  { id: 'dashboard', label: 'Surveillance Dashboard', description: 'Surveillance dashboard, distribution map, and events', category: 'Surveillance & Monitoring', path: '/main-dashboard' },
   { id: 'lite_dashboard', label: 'Lite Dashboard', description: 'Public Guest situational awareness and regional outbreak summary', category: 'Surveillance & Monitoring', path: '/lite-dashboard' },
   { id: 'asean_countries', label: 'ASEAN Countries', description: 'Surveillance and cross-border threat monitoring across the 11 ASEAN member states', category: 'Surveillance & Monitoring', path: '/asean-countries' },
   { id: 'asean_3', label: 'ASEAN +3', description: 'Expanded regional surveillance covering 11 ASEAN states plus China, Japan, and South Korea', category: 'Surveillance & Monitoring', path: '/asean-3' },

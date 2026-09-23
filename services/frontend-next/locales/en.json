@@ -56,6 +56,8 @@
     "subtitle": "Real-time multilingual data monitoring",
     "kemenkes": "ASEAN Surveillance Centre",
     "dashboard": "DASHBOARD",
+    "home": "HOME",
+    "mainDashboard": "DASHBOARD",
     "tvMode": "TV MODE",
     "reports": "REPORTS",
     "login": "LOGIN",
@@ -71,6 +73,7 @@
     },
     "items": {
       "home": "Home",
+      "mainDashboard": "Main Dashboard",
       "regionsCountry": "Regions/Country",
       "diseases": "Diseases",
       "sources": "Data Sources",

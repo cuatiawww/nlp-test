@@ -2,6 +2,7 @@
 
 import {
   ChevronDown,
+  Home,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -146,7 +147,7 @@ export default function DashboardHeader({
                   Reports CMS
                 </Link>
                 <Link
-                  href="/"
+                  href="/main-dashboard"
                   className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white hover:text-[#0060A9]"
                 >
                   <LayoutDashboard className="h-4 w-4" />
@@ -154,7 +155,7 @@ export default function DashboardHeader({
                 </Link>
               </div>
             ) : (
-              /* In Regular Dashboard Mode: Show standard Dashboard, TV mode, and Laporan */
+              /* In Regular Dashboard Mode: Show Home, Main Dashboard, TV mode, and Reports */
               <div className="hidden items-center rounded-2xl border border-white/45 bg-white/90 p-1.5 shadow-sm backdrop-blur-sm sm:flex">
                 <Link
                   href="/"
@@ -164,8 +165,19 @@ export default function DashboardHeader({
                       : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
                   }`}
                 >
+                  <Home className="h-4 w-4" />
+                  {t("header.home") || "HOME"}
+                </Link>
+                <Link
+                  href="/main-dashboard"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    pathname?.startsWith("/main-dashboard")
+                      ? "bg-[#0060A9] text-white hover:bg-[#004b85]"
+                      : "text-slate-700 hover:bg-white hover:text-[#0060A9]"
+                  }`}
+                >
                   <LayoutDashboard className="h-4 w-4" />
-                  {t("header.dashboard")}
+                  {t("header.mainDashboard") || "DASHBOARD"}
                 </Link>
                 <Link
                   href="/tv"
