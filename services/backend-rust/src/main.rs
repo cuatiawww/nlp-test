@@ -3542,7 +3542,7 @@ async fn analyze_url(
 
         let sibling_rows = client
             .query(
-                "SELECT de.disease_classification, de.location_name, l.country,
+            "SELECT de.id, de.disease_classification, de.location_name, l.country,
                         de.case_count, de.death_count, de.parent_event_id,
                         ST_Y(de.geom) as latitude, ST_X(de.geom) as longitude
                  FROM disease_events de
@@ -3565,6 +3565,7 @@ async fn analyze_url(
             sibling_rows.iter().collect()
         };
         for r in fact_rows {
+            let event_id = r.try_get::<_, Uuid>("id").ok();
             let disease = r.try_get::<_, Option<String>>("disease_classification").ok().flatten();
             let location_name = r.try_get::<_, Option<String>>("location_name").ok().flatten();
             let country = r.try_get::<_, Option<String>>("country").ok().flatten();
@@ -3579,6 +3580,7 @@ async fn analyze_url(
                 deaths,
             });
             sub_events.push(json!({
+                "event_id": event_id,
                 "disease": disease,
                 "location_name": location_name,
                 "country": country,
@@ -4372,6 +4374,7 @@ async fn analyze_url(
             "source_credibility_label": nlp.source_credibility_label,
             "needs_review": nlp.needs_review,
             "locations": nlp.locations,
+            "sub_events": nlp.sub_events,
             "is_health_related": nlp.is_health_related,
             "raw_report_id": raw_id,
             "event_id": event_id,

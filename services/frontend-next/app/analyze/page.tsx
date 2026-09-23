@@ -611,6 +611,7 @@ export default function AnalyzePage() {
                                 title: (result as any)?.title || url,
                                 url: url,
                                 summary: (result as any)?.summary,
+                                content: (result as any)?.content || (result as any)?.text,
                                 snippet: evidenceSnippet || ((result as any)?.text || '').slice(0, 300),
                                 evidence: evidenceSnippet,
                                 disease: result?.disease_extracted || (result as any)?.disease,
@@ -619,6 +620,19 @@ export default function AnalyzePage() {
                                 cases: result?.case_count,
                                 deaths: result?.death_count,
                                 language: result?.language,
+                                children: subEvents.map((evt: any) => ({
+                                  id: evt.event_id,
+                                  disease_event_id: evt.event_id,
+                                  raw_report_id: (result as any)?.raw_report_id,
+                                  disease: evt.disease,
+                                  location_name: evt.location_name,
+                                  country: evt.country,
+                                  latitude: evt.latitude,
+                                  longitude: evt.longitude,
+                                  cases: evt.case_count,
+                                  deaths: evt.death_count,
+                                  evidence: evt.evidence,
+                                })),
                                 needsReview: (result as any)?.needs_review,
                               })}
                               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition"
@@ -1103,6 +1117,7 @@ export default function AnalyzePage() {
         open={!!reviewTarget}
         target={reviewTarget}
         onClose={() => setReviewTarget(null)}
+        onCorrected={() => setReviewTarget(null)}
       />
 
     </div>

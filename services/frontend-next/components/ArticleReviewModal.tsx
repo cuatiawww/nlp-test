@@ -21,6 +21,8 @@ import { toast } from 'sonner'
 import { markArticleReviewed, submitNLPCorrection } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
 
+type EditableField = 'disease' | 'country' | 'location' | 'cases' | 'deaths'
+
 export interface ReviewTarget {
   id?: string | null
   eventId?: string | null
@@ -28,6 +30,7 @@ export interface ReviewTarget {
   title?: string | null
   url?: string | null
   summary?: string | null
+  content?: string | null
   snippet?: string | null
   evidence?: string | null
   disease?: string | null
@@ -72,17 +75,38 @@ function stripHtml(text?: string | null): string {
     .trim()
 }
 
-function ReviewValue({ label, value, tone }: { label: string; value: string; tone?: 'cases' | 'deaths' }) {
+function ReviewValue({
+  label,
+  value,
+  tone,
+  field,
+  selected,
+  onClick,
+}: {
+  label: string
+  value: string
+  tone?: 'cases' | 'deaths'
+  field?: EditableField
+  selected?: boolean
+  onClick?: (field: EditableField) => void
+}) {
   const toneClass = tone === 'cases'
     ? 'text-emerald-800'
     : tone === 'deaths'
       ? 'text-rose-800'
       : 'text-slate-900'
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+    <button
+      type="button"
+      onClick={() => field && onClick?.(field)}
+      className={`w-full rounded-lg border bg-white p-2.5 text-left transition ${
+        selected ? 'border-emerald-500 ring-2 ring-emerald-100' : 'border-slate-200 hover:border-emerald-300'
+      } ${field ? 'cursor-pointer' : 'cursor-default'}`}
+    >
       <span className="block text-[10px] font-medium text-slate-500">{label}</span>
       <span className={`mt-0.5 block truncate text-xs font-bold ${toneClass}`}>{value}</span>
-    </div>
+      {field ? <span className="mt-1 block text-[9px] font-medium text-emerald-700">Klik untuk koreksi</span> : null}
+    </button>
   )
 }
 
@@ -91,11 +115,13 @@ function ReviewInput({
   value,
   onChange,
   inputMode,
+  active,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   inputMode?: 'numeric'
+  active?: boolean
 }) {
   return (
     <label className="block text-[10px] font-semibold text-slate-600">
@@ -106,7 +132,7 @@ function ReviewInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         inputMode={inputMode}
-        className="mt-1 w-full rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-100"
+        className={`mt-1 w-full rounded-lg border bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-100 ${active ? 'border-emerald-500 ring-1 ring-emerald-100' : 'border-emerald-200'}`}
       />
     </label>
   )
@@ -123,6 +149,33 @@ export default function ArticleReviewModal({
   const [savingCorrections, setSavingCorrections] = useState(false)
   const [isReviewed, setIsReviewed] = useState(target?.needsReview === false)
   const [reviewReason, setReviewReason] = useState('')
+  const [selectedField, setSelectedField] = useState<EditableField | null>(null)
+  const [activeChildId, setActiveChildId] = useState<string | null>(null)
+
+  const activeChild = React.useMemo(() => {
+    if (!target || !activeChildId) return null
+    return (target.children || []).find((child: any) =>
+      String(child.disease_event_id || child.id || '') === activeChildId,
+    ) || null
+  }, [target, activeChildId])
+
+  const currentTarget = React.useMemo<ReviewTarget | null>(() => {
+    if (!target) return null
+    if (!activeChild) return target
+    return {
+      ...target,
+      eventId: activeChild.disease_event_id || activeChild.id || target.eventId,
+      rawReportId: activeChild.raw_report_id || target.rawReportId,
+      disease: activeChild.disease || activeChild.disease_classification || target.disease,
+      country: activeChild.country || target.country,
+      locationName: activeChild.province_city_case || activeChild.location_name || target.locationName,
+      latitude: activeChild.latitude ?? target.latitude,
+      longitude: activeChild.longitude ?? target.longitude,
+      cases: activeChild.cases ?? activeChild.case_count ?? target.cases,
+      deaths: activeChild.deaths ?? activeChild.death_count ?? target.deaths,
+      evidence: activeChild.evidence || target.evidence,
+    }
+  }, [target, activeChild])
   const [draft, setDraft] = useState({
     disease: '',
     country: '',
@@ -143,8 +196,23 @@ export default function ArticleReviewModal({
         deaths: target.deaths == null ? '' : String(target.deaths),
       })
       setReviewReason('')
+      setSelectedField(null)
+      setActiveChildId(null)
     }
   }, [target])
+
+  React.useEffect(() => {
+    if (!currentTarget) return
+    setDraft({
+      disease: currentTarget.disease || '',
+      country: currentTarget.country || '',
+      location: currentTarget.locationName || '',
+      cases: currentTarget.cases == null ? '' : String(currentTarget.cases),
+      deaths: currentTarget.deaths == null ? '' : String(currentTarget.deaths),
+    })
+    setReviewReason('')
+    setSelectedField(null)
+  }, [currentTarget])
 
   if (!open || !target) return null
 
@@ -178,12 +246,13 @@ export default function ArticleReviewModal({
   }
 
   const saveCorrections = async () => {
+    if (!currentTarget) return
     const fields = [
-      ['disease', target.disease || '', draft.disease],
-      ['country', target.country || '', draft.country],
-      ['location', target.locationName || '', draft.location],
-      ['case_count', target.cases == null ? '' : String(target.cases), draft.cases],
-      ['death_count', target.deaths == null ? '' : String(target.deaths), draft.deaths],
+      ['disease', currentTarget.disease || '', draft.disease],
+      ['country', currentTarget.country || '', draft.country],
+      ['location', currentTarget.locationName || '', draft.location],
+      ['case_count', currentTarget.cases == null ? '' : String(currentTarget.cases), draft.cases],
+      ['death_count', currentTarget.deaths == null ? '' : String(currentTarget.deaths), draft.deaths],
     ] as const
     const changed = fields.filter(([, original, corrected]) => corrected.trim() !== original.trim())
     if (changed.length === 0) {
@@ -199,14 +268,14 @@ export default function ArticleReviewModal({
     try {
       await Promise.all(changed.map(([fieldName, originalValue, correctedValue]) =>
         submitNLPCorrection({
-          event_id: target.eventId || undefined,
-          raw_report_id: target.rawReportId || target.id || undefined,
+          event_id: currentTarget.eventId || undefined,
+          raw_report_id: currentTarget.rawReportId || currentTarget.id || undefined,
           field_name: fieldName,
           original_value: originalValue,
           corrected_value: correctedValue.trim(),
           correction_source: 'review_modal',
-          text_snippet: target.evidence || target.snippet || target.summary || undefined,
-          language: target.language || undefined,
+          text_snippet: currentTarget.evidence || currentTarget.snippet || currentTarget.summary || undefined,
+          language: currentTarget.language || undefined,
           corrected_by: 'operator_ui',
           review_reason: reviewReason.trim() || undefined,
           prediction_version: 'crawl-history-review',
@@ -223,8 +292,10 @@ export default function ArticleReviewModal({
   }
 
   // Determine cleanest summary text
+  const displayed = currentTarget || target
   const cleanSummary = stripHtml(target.summary)
   const cleanSnippet = stripHtml(target.snippet)
+  const cleanContent = stripHtml(target.content)
   const effectiveSummary =
     cleanSummary ||
     (cleanSnippet
@@ -335,24 +406,24 @@ export default function ArticleReviewModal({
             <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">NLP prediction</h4>
-                <span className="text-[10px] text-slate-500">Read-only baseline</span>
+                <span className="text-[10px] text-slate-500">{activeChild ? 'Selected child event · read-only baseline' : 'Parent event · read-only baseline'}</span>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <ReviewValue label="Disease" value={target.disease || 'Unknown'} />
-                <ReviewValue label="Country" value={target.country || 'Unknown'} />
-                <ReviewValue label="Location" value={[target.locationName, target.region].filter(Boolean).join(', ') || 'Not specified'} />
-                <ReviewValue label="Cases" value={target.cases == null ? 'Not detected' : Number(target.cases).toLocaleString()} tone="cases" />
-                <ReviewValue label="Deaths" value={target.deaths == null ? 'Not detected' : Number(target.deaths).toLocaleString()} tone="deaths" />
-                <ReviewValue label="Confidence" value={target.confidence == null ? 'Not available' : `${(Number(target.confidence) * 100).toFixed(1)}%`} />
+                <ReviewValue label="Disease" field="disease" selected={selectedField === 'disease'} onClick={setSelectedField} value={displayed.disease || 'Unknown'} />
+                <ReviewValue label="Country" field="country" selected={selectedField === 'country'} onClick={setSelectedField} value={displayed.country || 'Unknown'} />
+                <ReviewValue label="Location" field="location" selected={selectedField === 'location'} onClick={setSelectedField} value={[displayed.locationName, displayed.region].filter(Boolean).join(', ') || 'Not specified'} />
+                <ReviewValue label="Cases" field="cases" selected={selectedField === 'cases'} onClick={setSelectedField} value={displayed.cases == null ? 'Not detected' : Number(displayed.cases).toLocaleString()} tone="cases" />
+                <ReviewValue label="Deaths" field="deaths" selected={selectedField === 'deaths'} onClick={setSelectedField} value={displayed.deaths == null ? 'Not detected' : Number(displayed.deaths).toLocaleString()} tone="deaths" />
+                <ReviewValue label="Confidence" value={displayed.confidence == null ? 'Not available' : `${(Number(displayed.confidence) * 100).toFixed(1)}%`} />
               </div>
               <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
                 <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Evidence asli</span>
                 <p className="mt-1 text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap max-h-36 overflow-y-auto">
-                  {target.evidence || target.snippet || 'Evidence asli belum tersedia pada row ini.'}
+                  {displayed.evidence || displayed.snippet || 'Evidence asli belum tersedia pada row ini.'}
                 </p>
               </div>
-              {target.latitude != null && target.longitude != null ? (
-                <p className="mt-3 text-[10px] font-mono text-slate-500">Coordinates: {target.latitude.toFixed(4)}, {target.longitude.toFixed(4)}</p>
+              {displayed.latitude != null && displayed.longitude != null ? (
+                <p className="mt-3 text-[10px] font-mono text-slate-500">Coordinates: {displayed.latitude.toFixed(4)}, {displayed.longitude.toFixed(4)}</p>
               ) : null}
             </section>
 
@@ -368,16 +439,17 @@ export default function ArticleReviewModal({
                     {target.url}
                   </a>
                 ) : null}
-                <p className="mt-1 max-h-20 overflow-y-auto text-[11px] leading-relaxed text-slate-700">
-                  {effectiveSummary}
+                <p className="mt-1 max-h-[42vh] overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-700">
+                  {cleanContent || effectiveSummary}
                 </p>
+                {cleanContent ? <span className="mt-2 block text-[9px] text-slate-400">Full captured article · {cleanContent.length.toLocaleString()} characters</span> : null}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <ReviewInput label="Disease" value={draft.disease} onChange={(value) => setDraft((p) => ({ ...p, disease: value }))} />
-                <ReviewInput label="Country" value={draft.country} onChange={(value) => setDraft((p) => ({ ...p, country: value }))} />
-                <ReviewInput label="Location / city / region" value={draft.location} onChange={(value) => setDraft((p) => ({ ...p, location: value }))} />
-                <ReviewInput label="Cases" value={draft.cases} onChange={(value) => setDraft((p) => ({ ...p, cases: value }))} inputMode="numeric" />
-                <ReviewInput label="Deaths" value={draft.deaths} onChange={(value) => setDraft((p) => ({ ...p, deaths: value }))} inputMode="numeric" />
+                <ReviewInput label="Disease" value={draft.disease} active={selectedField === 'disease'} onChange={(value) => setDraft((p) => ({ ...p, disease: value }))} />
+                <ReviewInput label="Country" value={draft.country} active={selectedField === 'country'} onChange={(value) => setDraft((p) => ({ ...p, country: value }))} />
+                <ReviewInput label="Location / city / region" value={draft.location} active={selectedField === 'location'} onChange={(value) => setDraft((p) => ({ ...p, location: value }))} />
+                <ReviewInput label="Cases" value={draft.cases} active={selectedField === 'cases'} onChange={(value) => setDraft((p) => ({ ...p, cases: value }))} inputMode="numeric" />
+                <ReviewInput label="Deaths" value={draft.deaths} active={selectedField === 'deaths'} onChange={(value) => setDraft((p) => ({ ...p, deaths: value }))} inputMode="numeric" />
               </div>
               <label className="block mt-3 text-[10px] font-semibold text-slate-600">
                 Alasan / korelasi dengan artikel (opsional)
@@ -392,13 +464,13 @@ export default function ArticleReviewModal({
           </div>
 
           {/* Epidemiological Evidence Quote */}
-          {target.evidence && (
+          {displayed.evidence && (
             <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200/70">
               <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 block mb-1">
                 Extracted Epidemiological Evidence
               </span>
               <blockquote className="italic text-slate-600 border-l-2 border-blue-400 pl-3 py-0.5">
-                "{target.evidence}"
+                "{displayed.evidence}"
               </blockquote>
             </div>
           )}
@@ -408,9 +480,9 @@ export default function ArticleReviewModal({
             <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
               <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
-                  Multiple Locations Extracted ({target.children.length} records)
+                  Event Breakdown ({target.children.length} records)
                 </span>
-                <span className="text-[11px] text-slate-500 font-medium">Aggregated into this article</span>
+                <span className="text-[11px] text-slate-500 font-medium">Klik event untuk mengoreksi event tersebut</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
@@ -423,8 +495,13 @@ export default function ArticleReviewModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {target.children.map((child: any, idx: number) => (
-                      <tr key={child.id || idx} className="hover:bg-slate-50">
+                    {target.children.map((child: any, idx: number) => {
+                      const childEventId = child.disease_event_id || child.id
+                      const childId = String(childEventId || `row-${idx}`)
+                      const canEditChild = Boolean(childEventId)
+                      const isActive = childId === activeChildId
+                      return (
+                      <tr key={childId} onClick={() => canEditChild && setActiveChildId(childId)} className={`${canEditChild ? 'cursor-pointer hover:bg-emerald-50' : 'opacity-80'} ${isActive ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-300' : ''}`}>
                         <td className="px-3 py-2 font-medium text-slate-800">
                           {[child.province_city_case || child.province || child.city || child.location_name, child.country].filter(Boolean).join(', ') || '—'}
                         </td>
@@ -436,7 +513,8 @@ export default function ArticleReviewModal({
                           {child.deaths != null ? Number(child.deaths).toLocaleString() : '0'}
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -507,6 +507,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       title: row.title || row.article_title,
       url: row.url,
       summary: (row as any).summary,
+      content: (row as any).content,
       snippet: row.snippet,
       evidence: row.evidence,
       disease: row.disease,
@@ -534,6 +535,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
         setReviewTarget((prev) => (prev && prev.id === row.id ? {
           ...prev,
           summary: (full as any).summary || prev.summary,
+          content: (full as any).content || prev.content,
           snippet: full.snippet || prev.snippet,
           evidence: full.evidence || prev.evidence,
           disease: full.disease || prev.disease,

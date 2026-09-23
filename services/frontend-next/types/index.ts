@@ -383,6 +383,7 @@ export type CrawlHistoryRow = {
   disease_event_id?: string | null;
   title?: string | null;
   summary?: string | null;
+  content?: string | null;
   url?: string | null;
   published_at?: string | null;
   source_country?: string | null;

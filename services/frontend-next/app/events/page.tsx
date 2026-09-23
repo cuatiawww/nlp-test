@@ -156,6 +156,7 @@ export default function EventsPage() {
                           rawReportId: e.raw_report_id,
                           title: e.title || e.url,
                           url: e.url,
+                          content: e.content,
                           disease: e.disease_extracted,
                           country: e.country,
                           locationName: e.location_name,
@@ -196,6 +197,9 @@ export default function EventsPage() {
         open={!!reviewTarget}
         target={reviewTarget}
         onClose={() => setReviewTarget(null)}
+        onCorrected={() => {
+          void reload()
+        }}
         onReviewed={() => {
           void reload()
         }}

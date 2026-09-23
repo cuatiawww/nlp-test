@@ -1526,6 +1526,24 @@ async fn expand_article_row(
         .await
         .map_err(internal_error)?;
     data["children"] = json!(kids.iter().map(map_ledger_row).collect::<Vec<_>>());
+
+    // The detail view may show the captured article without re-fetching the
+    // publisher page. Keep this out of list_rows: full text is intentionally a
+    // detail-only payload so large crawl-history pages stay fast.
+    if let Some(raw_report_id) = data["raw_report_id"]
+        .as_str()
+        .and_then(|value| Uuid::parse_str(value).ok())
+    {
+        let content = client
+            .query_opt(
+                "SELECT NULLIF(BTRIM(original_text), '') FROM raw_reports WHERE id = $1",
+                &[&raw_report_id],
+            )
+            .await
+            .map_err(internal_error)?
+            .and_then(|row| row.try_get::<_, Option<String>>(0).ok().flatten());
+        data["content"] = json!(content);
+    }
     Ok(())
 }
 
