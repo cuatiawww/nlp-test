@@ -342,6 +342,14 @@ def _local_icd11_fallback_catalog() -> list[dict[str, Any]]:
         {"canonical_name": "Schistosomiasis", "ontology_code": "1F64", "aliases": ["schistosomiasis"]},
         {"canonical_name": "Filariasis", "ontology_code": "1F66", "aliases": ["filariasis", "kaki gajah"]},
         {"canonical_name": "Pneumonia", "ontology_code": "CA40.Z", "aliases": ["pneumonia"]},
+        {
+            "canonical_name": "Legionellosis",
+            "ontology_code": "1B95",
+            "aliases": [
+                "legionellosis", "legionnaires disease", "legionnaires' disease",
+                "legionella", "ลีเจียนแนร์", "โรคลิเจียนแนร์", "โรคติดเชื้อลีเจียนแนร์", "โรคลีเจียนแนร์"
+            ],
+        },
         {"canonical_name": "Stroke", "ontology_code": "8B20", "aliases": ["stroke"]},
     ]
 

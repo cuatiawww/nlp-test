@@ -832,6 +832,38 @@ def compose_structured_events(
             # normalization still governs identity comparisons and attribution.
             events[0]["disease"] = primary_disease
     events = _deduplicate_events(events)
+
+    # Cross-disease count cloning guard:
+    # If multiple sub-events in the same country share identical non-zero cases and deaths,
+    # ensure counts only remain with the disease actually attested in that evidence sentence.
+    if len(events) >= 2:
+        metric_groups: dict[tuple, list[dict[str, Any]]] = {}
+        for evt in events:
+            c = int(evt.get("case_count") or 0)
+            d = int(evt.get("death_count") or 0)
+            country = str(evt.get("country") or "").casefold()
+            if c > 0 or d > 0:
+                key = (c, d, country)
+                metric_groups.setdefault(key, []).append(evt)
+        for key, group in metric_groups.items():
+            if len(group) >= 2:
+                # Multiple sub-events claim identical metric numbers
+                for evt in group:
+                    disease_name = evt.get("disease") or ""
+                    evidence_text = evt.get("evidence") or ""
+                    if disease_name and evidence_text:
+                        if not ext.disease_has_textual_evidence(disease_name, evidence_text):
+                            evt["case_count"] = 0
+                            evt["death_count"] = 0
+                            evt["metric_type"] = "mention"
+        # Discard phantom secondary rows that were stripped of cloned counts
+        events = [
+            evt for evt in events
+            if (int(evt.get("case_count") or 0) > 0)
+            or (int(evt.get("death_count") or 0) > 0)
+            or evt.get("metric_type") == "negative_surveillance"
+            or (primary_disease and str(evt.get("disease") or "").casefold() == str(primary_disease).casefold())
+        ]
     from .epidemiology import (
         classify_epistemic_status,
         qualify_metric_type,
