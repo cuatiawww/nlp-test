@@ -834,6 +834,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if count_period == "unknown":
             count_period = "incident"
 
+    # Relation extraction is shared by atomic events and strict projection.
+    # Keep one request-local result so the same evidence is not rescanned by
+    # each consumer. Existing local fallbacks remain available on failure.
+    relation_linker = None
+    relation_cache = None
+    try:
+        from .surveillance_extraction import GazetteerLinker, extract_metric_relations
+
+        relation_linker = GazetteerLinker()
+        relation_cache = extract_metric_relations(
+            text,
+            linker=relation_linker,
+            published_date=published_at,
+            source_country=source_country,
+        )
+    except Exception as exc:
+        logger.warning("Request relation cache unavailable; using legacy extraction: %s", exc)
+
     # --- Multi-event extraction (locations AND diseases) ---
     try:
         from .multi_event_extractor import compose_structured_events, _collapse_same_country_events
@@ -846,6 +864,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             case_count=case_count,
             death_count=death_count,
             primary_country=country,
+            linker=relation_linker,
+            relations=relation_cache,
         )
         # The persisted/API event view is country-scoped.  Keep the lower
         # level composer location-specific for evidence and hierarchy tests,
@@ -952,6 +972,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             source_type=source_type,
             source_url=payload.source_url,
             source_country=source_country,
+            linker=relation_linker,
+            relations=relation_cache,
             include_llm=False,
         )
         article_disease_candidates = list(dict.fromkeys(
@@ -960,16 +982,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if value and extractors.canonical_disease_name(value).upper() != "UNKNOWN"
             and extractors.disease_has_textual_evidence(value, text)
         ))
-        # Reuse the linker from build_surveillance_output if available,
-        # otherwise create a singleton — avoid re-instantiating the heavy
-        # gazetteer index on every call.
-        _reused_linker = strict_output._linker if hasattr(strict_output, '_linker') else GazetteerLinker()
-        relational_events = extract_metric_relations(
-            text,
-            linker=_reused_linker,
-            published_date=published_at,
-            source_country=source_country,
-        )
+        # Use the same relation list that built the event candidates above.
+        relational_events = relation_cache
+        if relational_events is None:
+            relational_events = extract_metric_relations(
+                text,
+                linker=relation_linker,
+                published_date=published_at,
+                source_country=source_country,
+            )
         # The composer may start from the classifier's primary location. Add
         # any additional country-level relation that is explicitly backed by
         # the strict projection, otherwise a multi-country article can lose a

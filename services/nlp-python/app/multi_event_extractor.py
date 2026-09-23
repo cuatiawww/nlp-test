@@ -543,6 +543,8 @@ def extract_multi_events(
     case_count: int,
     death_count: int,
     primary_country: Optional[str] = None,
+    linker: Any = None,
+    relations: Optional[list[Any]] = None,
 ) -> list[dict[str, Any]]:
     """Decompose one document into N structured events.
 
@@ -572,7 +574,8 @@ def extract_multi_events(
             text,
             disease_labels=diseases_extracted,
             primary_disease=primary_disease,
-            linker=None,
+            linker=linker,
+            relations=relations,
         )
         if len(atomic_events) >= MULTI_EVENT_MIN_PAIRS:
             return _deduplicate_events(atomic_events)
@@ -755,6 +758,8 @@ def compose_structured_events(
     case_count: int,
     death_count: int,
     primary_country: Optional[str] = None,
+    linker: Any = None,
+    relations: Optional[list[Any]] = None,
 ) -> list[dict[str, Any]]:
     """Location-scoped counts plus per-disease facts for one article.
 
@@ -772,6 +777,8 @@ def compose_structured_events(
         case_count=case_count,
         death_count=death_count,
         primary_country=primary_country,
+        linker=linker,
+        relations=relations,
     )
 
     # Keep one evidence-backed atomic event as the canonical representation;
@@ -784,6 +791,8 @@ def compose_structured_events(
                 text,
                 disease_labels=diseases_extracted,
                 primary_disease=primary_disease,
+                linker=linker,
+                relations=relations,
             )
             if len(atomic_events) == 1:
                 events = atomic_events

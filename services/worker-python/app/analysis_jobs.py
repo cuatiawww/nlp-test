@@ -119,6 +119,11 @@ def nlp_retry_count():
 
 def is_retryable_nlp_error(exc):
     reason = f"{type(exc).__name__} {exc}".lower()
+    # A bounded NLP process that exceeded its own budget will repeat the same
+    # CPU-bound work on the next attempt. Do not double the load; 503/busy and
+    # transport failures remain retryable below.
+    if "nlp http 408" in reason and "exceeded budget" in reason:
+        return False
     return any(
         token in reason
         for token in ("408", "503", "timeout", "timed out", "exceeded budget", "busy")

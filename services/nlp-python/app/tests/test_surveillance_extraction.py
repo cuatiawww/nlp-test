@@ -61,6 +61,22 @@ class SurveillanceExtractionTest(unittest.TestCase):
 
         self.assertEqual(facts["country"], "Thailand")
 
+    def test_build_output_uses_supplied_relation_cache(self):
+        from app.surveillance_extraction import GazetteerLinker, build_surveillance_output
+
+        with patch("app.surveillance_extraction.extract_metric_relations") as extract_relations:
+            output = build_surveillance_output(
+                "Thailand reported 12 dengue cases.",
+                published_at="2026-09-23",
+                diseases=["Dengue"],
+                linker=GazetteerLinker(allow_remote=False),
+                relations=[],
+                include_llm=False,
+            )
+
+        extract_relations.assert_not_called()
+        self.assertEqual(output.locations, [])
+
     def test_country_metric_and_time_are_bound_to_the_correct_country(self):
         from app.surveillance_extraction import GazetteerLinker, build_surveillance_output
 

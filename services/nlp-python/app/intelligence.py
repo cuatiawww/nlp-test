@@ -394,6 +394,7 @@ def build_atomic_events(
     primary_disease: Optional[str] = None,
     published_at: Optional[str] = None,
     linker: Optional[GazetteerLinker] = None,
+    relations: Optional[list[MetricRelation]] = None,
 ) -> list[dict[str, Any]]:
     """Build event candidates only from co-attributed evidence spans.
 
@@ -412,7 +413,11 @@ def build_atomic_events(
     # Resolve metric-location relations once per document. Calling this inside
     # every sentence repeatedly scans the full gazetteer and makes long
     # articles degrade quadratically.
-    document_relations = extract_metric_relations(source, linker=linker, published_date=None)
+    document_relations = (
+        relations
+        if relations is not None
+        else extract_metric_relations(source, linker=linker, published_date=None)
+    )
 
     for start, end, sentence in spans:
         local_relations = [

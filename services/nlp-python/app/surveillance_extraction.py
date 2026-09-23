@@ -2439,6 +2439,7 @@ def build_surveillance_output(
     source_url: Optional[str] = None,
     source_country: Optional[str] = None,
     linker: Optional[GazetteerLinker] = None,
+    relations: Optional[list[MetricRelation]] = None,
     include_llm: bool = True,
 ) -> SurveillanceOutput:
     """Build the strict output from an article, preserving country relations."""
@@ -2447,12 +2448,13 @@ def build_surveillance_output(
     published_date = _published_date(published_at, text)
     event_date = extract_event_date(text)
     typed_counts = extract_labeled_counts(text)
-    relations = extract_metric_relations(
-        text,
-        linker=linker,
-        published_date=published_date,
-        source_country=source_country,
-    )
+    if relations is None:
+        relations = extract_metric_relations(
+            text,
+            linker=linker,
+            published_date=published_date,
+            source_country=source_country,
+        )
     mentioned_locations = _mentioned_locations(text, linker)
 
     # LLM relations are supplements only. They must resolve to the same local

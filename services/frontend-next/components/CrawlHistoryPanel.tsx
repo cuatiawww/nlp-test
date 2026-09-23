@@ -75,15 +75,16 @@ const CHANNELS: { id: ChannelFilter; label: string }[] = [
 export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 50, sticky: true },
   { key: 'source_info', label: 'Source & Channel', width: 160 },
-  { key: 'needs_review', label: 'Status', width: 125 },
+  { key: 'needs_review', label: 'Status', width: 155 },
   { key: 'title', label: 'Article Title & Link', width: 320 },
-  { key: 'country', label: 'Country, Region & Location', width: 210 },
+  { key: 'country', label: 'Country & Region', width: 160 },
+  { key: 'province_city_case', label: 'Province & City', width: 170 },
   { key: 'lat_long', label: 'Lat / Long', width: 125 },
   { key: 'disease', label: 'Disease', width: 160 },
   { key: 'cases', label: 'Cases', width: 90 },
   { key: 'deaths', label: 'Deaths', width: 90 },
   { key: 'language', label: 'Language', width: 80 },
-  { key: 'article_date', label: 'Article Date', width: 110 },
+  { key: 'article_date', label: 'Published Date', width: 120 },
   { key: 'crawling_date', label: 'Crawling Date', width: 130 },
   { key: 'action', label: 'Action', width: 90 },
 ]
@@ -97,10 +98,10 @@ export const ALL_LOG_COLUMNS: { key: string; label: string; width: number; stick
   { key: 'cases', label: 'Cases', width: 90 },
   { key: 'deaths', label: 'Deaths', width: 90 },
   { key: 'crawling_date', label: 'Crawling Date', width: 140 },
-  { key: 'province_city_case', label: 'Province / City', width: 180 },
+  { key: 'province_city_case', label: 'Province & City', width: 180 },
   { key: 'language', label: 'Language', width: 78 },
   { key: 'url', label: 'Source URL', width: 220 },
-  { key: 'article_date', label: 'Article Date', width: 110 },
+  { key: 'article_date', label: 'Published Date', width: 120 },
   { key: 'date_case', label: 'Date Case', width: 110 },
   { key: 'latitude', label: 'Latitude', width: 90 },
   { key: 'longitude', label: 'Longitude', width: 90 },
@@ -304,14 +305,70 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
       return fmtBool(row.outbreak_alert)
     case 'needs_review': {
       const isRev = row.needs_review === false || row.status === 'reviewed';
-      return isRev ? (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-          <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Reviewed
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-          <Clock className="h-3 w-3 text-amber-600" /> Needs Review
-        </span>
+      const confPct = row.confidence != null
+        ? Math.round(row.confidence <= 1 ? row.confidence * 100 : row.confidence)
+        : null;
+
+      if (isRev) {
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700 w-fit">
+              <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Reviewed
+            </span>
+            {confPct != null ? (
+              <span className="text-[9px] text-slate-500 font-mono">
+                Score: <strong className="text-emerald-700">{confPct}%</strong>
+              </span>
+            ) : null}
+          </div>
+        );
+      }
+
+      // Determine level / tier
+      const tierBadge = confPct != null ? (
+        confPct >= 80 ? (
+          <span className="rounded bg-emerald-100/70 border border-emerald-200 px-1 py-0.2 font-mono text-[9px] font-bold text-emerald-800" title={`Confidence: ${confPct}% (High)`}>
+            {confPct}% High
+          </span>
+        ) : confPct >= 50 ? (
+          <span className="rounded bg-amber-100/70 border border-amber-200 px-1 py-0.2 font-mono text-[9px] font-bold text-amber-800" title={`Confidence: ${confPct}% (Medium)`}>
+            {confPct}% Med
+          </span>
+        ) : (
+          <span className="rounded bg-rose-100/70 border border-rose-200 px-1 py-0.2 font-mono text-[9px] font-bold text-rose-800" title={`Confidence: ${confPct}% (Low)`}>
+            {confPct}% Low
+          </span>
+        )
+      ) : null;
+
+      // Determine reason why needs review
+      let reasonText = 'Verification Needed';
+      if (!row.has_geo && !row.province_city_case && !row.city && !row.province) {
+        reasonText = 'Location Unresolved';
+      } else if (!row.has_geo) {
+        reasonText = 'Coordinates Missing';
+      } else if (confPct != null && confPct < 70) {
+        reasonText = 'Low Confidence Score';
+      } else if (row.source_credibility != null && (row.source_credibility < 0.6 || row.source_credibility < 60)) {
+        reasonText = 'Low Source Reliability';
+      } else if (row.event_count && row.event_count > 1) {
+        reasonText = 'Multi-Event Decomp.';
+      } else if (row.relevance_score && String(row.relevance_score).toLowerCase() === 'low') {
+        reasonText = 'Low Health Relevance';
+      }
+
+      return (
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700 w-fit">
+              <Clock className="h-3 w-3 text-amber-600" /> Needs Review
+            </span>
+            {tierBadge}
+          </div>
+          <span className="text-[10px] text-slate-500 font-medium truncate max-w-[150px]" title={`Review reason: ${reasonText}`}>
+            {reasonText}
+          </span>
+        </div>
       );
     }
     case 'disease_event_id':
@@ -326,13 +383,15 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
           {fmtText(row.evidence)}
         </span>
       )
+    case 'country_region':
     case 'country': {
+      const countryName = (row.country && row.country !== 'MULTI_COUNTRY') ? row.country : '-'
       const reg = row.region || row.surveillance_scope
       return (
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <CountryFlag countryCode={row.country} size="xs" shape="rounded" />
-            <span className="font-semibold text-slate-800 truncate max-w-[130px]" title={row.country || ''}>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {countryName !== '-' && <CountryFlag countryCode={row.country} size="xs" shape="rounded" />}
+          <div className="min-w-0">
+            <span className="font-semibold text-slate-800 truncate max-w-[130px] block" title={row.country || ''}>
               {row.country || '—'}
             </span>
             {reg ? (
@@ -341,11 +400,6 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
               </span>
             ) : null}
           </div>
-          {row.province_city_case ? (
-            <span className="text-[10px] text-slate-500 truncate max-w-[180px]" title={row.province_city_case}>
-              {row.province_city_case}
-            </span>
-          ) : null}
         </div>
       )
     }
@@ -357,8 +411,38 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
       return fmtText(row.language)
     case 'region':
       return fmtTrunc(row.region, 'max-w-[130px]')
-    case 'province_city_case':
-      return fmtTrunc(row.province_city_case, 'max-w-[150px]')
+    case 'province_city':
+    case 'province_city_case': {
+      const cityName = row.city || (row.province_city_case && row.province && row.province_city_case !== row.province ? row.province_city_case : '')
+      const provinceName = row.province
+      const locationDisplay = row.province_city_case || row.location_name || [provinceName, cityName].filter(Boolean).join(', ')
+
+      if (!locationDisplay && !provinceName && !cityName) {
+        return <span className="text-slate-400 text-[10px]">—</span>
+      }
+
+      return (
+        <div className="flex items-start gap-1.5 max-w-[170px]">
+          <MapPin className="h-3.5 w-3.5 text-rose-500 shrink-0 mt-0.5" />
+          <div className="text-[11px] min-w-0">
+            {provinceName && cityName && cityName !== provinceName ? (
+              <>
+                <span className="font-bold text-slate-900 block truncate" title={cityName}>
+                  {cityName}
+                </span>
+                <span className="text-[10px] text-slate-500 block truncate" title={`Province: ${provinceName}`}>
+                  {provinceName}
+                </span>
+              </>
+            ) : (
+              <span className="font-bold text-slate-900 block truncate" title={locationDisplay}>
+                {locationDisplay}
+              </span>
+            )}
+          </div>
+        </div>
+      )
+    }
     case 'source_type':
       return fmtText(row.source_type)
     case 'source_name':

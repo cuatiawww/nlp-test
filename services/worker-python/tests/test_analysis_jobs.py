@@ -261,8 +261,21 @@ class AnalysisJobTests(unittest.TestCase):
         with patch.dict("os.environ", {"ANALYZE_URL_RULES_ONLY_FALLBACK": ""}, clear=False):
             os.environ.pop("ANALYZE_URL_RULES_ONLY_FALLBACK", None)
             self.assertFalse(rules_only_fallback_enabled())
-        self.assertTrue(is_retryable_nlp_error(RuntimeError("NLP HTTP 408: exceeded budget (180s)")))
+        self.assertFalse(is_retryable_nlp_error(RuntimeError("NLP HTTP 408: exceeded budget (180s)")))
+        self.assertTrue(is_retryable_nlp_error(RuntimeError("NLP HTTP 503: busy")))
         self.assertFalse(is_retryable_nlp_error(RuntimeError("NLP HTTP 400: bad url")))
+
+    def test_bounded_nlp_budget_failure_is_not_retried(self):
+        nlp = Mock(side_effect=RuntimeError("NLP HTTP 408: exceeded budget (30s)"))
+        result = analyze_stages(
+            "https://example.org",
+            Mock(return_value={"content": "Report"}),
+            nlp,
+            nlp_retries=1,
+            rules_only_fallback=False,
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(nlp.call_count, 1)
 
     def test_legacy_env_timeout_is_clamped_up_in_code(self):
         from app.analysis_jobs import _seconds_at_least
