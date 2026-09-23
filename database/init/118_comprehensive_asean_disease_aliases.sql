@@ -373,7 +373,6 @@ WITH seed(canonical_name, alias, normalized_alias, language) AS (
     ('Influenza due to infection with Influenza A/H5N1 virus', 'အေ/H5N1 တုပ်ကွေးရောဂါ', 'အေ h5n1 တုပ်ကွေးရောဂါ', 'my'),
     ('Influenza due to infection with Influenza A/H5N1 virus', 'គ្រុនផ្តាសាយ A/H5N1', 'គ្រុនផ្តាសាយ a h5n1', 'km'),
     ('Influenza due to infection with Influenza A/H5N1 virus', 'ໄຂ້ຫວັດໃຫຍ່ສາຍພັນ A H5N1', 'ໄຂ້ຫວັດໃຫຍ່ສາຍພັນ a h5n1', 'lo'),
-    ('Influenza due to infection with Influenza A/H5N1 virus', 'influenza a h5n1', 'influenza a h5n1', 'en'),
     ('Influenza due to infection with Influenza A/H5N1 virus', 'avian influenza a h5n1', 'avian influenza a h5n1', 'en'),
     ('Influenza due to infection with Influenza A/H5N1 virus', 'influenza a/h5n1', 'influenza a h5n1', 'en'),
     ('Tuberculosis', 'TBC', 'tbc', 'id'),
@@ -1276,10 +1275,12 @@ WITH seed(canonical_name, alias, normalized_alias, language) AS (
     ('Colitis due to human papillomavirus infection', 'colitis due to human papillomavirus', 'colitis due to human papillomavirus', 'en')
 )
 INSERT INTO disease_aliases (concept_id, alias, normalized_alias, language, source, confidence, is_active)
-SELECT c.id, s.alias, s.normalized_alias, s.language, 'asean_master_multilingual', 1.0, TRUE
+SELECT DISTINCT ON (c.id, s.normalized_alias, s.language)
+  c.id, s.alias, s.normalized_alias, s.language, 'asean_master_multilingual', 1.0, TRUE
 FROM disease_concepts c
 JOIN seed s ON LOWER(TRIM(c.canonical_name)) = LOWER(TRIM(s.canonical_name))
 WHERE c.is_active = TRUE
+ORDER BY c.id, s.normalized_alias, s.language, s.alias
 ON CONFLICT (concept_id, normalized_alias, language) 
 DO UPDATE SET is_active = TRUE, confidence = GREATEST(disease_aliases.confidence, EXCLUDED.confidence);
 
