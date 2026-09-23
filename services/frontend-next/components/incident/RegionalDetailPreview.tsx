@@ -8,6 +8,7 @@ import {
   Activity,
   AirVent,
   AlertTriangle,
+  ArrowLeft,
   CalendarDays,
   CloudRain,
   MapPin,
@@ -149,12 +150,32 @@ function MetricCard({ label, value, detail, tone }: { label: string; value: stri
   )
 }
 
-export default function RegionalDetailPreview() {
+export interface RegionalDetailPreviewProps {
+  initialCountry?: string
+  onCountryChange?: (country: string) => void
+  onBackToOverview?: () => void
+  embedded?: boolean
+}
+
+export default function RegionalDetailPreview({
+  initialCountry,
+  onCountryChange,
+  onBackToOverview,
+  embedded = false,
+}: RegionalDetailPreviewProps = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const requestedCountry = searchParams.get('country') || 'Indonesia'
-  const storageCountry = aseanStorageName(requestedCountry)
-  const displayCountry = storageCountry ? aseanDisplayName(storageCountry) : requestedCountry
+  const fallbackCountry = searchParams?.get('country') || 'Indonesia'
+  const [currentCountry, setCurrentCountry] = useState<string>(initialCountry || fallbackCountry)
+
+  useEffect(() => {
+    if (initialCountry && initialCountry !== currentCountry) {
+      setCurrentCountry(initialCountry)
+    }
+  }, [initialCountry, currentCountry])
+
+  const storageCountry = aseanStorageName(currentCountry)
+  const displayCountry = storageCountry ? aseanDisplayName(storageCountry) : currentCountry
   const countryValid = Boolean(storageCountry)
 
   const [snapshot, setSnapshot] = useState<PublicDashboard | null>(null)
@@ -242,7 +263,20 @@ export default function RegionalDetailPreview() {
   }, [loadRegion])
 
   const switchCountry = (next: string) => {
-    router.replace(`/detail-region?country=${encodeURIComponent(next)}`)
+    if (next === 'ALL') {
+      if (onBackToOverview) {
+        onBackToOverview()
+        return
+      }
+      router.replace('/asean-countries')
+      return
+    }
+    setCurrentCountry(next)
+    if (onCountryChange) {
+      onCountryChange(next)
+    } else {
+      router.replace(`/detail-region?country=${encodeURIComponent(next)}`)
+    }
   }
 
   const diseaseRows = snapshot?.by_disease || []
@@ -373,59 +407,76 @@ export default function RegionalDetailPreview() {
       ? `The ${displayCountry} profile uses the ASEAN KPI snapshot for ${year || 'the selected year'}. ${topDisease.name} currently accounts for the largest share of tracked cases. Weather, AQI, and precipitation are live capital reads; a missing provider is shown as — rather than a placeholder.`
       : `No disease observations are in the ASEAN KPI snapshot for ${displayCountry}${year ? ` in ${year}` : ''}. Environmental values still come from Open-Meteo and NASA POWER when those providers respond.`)
 
-  return (
-    <main className="min-h-screen bg-[#f8fafc] px-2 py-4 text-slate-900 sm:px-3 md:px-4 md:py-5">
-      <div className="mx-auto w-full max-w-none space-y-6">
-        <header className="rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-7">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="grid h-14 w-20 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                <CountryFlag
-                  countryName={storageCountry || displayCountry}
-                  shape="rounded"
-                  size={80}
-                  className="!border-0 !shadow-none !ring-0"
-                />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#0060A9]">Regional surveillance profile</p>
-                <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{displayCountry}</h1>
-                <p className="mt-1 text-sm font-medium text-slate-500">Disease indicators, environmental context, and mapped surveillance signals.</p>
-              </div>
+  const content = (
+    <div className={embedded ? "w-full space-y-6" : "mx-auto w-full max-w-none space-y-6"}>
+      <header className="rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-7">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="grid h-14 w-20 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <CountryFlag
+                countryName={storageCountry || displayCountry}
+                shape="rounded"
+                size={80}
+                className="!border-0 !shadow-none !ring-0"
+              />
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
-              <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                <MapPin className="h-4 w-4 text-[#0060A9]" />
-                <select
-                  value={storageCountry || ''}
-                  onChange={(event) => switchCountry(event.target.value)}
-                  className="bg-transparent font-bold outline-none"
-                >
-                  {!storageCountry && <option value="">Select country</option>}
-                  {ASEAN11_DISPLAY.map((item) => (
-                    <option key={item.value} value={item.value}>{item.label}</option>
-                  ))}
-                </select>
-              </label>
-              {availableYears.length > 0 ? (
-                <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <CalendarDays className="h-4 w-4 text-[#0060A9]" />
-                  <select
-                    value={year || ''}
-                    onChange={(event) => void loadRegion(Number(event.target.value))}
-                    className="bg-transparent font-bold outline-none"
-                  >
-                    {availableYears.map((item) => <option key={item} value={item}>{item}</option>)}
-                  </select>
-                </label>
-              ) : (
-                <span className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <CalendarDays className="h-4 w-4 text-[#0060A9]" /> {periodLabel}
-                </span>
-              )}
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#0060A9]">Regional surveillance profile</p>
+                {embedded && (
+                  <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#0060A9] border border-blue-200">
+                    Jurisdiction Filter Active
+                  </span>
+                )}
+              </div>
+              <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{displayCountry}</h1>
+              <p className="mt-1 text-sm font-medium text-slate-500">Disease indicators, environmental context, and mapped surveillance signals.</p>
             </div>
           </div>
-        </header>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
+            {onBackToOverview && (
+              <button
+                type="button"
+                onClick={onBackToOverview}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-[#0060A9] transition hover:bg-blue-100 shadow-2xs cursor-pointer"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span>Back to ASEAN Overview</span>
+              </button>
+            )}
+            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <MapPin className="h-4 w-4 text-[#0060A9]" />
+              <select
+                value={storageCountry || ''}
+                onChange={(event) => switchCountry(event.target.value)}
+                className="bg-transparent font-bold outline-none cursor-pointer"
+              >
+                {embedded && <option value="ALL">← All 11 ASEAN Countries</option>}
+                {!storageCountry && <option value="">Select country</option>}
+                {ASEAN11_DISPLAY.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+            </label>
+            {availableYears.length > 0 ? (
+              <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <CalendarDays className="h-4 w-4 text-[#0060A9]" />
+                <select
+                  value={year || ''}
+                  onChange={(event) => void loadRegion(Number(event.target.value))}
+                  className="bg-transparent font-bold outline-none cursor-pointer"
+                >
+                  {availableYears.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+            ) : (
+              <span className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <CalendarDays className="h-4 w-4 text-[#0060A9]" /> {periodLabel}
+              </span>
+            )}
+          </div>
+        </div>
+      </header>
 
         {error && (
           <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
@@ -700,6 +751,15 @@ export default function RegionalDetailPreview() {
           </div>
         </section>
       </div>
+  )
+
+  if (embedded) {
+    return content
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f8fafc] px-2 py-4 text-slate-900 sm:px-3 md:px-4 md:py-5">
+      {content}
     </main>
   )
 }

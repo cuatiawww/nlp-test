@@ -35,6 +35,7 @@ export default function SpatialOutbreakMap({
   highlightCountry,
   regionalMode = false,
   hazardEvents = [],
+  onSelectCountry,
 }: {
   countries: { name: string; cases: number; deaths?: number }[];
   locations: OutbreakLocation[];
@@ -42,6 +43,7 @@ export default function SpatialOutbreakMap({
   highlightCountry?: string;
   regionalMode?: boolean;
   hazardEvents?: HazardEvent[];
+  onSelectCountry?: (country: string) => void;
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState(false),
@@ -223,6 +225,7 @@ export default function SpatialOutbreakMap({
         onLayerStatus={(key, status) =>
           setLayerStatus((prev) => (prev[key]?.state === status.state && prev[key]?.message === status.message ? prev : { ...prev, [key]: status }))
         }
+        onSelectCountry={onSelectCountry}
       />
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         <button

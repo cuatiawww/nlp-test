@@ -95,6 +95,7 @@ type Props = {
   gibsLayers?: NasaGibsLayers;
   intelLayers?: ExternalIntelLayers;
   onLayerStatus?: (key: string, status: MapLayerStatus) => void;
+  onSelectCountry?: (country: string) => void;
 };
 
 type RegionMetric = {
@@ -240,6 +241,7 @@ export default function AseanMap({
   hazardEvents,
   showHazards = true,
   onLayerStatus,
+  onSelectCountry,
 }: Props) {
   const { t, locale, translateDisease } = useTranslation();
   const el = useRef<HTMLDivElement>(null);
@@ -827,7 +829,17 @@ export default function AseanMap({
 
     mapRef.current = map;
 
+    // Dynamically update OpenLayers canvas size when container dimensions change
+    let resizeObserver: ResizeObserver | null = null;
+    if (el.current && typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        map.updateSize();
+      });
+      resizeObserver.observe(el.current);
+    }
+
     return () => {
+      resizeObserver?.disconnect();
       unByKey([clickKey, hoverKey]);
       map.setTarget(undefined);
       if (windRef.current) {
@@ -1642,7 +1654,7 @@ export default function AseanMap({
           fullBleed
             ? "h-full min-h-screen w-full"
             : embedded
-              ? "h-full min-h-[300px] w-full"
+              ? "h-full min-h-[460px] w-full"
               : compact
                 ? "h-[390px] w-full"
                 : "h-[500px] w-full"
@@ -2003,6 +2015,11 @@ export default function AseanMap({
             href={`/detail-region?country=${encodeURIComponent(selected.name)}`}
             onClick={(e) => {
               e.stopPropagation();
+              if (onSelectCountry) {
+                e.preventDefault();
+                onSelectCountry(selected.name);
+                return;
+              }
               if (isNavigating) {
                 e.preventDefault();
                 return;

@@ -19,6 +19,7 @@ import {
   Printer,
   Radio,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
   Skull,
@@ -46,6 +47,7 @@ import {
 } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
 import SurveillanceDetailModal from '@/components/SurveillanceDetailModal'
+import RegionalDetailPreview from '@/components/incident/RegionalDetailPreview'
 import { getCurrentEpiWeek } from '@/lib/epi-week'
 import {
   ASEAN11_DISPLAY,
@@ -64,7 +66,7 @@ const SpatialOutbreakMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-[460px] w-full items-center justify-center rounded-xl bg-slate-50 text-xs text-slate-400">
+      <div className="flex h-full min-h-[500px] w-full items-center justify-center rounded-xl bg-slate-50 text-xs text-slate-400">
         Loading ASEAN Spatial GIS Engine...
       </div>
     ),
@@ -106,9 +108,30 @@ export default function AseanCountriesPage() {
   // Modal State for Evidence / Event Review
   const [selectedEvent, setSelectedEvent] = useState<OutbreakLocation | null>(null)
 
-  // Ensure mounted is set after client-side hydration
+  // Handle country filter change with URL search param sync
+  const handleCountryChange = useCallback((nextCountry: string) => {
+    setSelectedCountry(nextCountry)
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      if (nextCountry && nextCountry !== 'ALL') {
+        url.searchParams.set('country', nextCountry)
+      } else {
+        url.searchParams.delete('country')
+      }
+      window.history.replaceState(null, '', url.toString())
+    }
+  }, [])
+
+  // Ensure mounted is set after client-side hydration & read initial query param
   useEffect(() => {
     setMounted(true)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const qCountry = params.get('country')
+      if (qCountry && isAseanCountryName(qCountry)) {
+        setSelectedCountry(qCountry)
+      }
+    }
   }, [])
 
   // Load ASEAN Surveillance Data
@@ -430,7 +453,7 @@ Source: ASEAN Regional Health Intelligence System.`
             <select
               id="select-asean-country"
               value={selectedCountry}
-              onChange={(e) => setSelectedCountry(e.target.value)}
+              onChange={(e) => handleCountryChange(e.target.value)}
               className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer pr-2"
               title="Filter by ASEAN Member State"
             >
@@ -442,6 +465,19 @@ Source: ASEAN Regional Health Intelligence System.`
               ))}
             </select>
           </div>
+
+          {/* Quick Return to All 11 Member States if filter is active */}
+          {selectedCountry !== 'ALL' && (
+            <button
+              type="button"
+              onClick={() => handleCountryChange('ALL')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-[#0060A9] transition hover:bg-blue-100 shadow-2xs"
+              title="Return to Regional ASEAN Overview"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>All 11 States</span>
+            </button>
+          )}
 
           {/* Year Selector */}
           <div className="flex items-center rounded-xl border border-[#cfe0f1] bg-white px-3 py-1.5 shadow-xs">
@@ -502,12 +538,27 @@ Source: ASEAN Regional Health Intelligence System.`
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          2. ASEAN REGIONAL SITUATIONAL BRIEFING BANNER
+          2. DYNAMIC CONTENT: REGIONAL DETAIL VIEW (IF COUNTRY FILTER ACTIVE)
+             OR FULL ASEAN MACRO OVERVIEW (IF ALL 11 MEMBER STATES)
           ───────────────────────────────────────────────────────────── */}
-      <section
-        className="border border-[#0060A9]/20 bg-gradient-to-r from-blue-50/90 via-sky-50/80 to-[#fdfbf5] p-5 shadow-sm"
-        style={{ borderRadius: '17px 17px 22px 17px' }}
-      >
+      {selectedCountry !== 'ALL' ? (
+        <section className="space-y-6">
+          <RegionalDetailPreview
+            initialCountry={selectedCountry}
+            onCountryChange={handleCountryChange}
+            onBackToOverview={() => handleCountryChange('ALL')}
+            embedded
+          />
+        </section>
+      ) : (
+        <>
+          {/* ─────────────────────────────────────────────────────────────
+              2. ASEAN REGIONAL SITUATIONAL BRIEFING BANNER
+              ───────────────────────────────────────────────────────────── */}
+          <section
+            className="border border-[#0060A9]/20 bg-gradient-to-r from-blue-50/90 via-sky-50/80 to-[#fdfbf5] p-5 shadow-sm"
+            style={{ borderRadius: '17px 17px 22px 17px' }}
+          >
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* Left: AI Narrative Briefing & Badges */}
           <div className="lg:col-span-7 space-y-3">
@@ -721,44 +772,15 @@ Source: ASEAN Regional Health Intelligence System.`
 
       {/* ─────────────────────────────────────────────────────────────
           4. ASEAN SPATIAL OUTBREAK MAP & CASE SHARE PANEL
+             Ranking on the LEFT (4 cols), Maps on the RIGHT (8 cols, DOMINANT WIDTH)
           ───────────────────────────────────────────────────────────── */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Spatial Outbreak Map (7 cols) */}
+        {/* Left: ASEAN 11 Member States Case Burden Ranking (4 cols) */}
         <div
-          className="lg:col-span-7 border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)]"
+          className="lg:col-span-4 border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)] flex flex-col h-[610px]"
           style={{ borderRadius: '17px 17px 22px 17px' }}
         >
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-[#0060A9]" />
-                ASEAN 11 Spatial Outbreak GIS Distribution
-              </h2>
-              <p className="text-xs text-slate-500">
-                Geospatial visualization of active disease signals and cross-border clusters across ASEAN
-              </p>
-            </div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md">
-              {scopedLocations.length} Geocoded Points
-            </span>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-slate-200">
-            <SpatialOutbreakMap
-              locations={scopedLocations}
-              countries={data?.by_country}
-              highlightCountry={selectedCountry === 'ALL' ? undefined : selectedCountry}
-              regionalMode={true}
-            />
-          </div>
-        </div>
-
-        {/* Right: ASEAN 11 Member States Case Burden Ranking (5 cols) */}
-        <div
-          className="lg:col-span-5 border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)]"
-          style={{ borderRadius: '17px 17px 22px 17px' }}
-        >
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 shrink-0">
             <div>
               <h2 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
                 <Globe2 className="h-4 w-4 text-[#0060A9]" />
@@ -773,24 +795,21 @@ Source: ASEAN Regional Health Intelligence System.`
             </span>
           </div>
 
-          <div className="space-y-3 overflow-y-auto max-h-[460px] pr-1">
+          <div className="space-y-2.5 overflow-y-auto flex-1 pr-1">
             {rankedAseanCountries.map((c, idx) => (
               <div
                 key={c.key}
-                onClick={() => setSelectedCountry(c.key === selectedCountry ? 'ALL' : c.key)}
-                className={`p-3 rounded-xl border transition cursor-pointer ${
-                  selectedCountry === c.key
-                    ? 'border-[#0060A9] bg-blue-50/50 shadow-xs'
-                    : 'border-slate-100 bg-slate-50/60 hover:bg-slate-100/70 hover:border-slate-300'
-                }`}
+                onClick={() => handleCountryChange(c.key)}
+                className="p-3 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-blue-50/60 hover:border-[#0060A9]/50 transition cursor-pointer group"
+                title={`Click to inspect ${c.displayName} surveillance profile`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-black text-slate-600">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 group-hover:bg-[#0060A9] group-hover:text-white text-[10px] font-black text-slate-600 transition">
                       {idx + 1}
                     </span>
                     <CountryFlag countryName={c.key} size="xs" />
-                    <span className="text-xs font-bold text-slate-900 truncate">
+                    <span className="text-xs font-bold text-slate-900 group-hover:text-[#0060A9] truncate transition">
                       {c.displayName}
                     </span>
                   </div>
@@ -831,6 +850,37 @@ Source: ASEAN Regional Health Intelligence System.`
             ))}
           </div>
         </div>
+
+        {/* Right: Spatial Outbreak Map (8 cols - Dominant Width) */}
+        <div
+          className="lg:col-span-8 border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)] flex flex-col h-[610px]"
+          style={{ borderRadius: '17px 17px 22px 17px' }}
+        >
+          <div className="flex items-center justify-between mb-3 shrink-0">
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-[#0060A9]" />
+                ASEAN 11 Spatial Outbreak GIS Distribution
+              </h2>
+              <p className="text-xs text-slate-500">
+                Geospatial visualization of active disease signals and cross-border clusters across ASEAN
+              </p>
+            </div>
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md">
+              {scopedLocations.length} Geocoded Points
+            </span>
+          </div>
+
+          <div className="relative flex-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-[#eaf4f7] min-h-[500px]">
+            <SpatialOutbreakMap
+              locations={scopedLocations}
+              countries={data?.by_country}
+              highlightCountry={undefined}
+              regionalMode={true}
+              onSelectCountry={(country) => handleCountryChange(country)}
+            />
+          </div>
+        </div>
       </section>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -844,33 +894,20 @@ Source: ASEAN Regional Health Intelligence System.`
               ASEAN 11 Member States Surveillance Grid
             </h2>
             <p className="text-xs text-slate-600">
-              Interactive surveillance cards covering all 11 ASEAN jurisdictions. Click a card to filter or inspect details.
+              Interactive surveillance cards covering all 11 ASEAN jurisdictions. Click a card to inspect regional details.
             </p>
           </div>
-          {selectedCountry !== 'ALL' && (
-            <button
-              type="button"
-              onClick={() => setSelectedCountry('ALL')}
-              className="inline-flex items-center gap-1 text-xs font-bold text-[#0060A9] bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-200 hover:bg-blue-100"
-            >
-              Reset to All 11 Member States
-            </button>
-          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
           {asean11Cards.map((c) => {
-            const isSelected = selectedCountry === c.key
             return (
               <div
                 key={c.key}
-                onClick={() => setSelectedCountry(isSelected ? 'ALL' : c.key)}
-                className={`p-3.5 border bg-white shadow-xs transition hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between ${
-                  isSelected
-                    ? 'border-[#0060A9] ring-2 ring-blue-100 bg-blue-50/30'
-                    : 'border-[#cfe0f1] hover:border-[#0060A9]/50'
-                }`}
+                onClick={() => handleCountryChange(c.key)}
+                className="p-3.5 border bg-white shadow-xs transition hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between border-[#cfe0f1] hover:border-[#0060A9] hover:shadow-md"
                 style={{ borderRadius: '17px 17px 22px 17px' }}
+                title={`Click to inspect ${c.displayName} regional surveillance`}
               >
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -1136,6 +1173,8 @@ Source: ASEAN Regional Health Intelligence System.`
           </div>
         </article>
       </section>
+      </>
+    )}
 
       {/* ─────────────────────────────────────────────────────────────
           8. SURVEILLANCE DETAIL MODAL (Evidence & Raw Source Review)
