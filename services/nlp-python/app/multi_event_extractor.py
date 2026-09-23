@@ -141,47 +141,41 @@ def _clean_location_name(raw: str) -> str:
 def _validate_location(name: str) -> Optional[str]:
     """Validate against the loaded gazetteer; return canonical name or None.
 
-    Uses the pre-built FOLDED_LOCATION_INDEX for O(1) lookups instead of
-    iterating over the entire gazetteer and alias list.
+    Uses folded_location_index() for O(1) exact/suffix lookups. The previous
+    O(aliases × gazetteer) loops that called _fold_location_text per row were
+    the interactive compose hotspot (~500k fold calls / ~22s).
     """
     if not name:
         return None
-    from .extractors import is_usable_place_name, _fold_location_text, COUNTRY_ALIASES, resolve_location_hierarchy
+    from .extractors import (
+        is_usable_place_name,
+        _fold_location_text,
+        folded_location_index,
+        resolve_location_hierarchy,
+    )
     if not is_usable_place_name(name):
         return None
     hier = resolve_location_hierarchy(name)
     if hier.get("canonical_name") and (hier.get("country") or hier.get("latitude") is not None):
         return hier["canonical_name"]
+
+    index = folded_location_index()
     folded = _fold_location_text(name)
-    # O(1) lookup via pre-built folded index
-    folded_idx = getattr(config, "FOLDED_LOCATION_INDEX", {})
-    if folded in folded_idx:
-        return folded_idx[folded]
-    cf = name.strip().casefold()
-    if cf in folded_idx:
-        return folded_idx[cf]
-    # Fallback: check country aliases (O(1) lookup)
-    from .extractors import get_folded_country_aliases
-    folded_country = get_folded_country_aliases()
-    if folded in folded_country:
-        return folded_country[folded]
-    # Check suffix sub-phrase if multi-word prefix (e.g. "wilayah Jakarta" -> "Jakarta")
+    hit = index.get(folded)
+    if hit:
+        return hit
+
+    # Suffix walk only (e.g. "wilayah Jakarta" -> "Jakarta"); each probe is O(1).
     words = name.split()
     if len(words) > 1:
         for i in range(1, len(words)):
-            sub_name = " ".join(words[i:])
-            sub_folded = _fold_location_text(sub_name)
-            if sub_folded in folded_idx:
-                return folded_idx[sub_folded]
-            sub_cf = sub_name.strip().casefold()
-            if sub_cf in folded_idx:
-                return folded_idx[sub_cf]
-    # Partial match for longer names only
-    if len(folded) >= 4:
-        for gaz_name in config.LOCATION_COORDS:
-            gf = folded_idx.get(gaz_name) or _fold_location_text(gaz_name)
-            if len(gf) >= 4 and (gf in folded or folded in gf):
-                return gaz_name
+            sub_folded = _fold_location_text(" ".join(words[i:]))
+            hit = index.get(sub_folded)
+            if hit:
+                return hit
+
+    # Catastrophic partial scan (gf in folded / folded in gf over all
+    # LOCATION_COORDS) intentionally removed — it dominated compose time.
     return None
 
 

@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import re
 from typing import Optional, Any
 
@@ -22,6 +22,29 @@ from .epidemiology import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _interactive_analysis_text(text: str) -> str:
+    """Keep interactive URL analysis on lede+body, not a full crawl dump."""
+    limit = int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000)
+    raw = text or ""
+    if len(raw) <= limit:
+        return raw
+    # Prefer a clean sentence boundary near the cap so counts in the lede
+    # remain intact while long sidebars/related stories are dropped.
+    cut = raw[:limit]
+    for sep in (". ", "。", "! ", "? ", "\n\n", "\n"):
+        pos = cut.rfind(sep)
+        if pos >= max(800, limit // 3):
+            return cut[: pos + len(sep)].strip()
+    return cut.rsplit(" ", 1)[0].strip() or cut
+
+
+def _stage_mark(stages: dict[str, float], name: str, started: float) -> float:
+    import time as _time
+    now = _time.monotonic()
+    stages[name] = round(now - started, 3)
+    return now
 
 
 def _guard_event_location_country(
@@ -128,8 +151,21 @@ def _build_article_summary(
 
 
 def run(payload: AnalyzeRequest) -> AnalyzeResponse:
+    import time as _time
+    _stage_t0 = _time.monotonic()
+    _stages: dict[str, float] = {}
     original_text = payload.text or ""
     text = extractors.repair_mojibake(original_text)
+    if payload.interactive or payload.rules_only:
+        before = len(text)
+        text = _interactive_analysis_text(text)
+        if len(text) < before:
+            logger.info(
+                "interactive_text_cap chars_before=%s chars_after=%s limit=%s",
+                before,
+                len(text),
+                getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000),
+            )
     evidence_offset_space = "original" if text == original_text else "repaired_original"
     language_profile = detect_language_profile(
         text,
@@ -150,7 +186,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # a disease term. All intelligence decisions remain source-text based.
     semantic_text = text
     structured = translation["structured"]
-    facts = extractors.predict_surveillance_facts(text, payload.source_country)
+    if payload.interactive or payload.rules_only:
+        loc_cap = int(getattr(config, "INTERACTIVE_LOCATION_SCAN_MAX_CHARS", 4000) or 4000)
+        facts = extractors.predict_surveillance_facts(text[:loc_cap], payload.source_country)
+        # Preserve full (capped) article for metric extractors below; geo used the lede window.
+    else:
+        facts = extractors.predict_surveillance_facts(text, payload.source_country)
+    _stage_t0 = _stage_mark(_stages, "predict_surveillance_facts", _stage_t0)
     non_health_topic = bool(facts.get("non_health_topic")) or extractors.is_clearly_non_health_topic(
         text
     ) or extractors.is_clearly_non_health_topic(semantic_text)
@@ -256,10 +298,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         + extractors.extract_diseases(text[:1200])
         + extractors.extract_diseases(analysis_text[:1200])
     ))
-    who_mentions = extractors.extract_who_disease_mentions(
-        text[:5000] + " " + analysis_text[:5000],
-        config.WHO_DISEASE_CONCEPTS,
-    )
+    if payload.interactive or payload.rules_only:
+        # Keyword/alias hits already cover dengue/cholera style ASEAN news.
+        # Full WHO concept regex over thousands of rows is a common 408 cause;
+        # map the cheap keyword set instead of scanning every concept alias.
+        who_mentions = extractors.canonicalize_who_disease_labels(
+            keyword_diseases + primary_aliases,
+            config.WHO_DISEASE_CONCEPTS,
+        )
+    else:
+        who_mentions = extractors.extract_who_disease_mentions(
+            text[:5000] + " " + analysis_text[:5000],
+            config.WHO_DISEASE_CONCEPTS,
+        )
     who_mentions = sorted(set(
         who_mentions
         + extractors.canonicalize_who_disease_labels(keyword_diseases, config.WHO_DISEASE_CONCEPTS)
@@ -286,7 +337,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     primary_extracted = extractors.rank_lede_diseases(primary_candidates, lede) or _rank_diseases(
         primary_candidates, text[:2500] + " " + analysis_text[:2500]
     )
-    fallback_extracted = _rank_diseases(extractors.extract_diseases(analysis_text) + who_mentions, analysis_text)
+    if payload.interactive or payload.rules_only:
+        fallback_extracted = _rank_diseases(
+            extractors.extract_diseases(analysis_text[:2500]) + who_mentions,
+            analysis_text[:2500],
+        )
+    else:
+        fallback_extracted = _rank_diseases(extractors.extract_diseases(analysis_text) + who_mentions, analysis_text)
+    _stage_t0 = _stage_mark(_stages, "disease_entity_extract", _stage_t0)
     extracted = list(dict.fromkeys(primary_extracted or fallback_extracted))
     extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
     # Structured translation output is deliberately not promoted to an entity
@@ -834,24 +892,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if count_period == "unknown":
             count_period = "incident"
 
-    # Relation extraction is shared by atomic events and strict projection.
-    # Keep one request-local result so the same evidence is not rescanned by
-    # each consumer. Existing local fallbacks remain available on failure.
-    relation_linker = None
-    relation_cache = None
-    try:
-        from .surveillance_extraction import GazetteerLinker, extract_metric_relations
-
-        relation_linker = GazetteerLinker()
-        relation_cache = extract_metric_relations(
-            text,
-            linker=relation_linker,
-            published_date=published_at,
-            source_country=source_country,
-        )
-    except Exception as exc:
-        logger.warning("Request relation cache unavailable; using legacy extraction: %s", exc)
-
     # --- Multi-event extraction (locations AND diseases) ---
     try:
         from .multi_event_extractor import compose_structured_events, _collapse_same_country_events
@@ -864,13 +904,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             case_count=case_count,
             death_count=death_count,
             primary_country=country,
-            linker=relation_linker,
-            relations=relation_cache,
         )
         # The persisted/API event view is country-scoped.  Keep the lower
         # level composer location-specific for evidence and hierarchy tests,
         # then collapse only the public surveillance event projection.
         multi_events = _collapse_same_country_events(multi_events)
+        _stage_t0 = _stage_mark(_stages, "multi_event", _stage_t0)
         sub_events = [
             SubEvent(
                 disease=evt.get("disease", disease),
@@ -964,6 +1003,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             GazetteerLinker, build_surveillance_output,
             extract_metric_relations,
         )
+        # Interactive URL analysis already ran compose_structured_events /
+        # atomic relations. A second full gazetteer+relation pass routinely
+        # burned 60–120s wall on mid-length ASEAN articles and 408'd under
+        # INTERACTIVE_STAGE_BUDGET. Keep the strict projection for batch.
+        if (payload.interactive or payload.rules_only) and getattr(
+            config, "INTERACTIVE_SKIP_STRICT_SURVEILLANCE", True
+        ):
+            raise RuntimeError("interactive_skip_strict_surveillance")
         strict_output = build_surveillance_output(
             text,
             published_at=published_at,
@@ -972,8 +1019,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             source_type=source_type,
             source_url=payload.source_url,
             source_country=source_country,
-            linker=relation_linker,
-            relations=relation_cache,
             include_llm=False,
         )
         article_disease_candidates = list(dict.fromkeys(
@@ -982,15 +1027,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if value and extractors.canonical_disease_name(value).upper() != "UNKNOWN"
             and extractors.disease_has_textual_evidence(value, text)
         ))
-        # Use the same relation list that built the event candidates above.
-        relational_events = relation_cache
-        if relational_events is None:
-            relational_events = extract_metric_relations(
-                text,
-                linker=relation_linker,
-                published_date=published_at,
-                source_country=source_country,
-            )
+        relational_events = extract_metric_relations(
+            text,
+            linker=GazetteerLinker(),
+            published_date=published_at,
+            source_country=source_country,
+        )
         # The composer may start from the classifier's primary location. Add
         # any additional country-level relation that is explicitly backed by
         # the strict projection, otherwise a multi-country article can lose a
@@ -1413,7 +1455,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         for item in strict_output.locations
                     ]
     except Exception as exc:
-        logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
+        if str(exc) != "interactive_skip_strict_surveillance":
+            logger.info("Strict surveillance projection unavailable in legacy path: %s", exc)
+        else:
+            logger.info("interactive_skip_strict_surveillance enabled")
 
     # The country projection is also the article-level fallback when the
     # classifier/rules path could not read a local-language disease or count.
@@ -2097,6 +2142,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     response_new_cases = sum(int(evt.new_cases or 0) for evt in sub_events)
     response_cumulative_cases = sum(int(evt.cumulative_cases or 0) for evt in sub_events)
     response_historical_cases = sum(int(evt.historical_cases or 0) for evt in sub_events)
+
+    if payload.interactive or payload.rules_only:
+        logger.info("interactive_stage_timings %s", _stages)
 
     return AnalyzeResponse(
         language=language,

@@ -46,7 +46,33 @@ def inference_stage(payload, translation, rules_only):
             config.AGENT_ENABLED = False
             config.WHO_DISCOVERY_ENABLED = False
             config.WHO_TERM_RESOLUTION_ENABLED = False
-        return pipeline.run(AnalyzeRequest(**payload)).model_dump()
+            # Cap before pipeline so forked workers never see the full crawl.
+            text = str(payload.get("text") or "")
+            limit = int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000)
+            if len(text) > limit:
+                payload = dict(payload)
+                cut = text[:limit]
+                for sep in (". ", "\n\n", "\n", " "):
+                    pos = cut.rfind(sep)
+                    if pos >= max(800, limit // 3):
+                        cut = cut[: pos + len(sep)].strip()
+                        break
+                payload["text"] = cut
+                logger.info(
+                    "bounded_interactive_text_cap chars_before=%s chars_after=%s",
+                    len(text),
+                    len(cut),
+                )
+        started = time.monotonic()
+        result = pipeline.run(AnalyzeRequest(**payload)).model_dump()
+        logger.info(
+            "bounded_inference_stage_seconds=%.3f interactive=%s rules_only=%s text_chars=%s",
+            time.monotonic() - started,
+            bool(payload.get("interactive")),
+            bool(rules_only),
+            len(str(payload.get("text") or "")),
+        )
+        return result
     finally:
         pipeline.translate_and_extract = orig_translate
         config.NLP_MODEL = orig_model

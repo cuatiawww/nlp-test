@@ -9,24 +9,38 @@ from threading import Lock
 # Must be set before importing tokenizers/transformers. Fork-after-load plus
 # the Rayon thread pool is a common hang that surfaces as NLP HTTP 408.
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-# Cap BLAS/torch threads before importing transformers/torch so one
-# inference request cannot saturate every CPU on the host.
+# Defense-in-depth: main.py already pins threads at process start. Keep the
+# same caps here in case classifier is imported from another entrypoint.
 for _k, _v in (
     ("OMP_NUM_THREADS", "2"),
     ("MKL_NUM_THREADS", "2"),
     ("OPENBLAS_NUM_THREADS", "2"),
     ("TORCH_NUM_THREADS", "2"),
+    ("TORCH_NUM_INTEROP_THREADS", "2"),
 ):
     os.environ.setdefault(_k, _v)
 
-
 from transformers import pipeline
-try:
-    import torch
-    torch.set_num_threads(int(os.environ.get("TORCH_NUM_THREADS", "2")))
-    torch.set_num_interop_threads(1)
-except Exception:
-    pass
+
+def _configure_torch_threads() -> None:
+    try:
+        import torch
+    except Exception:
+        return
+    intra = int(os.environ.get("TORCH_NUM_THREADS", "2"))
+    inter = int(os.environ.get("TORCH_NUM_INTEROP_THREADS", "2"))
+    try:
+        torch.set_num_threads(intra)
+    except Exception:
+        pass
+    try:
+        torch.set_num_interop_threads(inter)
+    except RuntimeError:
+        pass
+    except Exception:
+        pass
+
+_configure_torch_threads()
 
 from ..config import NLP_MODEL
 from ..extractors import detect_language

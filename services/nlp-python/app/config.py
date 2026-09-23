@@ -9,9 +9,8 @@ def _repair_legacy_lexicon_text(value: str) -> str:
     """Repair legacy mojibake in seeded lexicon words at read time."""
     text = str(value or "")
     markers = (
-        "\u00c3", "\u00c2", "\u00c4", "\u00c5", "\u00f0", "\u00e2\x80",
-        "\u00e0\u00b8", "\u00e0\u00b9", "\u00e0\u00ba", "\u00e0\u00bb",
-        "\u00e1\u00bb", "\u00e1\u00ba", "\u00e1\u20ac", "\u00e1\u009e", "\ufffd",
+        "\u00c3", "\u00c2", "\u00e2\x80", "\u00e0\u00b8", "\u00e0\u00b9",
+        "\u00e0\u00ba", "\u00e0\u00bb", "\u00e1\u20ac", "\u00e1\u009e", "\ufffd",
     )
 
     def score(candidate: str) -> int:
@@ -30,7 +29,7 @@ def _repair_legacy_lexicon_text(value: str) -> str:
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.23.multilingual-native-decode-v1")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.19.multilingual-source-first")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
@@ -100,6 +99,22 @@ TRANSLATION_INTERACTIVE_MAX_CHUNKS = max(
 TRANSLATION_INTERACTIVE_TIMEOUT_SECONDS = max(
     5, int(os.getenv("TRANSLATION_INTERACTIVE_TIMEOUT_SECONDS", "20"))
 )
+# Interactive URL analysis: hard cap on source text fed to extractors /
+# surveillance. Typical ASEAN news lede+body fits; long crawls must not
+# multiply gazetteer/WHO full-document scans into multi-minute CPU.
+INTERACTIVE_ANALYSIS_MAX_CHARS = max(
+    1500, int(os.getenv("INTERACTIVE_ANALYSIS_MAX_CHARS", "6000"))
+)
+INTERACTIVE_WHO_SCAN_MAX_CHARS = max(
+    500, int(os.getenv("INTERACTIVE_WHO_SCAN_MAX_CHARS", "2500"))
+)
+INTERACTIVE_LOCATION_SCAN_MAX_CHARS = max(
+    800, int(os.getenv("INTERACTIVE_LOCATION_SCAN_MAX_CHARS", "4000"))
+)
+INTERACTIVE_SKIP_STRICT_SURVEILLANCE = os.getenv(
+    "INTERACTIVE_SKIP_STRICT_SURVEILLANCE", "true"
+).lower() in {"1", "true", "yes", "on"}
+
 INFERENCE_STAGE_TIMEOUT_SECONDS = env_seconds_at_least("INFERENCE_STAGE_TIMEOUT_SECONDS", 180)
 NLP_REQUEST_TIMEOUT_SECONDS = env_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270)
 NLP_STAGE_OVERHEAD_SECONDS = env_seconds_at_least("NLP_STAGE_OVERHEAD_SECONDS", 15)
@@ -234,7 +249,6 @@ LOCATION_ALIASES: dict[str, str] = {}
 LOCATION_LOAD_ATTEMPTED = False
 LOCATION_REGISTRY_REFERENCE_ID: int | None = None
 LOCATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
-FOLDED_LOCATION_INDEX: dict[str, str] = {}  # folded_text -> canonical_name
 LOCATION_STOPWORDS = {
     # Indonesian time/grammatical words that collide with foreign/rare gazetteer entries
     "selama", "hingga", "sejak", "menjelang", "antara", "sejumlah", "tercatat", "banyaknya", "sepanjang",
@@ -460,49 +474,18 @@ def load_outbreak_rules_from_db():
 
 
 def build_location_patterns():
-    global LOCATION_PATTERNS, FOLDED_LOCATION_INDEX
-    # Build folded index: folded_text -> canonical_name (O(1) lookups)
-    idx: dict[str, str] = {}
-    for name in LOCATION_COORDS:
-        folded = "".join(
-            char for char in unicodedata.normalize("NFKD", name.lower())
-            if not unicodedata.combining(char)
-        )
-        if folded and folded not in idx:
-            idx[folded] = name
-        # Also add casefold for native-script names
-        cf = name.strip().casefold()
-        if cf and cf not in idx:
-            idx[cf] = name
-    for alias, canonical in LOCATION_ALIASES.items():
-        folded = "".join(
-            char for char in unicodedata.normalize("NFKD", alias.lower())
-            if not unicodedata.combining(char)
-        )
-        if folded and folded not in idx:
-            idx[folded] = canonical
-        cf = alias.strip().casefold()
-        if cf and cf not in idx:
-            idx[cf] = canonical
-    FOLDED_LOCATION_INDEX = idx
-
-    # Build mega-regex including both canonical names AND alias names
-    all_names: set[str] = set()
-    for name in LOCATION_COORDS:
-        all_names.add(
+    global LOCATION_PATTERNS
+    alternatives = sorted(
+        (
             "".join(
                 char for char in unicodedata.normalize("NFKD", name.lower())
                 if not unicodedata.combining(char)
             )
-        )
-    for alias in LOCATION_ALIASES:
-        folded_alias = "".join(
-            char for char in unicodedata.normalize("NFKD", alias.lower())
-            if not unicodedata.combining(char)
-        )
-        if len(folded_alias) >= 3:  # skip very short alias noise
-            all_names.add(folded_alias)
-    alternatives = sorted(all_names, key=len, reverse=True)
+            for name in LOCATION_COORDS
+        ),
+        key=len,
+        reverse=True,
+    )
     if alternatives:
         combined = re.compile(
             r"\b(?:" + "|".join(re.escape(a) for a in alternatives) + r")\b",
@@ -660,6 +643,11 @@ def load_locations_from_db():
             "Loaded %d locations, %d aliases from DB", len(LOCATION_COORDS), len(LOCATION_ALIASES),
         )
         LOCATION_REGISTRY_REFERENCE_ID = id(LOCATION_COORDS)
+        try:
+            from .extractors import invalidate_location_alias_cache
+            invalidate_location_alias_cache()
+        except Exception:
+            pass
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(

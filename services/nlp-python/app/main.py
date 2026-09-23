@@ -1,6 +1,46 @@
-﻿import logging
+import logging
 from typing import Optional
 import os
+
+# Cap BLAS/torch threads BEFORE any heavyweight import so interactive URL
+# analysis cannot leave inter-op at the torch default (16) when the classifier
+# is never imported.
+for _k, _v in (
+    ("OMP_NUM_THREADS", "2"),
+    ("MKL_NUM_THREADS", "2"),
+    ("OPENBLAS_NUM_THREADS", "2"),
+    ("TORCH_NUM_THREADS", "2"),
+    ("TORCH_NUM_INTEROP_THREADS", "2"),
+    ("TOKENIZERS_PARALLELISM", "false"),
+):
+    os.environ.setdefault(_k, _v)
+
+def _configure_torch_threads() -> None:
+    """Always pin intra-op and inter-op; ignore double-init RuntimeError."""
+    try:
+        import torch
+    except Exception as exc:  # pragma: no cover
+        logging.getLogger(__name__).warning("torch unavailable for thread pin: %s", exc)
+        return
+    intra = int(os.environ.get("TORCH_NUM_THREADS", "2"))
+    inter = int(os.environ.get("TORCH_NUM_INTEROP_THREADS", "2"))
+    try:
+        torch.set_num_threads(intra)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("torch.set_num_threads(%s) failed: %s", intra, exc)
+    try:
+        torch.set_num_interop_threads(inter)
+    except RuntimeError as exc:
+        # Torch only allows one successful interop set per process.
+        logging.getLogger(__name__).info(
+            "torch.set_num_interop_threads(%s) skipped (already set): %s", inter, exc
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "torch.set_num_interop_threads(%s) failed: %s", inter, exc
+        )
+
+_configure_torch_threads()
 
 from fastapi import FastAPI, Body, HTTPException, status
 from pydantic import BaseModel
