@@ -61,7 +61,7 @@ export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; 
   { key: 'source_info', label: 'Source & Channel', width: 160 },
   { key: 'needs_review', label: 'Status', width: 125 },
   { key: 'title', label: 'Article Title & Link', width: 320 },
-  { key: 'country', label: 'Country & Location', width: 180 },
+  { key: 'country', label: 'Country, Region & Location', width: 210 },
   { key: 'lat_long', label: 'Lat / Long', width: 125 },
   { key: 'disease', label: 'Disease', width: 160 },
   { key: 'cases', label: 'Cases', width: 90 },
@@ -311,22 +311,29 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
           {fmtText(row.evidence)}
         </span>
       )
-    case 'country':
+    case 'country': {
+      const reg = row.region || row.surveillance_scope
       return (
-        <div className="flex flex-col">
-          <div className="flex items-center gap-1.5">
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <CountryFlag countryCode={row.country} size="xs" shape="rounded" />
-            <span className="font-semibold text-slate-800 truncate max-w-[140px]" title={row.country || ''}>
+            <span className="font-semibold text-slate-800 truncate max-w-[130px]" title={row.country || ''}>
               {row.country || '—'}
             </span>
+            {reg ? (
+              <span className="inline-flex items-center rounded bg-slate-100 border border-slate-200 px-1.5 py-0.2 text-[9px] font-bold text-slate-600 uppercase tracking-tight" title={`Region: ${reg}`}>
+                {reg}
+              </span>
+            ) : null}
           </div>
           {row.province_city_case ? (
-            <span className="text-[10px] text-slate-500 truncate max-w-[140px]" title={row.province_city_case}>
+            <span className="text-[10px] text-slate-500 truncate max-w-[180px]" title={row.province_city_case}>
               {row.province_city_case}
             </span>
           ) : null}
         </div>
       )
+    }
     case 'source_country':
       return fmtTrunc(row.source_country, 'max-w-[130px]')
     case 'surveillance_scope':
@@ -504,6 +511,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       evidence: row.evidence,
       disease: row.disease,
       country: row.country,
+      region: row.region || row.surveillance_scope,
       locationName: row.province_city_case || row.province || row.city || row.location_name,
       latitude: row.latitude,
       longitude: row.longitude,
@@ -531,6 +539,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           latitude: full.latitude ?? prev.latitude,
           longitude: full.longitude ?? prev.longitude,
           country: full.country || prev.country,
+          region: full.region || prev.region,
           locationName: full.province_city_case || full.location_name || prev.locationName,
           cases: full.cases != null ? full.cases : prev.cases,
           deaths: full.deaths != null ? full.deaths : prev.deaths,

@@ -30,6 +30,7 @@ export interface ReviewTarget {
   evidence?: string | null
   disease?: string | null
   country?: string | null
+  region?: string | null
   locationName?: string | null
   latitude?: number | null
   longitude?: number | null
@@ -238,7 +239,14 @@ export default function ArticleReviewModal({
 
               {/* Location */}
               <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80">
-                <span className="text-[10px] font-medium text-slate-500 block">Location</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-medium text-slate-500 block">Location</span>
+                  {target.region ? (
+                    <span className="rounded bg-white border border-slate-200 px-1.5 py-0.2 text-[9px] font-bold text-slate-600 uppercase tracking-tight">
+                      {target.region}
+                    </span>
+                  ) : null}
+                </div>
                 <span className="text-xs font-bold text-slate-900 mt-0.5 block truncate">
                   {[target.locationName, target.country].filter(Boolean).join(', ') || 'Not specified'}
                 </span>
