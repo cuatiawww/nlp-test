@@ -223,10 +223,10 @@ function EventCorrectionModal({
       }
 
       await onSave(updatedEvent)
-      toast.success(`Koreksi Event #${index + 1} berhasil disimpan ke basis data AI feedback.`)
+      toast.success(`Event correction #${index + 1} successfully saved to AI feedback database.`)
       onClose()
     } catch (err: any) {
-      toast.error(err?.message || 'Gagal menyimpan koreksi event.')
+      toast.error(err?.message || 'Failed to save event correction.')
     } finally {
       setSubmitting(false)
     }
@@ -243,7 +243,7 @@ function EventCorrectionModal({
             </span>
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>Koreksi Human-in-the-Loop Event #{index + 1}</span>
+                <span>Human-in-the-Loop Event Correction #{index + 1}</span>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   AI Feedback Learning
                 </span>
@@ -268,19 +268,19 @@ function EventCorrectionModal({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                Baseline Prediksi NLP (Original)
+                Baseline NLP Prediction (Original)
               </span>
               <div className="space-y-1 text-[11px]">
-                <div><span className="text-slate-500">Penyakit:</span> <strong className="text-slate-800">{originalDisease}</strong></div>
-                <div><span className="text-slate-500">Negara / Region:</span> <strong className="text-slate-800">{originalCountry} ({originalRegion})</strong></div>
-                <div><span className="text-slate-500">Provinsi / Kota:</span> <strong className="text-slate-800">{originalProvince}, {originalCity}</strong></div>
-                <div><span className="text-slate-500">Kasus / Kematian:</span> <span className="font-mono font-bold text-emerald-700">{originalCases.toLocaleString()}</span> / <span className="font-mono font-bold text-rose-700">{originalDeaths.toLocaleString()}</span></div>
+                <div><span className="text-slate-500">Disease:</span> <strong className="text-slate-800">{originalDisease}</strong></div>
+                <div><span className="text-slate-500">Country / Region:</span> <strong className="text-slate-800">{originalCountry} ({originalRegion})</strong></div>
+                <div><span className="text-slate-500">Province / City:</span> <strong className="text-slate-800">{originalProvince}, {originalCity}</strong></div>
+                <div><span className="text-slate-500">Cases / Deaths:</span> <span className="font-mono font-bold text-emerald-700">{originalCases.toLocaleString()}</span> / <span className="font-mono font-bold text-rose-700">{originalDeaths.toLocaleString()}</span></div>
               </div>
             </div>
 
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                Kutipan Bukti Asli (Evidence)
+                Original Evidence Excerpt
               </span>
               <div className="rounded-lg bg-white border border-slate-200 p-2.5 max-h-24 overflow-y-auto italic text-slate-600 text-[11px] leading-relaxed">
                 "{originalEvidence}"
@@ -293,16 +293,16 @@ function EventCorrectionModal({
             <div className="flex items-center justify-between pb-2 border-b border-emerald-100">
               <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
                 <Edit3 className="h-3.5 w-3.5 text-emerald-700" />
-                Form Perbaikan & Validasi Human Reviewer
+                Human Reviewer Correction & Validation Form
               </span>
-              <span className="text-[10px] text-emerald-700 font-medium">Semua field yang diubah akan dicatat untuk melatih AI</span>
+              <span className="text-[10px] text-emerald-700 font-medium">All edited fields will be recorded for continuous AI training</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Disease */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  Penyakit / Diagnosis <span className="text-rose-500">*</span>
+                  Disease / Diagnosis <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -310,28 +310,28 @@ function EventCorrectionModal({
                   value={draft.disease}
                   onChange={(e) => setDraft((p) => ({ ...p, disease: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
-                  placeholder="Misal: Measles, COVID-19, Pneumonia"
+                  placeholder="e.g. Measles, COVID-19, Pneumonia"
                 />
               </div>
 
               {/* ICD-11 Code */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  Kode WHO ICD-11 (Opsional)
+                  WHO ICD-11 Code (Optional)
                 </label>
                 <input
                   type="text"
                   value={draft.icd11}
                   onChange={(e) => setDraft((p) => ({ ...p, icd11: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
-                  placeholder="Misal: 1D60, RA01"
+                  placeholder="e.g. 1D60, RA01"
                 />
               </div>
 
               {/* Country */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  Negara (Country) <span className="text-rose-500">*</span>
+                  Country <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -339,7 +339,7 @@ function EventCorrectionModal({
                   value={draft.country}
                   onChange={(e) => setDraft((p) => ({ ...p, country: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
-                  placeholder="Misal: Indonesia, Bangladesh, Thailand"
+                  placeholder="e.g. Indonesia, Bangladesh, Thailand"
                 />
               </div>
 
@@ -353,42 +353,42 @@ function EventCorrectionModal({
                   value={draft.region}
                   onChange={(e) => setDraft((p) => ({ ...p, region: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
-                  placeholder="Misal: ASEAN, Outside ASEAN"
+                  placeholder="e.g. ASEAN, Outside ASEAN"
                 />
               </div>
 
               {/* Province */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  Provinsi (Admin Level 1)
+                  Province / State (Admin Level 1)
                 </label>
                 <input
                   type="text"
                   value={draft.province}
                   onChange={(e) => setDraft((p) => ({ ...p, province: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
-                  placeholder="Misal: Riau, Jawa Barat, Dhaka Division"
+                  placeholder="e.g. Riau, West Java, Dhaka Division"
                 />
               </div>
 
               {/* City / Locality */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  Kota / Titik Lokasi Spesifik (Admin Level 2)
+                  City / Specific Location (Admin Level 2)
                 </label>
                 <input
                   type="text"
                   value={draft.city}
                   onChange={(e) => setDraft((p) => ({ ...p, city: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
-                  placeholder="Misal: Kota Pekanbaru, Dhaka, Bandung"
+                  placeholder="e.g. Pekanbaru City, Dhaka, Bandung"
                 />
               </div>
 
               {/* Cases */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  Jumlah Kasus (Cases) <span className="text-rose-500">*</span>
+                  Case Count (Cases) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -404,7 +404,7 @@ function EventCorrectionModal({
               {/* Deaths */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  Jumlah Kematian (Deaths) <span className="text-rose-500">*</span>
+                  Death Count (Deaths) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -420,7 +420,7 @@ function EventCorrectionModal({
               {/* Event Date */}
               <div className="sm:col-span-2">
                 <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  Tanggal Kejadian Kasus (Event Date)
+                  Event Date
                 </label>
                 <input
                   type="text"
@@ -435,13 +435,13 @@ function EventCorrectionModal({
             {/* Review Reason */}
             <div>
               <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                Alasan Koreksi / Catatan Reviewer (Opsional)
+                Correction Reason / Reviewer Notes (Optional)
               </label>
               <textarea
                 rows={2}
                 value={draft.reviewReason}
                 onChange={(e) => setDraft((p) => ({ ...p, reviewReason: e.target.value }))}
-                placeholder="Contoh: Angka 1.000 adalah kasus kumulatif campak, bukan COVID-19."
+                placeholder="e.g. The 1,000 figure is cumulative measles cases, not COVID-19."
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
               />
             </div>
@@ -451,7 +451,7 @@ function EventCorrectionModal({
           {articleContent && (
             <details className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-[11px]">
               <summary className="font-bold text-slate-700 cursor-pointer select-none">
-                Buka Teks Lengkap Artikel Sumber ({articleContent.length.toLocaleString()} karakter)
+                View Full Source Article Text ({articleContent.length.toLocaleString()} characters)
               </summary>
               <div className="mt-2.5 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-white border border-slate-200 p-3 leading-relaxed text-slate-600 font-sans">
                 {articleContent}
@@ -466,7 +466,7 @@ function EventCorrectionModal({
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
             >
-              Batal
+              Cancel
             </button>
 
             <button
@@ -475,7 +475,7 @@ function EventCorrectionModal({
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs transition disabled:opacity-50"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              <span>{submitting ? 'Menyimpan ke AI...' : 'Simpan Koreksi Event'}</span>
+              <span>{submitting ? 'Saving to AI...' : 'Save Event Correction'}</span>
             </button>
           </div>
         </form>
@@ -590,11 +590,11 @@ export default function ArticleReviewModal({
 
       toast.success(
         newStatus
-          ? 'Artikel ditandai sebagai Sudah Direview / Terverifikasi.'
-          : 'Artikel ditandai sebagai Perlu Review.'
+          ? 'Article marked as Reviewed / Verified.'
+          : 'Article marked as Needs Review.'
       )
     } catch (err: any) {
-      toast.error(err?.message || 'Gagal mengubah status review.')
+      toast.error(err?.message || 'Failed to update review status.')
     } finally {
       setSubmitting(false)
     }
@@ -610,7 +610,7 @@ export default function ArticleReviewModal({
     onCorrected?.()
   }
 
-  const effectiveSummary = target.summary || target.snippet || target.evidence || 'Summary belum tersedia untuk artikel ini.'
+  const effectiveSummary = target.summary || target.snippet || target.evidence || 'Summary not available for this article.'
   const cleanContent = stripHtml(target.content || target.originalText)
 
   return (
@@ -637,7 +637,7 @@ export default function ArticleReviewModal({
                   )}
                 </div>
                 <p className="text-xs text-slate-500">
-                  Verifikasi fakta epidemiologi, multi-disease, dan multi-event hasil prediksi NLP
+                  Verify epidemiological facts, multi-disease, and multi-event extraction from NLP predictions
                 </p>
               </div>
             </div>
@@ -758,10 +758,10 @@ export default function ArticleReviewModal({
                 <div>
                   <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
                     <Activity className="h-4 w-4 text-[#0060A9]" />
-                    <span>Matriks Prediksi NLP & Koreksi Human Review ({eventsList.length} Event)</span>
+                    <span>NLP Prediction Matrix & Human Review Corrections ({eventsList.length} Event{eventsList.length === 1 ? '' : 's'})</span>
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Klik tombol <strong>Edit / Koreksi</strong> pada baris event untuk memperbaiki penyakit, lokasi, provinsi, region, kasus, atau kematian.
+                    Click <strong>Edit</strong> on any event row to correct disease, country, region, province, city, cases, or deaths.
                   </p>
                 </div>
               </div>
@@ -771,14 +771,14 @@ export default function ArticleReviewModal({
                   <thead>
                     <tr className="bg-slate-100/70 text-[10px] uppercase font-bold text-slate-600 border-b border-slate-200">
                       <th className="px-3 py-2.5 text-center w-12">#</th>
-                      <th className="px-3 py-2.5 min-w-[170px]">Penyakit & ICD-11</th>
-                      <th className="px-3 py-2.5 min-w-[150px]">Negara & Region</th>
-                      <th className="px-3 py-2.5 min-w-[170px]">Provinsi & Kota / Lokasi</th>
-                      <th className="px-3 py-2.5 text-right w-24">Kasus</th>
-                      <th className="px-3 py-2.5 text-right w-24">Kematian</th>
-                      <th className="px-3 py-2.5 min-w-[100px]">Tanggal Kasus</th>
-                      <th className="px-3 py-2.5 min-w-[200px]">Bukti Evidence</th>
-                      <th className="px-3 py-2.5 text-center w-28">Aksi</th>
+                      <th className="px-3 py-2.5 min-w-[170px]">Disease & ICD-11</th>
+                      <th className="px-3 py-2.5 min-w-[150px]">Country & Region</th>
+                      <th className="px-3 py-2.5 min-w-[170px]">Province & City / Location</th>
+                      <th className="px-3 py-2.5 text-right w-24">Cases</th>
+                      <th className="px-3 py-2.5 text-right w-24">Deaths</th>
+                      <th className="px-3 py-2.5 min-w-[100px]">Event Date</th>
+                      <th className="px-3 py-2.5 min-w-[200px]">Evidence Span</th>
+                      <th className="px-3 py-2.5 text-center w-28">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -825,7 +825,7 @@ export default function ArticleReviewModal({
                                 )}
                                 {isCorrected && (
                                   <span className="mt-1 inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                                    <Check className="h-2.5 w-2.5" /> Terkoreksi
+                                    <Check className="h-2.5 w-2.5" /> Corrected
                                   </span>
                                 )}
                               </div>
@@ -857,7 +857,7 @@ export default function ArticleReviewModal({
                                 </span>
                                 {provinceName && (
                                   <span className="text-[10px] text-slate-500 block">
-                                    Provinsi: {provinceName}
+                                    Province: {provinceName}
                                   </span>
                                 )}
                               </div>
@@ -903,10 +903,10 @@ export default function ArticleReviewModal({
                               type="button"
                               onClick={() => setEditingIndex(idx)}
                               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-[11px] font-bold hover:bg-emerald-600 hover:text-white transition shadow-2xs cursor-pointer"
-                              title="Koreksi field event ini"
+                              title="Edit this event record"
                             >
                               <Edit3 className="h-3 w-3" />
-                              <span>Koreksi</span>
+                              <span>Edit</span>
                             </button>
                           </td>
                         </tr>
@@ -923,11 +923,11 @@ export default function ArticleReviewModal({
             <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
               {isReviewed ? (
                 <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Terverifikasi oleh Epidemiolog
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Verified by Epidemiologist
                 </span>
               ) : (
                 <span className="text-amber-700 font-medium flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5" /> Menunggu Konfirmasi Reviewer
+                  <Clock className="h-3.5 w-3.5" /> Pending Reviewer Confirmation
                 </span>
               )}
             </div>
@@ -938,7 +938,7 @@ export default function ArticleReviewModal({
                 onClick={onClose}
                 className="px-4 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
               >
-                Tutup
+                Close
               </button>
 
               <button
@@ -958,7 +958,7 @@ export default function ArticleReviewModal({
                 ) : (
                   <ShieldCheck className="h-3.5 w-3.5" />
                 )}
-                <span>{isReviewed ? 'Tandai Belum Selesai' : 'Tandai Sudah Direview'}</span>
+                <span>{isReviewed ? 'Mark Unreviewed' : 'Mark as Reviewed'}</span>
               </button>
             </div>
           </div>

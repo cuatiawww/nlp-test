@@ -346,7 +346,7 @@ export default function AnalyzePage() {
               ? collapsed.diseaseDisplay.split('; ').map((name) => translateDisease(name)).join('; ')
               : (translateDisease(result.disease_classification) || '-')
             const evidenceSnippet = ((result as any)?.evidence || [])[0] || ''
-            const eventCountries = Array.from(new Set(
+            const eventCountries: string[] = Array.from(new Set<string>(
               subEvents
                 .map((evt: { country?: string }) => (evt.country || '').trim())
                 .filter((c: string) => Boolean(c) && c !== 'MULTI_COUNTRY'),
