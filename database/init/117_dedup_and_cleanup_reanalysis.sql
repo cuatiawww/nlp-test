@@ -1,8 +1,6 @@
 ﻿-- Cleanup script to remove duplicated surveillance events caused by repeated URL analysis or crawler runs.
 -- Keeps only the latest analysis/crawl run for each article and removes stale/duplicated runs.
 
-BEGIN;
-
 -- 1. Identify older duplicate parent events for the same raw_report_id or source_url
 WITH ranked_parents AS (
     SELECT id, raw_report_id, source_url,
@@ -60,5 +58,3 @@ WITH pekanbaru_dup AS (
 )
 DELETE FROM disease_events
 WHERE id IN (SELECT id FROM pekanbaru_dup WHERE rn > 1);
-
-COMMIT;
