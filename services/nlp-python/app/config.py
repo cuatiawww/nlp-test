@@ -278,6 +278,35 @@ DEFAULT_LANGUAGE_MARKERS: dict[str, list[str]] = {
     "my": ["လူနာ", "ကူးစက်သူ", "သေဆုံး", "ကျန်းမာရေးဝန်ကြီးဌာန"],
     "en": ["cases", "infections", "patients", "deaths", "health department", "ministry of health"],
 }
+# Minimal offline lexical registry for native-script articles. The database
+# remains authoritative when available; these terms keep source-first
+# extraction functional during startup, tests, and temporary DB outages.
+DEFAULT_LEXICON_TERMS: dict[str, dict[str, list[str]]] = {
+    "metric_case": {
+        "lo": ["ກໍລະນີ", "ກໍລະນີສະສົມ"],
+        "th": ["ราย", "กรณี"],
+        "km": ["ករណី"],
+        "my": ["လူနာ", "ကူးစက်သူ"],
+        "vi": ["ca mắc", "ca nhiễm"],
+        "tl": ["kaso"],
+    },
+    "metric_death": {
+        "lo": ["ເສຍຊີວິດ"],
+        "th": ["เสียชีวิต"],
+        "km": ["ស្លាប់"],
+        "my": ["သေဆုံး"],
+        "vi": ["tử vong"],
+        "tl": ["kamatayan"],
+    },
+    "count_unit": {
+        "lo": ["ກໍລະນີ", "ຄົນ"],
+        "th": ["ราย", "คน"],
+        "km": ["នាក់", "ករណី"],
+        "my": ["ဦး", "ယောက်"],
+        "vi": ["ca", "người"],
+        "tl": ["kaso", "katao"],
+    },
+}
 LANGUAGE_MARKERS: dict[str, list[str]] = {k: list(v) for k, v in DEFAULT_LANGUAGE_MARKERS.items()}
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
@@ -437,7 +466,9 @@ def load_locations_from_db():
     LOCATION_ALIASES = {}
     try:
         from . import extractors
-        extractors.COUNTRY_ALIASES = {}
+        extractors.COUNTRY_ALIASES = dict(
+            getattr(extractors, "DEFAULT_COUNTRY_ALIASES", {})
+        )
     except Exception:
         extractors = None
     try:
@@ -710,15 +741,21 @@ def get_language_markers() -> dict[str, list[str]]:
 
 
 def get_lexicon_terms(marker_type: str, language: Optional[str] = None) -> list[str]:
-    """Return active DB lexicon terms; never synthesize fallback vocabulary."""
+    """Return DB terms plus the small offline native-script safety registry."""
 
     if not LEXICON_LOAD_ATTEMPTED:
         load_language_markers_from_db()
-    by_language = LEXICON_TERMS.get(str(marker_type or "").strip().casefold(), {})
+    marker_key = str(marker_type or "").strip().casefold()
+    by_language = LEXICON_TERMS.get(marker_key, {})
+    defaults = DEFAULT_LEXICON_TERMS.get(marker_key, {})
     if language:
-        selected = by_language.get(str(language).strip().casefold(), [])
-        return list(dict.fromkeys(selected))
-    return list(dict.fromkeys(term for values in by_language.values() for term in values))
+        lang = str(language).strip().casefold()
+        return list(dict.fromkeys([*by_language.get(lang, []), *defaults.get(lang, [])]))
+    return list(dict.fromkeys(
+        term
+        for values in [*by_language.values(), *defaults.values()]
+        for term in values
+    ))
 
 
 def get_location_stopwords() -> set[str]:

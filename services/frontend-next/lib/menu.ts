@@ -206,6 +206,7 @@ export const DEFAULT_NAVIGATION_CONFIG: SidebarGroupConfig[] = [
     enabled: true,
     items: [
       { id: 'mod_locations', label: 'Locations', labelKey: 'sidebar.items.locations', icon: 'MapPin', href: '/locations', order: 1, enabled: true },
+      { id: 'mod_master_countries', label: 'Master Countries & Regions', icon: 'Globe2', href: '/master-countries', order: 1.5, enabled: true },
       { id: 'mod_disease_master', label: 'Disease Master', labelKey: 'sidebar.items.diseaseMaster', icon: 'Stethoscope', href: '/disease-master', order: 2, enabled: true },
       { id: 'mod_credibility', label: 'Credibility', labelKey: 'sidebar.items.credibility', icon: 'ShieldCheck', href: '/source-credibility', order: 3, enabled: true },
       { id: 'mod_outbreak_rules', label: 'Outbreak Rules', labelKey: 'sidebar.items.outbreakRules', icon: 'AlertTriangle', href: '/outbreak-rules', order: 4, enabled: true },

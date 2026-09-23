@@ -26,6 +26,8 @@ import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
 import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
+import CountryFlag from '@/components/CountryFlag'
+import { LayoutGrid, ListFilter } from 'lucide-react'
 import { Edit3, Eye, CheckCircle2, Clock } from 'lucide-react'
 import {
   downloadCrawlHistoryExport,
@@ -54,7 +56,20 @@ const CHANNELS: { id: ChannelFilter; label: string }[] = [
   { id: 'analyze-url', label: 'Analyze URL' },
 ]
 
-const PHASE1_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
+export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
+  { key: 'no', label: 'No', width: 50, sticky: true },
+  { key: 'source_info', label: 'Source & Channel', width: 160 },
+  { key: 'needs_review', label: 'Status', width: 125 },
+  { key: 'title', label: 'Article Title & Link', width: 320 },
+  { key: 'country', label: 'Country & Location', width: 180 },
+  { key: 'disease', label: 'Disease', width: 160 },
+  { key: 'cases', label: 'Cases', width: 90 },
+  { key: 'deaths', label: 'Deaths', width: 90 },
+  { key: 'crawling_date', label: 'Crawling Date', width: 130 },
+  { key: 'action', label: 'Action', width: 95 },
+]
+
+export const ALL_LOG_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 52, sticky: true },
   { key: 'source_country', label: 'Source Country', width: 130 },
   { key: 'surveillance_scope', label: 'Scope', width: 110 },
@@ -155,6 +170,17 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
   switch (key) {
     case 'no':
       return (page - 1) * PAGE_SIZE + index + 1
+    case 'source_info':
+      return (
+        <div className="flex flex-col">
+          <span className="font-medium text-slate-800 truncate max-w-[150px]" title={row.source_name || row.source_type || ''}>
+            {row.source_name || row.source_type || '—'}
+          </span>
+          <span className="text-[10px] font-mono text-slate-400 uppercase">
+            {channelLabel(row.crawl_channel)}
+          </span>
+        </div>
+      )
     case 'url':
       return row.url ? (
         <a
@@ -169,12 +195,37 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
         </a>
       ) : ''
     case 'title':
-      return fmtTrunc(stripHtml(row.title || row.article_title), 'max-w-[260px]')
+      return (
+        <div className="flex items-start gap-1">
+          <span className="line-clamp-2 max-w-[300px] text-xs font-medium text-slate-800 leading-snug" title={stripHtml(row.title || row.article_title)}>
+            {stripHtml(row.title || row.article_title || row.url)}
+          </span>
+          {row.url ? (
+            <a
+              href={row.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[#0060A9] hover:text-blue-700 shrink-0 mt-0.5"
+              title={row.url}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
+        </div>
+      )
     case 'disease':
       return (
-        <span className="block max-w-[170px] truncate font-medium" title={row.disease || ''}>
-          {fmtText(row.disease)}
-        </span>
+        <div className="flex flex-col">
+          <span className="font-semibold text-slate-900 truncate max-w-[140px]" title={row.disease || ''}>
+            {fmtText(row.disease) || '—'}
+          </span>
+          {row.icd11_code ? (
+            <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-1 rounded w-fit">
+              ICD-11: {row.icd11_code}
+            </span>
+          ) : null}
+        </div>
       )
     case 'crawling_date':
       return fmtDate(row.crawling_date)
@@ -226,7 +277,21 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
         </span>
       )
     case 'country':
-      return fmtTrunc(row.country, 'max-w-[130px]')
+      return (
+        <div className="flex flex-col">
+          <div className="flex items-center gap-1.5">
+            <CountryFlag countryCode={row.country} size="xs" shape="rounded" />
+            <span className="font-semibold text-slate-800 truncate max-w-[140px]" title={row.country || ''}>
+              {row.country || '—'}
+            </span>
+          </div>
+          {row.province_city_case ? (
+            <span className="text-[10px] text-slate-500 truncate max-w-[140px]" title={row.province_city_case}>
+              {row.province_city_case}
+            </span>
+          ) : null}
+        </div>
+      )
     case 'source_country':
       return fmtTrunc(row.source_country, 'max-w-[130px]')
     case 'surveillance_scope':
@@ -267,6 +332,7 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
 export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: string }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('matrix')
+  const [viewMode, setViewMode] = useState<'surveillance' | 'all'>('surveillance')
   const [channel, setChannel] = useState<ChannelFilter>('all')
   const [quality, setQuality] = useState<QualityFilter>('surveillance')
   const [country, setCountry] = useState('ASEAN')
@@ -392,15 +458,48 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   }, [channel, quality, country, disease, dateFrom, dateTo, status, geo, jobId, q])
 
   async function openRow(row: CrawlHistoryRow) {
-    setDetail(row)
-    setDetailLoading(true)
+    setReviewTarget({
+      id: row.id,
+      eventId: row.disease_event_id,
+      rawReportId: row.raw_report_id || row.id,
+      title: row.title || row.article_title,
+      url: row.url,
+      summary: (row as any).summary,
+      snippet: row.snippet,
+      evidence: row.evidence,
+      disease: row.disease,
+      country: row.country,
+      locationName: row.province_city_case || row.province || row.city || row.location_name,
+      cases: row.cases,
+      deaths: row.deaths,
+      language: row.language,
+      crawlingDate: row.crawling_date,
+      articleDate: row.article_date || row.published_at,
+      eventType: row.event_type,
+      outbreakAlert: row.outbreak_alert,
+      sourceType: row.source_type,
+      sourceName: row.source_name,
+      needsReview: row.needs_review,
+    })
+
     try {
       const full = await fetchCrawlHistoryRow(row.id, row.crawl_channel)
-      setDetail(full)
-    } catch (error: any) {
-      toast.error(error?.message || 'Row detail could not be loaded')
-    } finally {
-      setDetailLoading(false)
+      if (full) {
+        setReviewTarget((prev) => (prev && prev.id === row.id ? {
+          ...prev,
+          summary: (full as any).summary || prev.summary,
+          snippet: full.snippet || prev.snippet,
+          evidence: full.evidence || prev.evidence,
+          disease: full.disease || prev.disease,
+          country: full.country || prev.country,
+          locationName: full.province_city_case || full.location_name || prev.locationName,
+          cases: full.cases != null ? full.cases : prev.cases,
+          deaths: full.deaths != null ? full.deaths : prev.deaths,
+          children: full.children,
+        } : prev))
+      }
+    } catch {
+      // Row data already present
     }
   }
 
@@ -432,7 +531,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
     { label: 'Noise excluded', value: summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) || '0' : '—' },
   ]
 
-  const tableMinWidth = PHASE1_COLUMNS.reduce((sum, col) => sum + col.width, 0)
+  const activeColumns = viewMode === 'surveillance' ? SURVEILLANCE_COLUMNS : ALL_LOG_COLUMNS
+  const tableMinWidth = activeColumns.reduce((sum, col) => sum + col.width, 0)
 
   return (
     <section className="mt-5 space-y-4">
@@ -564,7 +664,36 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           </div>
         )}
         {tab === 'matrix' && (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+            {/* View Mode Switcher */}
+            <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('surveillance')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all ${
+                  viewMode === 'surveillance'
+                    ? 'bg-white text-[#0060A9] shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span>Surveillance View (Clean)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('all')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all ${
+                  viewMode === 'all'
+                    ? 'bg-white text-[#0060A9] shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ListFilter className="h-3.5 w-3.5" />
+                <span>All Debug Logs (31 Cols)</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
             <button
               onClick={() => exportRows('csv')}
               disabled={exporting || total === 0}
@@ -579,6 +708,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
             >
               <Download className="h-3.5 w-3.5" /> Excel
             </button>
+            </div>
           </div>
         )}
       </div>
@@ -635,13 +765,13 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               ) : null}
               <table className="border-separate border-spacing-0 text-left text-[11px]" style={{ minWidth: tableMinWidth }}>
                 <colgroup>
-                  {PHASE1_COLUMNS.map((col) => (
+                  {activeColumns.map((col) => (
                     <col key={col.key} style={{ width: col.width }} />
                   ))}
                 </colgroup>
                 <thead>
                   <tr>
-                    {PHASE1_COLUMNS.map((col) => (
+                    {activeColumns.map((col) => (
                       <th
                         key={col.key}
                         className={`sticky top-0 z-10 whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600 ${
@@ -660,7 +790,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                       className="cursor-pointer hover:bg-blue-50/40"
                       onClick={() => void openRow(row)}
                     >
-                      {PHASE1_COLUMNS.map((col) => {
+                      {activeColumns.map((col) => {
                         if (col.key === 'action') {
                           return (
                             <td
@@ -670,34 +800,12 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                             >
                               <button
                                 type="button"
-                                onClick={() => setReviewTarget({
-                                  id: row.id,
-                                  eventId: row.disease_event_id,
-                                  rawReportId: row.raw_report_id || row.id,
-                                  title: row.title || row.article_title,
-                                  url: row.url,
-                                  summary: (row as any).summary,
-                                  snippet: row.snippet,
-                                  evidence: row.evidence,
-                                  disease: row.disease,
-                                  country: row.country,
-                                  locationName: row.province_city_case || row.province || row.city || row.location_name,
-                                  cases: row.cases,
-                                  deaths: row.deaths,
-                                  language: row.language,
-                                  crawlingDate: row.crawling_date,
-                                  articleDate: row.article_date || row.published_at,
-                                  eventType: row.event_type,
-                                  outbreakAlert: row.outbreak_alert,
-                                  sourceType: row.source_type,
-                                  sourceName: row.source_name,
-                                  needsReview: row.needs_review,
-                                })}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 transition shadow-xs"
-                                title="Review article summary & facts"
+                                onClick={() => void openRow(row)}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 transition shadow-xs cursor-pointer"
+                                title="View article summary & facts"
                               >
                                 <Eye className="h-3.5 w-3.5 text-blue-600" />
-                                <span>Review</span>
+                                <span>Summary</span>
                               </button>
                             </td>
                           )
@@ -754,134 +862,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
         )}
       </div>
 
-      <Modal open={!!detail || detailLoading} title={t('pages.crawlHistory.detailTitle')} onClose={() => setDetail(null)} maxWidth="max-w-4xl">
-        {detailLoading && !detail ? (
-          <div className="flex items-center gap-2 py-8 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading')}</div>
-        ) : detail ? (
-          <div className="space-y-4 text-sm">
-            <div>
-              <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-base font-semibold text-slate-900">{detail.title || 'Untitled article'}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReviewTarget({
-                  id: detail.id,
-                  eventId: detail.disease_event_id,
-                  rawReportId: detail.raw_report_id || detail.id,
-                  title: detail.title || detail.article_title,
-                  url: detail.url,
-                  summary: (detail as any).summary,
-                  snippet: detail.snippet,
-                  evidence: detail.evidence,
-                  disease: detail.disease,
-                  country: detail.country,
-                  locationName: detail.province_city_case || detail.province || detail.city || detail.location_name,
-                  cases: detail.cases,
-                  deaths: detail.deaths,
-                  language: detail.language,
-                  crawlingDate: detail.crawling_date,
-                  articleDate: detail.article_date || detail.published_at,
-                  eventType: detail.event_type,
-                  outbreakAlert: detail.outbreak_alert,
-                  sourceType: detail.source_type,
-                  sourceName: detail.source_name,
-                  needsReview: detail.needs_review,
-                })}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-xs font-bold text-blue-800 hover:bg-blue-100 transition shadow-xs shrink-0"
-                title="Open article review and mark as read"
-              >
-                <Eye className="h-3.5 w-3.5 text-blue-600" />
-                <span>Review Article</span>
-              </button>
-            </div>
-              {detail.url ? (
-                <a href={detail.url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-[#0060A9] hover:underline">
-                  {detail.url} <ExternalLink className="h-3 w-3" />
-                </a>
-              ) : null}
-              {(detail.event_count && detail.event_count > 1) || (detail.location_count && detail.location_count > 1) ? (
-                <p className="mt-1 text-[11px] text-slate-500">
-                  {fmtNum(detail.event_count) || '—'} location events collapsed into this article row
-                  {detail.location_count && detail.location_count > 1 ? ` · ${fmtNum(detail.location_count)} places` : ''}
-                </p>
-              ) : null}
-            </div>
-            <dl className="grid grid-cols-2 gap-3 text-xs md:grid-cols-3">
-              <div><dt className="text-slate-400">Country</dt><dd className="font-medium">{fmtText(detail.country) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Language</dt><dd className="font-medium">{fmtText(detail.language) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Disease</dt><dd className="font-medium">{fmtText(detail.disease) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Crawling date</dt><dd className="font-medium">{fmtDate(detail.crawling_date) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Article date</dt><dd className="font-medium">{fmtDate(detail.article_date || detail.published_at) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Date case</dt><dd className="font-medium">{fmtDate(detail.date_case) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Region</dt><dd className="font-medium">{fmtText(detail.region) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Province / city case</dt><dd className="font-medium">{fmtText(detail.province_city_case) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Cases</dt><dd className="font-medium">{fmtText(detail.cases_display) || fmtNum(detail.cases) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Deaths</dt><dd className="font-medium">{fmtText(detail.deaths_display) || fmtNum(detail.deaths) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Lat / lon</dt><dd className="font-medium">{detail.geo_summary || `${detail.latitude ?? '—'} / ${detail.longitude ?? '—'}`}</dd></div>
-              <div><dt className="text-slate-400">Source</dt><dd className="font-medium">{[detail.source_type, detail.source_name].filter(Boolean).join(' · ') || '—'}</dd></div>
-              <div><dt className="text-slate-400">Confidence (max)</dt><dd className="font-medium">{detail.confidence ?? '—'}</dd></div>
-              <div><dt className="text-slate-400">Status</dt><dd className="font-medium">{fmtText(detail.status) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Channel</dt><dd className="font-medium">{channelLabel(detail.crawl_channel) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Health related</dt><dd className="font-medium">{fmtBool(detail.is_health_related) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Event type</dt><dd className="font-medium">{fmtText(detail.event_type) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Credibility (max)</dt><dd className="font-medium">{detail.source_credibility ?? '—'} {fmtText(detail.source_credibility_label)}</dd></div>
-              <div><dt className="text-slate-400">Sentiment / relevance</dt><dd className="font-medium">{fmtText(detail.sentiment) || '—'} / {fmtText(detail.relevance_score) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Outbreak alert</dt><dd className="font-medium">{fmtBool(detail.outbreak_alert) || '—'}</dd></div>
-              <div><dt className="text-slate-400">Needs review</dt><dd className="font-medium">{fmtBool(detail.needs_review) || '—'}</dd></div>
-              <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Event id</dt><dd className="font-mono text-[11px]">{detail.disease_event_id || '—'}</dd></div>
-              <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Raw report id</dt><dd className="font-mono text-[11px]">{detail.raw_report_id || '—'}</dd></div>
-              {detail.job_id ? <div className="col-span-2 md:col-span-3"><dt className="text-slate-400">Job id</dt><dd className="font-mono text-[11px]">{detail.job_id}</dd></div> : null}
-            </dl>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
-              <p className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-700">{detail.evidence || '—'}</p>
-            </div>
-            {detail.snippet ? (
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Article snippet</div>
-                <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">{detail.snippet}</p>
-              </div>
-            ) : null}
-            {detail.children && detail.children.length > 1 ? (
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Location events ({detail.children.length}{detail.event_count && detail.event_count > detail.children.length ? ` of ${fmtNum(detail.event_count)}` : ''})
-                </div>
-                <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200">
-                  <table className="min-w-full text-left text-[11px]">
-                    <thead>
-                      <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-                        <th className="px-2 py-1.5 font-semibold">Country</th>
-                        <th className="px-2 py-1.5 font-semibold">Place</th>
-                        <th className="px-2 py-1.5 font-semibold">Disease</th>
-                        <th className="px-2 py-1.5 font-semibold">Cases</th>
-                        <th className="px-2 py-1.5 font-semibold">Deaths</th>
-                        <th className="px-2 py-1.5 font-semibold">Lat / lon</th>
-                        <th className="px-2 py-1.5 font-semibold">Event id</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.children.map((child) => (
-                        <tr key={child.id} className="border-t border-slate-100">
-                          <td className="px-2 py-1.5">{fmtText(child.country) || '—'}</td>
-                          <td className="px-2 py-1.5">{fmtText(child.province_city_case || child.province || child.city || child.region) || '—'}</td>
-                          <td className="px-2 py-1.5">{fmtText(child.disease) || '—'}</td>
-                          <td className="px-2 py-1.5">{fmtNum(child.cases) || '—'}</td>
-                          <td className="px-2 py-1.5">{fmtNum(child.deaths) || '—'}</td>
-                          <td className="px-2 py-1.5">{child.latitude ?? '—'} / {child.longitude ?? '—'}</td>
-                          <td className="px-2 py-1.5 font-mono text-[10px]">{child.disease_event_id || child.id}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </Modal>
+      
 
       <CorrectionModal
         open={!!correctionTarget}

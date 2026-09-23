@@ -120,6 +120,25 @@ class NarrativeIntelligenceTest(unittest.TestCase):
         self.assertEqual(by_country["Vietnam"].provinces, [])
         self.assertEqual(by_country["Vietnam"].cities, ["Ho Chi Minh City"])
 
+    def test_new_and_cumulative_metrics_remain_country_scoped(self):
+        from app.surveillance_extraction import GazetteerLinker, extract_metric_relations
+
+        text = (
+            "Singapore recorded 12,700 COVID-19 cases during 10-16 May 2026. "
+            "Indonesia reported 2 new COVID-19 cases and 121 cumulative cases, "
+            "with no deaths. Two cases were from Jakarta and Sulawesi."
+        )
+        relations = extract_metric_relations(text, linker=GazetteerLinker(allow_remote=False))
+        indonesia = [
+            item for item in relations
+            if item.location.country == "Indonesia" and item.cases
+        ]
+        self.assertEqual(
+            {(item.cases, item.qualifier) for item in indonesia},
+            {(2, "new"), (121, "cumulative")},
+        )
+        self.assertNotIn("Jakarta", {item.location.name for item in relations})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -141,6 +141,8 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/language-models",
         "/api/v1/outbreak-rules",
         "/api/v1/locations",
+        "/api/v1/master/countries",
+        "/api/v1/master/regions",
         "/api/v1/disease-concepts",
         "/api/v1/source-credibility",
         "/api/v1/summary",

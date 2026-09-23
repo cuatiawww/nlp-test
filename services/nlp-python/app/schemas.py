@@ -67,6 +67,9 @@ class SubEvent(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     case_count: int = 0
+    new_cases: Optional[int] = None
+    cumulative_cases: Optional[int] = None
+    historical_cases: Optional[int] = None
     death_count: int = 0
     metric_type: str = "cases"
     unit: str = "persons"
@@ -132,6 +135,9 @@ class AnalyzeResponse(BaseModel):
     disease_mentions: list[DiseaseMention] = Field(default_factory=list)
     disease_classification: str
     case_count: int
+    new_cases: Optional[int] = None
+    cumulative_cases: Optional[int] = None
+    historical_cases: Optional[int] = None
     death_count: int
     confirmed_cases: Optional[int] = None
     suspected_cases: Optional[int] = None

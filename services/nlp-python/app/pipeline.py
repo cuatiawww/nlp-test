@@ -862,6 +862,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 latitude=evt.get("latitude"),
                 longitude=evt.get("longitude"),
                 case_count=evt.get("case_count", 0),
+                new_cases=evt.get("new_cases"),
+                cumulative_cases=evt.get("cumulative_cases"),
+                historical_cases=evt.get("historical_cases"),
                 death_count=evt.get("death_count", 0),
                 metric_type=evt.get("metric_type", "cases"),
                 unit=evt.get("unit", "persons"),
@@ -1522,6 +1525,29 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if ncd_only:
         sub_events = []
 
+    # A scalar article row cannot safely pretend that the first country is the
+    # only event in a multi-country report. Keep the country/event rows as the
+    # source of truth and expose an explicit multi-country parent summary.
+    event_country_values = list(dict.fromkeys(
+        str(evt.country or "").strip()
+        for evt in sub_events
+        if str(evt.country or "").strip()
+    ))
+    multi_country_article = len(event_country_values) > 1
+    if multi_country_article:
+        country = "MULTI_COUNTRY"
+        location = "MULTI_COUNTRY"
+        lat = None
+        lon = None
+        case_count = sum(int(evt.case_count or 0) for evt in sub_events)
+        death_count = sum(
+            int(metric.get("value") or 0)
+            for evt in sub_events
+            for metric in (evt.metrics or [])
+            if metric.get("metric_type") == "deaths"
+        )
+        explicit_case_count = bool(sub_events)
+
     # Regional events exist ONLY when metrics are truly bound to that region.
     # Bare location mentions belong in the location matrix, not as empty regional events.
     sub_events = [
@@ -1607,7 +1633,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         location=location,
         country=country,
         source_country=source_country,
-        surveillance_scope=("ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
+        surveillance_scope=("MULTI_COUNTRY" if country == "MULTI_COUNTRY" else "ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
         case_count=case_count,
         death_count=death_count,
     )
@@ -1653,16 +1679,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 if "location_country_conflict" not in doc_validation_flags:
                     doc_validation_flags.append("location_country_conflict")
 
-    # In multi-country roundup articles, align parent country to the country of the primary surveillance metric
-    if sub_events and len(mentioned_countries) > 1:
-        best_event = max(sub_events, key=lambda e: (e.case_count or 0, e.death_count or 0))
-        if best_event.country and (best_event.case_count or 0) > 0 and str(country or "").casefold() != str(best_event.country).casefold():
-            country = best_event.country
-            location = country
-            hier = extractors.resolve_location_hierarchy(country, country_hint=country)
-            lat = hier.get("latitude")
-            lon = hier.get("longitude")
-            location_country_conflict = False
+    # Do not collapse a multi-country article onto the largest/first event.
+    # The parent is explicitly marked MULTI_COUNTRY and sub_events remain the
+    # authoritative country-scoped facts.
 
     metric_countries = {
         str(item.country or "").strip()
@@ -1736,6 +1755,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         if "location_country_conflict" not in evt.validation_flags:
                             evt.validation_flags.append("location_country_conflict")
 
+    # The legacy scalar extractor remains the current-period authority for a
+    # single disease/country event. A relation composer may also retain a
+    # historical comparator in the same evidence bundle; do not let that
+    # comparator become the visible sub-event count.
+    if len(sub_events) == 1 and source_case_count and explicit_case_count:
+        only_event = sub_events[0]
+        if int(only_event.case_count or 0) != int(source_case_count):
+            only_event.case_count = int(source_case_count)
+            only_event.metric_type = "cases"
+            only_event.temporal_context = "current"
+            only_event.needs_review = bool(only_event.needs_review)
+
     # Country-safety normalization can turn a conflicting locality row into
     # the same country row as an existing aggregate. Deduplicate only when
     # disease, country, location, metric type, and temporal context all agree;
@@ -1751,6 +1782,35 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             str(evt.temporal_context or ""),
         )
         existing = unique_events.get(event_key)
+        if existing is None:
+            # A parser can emit the same original evidence twice with one
+            # candidate carrying a document period and the other carrying a
+            # local period. Exact evidence plus identical metric values is a
+            # duplicate, not two surveillance events.
+            evidence_key = (
+                str(evt.disease or "").casefold(),
+                str(evt.country or "").casefold(),
+                str(evt.location_name or "").casefold(),
+                str(evt.metric_type or ""),
+                int(evt.case_count or 0),
+                int(evt.death_count or 0),
+                re.sub(r"\s+", " ", str(evt.evidence or "").casefold()).strip(),
+            )
+            existing = next(
+                (
+                    candidate for candidate in unique_events.values()
+                    if (
+                        str(candidate.disease or "").casefold(),
+                        str(candidate.country or "").casefold(),
+                        str(candidate.location_name or "").casefold(),
+                        str(candidate.metric_type or ""),
+                        int(candidate.case_count or 0),
+                        int(candidate.death_count or 0),
+                        re.sub(r"\s+", " ", str(candidate.evidence or "").casefold()).strip(),
+                    ) == evidence_key
+                ),
+                None,
+            )
         if existing is None:
             unique_events[event_key] = evt
             continue
@@ -1926,6 +1986,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         base_alert=outbreak_alert,
     )
 
+    response_new_cases = sum(int(evt.new_cases or 0) for evt in sub_events)
+    response_cumulative_cases = sum(int(evt.cumulative_cases or 0) for evt in sub_events)
+    response_historical_cases = sum(int(evt.historical_cases or 0) for evt in sub_events)
+
     return AnalyzeResponse(
         language=language,
         language_confidence=float(language_profile.get("confidence") or 0.0),
@@ -1942,7 +2006,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         locations=all_locations,
         original_location_name=original_location,
         source_country=source_country,
-        surveillance_scope=("ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
+        surveillance_scope=("MULTI_COUNTRY" if country == "MULTI_COUNTRY" else "ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
         translated=bool(translated_text),
         translation_provider=translation.get("provider") or "none",
         translation_status=translation.get("translation_status") or (
@@ -1958,6 +2022,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         disease_mentions=disease_mentions,
         disease_classification=disease,
         case_count=case_count,
+        new_cases=response_new_cases or None,
+        cumulative_cases=response_cumulative_cases or None,
+        historical_cases=response_historical_cases or None,
         death_count=death_count,
         confirmed_cases=conf_cases,
         suspected_cases=susp_cases,

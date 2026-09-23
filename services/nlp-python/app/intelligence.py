@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections import OrderedDict
+from dataclasses import replace
 from typing import Any, Optional
 
 from . import extractors
@@ -296,6 +297,20 @@ def _most_specific_event_location(sentence: str, evidence: str, base_location, l
     if not candidates:
         return base_location
 
+    # A country-level metric followed by origin/breakdown locations is still
+    # a country total. Do not promote it to the first province merely because
+    # the sentence lists where the referred cases originated.
+    base_is_country = not any(
+        bool(getattr(base_location, attribute, False))
+        for attribute in ("is_province", "is_city")
+    )
+    if base_is_country and re.search(
+        r"\b(?:berasal\s+dari|berpunca\s+dari|originat(?:e|ed)\s+from|came\s+from|from)\b",
+        evidence or sentence,
+        re.IGNORECASE,
+    ):
+        return base_location
+
     from .surveillance_extraction import _is_comparative_location
     filtered_candidates = []
     for c in candidates:
@@ -336,13 +351,40 @@ def _merge_metric(event: dict[str, Any], metric: dict[str, Any]) -> None:
     metric_key = (metric.get("metric_type"), metric.get("unit"), metric.get("value"), metric.get("time_frame"))
     if not any((item.get("metric_type"), item.get("unit"), item.get("value"), item.get("time_frame")) == metric_key for item in metrics):
         metrics.append(metric)
-    if metric.get("metric_type") in {"cases", "new_cases", "cumulative_cases", "active_cases", "suspected_cases", "confirmed_cases"}:
-        if metric.get("metric_type") in {"suspected_cases", "confirmed_cases", "active_cases"}:
+    metric_type = metric.get("metric_type")
+    qualifier = str(metric.get("qualifier") or "").casefold()
+    if metric_type in {"cases", "new_cases", "cumulative_cases", "active_cases", "suspected_cases", "confirmed_cases"}:
+        if metric_type in {"suspected_cases", "confirmed_cases", "active_cases"}:
             event[metric["metric_type"]] = max(event.get(metric["metric_type"]) or 0, int(metric.get("value") or 0))
+        elif qualifier in {"comparison", "historical"}:
+            event["historical_cases"] = max(event.get("historical_cases") or 0, int(metric.get("value") or 0))
+            if not event.get("case_count"):
+                event["case_count"] = int(metric.get("value") or 0)
+                event["primary_case_qualifier"] = qualifier
+        elif qualifier == "new":
+            event["new_cases"] = max(event.get("new_cases") or 0, int(metric.get("value") or 0))
+            event["case_count"] = event["new_cases"]
+            event["primary_case_qualifier"] = "new"
+        elif qualifier == "cumulative":
+            event["cumulative_cases"] = max(event.get("cumulative_cases") or 0, int(metric.get("value") or 0))
+            if not event.get("case_count") or event.get("primary_case_qualifier") not in {"new", "current"}:
+                event["case_count"] = event["cumulative_cases"]
+                event["primary_case_qualifier"] = "cumulative"
         else:
-            event["case_count"] = max(event.get("case_count") or 0, int(metric.get("value") or 0))
-    if metric.get("metric_type") == "deaths":
-        event["death_count"] = max(event.get("death_count") or 0, int(metric.get("value") or 0))
+            value = int(metric.get("value") or 0)
+            if event.get("primary_case_qualifier") in {"historical", "comparison"}:
+                event["case_count"] = value
+                event["primary_case_qualifier"] = "current"
+            else:
+                event["case_count"] = max(event.get("case_count") or 0, value)
+                event.setdefault("primary_case_qualifier", "current")
+    if metric_type == "deaths":
+        value = int(metric.get("value") or 0)
+        if qualifier == "explicit_zero":
+            event["death_count"] = 0
+            event["death_count_explicit"] = True
+        elif not event.get("death_count_explicit"):
+            event["death_count"] = max(event.get("death_count") or 0, value)
 
 
 def build_atomic_events(
@@ -379,7 +421,10 @@ def build_atomic_events(
         ]
         local_relations = [
             relation for relation in local_relations
-            if relation.cases or relation.deaths or relation.value_min is not None
+            if relation.cases
+            or relation.deaths
+            or relation.value_min is not None
+            or relation.qualifier == "explicit_zero"
         ]
         generic = _generic_observations(sentence, linker)
         if not local_relations and not generic:
@@ -388,6 +433,80 @@ def build_atomic_events(
         paragraph_end = source.find("\n\n", end)
         paragraph = source[paragraph_start:paragraph_end if paragraph_end >= 0 else len(source)]
         context = paragraph[:1200]
+
+        # A metric can be stated without repeating the country in the same
+        # sentence (for example, a heading/lead establishes Indonesia and the
+        # next sentence says only ``two new cases``).  Use a single unambiguous
+        # country in the sentence or paragraph as scope, but keep an explicit
+        # subnational location when the metric evidence names it directly.
+        scope_countries = list(dict.fromkeys(
+            extractors.normalize_country(value)
+            for value in extractors.extract_all_mentioned_countries(sentence)
+            if extractors.normalize_country(value)
+        ))
+        if not scope_countries:
+            # Do not use the whole paragraph for country scope: a roundup can
+            # mention several countries, while the next sentence still belongs
+            # to the country introduced immediately before it. Prefer a small
+            # sentence neighbourhood, then fall back to the paragraph only
+            # when it contains one country.
+            local_context_start = max(paragraph_start, start - 360)
+            local_context_end = min(paragraph_end if paragraph_end >= 0 else len(source), end + 180)
+            local_context = source[local_context_start:local_context_end]
+            scope_countries = list(dict.fromkeys(
+                extractors.normalize_country(value)
+                for value in extractors.extract_all_mentioned_countries(local_context)
+                if extractors.normalize_country(value)
+            ))
+            if len(scope_countries) != 1:
+                paragraph_countries = list(dict.fromkeys(
+                    extractors.normalize_country(value)
+                    for value in extractors.extract_all_mentioned_countries(context)
+                    if extractors.normalize_country(value)
+                ))
+                scope_countries = paragraph_countries if len(paragraph_countries) == 1 else []
+        if len(scope_countries) == 1 and local_relations:
+            scoped_country = scope_countries[0]
+            scoped_relations = []
+            for relation in local_relations:
+                evidence_lower = str(relation.evidence or sentence).casefold()
+                explicit_location = any(
+                    token and token.casefold() in evidence_lower
+                    for token in (relation.location.name, relation.location.country)
+                )
+                same_country = relation.location.country.casefold() == scoped_country.casefold()
+                if not explicit_location and same_country and relation.location.name.casefold() != scoped_country.casefold():
+                    # A fallback nearest-place match can land on a province
+                    # mentioned in the following sentence. If the metric
+                    # evidence itself has no subnational name, keep it at the
+                    # country level rather than inventing a provincial count.
+                    scoped_location = linker.link(
+                        scoped_country,
+                        context=sentence,
+                        evidence=relation.evidence or sentence,
+                    )
+                    if scoped_location:
+                        relation = replace(
+                            relation,
+                            location=scoped_location,
+                            country_scope=scoped_country,
+                        )
+                elif not explicit_location and not same_country:
+                    scoped_location = linker.link(
+                        scoped_country,
+                        context=sentence,
+                        evidence=relation.evidence or sentence,
+                    )
+                    if scoped_location:
+                        relation = replace(
+                            relation,
+                            location=scoped_location,
+                            country_scope=scoped_country,
+                        )
+                elif same_country:
+                    relation = replace(relation, country_scope=scoped_country)
+                scoped_relations.append(relation)
+            local_relations = scoped_relations
         period = extract_event_period(sentence, published_at=published_at)
 
         sentence_candidates = _disease_candidates(sentence, labels)
@@ -417,26 +536,35 @@ def build_atomic_events(
             confidence = 0.92 if explicit and len(candidates) == 1 else (0.75 if len(paragraph_candidates) == 1 else (0.68 if candidates else 0.40))
             return resolved, confidence
 
-        def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None):
+        def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None, relation_time_frame=None):
             location = _most_specific_event_location(sentence, evidence, location, linker)
             hierarchy = extractors.resolve_location_hierarchy(location.name)
             frame = extract_event_period(sentence, published_at=None)
-            if frame.get("event_date_start") and frame.get("event_date_end"):
+            metric_frame = extract_event_period(relation_time_frame or "", published_at=None) if relation_time_frame else {}
+            if relation_time_frame and (" to " in relation_time_frame or metric_frame.get("event_date_start")):
+                time_frame = relation_time_frame
+            elif frame.get("event_date_start") and frame.get("event_date_end"):
                 time_frame = f"{frame['event_date_start']} to {frame['event_date_end']}"
             else:
                 time_frame = frame.get("event_date_start") or frame.get("event_date_end") or ""
+            event_period = metric_frame or frame
             metric_value = value if value is not None else (deaths if metric_type == "deaths" else cases)
             event = {
                 "disease": event_disease,
                 "location_name": hierarchy.get("canonical_name") or location.name,
                 "country": hierarchy.get("country") or location.country,
+                "country_scope": hierarchy.get("country") or location.country,
                 "admin1": hierarchy.get("admin1_name"),
                 "admin2": hierarchy.get("admin2_name"),
                 "country_iso3": hierarchy.get("country_iso3"),
                 "latitude": hierarchy.get("latitude") if hierarchy.get("latitude") is not None else location.latitude,
                 "longitude": hierarchy.get("longitude") if hierarchy.get("longitude") is not None else location.longitude,
-                "case_count": max(0, int(cases or 0)),
-                "death_count": max(0, int(deaths or 0)),
+                # Primary scalar counts are selected by _merge_metric after
+                # qualifier classification. Initializing from the raw
+                # relation would let a comparison/cumulative value win before
+                # a current/new metric is seen.
+                "case_count": 0,
+                "death_count": 0,
                 "metric_type": metric_type,
                 "unit": unit,
                 "metric_value_min": value_min,
@@ -448,8 +576,8 @@ def build_atomic_events(
                 "evidence": evidence or sentence.strip(),
                 "evidence_offset_start": start + max(0, start_offset),
                 "evidence_offset_end": start + max(0, end_offset),
-                "event_date_start": period.get("event_date_start"),
-                "event_date_end": period.get("event_date_end"),
+                "event_date_start": event_period.get("event_date_start") or period.get("event_date_start"),
+                "event_date_end": event_period.get("event_date_end") or period.get("event_date_end"),
                 "validation_flags": [],
                 "confidence": event_confidence,
                 "disease_confidence": event_confidence,
@@ -486,8 +614,22 @@ def build_atomic_events(
                 "value_max": value_max,
                 "source_sentence_id": source_sentence_id,
                 "evidence_is_translated": False,
+                "country_scope": hierarchy.get("country") or location.country,
             }
             _merge_metric(event, metric)
+            if metric_type != "deaths" and deaths is not None:
+                _merge_metric(event, {
+                    "metric_type": "deaths",
+                    "value": int(deaths or 0),
+                    "unit": "persons",
+                    "qualifier": "explicit_zero" if int(deaths or 0) == 0 else qualifier,
+                    "time_frame": time_frame,
+                    "evidence": evidence or sentence.strip(),
+                    "confidence": min(event_confidence, 0.90),
+                    "source_sentence_id": source_sentence_id,
+                    "evidence_is_translated": False,
+                    "country_scope": hierarchy.get("country") or location.country,
+                })
             key = _relation_key(event)
             existing = events.get(key)
             if existing:
@@ -519,7 +661,7 @@ def build_atomic_events(
             add_event(
                 relation.location,
                 cases=relation.cases,
-                deaths=relation.deaths or 0,
+                deaths=relation.deaths,
                 evidence=relation_evidence,
                 start_offset=max(0, evidence_start),
                 end_offset=(max(0, evidence_start) + len(relation_evidence)) if evidence_start >= 0 else len(sentence),
@@ -532,6 +674,7 @@ def build_atomic_events(
                 event_disease=event_disease,
                 event_confidence=event_confidence,
                 source_sentence_id=relation.source_sentence_id,
+                relation_time_frame=relation.time_frame,
             )
 
         for item in generic:

@@ -335,11 +335,100 @@ export const updateLocation = (id: string, data: any) =>
 export const deleteLocation = (id: string) =>
   delFrom(`/api/v1/locations/${id}`);
 
+// ── Master Countries & Regions ────────────────────
+
+export interface MasterCountry {
+  id: string;
+  name: string;
+  iso2: string;
+  iso3: string;
+  flag_code?: string | null;
+  display_order: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+  regions?: Array<{ id: string; name: string; code: string }>;
+}
+
+export interface MasterRegion {
+  id: string;
+  name: string;
+  code: string;
+  description?: string | null;
+  is_active: boolean;
+  member_count: number;
+  countries: Array<{
+    id: string;
+    name: string;
+    iso2: string;
+    iso3: string;
+    flag_code?: string | null;
+  }>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const fetchMasterCountries = (params?: { q?: string; region_id?: string; page?: number; per_page?: number }) => {
+  const query = new URLSearchParams();
+  if (params?.q) query.set("q", params.q);
+  if (params?.region_id) query.set("region_id", params.region_id);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.per_page) query.set("per_page", String(params.per_page));
+  const qs = query.toString();
+  return fetchFrom<MasterCountry[]>(`/api/v1/master/countries${qs ? `?${qs}` : ""}`);
+};
+
+export const createMasterCountry = (data: Partial<MasterCountry>) =>
+  postTo("/api/v1/master/countries", data);
+
+export const updateMasterCountry = (id: string, data: Partial<MasterCountry>) =>
+  putTo(`/api/v1/master/countries/${id}`, data);
+
+export const deleteMasterCountry = (id: string) =>
+  delFrom(`/api/v1/master/countries/${id}`);
+
+export const fetchMasterRegions = (params?: { q?: string; page?: number; per_page?: number }) => {
+  const query = new URLSearchParams();
+  if (params?.q) query.set("q", params.q);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.per_page) query.set("per_page", String(params.per_page));
+  const qs = query.toString();
+  return fetchFrom<MasterRegion[]>(`/api/v1/master/regions${qs ? `?${qs}` : ""}`);
+};
+
+export const createMasterRegion = (data: {
+  name: string;
+  code: string;
+  description?: string;
+  is_active?: boolean;
+  country_ids?: string[];
+}) => postTo("/api/v1/master/regions", data);
+
+export const updateMasterRegion = (
+  id: string,
+  data: {
+    name?: string;
+    code?: string;
+    description?: string;
+    is_active?: boolean;
+    country_ids?: string[];
+  }
+) => putTo(`/api/v1/master/regions/${id}`, data);
+
+export const deleteMasterRegion = (id: string) =>
+  delFrom(`/api/v1/master/regions/${id}`);
+
 // ── Disease Master (WHO ICD-11) ───────────────────
 
 export interface DiseaseConcept {
   id: string;
+  disease_id?: string | null;
   canonical_name: string;
+  category?: string | null;
+  is_zoonotic?: boolean;
+  description?: string | null;
+  is_public?: boolean;
+  allow_engine?: boolean;
   ontology_system?: string | null;
   ontology_code?: string | null;
   ontology_uri?: string | null;
@@ -347,18 +436,47 @@ export interface DiseaseConcept {
   source: string;
   confidence: number;
   is_active: boolean;
+  alias_count?: number;
   created_at?: string | null;
   updated_at?: string | null;
 }
 
-export const fetchDiseaseConcepts = () =>
-  fetchFrom<DiseaseConcept[]>('/api/v1/disease-concepts');
+export interface DiseaseAlias {
+  id: string;
+  concept_id: string;
+  alias: string;
+  normalized_alias?: string | null;
+  language?: string | null;
+  country_code?: string | null;
+  confidence?: number;
+  is_active?: boolean;
+  created_at?: string | null;
+}
+
+export const fetchDiseaseConcepts = (params?: { q?: string; is_active?: boolean; page?: number; per_page?: number }) => {
+  const query = new URLSearchParams();
+  if (params?.q) query.set("q", params.q);
+  if (typeof params?.is_active === 'boolean') query.set("is_active", String(params.is_active));
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.per_page) query.set("per_page", String(params.per_page));
+  const qs = query.toString();
+  return fetchFrom<DiseaseConcept[]>(`/api/v1/disease-concepts${qs ? `?${qs}` : ""}`);
+};
+
 export const createDiseaseConcept = (data: Partial<DiseaseConcept>) =>
   postTo<DiseaseConcept>('/api/v1/disease-concepts', data);
 export const updateDiseaseConcept = (id: string, data: Partial<DiseaseConcept>) =>
   putTo<DiseaseConcept>(`/api/v1/disease-concepts/${id}`, data);
 export const deleteDiseaseConcept = (id: string) =>
   delFrom(`/api/v1/disease-concepts/${id}`);
+
+export const fetchDiseaseAliases = (conceptId: string) =>
+  fetchFrom<DiseaseAlias[]>(`/api/v1/disease-concepts/${conceptId}/aliases`);
+
+export const saveDiseaseAliases = (
+  conceptId: string,
+  data: { aliases: { country_code?: string; alias: string; language?: string }[] }
+) => postTo<{ message: string }>(`/api/v1/disease-concepts/${conceptId}/aliases`, data);
 
 // ── Manual Crawler ───────────────────────────────
 

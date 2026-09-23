@@ -737,6 +737,7 @@ fn matrix_select_sql(evidence_chars: i32) -> String {
             de.outbreak_alert,
             m.created_at::text AS created_at,
             LEFT(COALESCE(rr.original_text, m.evidence, ''), {snippet}) AS snippet,
+            rr.summary AS summary,
             COALESCE(m.crawling_date::timestamp, m.created_at::timestamp) AS sort_ts,
             NULL::uuid AS parent_event_id,
             {article_key} AS article_key
@@ -828,6 +829,7 @@ fn event_select_sql(evidence_chars: i32) -> String {
             de.outbreak_alert,
             de.created_at::text AS created_at,
             LEFT(COALESCE(rr.original_text, de.original_text, ''), {snippet}) AS snippet,
+            rr.summary AS summary,
             de.created_at::timestamp AS sort_ts,
             de.parent_event_id,
             {article_key} AS article_key
@@ -960,6 +962,7 @@ fn collapse_article_sql(inner: &str) -> String {
                 (ARRAY_AGG(b.sentiment ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS sentiment,
                 (ARRAY_AGG(b.relevance_score ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS relevance_score,
                 (ARRAY_AGG(b.snippet ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS snippet,
+                (ARRAY_AGG(b.summary ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS summary,
                 (ARRAY_AGG(b.created_at ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS created_at,
                 (ARRAY_AGG(b.source_credibility_label ORDER BY b.source_credibility DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS source_credibility_label,
                 string_agg(DISTINCT NULLIF(BTRIM(b.province), ''), '; ') AS province,
@@ -1201,6 +1204,7 @@ fn map_ledger_row(row: &tokio_postgres::Row) -> Value {
         "geo_summary": map_opt_string(row, "geo_summary"),
         "event_count": map_opt_i64(row, "event_count"),
         "location_count": map_opt_i64(row, "location_count"),
+        "summary": map_opt_string(row, "summary"),
     })
 }
 
@@ -1505,13 +1509,13 @@ async fn expand_article_row(
     }
     let child_sql = if from_matrix {
         format!(
-            "{} WHERE {} = $1 ORDER BY COALESCE(cases, 0) DESC NULLS LAST, sort_ts DESC, id DESC LIMIT 80",
+            "{} WHERE {} = $1 ORDER BY cases DESC NULLS LAST, sort_ts DESC, id DESC LIMIT 80",
             matrix_select_sql(EVIDENCE_DETAIL_CHARS),
             matrix_article_key_sql()
         )
     } else {
         format!(
-            "{} WHERE {} = $1 AND {} ORDER BY COALESCE(cases, 0) DESC NULLS LAST, sort_ts DESC, id DESC LIMIT 80",
+            "{} WHERE {} = $1 AND {} ORDER BY cases DESC NULLS LAST, sort_ts DESC, id DESC LIMIT 80",
             event_select_sql(EVIDENCE_DETAIL_CHARS),
             event_article_key_sql(),
             skip_test_skdr("de")

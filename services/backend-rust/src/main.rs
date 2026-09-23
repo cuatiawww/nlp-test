@@ -2057,6 +2057,59 @@ struct UpdateRuleRequest {
     priority: Option<i32>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct MasterCountriesQuery {
+    q: Option<String>,
+    region_id: Option<Uuid>,
+    page: Option<i64>,
+    per_page: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateMasterCountryRequest {
+    name: String,
+    iso2: String,
+    iso3: String,
+    flag_code: Option<String>,
+    display_order: Option<i32>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateMasterCountryRequest {
+    name: Option<String>,
+    iso2: Option<String>,
+    iso3: Option<String>,
+    flag_code: Option<String>,
+    display_order: Option<i32>,
+    is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct MasterRegionsQuery {
+    q: Option<String>,
+    page: Option<i64>,
+    per_page: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateMasterRegionRequest {
+    name: String,
+    code: String,
+    description: Option<String>,
+    is_active: Option<bool>,
+    country_ids: Option<Vec<Uuid>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateMasterRegionRequest {
+    name: Option<String>,
+    code: Option<String>,
+    description: Option<String>,
+    is_active: Option<bool>,
+    country_ids: Option<Vec<Uuid>>,
+}
+
 #[derive(Debug, Deserialize)]
 struct CreateLocationRequest {
     name: String,
@@ -2199,17 +2252,24 @@ struct LocationsQuery {
     country: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 struct DiseaseConceptQuery {
     page: Option<i64>,
     per_page: Option<i64>,
     q: Option<String>,
     is_active: Option<bool>,
+    category: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CreateDiseaseConceptRequest {
+    disease_id: Option<String>,
     canonical_name: String,
+    category: Option<String>,
+    is_zoonotic: Option<bool>,
+    description: Option<String>,
+    is_public: Option<bool>,
+    allow_engine: Option<bool>,
     ontology_code: Option<String>,
     ontology_uri: Option<String>,
     ontology_release: Option<String>,
@@ -2221,7 +2281,13 @@ struct CreateDiseaseConceptRequest {
 
 #[derive(Debug, Deserialize)]
 struct UpdateDiseaseConceptRequest {
+    disease_id: Option<String>,
     canonical_name: Option<String>,
+    category: Option<String>,
+    is_zoonotic: Option<bool>,
+    description: Option<String>,
+    is_public: Option<bool>,
+    allow_engine: Option<bool>,
     ontology_code: Option<String>,
     ontology_uri: Option<String>,
     ontology_release: Option<String>,
@@ -2229,6 +2295,18 @@ struct UpdateDiseaseConceptRequest {
     source: Option<String>,
     confidence: Option<f64>,
     is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct CountryAliasItem {
+    country_code: Option<String>,
+    alias: String,
+    language: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SaveDiseaseAliasesRequest {
+    aliases: Vec<CountryAliasItem>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2407,8 +2485,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
         .route("/api/v1/locations", get(list_locations).post(create_location))
         .route("/api/v1/locations/:id", put(update_location).delete(delete_location))
+        .route("/api/v1/master/countries", get(list_master_countries).post(create_master_country))
+        .route("/api/v1/master/countries/:id", put(update_master_country).delete(delete_master_country))
+        .route("/api/v1/master/regions", get(list_master_regions).post(create_master_region))
+        .route("/api/v1/master/regions/:id", put(update_master_region).delete(delete_master_region))
         .route("/api/v1/disease-concepts", get(list_disease_concepts).post(create_disease_concept))
         .route("/api/v1/disease-concepts/:id", put(update_disease_concept).delete(delete_disease_concept))
+        .route("/api/v1/disease-concepts/:id/aliases", get(get_disease_aliases).post(save_disease_aliases))
         .route("/api/v1/source-credibility", get(list_source_credibility).post(create_source_credibility))
         .route("/api/v1/source-credibility/recompute", post(recompute_source_credibility))
         .route("/api/v1/source-credibility/:id", put(update_source_credibility).delete(delete_source_credibility))
@@ -8658,6 +8741,330 @@ async fn delete_location(
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 
+// ─── MASTER COUNTRIES & REGIONS ─────────────────
+
+async fn list_master_countries(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<MasterCountriesQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
+    let rows = client
+        .query(
+            "SELECT c.id, c.name, c.iso2, c.iso3, c.flag_code, c.display_order, c.is_active,
+                    c.created_at::text, c.updated_at::text,
+                    COALESCE(
+                        (SELECT json_agg(json_build_object('id', r.id, 'name', r.name, 'code', r.code))
+                         FROM master_region_countries rc
+                         JOIN master_regions r ON r.id = rc.region_id
+                         WHERE rc.country_id = c.id),
+                        '[]'::json
+                    ) as regions
+             FROM master_countries c
+             WHERE ($1::text IS NULL OR c.name ILIKE '%'||$1||'%' OR c.iso2 ILIKE '%'||$1||'%' OR c.iso3 ILIKE '%'||$1||'%')
+               AND ($2::uuid IS NULL OR EXISTS (
+                   SELECT 1 FROM master_region_countries rc WHERE rc.country_id = c.id AND rc.region_id = $2
+               ))
+             ORDER BY c.display_order ASC, c.name ASC
+             LIMIT $3 OFFSET $4",
+            &[&query.q, &query.region_id, &per_page, &offset],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "name": r.get::<_, String>(1),
+        "iso2": r.get::<_, String>(2),
+        "iso3": r.get::<_, String>(3),
+        "flag_code": r.get::<_, Option<String>>(4),
+        "display_order": r.get::<_, i32>(5),
+        "is_active": r.get::<_, bool>(6),
+        "created_at": r.get::<_, Option<String>>(7),
+        "updated_at": r.get::<_, Option<String>>(8),
+        "regions": r.get::<_, Value>(9),
+    })).collect();
+
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM master_countries c
+             WHERE ($1::text IS NULL OR c.name ILIKE '%'||$1||'%' OR c.iso2 ILIKE '%'||$1||'%' OR c.iso3 ILIKE '%'||$1||'%')
+               AND ($2::uuid IS NULL OR EXISTS (
+                   SELECT 1 FROM master_region_countries rc WHERE rc.country_id = c.id AND rc.region_id = $2
+               ))",
+            &[&query.q, &query.region_id],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: Some(total),
+        page: Some(page),
+        per_page: Some(per_page),
+        total_pages: Some(calc_total_pages(total, per_page)),
+    }))
+}
+
+async fn create_master_country(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateMasterCountryRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let display_order = payload.display_order.unwrap_or(0);
+    let is_active = payload.is_active.unwrap_or(true);
+    let row = client
+        .query_one(
+            "INSERT INTO master_countries (name, iso2, iso3, flag_code, display_order, is_active)
+             VALUES ($1, UPPER($2), UPPER($3), LOWER($4), $5, $6)
+             RETURNING id, name, iso2, iso3, flag_code, display_order, is_active, created_at::text, updated_at::text",
+            &[&payload.name, &payload.iso2, &payload.iso3, &payload.flag_code, &display_order, &is_active],
+        )
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Country already exists: {}", e)}))))?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "id": row.get::<_, Uuid>(0),
+            "name": row.get::<_, String>(1),
+            "iso2": row.get::<_, String>(2),
+            "iso3": row.get::<_, String>(3),
+            "flag_code": row.get::<_, Option<String>>(4),
+            "display_order": row.get::<_, i32>(5),
+            "is_active": row.get::<_, bool>(6),
+            "created_at": row.get::<_, Option<String>>(7),
+            "updated_at": row.get::<_, Option<String>>(8),
+        }),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn update_master_country(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateMasterCountryRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "UPDATE master_countries
+             SET name = COALESCE($1, name),
+                 iso2 = COALESCE(UPPER($2), iso2),
+                 iso3 = COALESCE(UPPER($3), iso3),
+                 flag_code = COALESCE(LOWER($4), flag_code),
+                 display_order = COALESCE($5, display_order),
+                 is_active = COALESCE($6, is_active),
+                 updated_at = NOW()
+             WHERE id = $7
+             RETURNING id, name, iso2, iso3, flag_code, display_order, is_active, created_at::text, updated_at::text",
+            &[&payload.name, &payload.iso2, &payload.iso3, &payload.flag_code, &payload.display_order, &payload.is_active, &id],
+        )
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Country not found"}))))?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "id": row.get::<_, Uuid>(0),
+            "name": row.get::<_, String>(1),
+            "iso2": row.get::<_, String>(2),
+            "iso3": row.get::<_, String>(3),
+            "flag_code": row.get::<_, Option<String>>(4),
+            "display_order": row.get::<_, i32>(5),
+            "is_active": row.get::<_, bool>(6),
+            "created_at": row.get::<_, Option<String>>(7),
+            "updated_at": row.get::<_, Option<String>>(8),
+        }),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn delete_master_country(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    client.execute("DELETE FROM master_countries WHERE id = $1", &[&id]).await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Country not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+async fn list_master_regions(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<MasterRegionsQuery>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+
+    let rows = client
+        .query(
+            "SELECT r.id, r.name, r.code, r.description, r.is_active,
+                    r.created_at::text, r.updated_at::text,
+                    COUNT(rc.country_id) as member_count,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'id', c.id,
+                                'name', c.name,
+                                'iso2', c.iso2,
+                                'iso3', c.iso3,
+                                'flag_code', c.flag_code
+                            ) ORDER BY c.display_order ASC, c.name ASC
+                        ) FILTER (WHERE c.id IS NOT NULL),
+                        '[]'::json
+                    ) as countries
+             FROM master_regions r
+             LEFT JOIN master_region_countries rc ON rc.region_id = r.id
+             LEFT JOIN master_countries c ON c.id = rc.country_id
+             WHERE ($1::text IS NULL OR r.name ILIKE '%'||$1||'%' OR r.code ILIKE '%'||$1||'%')
+             GROUP BY r.id
+             ORDER BY r.name ASC
+             LIMIT $2 OFFSET $3",
+            &[&query.q, &per_page, &offset],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "name": r.get::<_, String>(1),
+        "code": r.get::<_, String>(2),
+        "description": r.get::<_, Option<String>>(3),
+        "is_active": r.get::<_, bool>(4),
+        "created_at": r.get::<_, Option<String>>(5),
+        "updated_at": r.get::<_, Option<String>>(6),
+        "member_count": r.get::<_, i64>(7),
+        "countries": r.get::<_, Value>(8),
+    })).collect();
+
+    let total: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM master_regions
+             WHERE ($1::text IS NULL OR name ILIKE '%'||$1||'%' OR code ILIKE '%'||$1||'%')",
+            &[&query.q],
+        )
+        .await
+        .map_err(internal_error)?
+        .get(0);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: Some(total),
+        page: Some(page),
+        per_page: Some(per_page),
+        total_pages: Some(calc_total_pages(total, per_page)),
+    }))
+}
+
+async fn create_master_region(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateMasterRegionRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    let tx = client.transaction().await.map_err(internal_error)?;
+
+    let is_active = payload.is_active.unwrap_or(true);
+    let row = tx
+        .query_one(
+            "INSERT INTO master_regions (name, code, description, is_active)
+             VALUES ($1, UPPER($2), $3, $4)
+             RETURNING id, name, code, description, is_active, created_at::text, updated_at::text",
+            &[&payload.name, &payload.code, &payload.description, &is_active],
+        )
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, Json(json!({"success": false, "error": format!("Region already exists: {}", e)}))))?;
+
+    let region_id: Uuid = row.get(0);
+    if let Some(country_ids) = payload.country_ids {
+        for cid in country_ids {
+            tx.execute(
+                "INSERT INTO master_region_countries (region_id, country_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                &[&region_id, &cid],
+            ).await.map_err(internal_error)?;
+        }
+    }
+    tx.commit().await.map_err(internal_error)?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "id": row.get::<_, Uuid>(0),
+            "name": row.get::<_, String>(1),
+            "code": row.get::<_, String>(2),
+            "description": row.get::<_, Option<String>>(3),
+            "is_active": row.get::<_, bool>(4),
+            "created_at": row.get::<_, Option<String>>(5),
+            "updated_at": row.get::<_, Option<String>>(6),
+        }),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn update_master_region(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateMasterRegionRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    let tx = client.transaction().await.map_err(internal_error)?;
+
+    let row = tx
+        .query_one(
+            "UPDATE master_regions
+             SET name = COALESCE($1, name),
+                 code = COALESCE(UPPER($2), code),
+                 description = COALESCE($3, description),
+                 is_active = COALESCE($4, is_active),
+                 updated_at = NOW()
+             WHERE id = $5
+             RETURNING id, name, code, description, is_active, created_at::text, updated_at::text",
+            &[&payload.name, &payload.code, &payload.description, &payload.is_active, &id],
+        )
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Region not found"}))))?;
+
+    if let Some(country_ids) = payload.country_ids {
+        tx.execute("DELETE FROM master_region_countries WHERE region_id = $1", &[&id])
+            .await.map_err(internal_error)?;
+        for cid in country_ids {
+            tx.execute(
+                "INSERT INTO master_region_countries (region_id, country_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                &[&id, &cid],
+            ).await.map_err(internal_error)?;
+        }
+    }
+    tx.commit().await.map_err(internal_error)?;
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "id": row.get::<_, Uuid>(0),
+            "name": row.get::<_, String>(1),
+            "code": row.get::<_, String>(2),
+            "description": row.get::<_, Option<String>>(3),
+            "is_active": row.get::<_, bool>(4),
+            "created_at": row.get::<_, Option<String>>(5),
+            "updated_at": row.get::<_, Option<String>>(6),
+        }),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn delete_master_region(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    client.execute("DELETE FROM master_regions WHERE id = $1", &[&id]).await
+        .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Region not found"}))))?;
+    Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
+}
+
 // ─── DISEASE MASTER (WHO ICD-11 CONCEPTS) ───────
 
 async fn list_disease_concepts(
@@ -8668,12 +9075,16 @@ async fn list_disease_concepts(
     let (page, per_page, offset) = build_pagination(query.page, query.per_page);
     let rows = client
         .query(
-            "SELECT id, canonical_name, ontology_system, ontology_code, ontology_uri,
+            "SELECT id, disease_id, canonical_name, category, is_zoonotic, description,
+                    is_public, allow_engine, ontology_system, ontology_code, ontology_uri,
                     ontology_release, source, confidence, is_active,
+                    (SELECT COUNT(*) FROM disease_aliases a WHERE a.concept_id = disease_concepts.id AND a.is_active = TRUE)::bigint AS alias_count,
                     created_at::text, updated_at::text
              FROM disease_concepts
              WHERE ($1::text IS NULL OR canonical_name ILIKE '%'||$1||'%'
-                    OR ontology_code ILIKE '%'||$1||'%'
+                    OR COALESCE(disease_id, '') ILIKE '%'||$1||'%'
+                    OR COALESCE(category, '') ILIKE '%'||$1||'%'
+                    OR COALESCE(ontology_code, '') ILIKE '%'||$1||'%'
                     OR source ILIKE '%'||$1||'%' OR EXISTS (
                         SELECT 1 FROM disease_aliases a
                         WHERE a.concept_id = disease_concepts.id
@@ -8693,16 +9104,23 @@ async fn list_disease_concepts(
         .map(|r| {
             json!({
                 "id": r.get::<_, Uuid>(0),
-                "canonical_name": r.get::<_, String>(1),
-                "ontology_system": r.get::<_, Option<String>>(2),
-                "ontology_code": r.get::<_, Option<String>>(3),
-                "ontology_uri": r.get::<_, Option<String>>(4),
-                "ontology_release": r.get::<_, Option<String>>(5),
-                "source": r.get::<_, String>(6),
-                "confidence": r.get::<_, f64>(7),
-                "is_active": r.get::<_, bool>(8),
-                "created_at": r.get::<_, Option<String>>(9),
-                "updated_at": r.get::<_, Option<String>>(10),
+                "disease_id": r.get::<_, Option<String>>(1),
+                "canonical_name": r.get::<_, String>(2),
+                "category": r.get::<_, Option<String>>(3),
+                "is_zoonotic": r.get::<_, Option<bool>>(4).unwrap_or(false),
+                "description": r.get::<_, Option<String>>(5),
+                "is_public": r.get::<_, Option<bool>>(6).unwrap_or(true),
+                "allow_engine": r.get::<_, Option<bool>>(7).unwrap_or(true),
+                "ontology_system": r.get::<_, Option<String>>(8),
+                "ontology_code": r.get::<_, Option<String>>(9),
+                "ontology_uri": r.get::<_, Option<String>>(10),
+                "ontology_release": r.get::<_, Option<String>>(11),
+                "source": r.get::<_, String>(12),
+                "confidence": r.get::<_, f64>(13),
+                "is_active": r.get::<_, bool>(14),
+                "alias_count": r.get::<_, i64>(15),
+                "created_at": r.get::<_, Option<String>>(16),
+                "updated_at": r.get::<_, Option<String>>(17),
             })
         })
         .collect();
@@ -8711,7 +9129,9 @@ async fn list_disease_concepts(
         .query_one(
             "SELECT COUNT(*) FROM disease_concepts
              WHERE ($1::text IS NULL OR canonical_name ILIKE '%'||$1||'%'
-                    OR ontology_code ILIKE '%'||$1||'%'
+                    OR COALESCE(disease_id, '') ILIKE '%'||$1||'%'
+                    OR COALESCE(category, '') ILIKE '%'||$1||'%'
+                    OR COALESCE(ontology_code, '') ILIKE '%'||$1||'%'
                     OR source ILIKE '%'||$1||'%' OR EXISTS (
                         SELECT 1 FROM disease_aliases a
                         WHERE a.concept_id = disease_concepts.id
@@ -8748,19 +9168,33 @@ async fn create_disease_concept(
     }
 
     let client = state.db.get().await.map_err(internal_error)?;
+    let disease_id = payload.disease_id.as_deref().map(|s| s.trim().to_uppercase()).filter(|s| !s.is_empty()).unwrap_or_else(|| {
+        canonical_name.to_uppercase().replace(|c: char| !c.is_alphanumeric(), "_")
+    });
+
     let row = client
         .query_one(
             "INSERT INTO disease_concepts
-                (canonical_name, english_name, ontology_system, ontology_code,
+                (disease_id, canonical_name, english_name, category, is_zoonotic, description,
+                 is_public, allow_engine, ontology_system, ontology_code,
                  ontology_uri, ontology_release, source, confidence, is_active)
-             VALUES ($1, $1, COALESCE(NULLIF($2, ''), 'WHO ICD-11 MMS'), $3,
-                     $4, $5, COALESCE(NULLIF($6, ''), 'manual'),
-                     COALESCE($7, 1.0), COALESCE($8, TRUE))
-             RETURNING id, canonical_name, ontology_system, ontology_code,
+             VALUES ($1, $2, $2, COALESCE(NULLIF($3, ''), 'General Infectious'),
+                     COALESCE($4, FALSE), $5, COALESCE($6, TRUE), COALESCE($7, TRUE),
+                     COALESCE(NULLIF($8, ''), 'WHO ICD-11 MMS'), $9,
+                     $10, $11, COALESCE(NULLIF($12, ''), 'manual'),
+                     COALESCE($13, 1.0), COALESCE($14, TRUE))
+             RETURNING id, disease_id, canonical_name, category, is_zoonotic, description,
+                       is_public, allow_engine, ontology_system, ontology_code,
                        ontology_uri, ontology_release, source, confidence,
                        is_active, created_at::text, updated_at::text",
             &[
+                &disease_id,
                 &canonical_name,
+                &payload.category,
+                &payload.is_zoonotic,
+                &payload.description,
+                &payload.is_public,
+                &payload.allow_engine,
                 &payload.ontology_system,
                 &payload.ontology_code,
                 &payload.ontology_uri,
@@ -8810,22 +9244,35 @@ async fn update_disease_concept(
     let row = client
         .query_one(
             "UPDATE disease_concepts
-             SET canonical_name = COALESCE(NULLIF($1, ''), canonical_name),
-                 english_name = COALESCE(NULLIF($1, ''), english_name),
-                 ontology_system = COALESCE(NULLIF($2, ''), ontology_system),
-                 ontology_code = COALESCE(NULLIF($3, ''), ontology_code),
-                 ontology_uri = COALESCE(NULLIF($4, ''), ontology_uri),
-                 ontology_release = COALESCE(NULLIF($5, ''), ontology_release),
-                 source = COALESCE(NULLIF($6, ''), source),
-                 confidence = COALESCE($7, confidence),
-                 is_active = COALESCE($8, is_active),
+             SET disease_id = COALESCE(NULLIF($1, ''), disease_id),
+                 canonical_name = COALESCE(NULLIF($2, ''), canonical_name),
+                 english_name = COALESCE(NULLIF($2, ''), english_name),
+                 category = COALESCE(NULLIF($3, ''), category),
+                 is_zoonotic = COALESCE($4, is_zoonotic),
+                 description = COALESCE($5, description),
+                 is_public = COALESCE($6, is_public),
+                 allow_engine = COALESCE($7, allow_engine),
+                 ontology_system = COALESCE(NULLIF($8, ''), ontology_system),
+                 ontology_code = COALESCE(NULLIF($9, ''), ontology_code),
+                 ontology_uri = COALESCE(NULLIF($10, ''), ontology_uri),
+                 ontology_release = COALESCE(NULLIF($11, ''), ontology_release),
+                 source = COALESCE(NULLIF($12, ''), source),
+                 confidence = COALESCE($13, confidence),
+                 is_active = COALESCE($14, is_active),
                  updated_at = NOW()
-             WHERE id = $9
-             RETURNING id, canonical_name, ontology_system, ontology_code,
+             WHERE id = $15
+             RETURNING id, disease_id, canonical_name, category, is_zoonotic, description,
+                       is_public, allow_engine, ontology_system, ontology_code,
                        ontology_uri, ontology_release, source, confidence,
                        is_active, created_at::text, updated_at::text",
             &[
+                &payload.disease_id,
                 &payload.canonical_name,
+                &payload.category,
+                &payload.is_zoonotic,
+                &payload.description,
+                &payload.is_public,
+                &payload.allow_engine,
                 &payload.ontology_system,
                 &payload.ontology_code,
                 &payload.ontology_uri,
@@ -8909,17 +9356,97 @@ async fn reload_nlp_runtime(state: &Arc<AppState>) {
 fn disease_concept_json(row: &tokio_postgres::Row) -> Value {
     json!({
         "id": row.get::<_, Uuid>(0),
-        "canonical_name": row.get::<_, String>(1),
-        "ontology_system": row.get::<_, Option<String>>(2),
-        "ontology_code": row.get::<_, Option<String>>(3),
-        "ontology_uri": row.get::<_, Option<String>>(4),
-        "ontology_release": row.get::<_, Option<String>>(5),
-        "source": row.get::<_, String>(6),
-        "confidence": row.get::<_, f64>(7),
-        "is_active": row.get::<_, bool>(8),
-        "created_at": row.get::<_, Option<String>>(9),
-        "updated_at": row.get::<_, Option<String>>(10),
+        "disease_id": row.get::<_, Option<String>>(1),
+        "canonical_name": row.get::<_, String>(2),
+        "category": row.get::<_, Option<String>>(3),
+        "is_zoonotic": row.get::<_, Option<bool>>(4).unwrap_or(false),
+        "description": row.get::<_, Option<String>>(5),
+        "is_public": row.get::<_, Option<bool>>(6).unwrap_or(true),
+        "allow_engine": row.get::<_, Option<bool>>(7).unwrap_or(true),
+        "ontology_system": row.get::<_, Option<String>>(8),
+        "ontology_code": row.get::<_, Option<String>>(9),
+        "ontology_uri": row.get::<_, Option<String>>(10),
+        "ontology_release": row.get::<_, Option<String>>(11),
+        "source": row.get::<_, String>(12),
+        "confidence": row.get::<_, f64>(13),
+        "is_active": row.get::<_, bool>(14),
+        "created_at": row.get::<_, Option<String>>(15),
+        "updated_at": row.get::<_, Option<String>>(16),
     })
+}
+
+// ─── DISEASE ALIASES HANDLERS ─────────────────────────────────
+
+async fn get_disease_aliases(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query(
+            "SELECT id, concept_id, alias, normalized_alias, language, country_code, confidence, is_active, created_at::text
+             FROM disease_aliases
+             WHERE concept_id = $1 AND is_active = TRUE
+             ORDER BY country_code NULLS LAST, alias",
+            &[&id],
+        )
+        .await
+        .map_err(internal_error)?;
+    let data: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.get::<_, Uuid>(0),
+        "concept_id": r.get::<_, Uuid>(1),
+        "alias": r.get::<_, String>(2),
+        "normalized_alias": r.get::<_, Option<String>>(3),
+        "language": r.get::<_, Option<String>>(4),
+        "country_code": r.get::<_, Option<String>>(5),
+        "confidence": r.get::<_, Option<f64>>(6).unwrap_or(1.0),
+        "is_active": r.get::<_, bool>(7),
+        "created_at": r.get::<_, Option<String>>(8),
+    })).collect();
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
+async fn save_disease_aliases(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<SaveDiseaseAliasesRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    let tx = client.transaction().await.map_err(internal_error)?;
+
+    tx.execute("DELETE FROM disease_aliases WHERE concept_id = $1", &[&id])
+        .await
+        .map_err(internal_error)?;
+
+    for item in payload.aliases {
+        let alias = item.alias.trim();
+        if alias.is_empty() {
+            continue;
+        }
+        let normalized = alias.to_lowercase();
+        let lang = item.language.as_deref().unwrap_or("en");
+        let country = item.country_code.as_deref().map(|c| c.trim().to_uppercase());
+        tx.execute(
+            "INSERT INTO disease_aliases (concept_id, alias, normalized_alias, language, country_code, confidence, is_active, source)
+             VALUES ($1, $2, $3, $4, $5, 1.0, TRUE, 'manual_alias')
+             ON CONFLICT (concept_id, normalized_alias, language) DO UPDATE SET is_active = TRUE, country_code = EXCLUDED.country_code",
+            &[&id, &alias, &normalized, &lang, &country],
+        )
+        .await
+        .map_err(internal_error)?;
+    }
+    tx.commit().await.map_err(internal_error)?;
+
+    reload_nlp_runtime(&state).await;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({"message": "Disease aliases saved successfully"}),
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
 }
 
 // ─── SOURCE CREDIBILITY ──────────────────────────

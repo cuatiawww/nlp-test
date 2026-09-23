@@ -8,16 +8,16 @@ import {
   Clock,
   Sparkles,
   FileText,
-  MapPin,
-  Activity,
-  AlertTriangle,
   Loader2,
   Calendar,
+  Radio,
   Globe,
-  Radio
+  Activity,
+  MapPin
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { markArticleReviewed } from '@/lib/api'
+import CountryFlag from '@/components/CountryFlag'
 
 export interface ReviewTarget {
   id?: string | null
@@ -41,6 +41,7 @@ export interface ReviewTarget {
   sourceType?: string | null
   sourceName?: string | null
   needsReview?: boolean | null
+  children?: any[] | null
 }
 
 interface ArticleReviewModalProps {
@@ -72,7 +73,7 @@ export default function ArticleReviewModal({
   const [submitting, setSubmitting] = useState(false)
   const [isReviewed, setIsReviewed] = useState(target?.needsReview === false)
 
-  // Sync state when target changes
+  // Sync review status when target updates
   React.useEffect(() => {
     if (target) {
       setIsReviewed(target.needsReview === false)
@@ -110,49 +111,51 @@ export default function ArticleReviewModal({
     }
   }
 
-  // Fallback summary if pre-generated summary is absent
+  // Determine cleanest summary text
+  const cleanSummary = stripHtml(target.summary)
+  const cleanSnippet = stripHtml(target.snippet)
   const effectiveSummary =
-    stripHtml(target.summary) ||
-    (stripHtml(target.snippet)
-      ? stripHtml(target.snippet).slice(0, 450) + (stripHtml(target.snippet).length > 450 ? '...' : '')
+    cleanSummary ||
+    (cleanSnippet
+      ? cleanSnippet.slice(0, 500) + (cleanSnippet.length > 500 ? '...' : '')
       : null) ||
     target.evidence ||
-    'No executive summary available for this crawled article.'
+    'No summary text available for this article.'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
       <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
         
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100/80 text-blue-700">
+            <div className="p-2 rounded-xl bg-blue-100 text-[#0060A9]">
               <FileText className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900">
-                  Article Surveillance Review
+                  Article Summary
                 </h2>
                 {isReviewed ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Reviewed / Read
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                    <CheckCircle2 className="h-3 w-3" /> Reviewed
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-300 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
-                    <Clock className="h-3.5 w-3.5" /> Pending Review
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                    <Clock className="h-3 w-3" /> Needs Review
                   </span>
                 )}
               </div>
               <p className="text-xs text-slate-500">
-                Review article context and verify extracted epidemiological indicators
+                Surveillance article summary and verified epidemiological indicators
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -162,7 +165,7 @@ export default function ArticleReviewModal({
         <div className="flex-1 overflow-y-auto p-6 space-y-5 text-slate-800 text-xs leading-relaxed">
           
           {/* Article Title & Source Link */}
-          <div className="bg-slate-50/60 rounded-xl p-4 border border-slate-200/80">
+          <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80">
             <h3 className="text-sm font-bold text-slate-900 leading-snug">
               {stripHtml(target.title) || 'Untitled Article'}
             </h3>
@@ -171,7 +174,7 @@ export default function ArticleReviewModal({
                 href={target.url}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[#0060A9] hover:underline"
+                className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[#0060A9] hover:underline"
               >
                 <span className="truncate max-w-[550px]">{target.url}</span>
                 <ExternalLink className="h-3.5 w-3.5 shrink-0" />
@@ -180,35 +183,38 @@ export default function ArticleReviewModal({
 
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
               {target.country && (
-                <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium">
-                  <Globe className="h-3 w-3 text-slate-400" /> {target.country}
+                <span className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
+                  <CountryFlag countryName={target.country} size={14} />
+                  <span>{target.country}</span>
                 </span>
               )}
               {target.sourceName && (
-                <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium">
-                  <Radio className="h-3 w-3 text-slate-400" /> {target.sourceName}
+                <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
+                  <Radio className="h-3 w-3 text-slate-400" />
+                  <span>{target.sourceName}</span>
                 </span>
               )}
               {target.articleDate && (
-                <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium">
-                  <Calendar className="h-3 w-3 text-slate-400" /> Published: {target.articleDate.slice(0, 10)}
+                <span className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium text-slate-700">
+                  <Calendar className="h-3 w-3 text-slate-400" />
+                  <span>Published: {target.articleDate.slice(0, 10)}</span>
                 </span>
               )}
               {target.language && (
-                <span className="bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium uppercase text-[10px]">
+                <span className="bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium uppercase text-[10px] text-slate-600">
                   Lang: {target.language}
                 </span>
               )}
             </div>
           </div>
 
-          {/* AI Executive Summary Card */}
-          <div className="rounded-xl border border-blue-200/80 bg-gradient-to-br from-blue-50/50 via-white to-indigo-50/30 p-4 shadow-xs">
+          {/* AI / Article Summary Card */}
+          <div className="rounded-xl border border-blue-200/90 bg-gradient-to-br from-blue-50/50 via-white to-sky-50/30 p-4 shadow-xs">
             <div className="flex items-center gap-2 text-blue-900 font-bold text-xs uppercase tracking-wider mb-2">
-              <Sparkles className="h-4 w-4 text-blue-600" />
-              <span>Article Summary (Executive Digest)</span>
+              <Sparkles className="h-4 w-4 text-[#0060A9]" />
+              <span>Article Summary</span>
             </div>
-            <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+            <p className="text-slate-700 whitespace-pre-wrap leading-relaxed text-xs">
               {effectiveSummary}
             </p>
           </div>
@@ -216,12 +222,12 @@ export default function ArticleReviewModal({
           {/* Structured Surveillance Findings */}
           <div>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-              Structured Surveillance Extraction
+              Key Epidemiological Facts
             </h4>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               
               {/* Disease */}
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80">
                 <span className="text-[10px] font-medium text-slate-500 block">Disease</span>
                 <span className="text-xs font-bold text-slate-900 mt-0.5 block truncate">
                   {target.disease || 'Unknown'}
@@ -229,7 +235,7 @@ export default function ArticleReviewModal({
               </div>
 
               {/* Location */}
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80">
                 <span className="text-[10px] font-medium text-slate-500 block">Location</span>
                 <span className="text-xs font-bold text-slate-900 mt-0.5 block truncate">
                   {[target.locationName, target.country].filter(Boolean).join(', ') || 'Not specified'}
@@ -237,7 +243,7 @@ export default function ArticleReviewModal({
               </div>
 
               {/* Cases */}
-              <div className="bg-emerald-50/60 rounded-xl p-3 border border-emerald-100">
+              <div className="bg-emerald-50/60 rounded-xl p-3 border border-emerald-200/80">
                 <span className="text-[10px] font-medium text-emerald-700 block">Reported Cases</span>
                 <span className="text-sm font-extrabold text-emerald-900 mt-0.5 block">
                   {target.cases != null ? Number(target.cases).toLocaleString() : '0'}
@@ -245,7 +251,7 @@ export default function ArticleReviewModal({
               </div>
 
               {/* Deaths */}
-              <div className="bg-rose-50/60 rounded-xl p-3 border border-rose-100">
+              <div className="bg-rose-50/60 rounded-xl p-3 border border-rose-200/80">
                 <span className="text-[10px] font-medium text-rose-700 block">Reported Deaths</span>
                 <span className="text-sm font-extrabold text-rose-900 mt-0.5 block">
                   {target.deaths != null ? Number(target.deaths).toLocaleString() : '0'}
@@ -264,6 +270,46 @@ export default function ArticleReviewModal({
               <blockquote className="italic text-slate-600 border-l-2 border-blue-400 pl-3 py-0.5">
                 "{target.evidence}"
               </blockquote>
+            </div>
+          )}
+
+          {/* Multi-location children breakdown if available */}
+          {target.children && target.children.length > 1 && (
+            <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
+              <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                  Multiple Locations Extracted ({target.children.length} records)
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium">Aggregated into this article</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] uppercase font-semibold text-slate-500">
+                      <th className="px-3 py-2">Location</th>
+                      <th className="px-3 py-2">Disease</th>
+                      <th className="px-3 py-2 text-right">Cases</th>
+                      <th className="px-3 py-2 text-right">Deaths</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {target.children.map((child: any, idx: number) => (
+                      <tr key={child.id || idx} className="hover:bg-slate-50">
+                        <td className="px-3 py-2 font-medium text-slate-800">
+                          {[child.province_city_case || child.province || child.city || child.location_name, child.country].filter(Boolean).join(', ') || '—'}
+                        </td>
+                        <td className="px-3 py-2 text-slate-700">{child.disease || child.disease_classification || '—'}</td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold text-emerald-700">
+                          {child.cases != null ? Number(child.cases).toLocaleString() : '0'}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold text-rose-700">
+                          {child.deaths != null ? Number(child.deaths).toLocaleString() : '0'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -287,7 +333,7 @@ export default function ArticleReviewModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 transition"
+              className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 transition cursor-pointer"
             >
               Close
             </button>
@@ -296,7 +342,7 @@ export default function ArticleReviewModal({
               type="button"
               disabled={submitting}
               onClick={handleToggleReviewed}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-bold transition shadow-xs ${
+              className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-bold transition shadow-xs cursor-pointer ${
                 isReviewed
                   ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
                   : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/20'

@@ -216,9 +216,21 @@ def _fold_with_positions(value: str) -> tuple[str, list[int]]:
     return "".join(folded), positions
 
 
-# Country and place aliases are loaded from location_aliases.
-# Empty before DB bootstrap: no code-owned fallback vocabulary.
-COUNTRY_ALIASES: dict[str, str] = {}
+# Country and place aliases are loaded from location_aliases. Native-script
+# country names are retained as a small offline safety registry so a Lao/Thai/
+# Khmer/Burmese article remains attributable before DB bootstrap completes.
+DEFAULT_COUNTRY_ALIASES: dict[str, str] = {
+    "ລາວ": "Laos",
+    "ສປປ ລາວ": "Laos",
+    "ประเทศไทย": "Thailand",
+    "ไทย": "Thailand",
+    "เวียดนาม": "Vietnam",
+    "កម្ពុជា": "Cambodia",
+    "ឡាវ": "Laos",
+    "မြန်မာ": "Myanmar",
+    "မိူင်းမြန်မာ": "Myanmar",
+}
+COUNTRY_ALIASES: dict[str, str] = dict(DEFAULT_COUNTRY_ALIASES)
 
 # The location master is ASEAN-focused. Keep the small external-country
 # fallback needed to classify an explicitly named non-ASEAN article until the
@@ -766,6 +778,9 @@ def extract_country_hint(text: str) -> Optional[str]:
         if not matches:
             continue
         score = float(len(matches) * 3)
+        # Prefer a matched compound country name over a shorter country token
+        # contained inside it (e.g. South Sudan vs Sudan).
+        score += len(folded_alias.split()) * 2.0 + len(folded_alias) / 100.0
         if any(m.start() < 300 for m in matches):
             score += 10.0
         for m in matches:
