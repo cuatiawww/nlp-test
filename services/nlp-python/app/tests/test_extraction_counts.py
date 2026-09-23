@@ -134,6 +134,21 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         self.assertIn("Stroke", extractors.extract_alias_diseases(text))
         self.assertNotIn("rabies", [value.lower() for value in extractors.extract_alias_diseases(text)])
 
+    def test_hfmd_long_alias_shadows_foot_and_mouth_alias(self):
+        text = "Health officials reported hand, foot and mouth disease cases among children."
+        diseases = extractors.extract_alias_diseases(text)
+        self.assertIn("Hand, foot and mouth disease", diseases)
+        self.assertNotIn("Foot and mouth disease", diseases)
+
+    def test_separate_foot_and_mouth_mention_is_not_shadowed(self):
+        text = (
+            "Children have hand, foot and mouth disease. "
+            "Livestock later developed foot and mouth disease."
+        )
+        diseases = extractors.extract_alias_diseases(text)
+        self.assertIn("Hand, foot and mouth disease", diseases)
+        self.assertIn("Foot and mouth disease", diseases)
+
     def test_disease_display_aliases_use_canonical_names(self):
         self.assertEqual(
             extractors.normalize_disease_display("coronavirus MERS"),

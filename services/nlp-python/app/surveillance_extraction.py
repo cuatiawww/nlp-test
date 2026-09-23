@@ -1048,6 +1048,11 @@ def _relation_time_frame_for_span(
             re.IGNORECASE | re.UNICODE,
         ) and not has_explicit_range:
             return _year_frame(_calendar_year(year_after_metric.group(1)))
+        if not has_explicit_range and re.search(
+            r"[\u0e00-\u0e7f\u0e80-\u0eff\u1000-\u109f\u1780-\u17ff]\s*$",
+            after_clause,
+        ):
+            return _year_frame(_calendar_year(year_after_metric.group(1)))
     local_year = _calendar_year(years[0]) if len(set(years)) == 1 else None
     document_period = extract_event_period(source)
     document_start = document_period.get("event_date_start")

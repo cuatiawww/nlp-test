@@ -2133,6 +2133,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             ],
         ],
         case_count_unknown=not explicit_case_count or metric_without_disease_relation,
+        death_count_unknown=not source_death_explicit,
         country_iso3=final_iso3,
         admin1_name=loc_hier.get("admin1_name"),
         admin2_name=loc_hier.get("admin2_name"),

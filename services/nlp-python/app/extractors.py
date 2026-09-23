@@ -142,7 +142,7 @@ def normalize_disease_display(disease: str, language: str = "unknown", text: str
     }
     return canonical_aliases.get(key, raw)
 
-def repair_mojibake(text: str) -> str:
+def _legacy_repair_mojibake(text: str) -> str:
     """Repair UTF-8 bytes that were accidentally decoded as Latin-1."""
     if not text:
         return text
@@ -156,6 +156,29 @@ def repair_mojibake(text: str) -> str:
         return text
     after = sum(candidate.count(marker) for marker in markers)
     return candidate if after < before else text
+
+
+def repair_mojibake(text: str) -> str:
+    """Repair UTF-8 text that was decoded as Latin-1/Windows-1252."""
+    if not text:
+        return text
+    markers = (
+        "Ã", "Â", "Ä", "Å", "ð", "â\x80", "à¸", "à¹", "àº", "à»",
+        "á»", "áº", "á€", "á", "�",
+    )
+
+    def score(value: str) -> int:
+        return sum(value.count(marker) for marker in markers)
+
+    if score(text) == 0:
+        return text
+    candidates = [text]
+    for encoding in ("latin-1", "cp1252"):
+        try:
+            candidates.append(text.encode(encoding).decode("utf-8"))
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+    return min(candidates, key=score)
 
 
 def normalize_text(text: str) -> str:
@@ -186,6 +209,9 @@ def detect_language(text: str) -> str:
 
 # Non-Latin Southeast Asian scripts (Thai, Lao, Myanmar, Khmer) do not use whitespace between words
 _NON_LATIN_SCRIPT_RE = re.compile(r"[฀-๿຀-໿က-႟ក-៿]")
+
+_NON_LATIN_SCRIPT_RE = re.compile(r"[\u0E00-\u0E7F\u0E80-\u0EFF\u1000-\u109F\u1780-\u17FF]")
+
 
 def _is_native_script(text: str) -> bool:
     """Check if text contains non-Latin Southeast Asian characters."""
@@ -325,6 +351,12 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
 
 # Available before DB bootstrap so explicit external countries still resolve offline.
 COUNTRY_ALIASES.update(EXTERNAL_COUNTRY_ALIASES)
+# Keep legacy mojibake seed keys usable after the article decoder restores
+# native script. The canonical country values remain unchanged.
+COUNTRY_ALIASES = {
+    repair_mojibake(alias): canonical
+    for alias, canonical in COUNTRY_ALIASES.items()
+}
 
 def _country_alias_view() -> dict[str, str]:
     """Merge DB aliases with stable country names used by the scope contract."""
@@ -354,10 +386,14 @@ LOCATION_ALIASES: dict[str, str] = {}
 def active_location_aliases() -> dict[str, str]:
     """Return the merged DB-backed locality/country alias view."""
 
-    return {
+    merged = {
         **LOCATION_ALIASES,
         **getattr(config, "LOCATION_ALIASES", {}),
     }
+    # Older seed data contains native-script aliases that were decoded into
+    # Latin mojibake. Repair the key at lookup time so the DB remains the
+    # source of truth and no second hardcoded vocabulary is needed.
+    return {repair_mojibake(str(alias)): canonical for alias, canonical in merged.items()}
 
 CONTINENT_AND_REGION_LABELS = {
     "asia", "africa", "europe", "oceania", "antarctica",
@@ -773,7 +809,12 @@ def extract_country_hint(text: str) -> Optional[str]:
     country_scores: dict[str, float] = {}
     for alias, standard_country in _country_alias_view().items():
         folded_alias = _fold_location_text(alias)
-        pattern = re.compile(rf"\b{re.escape(folded_alias)}\b", re.IGNORECASE)
+        pattern = re.compile(
+            re.escape(folded_alias)
+            if _is_native_script(alias)
+            else rf"\b{re.escape(folded_alias)}\b",
+            re.IGNORECASE,
+        )
         matches = list(pattern.finditer(lower_text))
         if not matches:
             continue
@@ -3827,9 +3868,17 @@ def _match_disease_alias(key: str, text: str, lower_text: str) -> bool:
     For keys containing ASCII letters/numbers, word boundaries \b are strictly enforced
     to avoid false positives (e.g. 'ari' matching 'dari' or 'sementara').
     """
+    key = repair_mojibake(key or "")
     if not key:
         return False
     if re.search(r"[a-zA-Z0-9]", key):
+        # Punctuation varies across publishers (``hand, foot`` versus
+        # ``hand foot``). Compare a whitespace-folded view as well so a
+        # reviewed alias is not lost because of editorial commas.
+        folded_key = re.sub(r"[^\w]+", " ", key.casefold()).strip()
+        folded_text = re.sub(r"[^\w]+", " ", text.casefold()).strip()
+        if folded_key and re.search(rf"(?<!\w){re.escape(folded_key)}(?!\w)", folded_text):
+            return True
         pat = _ALIAS_WORD_REGEX_CACHE.get(key)
         if pat is None:
             pat = re.compile(rf"\b{re.escape(key)}\b", re.IGNORECASE)
@@ -3838,14 +3887,58 @@ def _match_disease_alias(key: str, text: str, lower_text: str) -> bool:
     return key in lower_text
 
 
+def _matched_disease_aliases(text: str) -> list[tuple[str, str]]:
+    """Return explicit aliases while suppressing shorter conflicting aliases."""
+    aliases = active_disease_aliases()
+    lower_text = text.lower()
+    matched = [
+        (key, value)
+        for key, value in aliases.items()
+        if _match_disease_alias(key, text, lower_text)
+    ]
+    normalized = [
+        (
+            key,
+            value,
+            re.sub(r"[^\w]+", " ", repair_mojibake(key).casefold()).strip(),
+        )
+        for key, value in matched
+    ]
+    folded_text = re.sub(r"[^\w]+", " ", text.casefold()).strip()
+    shadowed_values: set[str] = set()
+    for _, value, short_key in normalized:
+        if not short_key:
+            continue
+        short_spans = [m.span() for m in re.finditer(rf"(?<!\w){re.escape(short_key)}(?!\w)", folded_text)]
+        if not short_spans:
+            continue
+        for _, other_value, long_key in normalized:
+            if value == other_value or len(short_key) >= len(long_key):
+                continue
+            if f" {short_key} " not in f" {long_key} ":
+                continue
+            long_spans = [m.span() for m in re.finditer(rf"(?<!\w){re.escape(long_key)}(?!\w)", folded_text)]
+            if long_spans and all(
+                any(long_start <= short_start and short_end <= long_end for long_start, long_end in long_spans)
+                for short_start, short_end in short_spans
+            ):
+                shadowed_values.add(value)
+                break
+    return [(key, value) for key, value, _ in normalized if value not in shadowed_values]
+
+
 def extract_diseases(text: str) -> list[str]:
     aliases = active_disease_aliases()
     diseases = set(extract_terms(text, config.DISEASE_DICT))
     lower_text = text.lower()
-    diseases.update(
-        value for key, value in aliases.items()
-        if _match_disease_alias(key, text, lower_text)
-    )
+    matched = _matched_disease_aliases(text)
+    diseases.update(value for _, value in matched)
+    shadowed = {
+        value
+        for key, value in aliases.items()
+        if (key, value) not in matched and _match_disease_alias(key, text, lower_text)
+    }
+    diseases.difference_update(shadowed)
     
     def disease_score(d: str) -> tuple[int, int]:
         d_lower = d.lower()
@@ -3860,12 +3953,7 @@ def extract_diseases(text: str) -> list[str]:
 
 def extract_alias_diseases(text: str) -> list[str]:
     """Return high-precision explicit aliases, primarily for title matching."""
-    aliases = active_disease_aliases()
-    lower_text = text.lower()
-    return sorted(set(
-        value for key, value in aliases.items()
-        if _match_disease_alias(key, text, lower_text)
-    ))
+    return sorted(set(value for _, value in _matched_disease_aliases(text)))
 
 
 def extract_date_from_text(text: str) -> Optional[str]:

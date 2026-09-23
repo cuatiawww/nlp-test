@@ -420,6 +420,19 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
     # two reports for different years cannot collapse into one event merely
     # because they share a disease and location.
     if not result["event_date_start"] and not result["event_date_end"]:
+        native_year_match = re.search(
+            r"(?P<cue>[\u0e00-\u0e7f\u0e80-\u0eff\u1000-\u109f\u1780-\u17ff])"
+            r"\s+(?P<year>20\d{2}|25\d{2})\b",
+            sample[:2500],
+            re.UNICODE,
+        )
+        if native_year_match:
+            year = _calendar_year(native_year_match.group("year"))
+            result["event_date_start"] = f"{year:04d}-01-01"
+            result["event_date_end"] = f"{year:04d}-12-31"
+            result["period_type"] = "historical"
+            result["date_needs_review"] = True
+            return result
         year_match = re.search(
             r"\b(?P<cue>in|pada|tahun|during|sepanjang|since|sejak|ปี|พ\.ศ\.)\s+(?P<year>20\d{2}|25\d{2})\b",
             sample[:2500],

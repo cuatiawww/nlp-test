@@ -140,13 +140,71 @@ def _repair_mojibake(text: str) -> str:
     return candidate if after < before else text
 
 
+def _repair_mojibake(text: str) -> str:
+    """Repair UTF-8 text decoded with a legacy single-byte charset."""
+    if not text:
+        return text
+    markers = (
+        "Ã", "Â", "Ä", "Å", "ð", "â\x80", "à¸", "à¹", "àº", "à»",
+        "á»", "áº", "á€", "á", "�",
+    )
+
+    def score(value: str) -> int:
+        return sum(value.count(marker) for marker in markers)
+
+    if score(text) == 0:
+        return text
+    candidates = [text]
+    for encoding in ("latin-1", "cp1252"):
+        try:
+            candidates.append(text.encode(encoding).decode("utf-8"))
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+    return min(candidates, key=score)
+
+
+def _decode_html_bytes(
+    data: bytes,
+    content_type: str = "",
+    response_encoding: str = "",
+) -> str:
+    """Decode HTML robustly when servers omit or misreport charset."""
+    if not data:
+        return ""
+    header = str(content_type or "")
+    head = data[:8192].decode("ascii", errors="ignore")
+    charset_match = re.search(r"charset\s*=\s*[\"']?\s*([A-Za-z0-9._-]+)", header, re.I)
+    if not charset_match:
+        charset_match = re.search(r"<meta[^>]+charset\s*=\s*[\"']?\s*([A-Za-z0-9._-]+)", head, re.I)
+    encodings: list[str] = []
+    if charset_match:
+        encodings.append(charset_match.group(1))
+    encodings.extend(["utf-8", response_encoding or "", "cp1252", "latin-1"])
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for encoding in encodings:
+        normalized = encoding.strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        try:
+            candidates.append(data.decode(normalized, errors="strict"))
+        except (LookupError, UnicodeDecodeError):
+            continue
+    if not candidates:
+        candidates.append(data.decode("utf-8", errors="replace"))
+    return _repair_mojibake(min(candidates, key=lambda value: sum(
+        value.count(marker) for marker in ("Ã", "Â", "â\x80", "à¸", "à¹", "àº", "à»", "á€", "á", "�")
+    )))
+
+
 def _response_html(page: Any) -> str:
     html = getattr(page, "html_content", "")
     if html:
         return _repair_mojibake(str(html))
     body = getattr(page, "body", b"")
     if isinstance(body, bytes):
-        return _repair_mojibake(body.decode("utf-8", errors="replace"))
+        return _decode_html_bytes(body)
     return _repair_mojibake(str(body or ""))
 
 
@@ -350,10 +408,11 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
             content,
         )
         content_parts = re.split(
-            r"(?im)^\s*(?:berita\s+pilihan|pilihan\s+editor|artikel\s+terkait|topik\s+terkait)\b",
+            r"(?im)(?:^|\n|\s{2,})\s*(?:berita\s+pilihan|pilihan\s+editor|artikel\s+terkait|topik\s+terkait|pilihan\s+untuk\s+anda|you\s+may\s+also\s+like|you\s+may\s+like|related\s+(?:articles?|topics?)|recommended\s+(?:for\s+you|stories?)|latest\s+news)\b",
             content,
         )
-        content = content_parts[0].strip() if content_parts else content
+        if content_parts and len(content_parts[0].strip()) >= 200:
+            content = content_parts[0].strip()
 
     content = " ".join((content or "").split())
     lower_title = (title or "").lower()
@@ -583,8 +642,11 @@ class WebScraperCollector(BaseCollector):
                     if len(data) > max_bytes:
                         response.close()
                         raise ValueError(f"HTML response exceeds {app_config.CRAWLER_MAX_HTML_MB} MB limit")
-                encoding = response.encoding or "utf-8"
-                html = bytes(data).decode(encoding, errors="replace")
+                html = _decode_html_bytes(
+                    bytes(data),
+                    content_type=response.headers.get("Content-Type", ""),
+                    response_encoding=response.encoding or "",
+                )
                 status = int(response.status_code)
                 retry_after = response.headers.get("Retry-After")
                 response.close()

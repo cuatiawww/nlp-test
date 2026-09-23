@@ -145,6 +145,7 @@ class AnalyzeResponse(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     epidemiological_evidence: list[Any] = Field(default_factory=list)
     case_count_unknown: bool = False
+    death_count_unknown: bool = False
     province: Optional[str] = None
     city: Optional[str] = None
     geocode_confidence: Optional[float] = None

@@ -4,10 +4,33 @@ import logging
 import unicodedata
 from typing import Any, Optional
 
+
+def _repair_legacy_lexicon_text(value: str) -> str:
+    """Repair legacy mojibake in seeded lexicon words at read time."""
+    text = str(value or "")
+    markers = (
+        "\u00c3", "\u00c2", "\u00c4", "\u00c5", "\u00f0", "\u00e2\x80",
+        "\u00e0\u00b8", "\u00e0\u00b9", "\u00e0\u00ba", "\u00e0\u00bb",
+        "\u00e1\u00bb", "\u00e1\u00ba", "\u00e1\u20ac", "\u00e1\u009e", "\ufffd",
+    )
+
+    def score(candidate: str) -> int:
+        return sum(candidate.count(marker) for marker in markers)
+
+    if score(text) == 0:
+        return text
+    candidates = [text]
+    for encoding in ("latin-1", "cp1252"):
+        try:
+            candidates.append(text.encode(encoding).decode("utf-8"))
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+    return min(candidates, key=score)
+
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.19.multilingual-source-first")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.23.multilingual-native-decode-v1")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
@@ -735,9 +758,11 @@ def get_language_markers() -> dict[str, list[str]]:
     global LANGUAGE_MARKERS
     if not LEXICON_LOAD_ATTEMPTED:
         load_language_markers_from_db()
-    if not LANGUAGE_MARKERS:
-        return {k: list(v) for k, v in DEFAULT_LANGUAGE_MARKERS.items()}
-    return LANGUAGE_MARKERS
+    source = LANGUAGE_MARKERS or DEFAULT_LANGUAGE_MARKERS
+    return {
+        language: list(dict.fromkeys(_repair_legacy_lexicon_text(word) for word in words))
+        for language, words in source.items()
+    }
 
 
 def get_lexicon_terms(marker_type: str, language: Optional[str] = None) -> list[str]:
@@ -750,9 +775,12 @@ def get_lexicon_terms(marker_type: str, language: Optional[str] = None) -> list[
     defaults = DEFAULT_LEXICON_TERMS.get(marker_key, {})
     if language:
         lang = str(language).strip().casefold()
-        return list(dict.fromkeys([*by_language.get(lang, []), *defaults.get(lang, [])]))
+        return list(dict.fromkeys(
+            _repair_legacy_lexicon_text(term)
+            for term in [*by_language.get(lang, []), *defaults.get(lang, [])]
+        ))
     return list(dict.fromkeys(
-        term
+        _repair_legacy_lexicon_text(term)
         for values in [*by_language.values(), *defaults.values()]
         for term in values
     ))
@@ -775,7 +803,10 @@ def get_temporal_month_map() -> dict[str, int]:
 
     if not LEXICON_LOAD_ATTEMPTED:
         load_language_markers_from_db()
-    return dict(TEMPORAL_MONTH_MAP)
+    return {
+        _repair_legacy_lexicon_text(month): value
+        for month, value in TEMPORAL_MONTH_MAP.items()
+    }
 
 
 def get_lexicon_values(marker_type: str) -> dict[str, int]:
@@ -783,7 +814,10 @@ def get_lexicon_values(marker_type: str) -> dict[str, int]:
 
     if not LEXICON_LOAD_ATTEMPTED:
         load_language_markers_from_db()
-    return dict(LEXICON_VALUES.get(str(marker_type or "").strip().casefold(), {}))
+    return {
+        _repair_legacy_lexicon_text(word): value
+        for word, value in LEXICON_VALUES.get(str(marker_type or "").strip().casefold(), {}).items()
+    }
 
 
 def get_temporal_month_pattern() -> str:

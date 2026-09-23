@@ -10,6 +10,7 @@ from app.collectors.web_scraper import (
     _extract_next_rsc_article,
     _extract_published_at,
     _country_hint_from_url,
+    _decode_html_bytes,
     _is_challenge,
     _is_spa_shell,
     _normalize_url,
@@ -102,6 +103,20 @@ class WebScraperHelpersTest(unittest.TestCase):
     def test_response_html_falls_back_to_bytes_body(self):
         page = FakePage(body="berita kesehatan".encode())
         self.assertEqual(_response_html(page), "berita kesehatan")
+
+    def test_decode_html_bytes_prefers_utf8_when_charset_is_missing(self):
+        thai_year = chr(0x0E1B) + chr(0x0E35)
+        html = f"<html><body>{thai_year} 2569 dengue</body></html>"
+        decoded = _decode_html_bytes(html.encode("utf-8"), "text/html", "ISO-8859-1")
+        self.assertIn(thai_year, decoded)
+        self.assertNotIn("à¸", decoded)
+
+    def test_main_content_removes_generic_recommendation_tail(self):
+        article = "Official health authorities reported 53,362 cases and one death nationwide. " * 8
+        html = f"<html><body><article><p>{article}</p><div>Pilihan untuk anda</div><p>Unrelated country cases 999999.</p></article></body></html>"
+        _, content = _extract_main_content(html)
+        self.assertIn("53,362 cases", content)
+        self.assertNotIn("999999", content)
 
     def test_selected_text_requires_matching_selector(self):
         page = FakePage(selectors={"article": "  outbreak update  "})
