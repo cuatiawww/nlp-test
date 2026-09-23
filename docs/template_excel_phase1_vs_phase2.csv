@@ -1,0 +1,36 @@
+﻿RULE / FITUR / KONTROL,PHASE 1,PHASE 2,KETERANGAN & DESKRIPSI
+MENU,,,
+  Menu Label,History Monitoring,Crawl History,Di Phase 2 dinamai Crawl History (Matriks Hasil Crawl)
+  Url,/data-crawling,/nlp/crawl-history,Rute baru Next.js App Router
+VARIABLE,,,
+  Url,V,V,Tetap Ada: Digabung sebagai hyperlink pada Article Title & Link + modal review
+  Source,V,V,Menjadi Source & Channel (nama media + badge Continuous/Manual/Analyze URL)
+  Article Title,V,V,Menjadi Article Title & Link (judul + tautan langsung ke artikel asli)
+  No,V,V,Nomor urut baris (dengan sticky column di sisi kiri)
+  Status,V,V,Dari status baca (Read/Unread) menjadi status validasi: Reviewed vs Needs Review
+  Country,V,V,Menjadi Country & Location (nama negara + bendera nasional)
+  Province / City,V,V,Tetap Ada: Digabung di baris kedua persis di bawah nama negara pada Country & Location
+  Region,V,V,Tetap Ada: Terintegrasi pada filter cakupan kawasan (ASEAN / Non-ASEAN) & metadata lokasi
+  Lat / Long,V,V,"Tetap Ada: Di Phase 1 terpisah 2 kolom, di Phase 2 disatukan menjadi 1 kolom rapi Lat / Long"
+  Disease,V,V,Nama penyakit terstandarisasi ICD-11
+  Cases,V,V,Jumlah kasus penyakit (dengan agregasi multi-lokasi jika ada)
+  Deaths,V,V,Jumlah kematian penyakit (dengan agregasi multi-lokasi jika ada)
+  Language,X,V,"Baru di Phase 2: Kolom deteksi otomatis bahasa artikel (id, en, th, vi, ms, dll.)"
+  Article Date,V,V,Tanggal publikasi artikel berita asli
+  Crawling Date,V,V,Waktu penarikan data oleh crawler
+  Case Date,V,V,Tetap Ada: Tersedia di modal detail & tab All Debug Logs
+  Action (Modal Summary),X,V,Baru di Phase 2: Tombol Summary untuk membuka modal verifikasi bukti teks asli & ringkasan AI
+FILTER,,,
+  Search Keyword (Q),V,V,Pencarian teks cepat terindeks (debounced 400ms)
+  Country / Region,V,V,"Filter kawasan ASEAN-11, OUTSIDE ASEAN, atau per negara spesifik"
+  Disease,V,V,Filter berdasarkan penyakit target
+  Date Range (From - To),V,V,Filter rentang tanggal publikasi/crawling
+  Crawl Channel,X,V,"Baru di Phase 2: Filter jalur crawling (All, Continuous, Manual, Analyze URL)"
+  Quality Tier,X,V,"Baru di Phase 2: Penyaring kualitas (Surveillance, Review, Noise, All)"
+  Processing Status,X,V,"Baru di Phase 2: Filter status pemrosesan (Processed, Needs Review, Failed)"
+  Geographic Filter (Has Geo),X,V,Baru di Phase 2: Filter data yang memiliki koordinat GPS
+  Batch Job ID,X,V,Baru di Phase 2: Filter riwayat penarikan per ID tugas batch
+EXPORT,,,
+  Export to CSV,V,V,Unduh seluruh data matriks dalam format file .csv
+  Export to Excel (XLSX),V,V,Unduh seluruh data matriks dalam format spreadsheet .xlsx
+  Copy Data,V,X,Di Phase 1 ada tombol copy clipboard flat teks; di Phase 2 digantikan oleh ekspor file resmi CSV/XLSX

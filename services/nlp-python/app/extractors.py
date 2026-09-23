@@ -1,3 +1,4 @@
+import functools
 import logging
 import os
 import re
@@ -158,6 +159,7 @@ def _legacy_repair_mojibake(text: str) -> str:
     return candidate if after < before else text
 
 
+@functools.lru_cache(maxsize=16384)
 def repair_mojibake(text: str) -> str:
     """Repair UTF-8 text that was decoded as Latin-1/Windows-1252."""
     if not text:
@@ -218,6 +220,7 @@ def _is_native_script(text: str) -> bool:
     return bool(_NON_LATIN_SCRIPT_RE.search(text))
 
 
+@functools.lru_cache(maxsize=32768)
 def _fold_location_text(value: str) -> str:
     """Make Latin locations match their local-script/diacritic variants."""
     if _is_native_script(value):
@@ -257,6 +260,13 @@ DEFAULT_COUNTRY_ALIASES: dict[str, str] = {
     "မိူင်းမြန်မာ": "Myanmar",
 }
 COUNTRY_ALIASES: dict[str, str] = dict(DEFAULT_COUNTRY_ALIASES)
+
+_FOLDED_COUNTRY_ALIASES: dict[str, str] = {}
+def get_folded_country_aliases() -> dict[str, str]:
+    global _FOLDED_COUNTRY_ALIASES
+    if not _FOLDED_COUNTRY_ALIASES:
+        _FOLDED_COUNTRY_ALIASES = {_fold_location_text(a): c for a, c in COUNTRY_ALIASES.items()}
+    return _FOLDED_COUNTRY_ALIASES
 
 # The location master is ASEAN-focused. Keep the small external-country
 # fallback needed to classify an explicitly named non-ASEAN article until the
@@ -383,8 +393,17 @@ def _country_alias_view() -> dict[str, str]:
 LOCATION_ALIASES: dict[str, str] = {}
 
 
+_active_aliases_cache: dict[str, str] | None = None
+_active_aliases_ref: int | None = None
+
+
 def active_location_aliases() -> dict[str, str]:
-    """Return the merged DB-backed locality/country alias view."""
+    """Return the merged DB-backed locality/country alias view (cached)."""
+    global _active_aliases_cache, _active_aliases_ref
+
+    current_ref = config.LOCATION_REGISTRY_REFERENCE_ID
+    if _active_aliases_cache is not None and _active_aliases_ref == current_ref:
+        return _active_aliases_cache
 
     merged = {
         **LOCATION_ALIASES,
@@ -393,7 +412,10 @@ def active_location_aliases() -> dict[str, str]:
     # Older seed data contains native-script aliases that were decoded into
     # Latin mojibake. Repair the key at lookup time so the DB remains the
     # source of truth and no second hardcoded vocabulary is needed.
-    return {repair_mojibake(str(alias)): canonical for alias, canonical in merged.items()}
+    result = {repair_mojibake(str(alias)): canonical for alias, canonical in merged.items()}
+    _active_aliases_cache = result
+    _active_aliases_ref = current_ref
+    return result
 
 CONTINENT_AND_REGION_LABELS = {
     "asia", "africa", "europe", "oceania", "antarctica",
@@ -724,7 +746,7 @@ def split_admin_place(location: Optional[str], country: Optional[str] = None) ->
     if name in config.ASEAN_COUNTRIES:
         return None, None
     folded_name = _fold_location_text(name)
-    if folded_name in {_fold_location_text(alias) for alias in COUNTRY_ALIASES}:
+    if folded_name in get_folded_country_aliases():
         return None, None
     hier = resolve_location_hierarchy(name, country_hint=country)
     # A common-language token can also be a real locality (for example
@@ -775,6 +797,11 @@ def geocode_place(
         return None, None, 0.0, True
     lat, lon = config.LOCATION_COORDS.get(raw, (None, None))
     loc_country = config.LOCATION_COUNTRIES.get(raw) or mapped
+    if lat is None or lon is None:
+        canonical = getattr(config, "LOCATION_ALIASES", {}).get(raw) or getattr(config, "FOLDED_LOCATION_INDEX", {}).get(_fold_location_text(raw))
+        if canonical and canonical in config.LOCATION_COORDS:
+            lat, lon = config.LOCATION_COORDS[canonical]
+            loc_country = config.LOCATION_COUNTRIES.get(canonical) or loc_country
     if lat is None or lon is None:
         return None, None, 0.0, True
     if loc_country in config.ASEAN_COUNTRIES and not coords_in_country_bbox(lat, lon, loc_country):
@@ -1113,6 +1140,53 @@ def canonical_disease_name(disease: str, concepts: Optional[list[dict]] = None) 
     matched = canonicalize_who_disease_labels([normalized], active_concepts)
     return matched[0] if matched else normalized
 
+_ALLOWED_NAMES_BY_COUNTRY: dict[tuple[str, ...], set[str]] = {}
+_FOLDED_NAMES_BY_COUNTRY: dict[tuple[str, ...], dict[str, str]] = {}
+_LAST_COORDS_SIG: Optional[tuple] = None
+
+def _check_coords_cache():
+    global _LAST_COORDS_SIG, _ALLOWED_NAMES_BY_COUNTRY, _FOLDED_NAMES_BY_COUNTRY
+    cur_sig = (
+        id(config.LOCATION_COORDS),
+        len(config.LOCATION_COORDS),
+        id(getattr(config, "LOCATION_COUNTRIES", None)),
+        len(getattr(config, "LOCATION_COUNTRIES", {})),
+    )
+    if _LAST_COORDS_SIG != cur_sig:
+        _ALLOWED_NAMES_BY_COUNTRY.clear()
+        _FOLDED_NAMES_BY_COUNTRY.clear()
+        _LAST_COORDS_SIG = cur_sig
+
+def get_allowed_location_names(allowed_countries_tuple: tuple[str, ...]) -> set[str]:
+    _check_coords_cache()
+    if not allowed_countries_tuple:
+        return set(config.LOCATION_COORDS.keys())
+    res = _ALLOWED_NAMES_BY_COUNTRY.get(allowed_countries_tuple)
+    if res is None:
+        allowed_set = set(allowed_countries_tuple)
+        folded_idx = getattr(config, "FOLDED_LOCATION_INDEX", {})
+        res = {
+            name for name in config.LOCATION_COORDS
+            if (folded_idx.get(config.LOCATION_COUNTRIES.get(name, "")) in allowed_set
+                or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) in allowed_set
+                or folded_idx.get(name) in allowed_set
+                or _fold_location_text(name) in allowed_set)
+        }
+        _ALLOWED_NAMES_BY_COUNTRY[allowed_countries_tuple] = res
+    return res
+
+def get_folded_names_for_countries(allowed_countries_tuple: tuple[str, ...]) -> dict[str, str]:
+    _check_coords_cache()
+    if not allowed_countries_tuple:
+        return getattr(config, "FOLDED_LOCATION_INDEX", {})
+    res = _FOLDED_NAMES_BY_COUNTRY.get(allowed_countries_tuple)
+    if res is None:
+        allowed_names = get_allowed_location_names(allowed_countries_tuple)
+        folded_idx = getattr(config, "FOLDED_LOCATION_INDEX", {})
+        res = {k: v for k, v in folded_idx.items() if v in allowed_names}
+        _FOLDED_NAMES_BY_COUNTRY[allowed_countries_tuple] = res
+    return res
+
 def extract_location(
     text: str,
     country: Optional[str] = None,
@@ -1130,17 +1204,12 @@ def extract_location(
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
     hits: list[tuple[str, int]] = []
-    allowed_set = {
+    allowed_countries_tuple = tuple(sorted(
         _fold_location_text(c)
         for c in (allowed_countries or ([country] if country else []))
         if c
-    }
-    allowed_names = {
-        name for name in config.LOCATION_COORDS
-        if not allowed_set
-        or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) in allowed_set
-        or _fold_location_text(name) in allowed_set
-    }
+    ))
+    allowed_names = get_allowed_location_names(allowed_countries_tuple)
     if (country or allowed_countries) and not allowed_names:
         return None
 
@@ -1162,15 +1231,7 @@ def extract_location(
                 continue
             hits.append((canonical, match.start()))
 
-    folded_names = {
-        _fold_location_text(name): name
-        for name in config.LOCATION_COORDS
-        if name in allowed_names
-    }
-    for alias, canon in active_location_aliases().items():
-        if canon in allowed_names:
-            folded_names[_fold_location_text(alias)] = canon
-            folded_names[alias.casefold()] = canon
+    folded_names = get_folded_names_for_countries(allowed_countries_tuple)
     if config.LOCATION_PATTERNS:
         pattern = config.LOCATION_PATTERNS[0][1]
         for match in pattern.finditer(lower_text):
@@ -1279,17 +1340,12 @@ def extract_all_locations(
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)
     hits: list[tuple[str, int]] = []
-    allowed_set = {
+    allowed_countries_tuple = tuple(sorted(
         _fold_location_text(c)
         for c in (allowed_countries or ([country] if country else []))
         if c
-    }
-    allowed_names = {
-        name for name in config.LOCATION_COORDS
-        if not allowed_set
-        or _fold_location_text(config.LOCATION_COUNTRIES.get(name, "")) in allowed_set
-        or _fold_location_text(name) in allowed_set
-    }
+    ))
+    allowed_names = get_allowed_location_names(allowed_countries_tuple)
     if (country or allowed_countries) and not allowed_names:
         return []
 
@@ -1308,15 +1364,7 @@ def extract_all_locations(
                 continue
             hits.append((canonical, match.start()))
 
-    folded_names = {
-        _fold_location_text(name): name
-        for name in config.LOCATION_COORDS
-        if name in allowed_names
-    }
-    for alias, canon in active_location_aliases().items():
-        if canon in allowed_names:
-            folded_names[_fold_location_text(alias)] = canon
-            folded_names[alias.casefold()] = canon
+    folded_names = get_folded_names_for_countries(allowed_countries_tuple)
     if config.LOCATION_PATTERNS:
         pattern = config.LOCATION_PATTERNS[0][1]
         for match in pattern.finditer(lower_text):
@@ -1360,21 +1408,22 @@ def extract_all_locations(
     results = []
     for name in distinct_names:
         c = config.LOCATION_COUNTRIES.get(name, country)
-        if allowed_set:
-            folded_c = _fold_location_text(c or "")
-            folded_n = _fold_location_text(name)
-            if folded_c not in allowed_set and folded_n not in allowed_set:
-                continue
-        lat, lon, conf, needs_review = geocode_place(name, c)
+        if allowed_countries_tuple and name not in allowed_names:
+            continue
         hier = resolve_location_hierarchy(name, country_hint=c)
         if hier.get("country_conflict"):
             hier = resolve_event_location_hierarchy(name, country_hint=c)
             needs_review = True
+        canonical_name = hier.get("canonical_name") or name
+        country_resolved = hier.get("country") or c
+        lat, lon, conf, needs_review = geocode_place(canonical_name, country_resolved)
+        resolved_lat = hier.get("latitude") if hier.get("latitude") is not None else lat
+        resolved_lon = hier.get("longitude") if hier.get("longitude") is not None else lon
         results.append({
-            "name": name,
-            "latitude": hier.get("latitude") if lat is not None else None,
-            "longitude": hier.get("longitude") if lon is not None else None,
-            "country": hier.get("country") or c,
+            "name": canonical_name,
+            "latitude": resolved_lat,
+            "longitude": resolved_lon,
+            "country": country_resolved,
             "admin1": hier.get("admin1_name"),
             "admin2": hier.get("admin2_name"),
             "country_iso3": hier.get("country_iso3"),
@@ -3491,6 +3540,10 @@ DISEASE_ALIASES: dict[str, str] = {
     "tay chan mieng": "Hand, foot and mouth disease",
     "bệnh tay chân miệng": "Hand, foot and mouth disease",
     "hand, foot, and mouth disease": "Hand, foot and mouth disease",
+    "hand, foot and mouth disease": "Hand, foot and mouth disease",
+    "hand, foot and mouth": "Hand, foot and mouth disease",
+    "hand, foot, and mouth": "Hand, foot and mouth disease",
+    "hand foot and mouth": "Hand, foot and mouth disease",
     "လက်၊ ခြေ၊ ခံတွင်းရောဂါ": "Hand, foot and mouth disease",
     "ជំងឺពងបែកដៃជើងនិងក្នុងមាត់": "Hand, foot and mouth disease",
     "ជំងឺដៃជើងមាត់": "Hand, foot and mouth disease",
@@ -3849,6 +3902,7 @@ DISEASE_ALIASES: dict[str, str] = {
     "colitis due to human papillomavirus": "Colitis due to human papillomavirus infection",
 }
 
+@functools.lru_cache(maxsize=1)
 def active_disease_aliases() -> dict[str, str]:
     """Return the DB disease vocabulary with compatibility aliases layered last."""
 
@@ -3862,82 +3916,108 @@ def active_disease_aliases() -> dict[str, str]:
     return {**db_aliases, **DISEASE_ALIASES}
 
 _ALIAS_WORD_REGEX_CACHE: dict[str, re.Pattern] = {}
+_FOLDED_ALIAS_KEY_CACHE: dict[str, str] = {}
 
-def _match_disease_alias(key: str, text: str, lower_text: str) -> bool:
-    """Check if alias exists in text.
+def _get_folded_alias_key(key: str) -> str:
+    res = _FOLDED_ALIAS_KEY_CACHE.get(key)
+    if res is None:
+        res = re.sub(r"[^\w]+", " ", key.casefold()).strip()
+        _FOLDED_ALIAS_KEY_CACHE[key] = res
+    return res
+
+
+def _match_disease_alias(key: str, text: str, lower_text: str, folded_text: Optional[str] = None) -> bool:
+    """Check if alias exists in text with fast substring pre-filter.
     For keys containing ASCII letters/numbers, word boundaries \b are strictly enforced
     to avoid false positives (e.g. 'ari' matching 'dari' or 'sementara').
     """
-    key = repair_mojibake(key or "")
     if not key:
         return False
+    lower_key = key.lower()
     if re.search(r"[a-zA-Z0-9]", key):
-        # Punctuation varies across publishers (``hand, foot`` versus
-        # ``hand foot``). Compare a whitespace-folded view as well so a
-        # reviewed alias is not lost because of editorial commas.
-        folded_key = re.sub(r"[^\w]+", " ", key.casefold()).strip()
-        folded_text = re.sub(r"[^\w]+", " ", text.casefold()).strip()
-        if folded_key and re.search(rf"(?<!\w){re.escape(folded_key)}(?!\w)", folded_text):
-            return True
-        pat = _ALIAS_WORD_REGEX_CACHE.get(key)
-        if pat is None:
-            pat = re.compile(rf"\b{re.escape(key)}\b", re.IGNORECASE)
-            _ALIAS_WORD_REGEX_CACHE[key] = pat
-        return bool(pat.search(text))
+        if folded_text is None:
+            folded_text = re.sub(r"[^\w]+", " ", lower_text).strip()
+        folded_key = _get_folded_alias_key(lower_key)
+        # Fast reject: if neither raw key nor folded key appears in the text, cannot match
+        if lower_key not in lower_text and (not folded_key or folded_key not in folded_text):
+            return False
+        if folded_key and folded_key in folded_text:
+            pat = _ALIAS_WORD_REGEX_CACHE.get(folded_key)
+            if pat is None:
+                pat = re.compile(rf"(?<!\w){re.escape(folded_key)}(?!\w)")
+                _ALIAS_WORD_REGEX_CACHE[folded_key] = pat
+            if pat.search(folded_text):
+                return True
+        if lower_key in lower_text:
+            pat = _ALIAS_WORD_REGEX_CACHE.get(key)
+            if pat is None:
+                pat = re.compile(rf"\b{re.escape(key)}\b", re.IGNORECASE)
+                _ALIAS_WORD_REGEX_CACHE[key] = pat
+            return bool(pat.search(text))
+        return False
     return key in lower_text
 
 
-def _matched_disease_aliases(text: str) -> list[tuple[str, str]]:
-    """Return explicit aliases while suppressing shorter conflicting aliases."""
+def _matched_disease_aliases_internal(text: str) -> tuple[list[tuple[str, str]], set[str]]:
+    """Return explicit aliases while suppressing shorter conflicting aliases, plus shadowed values."""
     aliases = active_disease_aliases()
     lower_text = text.lower()
+    folded_text = re.sub(r"[^\w]+", " ", lower_text).strip()
     matched = [
         (key, value)
         for key, value in aliases.items()
-        if _match_disease_alias(key, text, lower_text)
+        if _match_disease_alias(key, text, lower_text, folded_text)
     ]
     normalized = [
         (
             key,
             value,
-            re.sub(r"[^\w]+", " ", repair_mojibake(key).casefold()).strip(),
+            _get_folded_alias_key(repair_mojibake(key)),
         )
         for key, value in matched
     ]
-    folded_text = re.sub(r"[^\w]+", " ", text.casefold()).strip()
     shadowed_values: set[str] = set()
     for _, value, short_key in normalized:
         if not short_key:
             continue
-        short_spans = [m.span() for m in re.finditer(rf"(?<!\w){re.escape(short_key)}(?!\w)", folded_text)]
+        is_unspaced = any("\u0e00" <= ch <= "\u0eff" or "\u1000" <= ch <= "\u109f" or "\u1780" <= ch <= "\u17ff" for ch in short_key)
+        if is_unspaced:
+            short_spans = [m.span() for m in re.finditer(re.escape(short_key), folded_text)]
+        else:
+            short_spans = [m.span() for m in re.finditer(rf"(?<!\w){re.escape(short_key)}(?!\w)", folded_text)]
         if not short_spans:
             continue
         for _, other_value, long_key in normalized:
             if value == other_value or len(short_key) >= len(long_key):
                 continue
-            if f" {short_key} " not in f" {long_key} ":
-                continue
-            long_spans = [m.span() for m in re.finditer(rf"(?<!\w){re.escape(long_key)}(?!\w)", folded_text)]
+            if is_unspaced:
+                if short_key not in long_key:
+                    continue
+                long_spans = [m.span() for m in re.finditer(re.escape(long_key), folded_text)]
+            else:
+                if f" {short_key} " not in f" {long_key} ":
+                    continue
+                long_spans = [m.span() for m in re.finditer(rf"(?<!\w){re.escape(long_key)}(?!\w)", folded_text)]
             if long_spans and all(
                 any(long_start <= short_start and short_end <= long_end for long_start, long_end in long_spans)
                 for short_start, short_end in short_spans
             ):
                 shadowed_values.add(value)
                 break
-    return [(key, value) for key, value, _ in normalized if value not in shadowed_values]
+    unshadowed = [(key, value) for key, value, _ in normalized if value not in shadowed_values]
+    return unshadowed, shadowed_values
+
+
+def _matched_disease_aliases(text: str) -> list[tuple[str, str]]:
+    """Return explicit aliases while suppressing shorter conflicting aliases."""
+    return _matched_disease_aliases_internal(text)[0]
 
 
 def extract_diseases(text: str) -> list[str]:
-    aliases = active_disease_aliases()
     diseases = set(extract_terms(text, config.DISEASE_DICT))
     lower_text = text.lower()
-    matched = _matched_disease_aliases(text)
+    matched, shadowed = _matched_disease_aliases_internal(text)
     diseases.update(value for _, value in matched)
-    shadowed = {
-        value
-        for key, value in aliases.items()
-        if (key, value) not in matched and _match_disease_alias(key, text, lower_text)
-    }
     diseases.difference_update(shadowed)
     
     def disease_score(d: str) -> tuple[int, int]:

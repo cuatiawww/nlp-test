@@ -234,6 +234,7 @@ LOCATION_ALIASES: dict[str, str] = {}
 LOCATION_LOAD_ATTEMPTED = False
 LOCATION_REGISTRY_REFERENCE_ID: int | None = None
 LOCATION_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
+FOLDED_LOCATION_INDEX: dict[str, str] = {}  # folded_text -> canonical_name
 LOCATION_STOPWORDS = {
     # Indonesian time/grammatical words that collide with foreign/rare gazetteer entries
     "selama", "hingga", "sejak", "menjelang", "antara", "sejumlah", "tercatat", "banyaknya", "sepanjang",
@@ -459,18 +460,49 @@ def load_outbreak_rules_from_db():
 
 
 def build_location_patterns():
-    global LOCATION_PATTERNS
-    alternatives = sorted(
-        (
+    global LOCATION_PATTERNS, FOLDED_LOCATION_INDEX
+    # Build folded index: folded_text -> canonical_name (O(1) lookups)
+    idx: dict[str, str] = {}
+    for name in LOCATION_COORDS:
+        folded = "".join(
+            char for char in unicodedata.normalize("NFKD", name.lower())
+            if not unicodedata.combining(char)
+        )
+        if folded and folded not in idx:
+            idx[folded] = name
+        # Also add casefold for native-script names
+        cf = name.strip().casefold()
+        if cf and cf not in idx:
+            idx[cf] = name
+    for alias, canonical in LOCATION_ALIASES.items():
+        folded = "".join(
+            char for char in unicodedata.normalize("NFKD", alias.lower())
+            if not unicodedata.combining(char)
+        )
+        if folded and folded not in idx:
+            idx[folded] = canonical
+        cf = alias.strip().casefold()
+        if cf and cf not in idx:
+            idx[cf] = canonical
+    FOLDED_LOCATION_INDEX = idx
+
+    # Build mega-regex including both canonical names AND alias names
+    all_names: set[str] = set()
+    for name in LOCATION_COORDS:
+        all_names.add(
             "".join(
                 char for char in unicodedata.normalize("NFKD", name.lower())
                 if not unicodedata.combining(char)
             )
-            for name in LOCATION_COORDS
-        ),
-        key=len,
-        reverse=True,
-    )
+        )
+    for alias in LOCATION_ALIASES:
+        folded_alias = "".join(
+            char for char in unicodedata.normalize("NFKD", alias.lower())
+            if not unicodedata.combining(char)
+        )
+        if len(folded_alias) >= 3:  # skip very short alias noise
+            all_names.add(folded_alias)
+    alternatives = sorted(all_names, key=len, reverse=True)
     if alternatives:
         combined = re.compile(
             r"\b(?:" + "|".join(re.escape(a) for a in alternatives) + r")\b",

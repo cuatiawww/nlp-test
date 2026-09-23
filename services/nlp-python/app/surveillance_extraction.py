@@ -536,6 +536,11 @@ class LinkedLocation:
 class GazetteerLinker:
     """Validate NER spans against local data, optionally falling back to OSM."""
 
+    _SHARED_FOLDED_COORDS: Optional[dict[str, str]] = None
+    _SHARED_MENTION_PATTERN: Optional[re.Pattern] = None
+    _SHARED_COORDS_ID: Optional[int] = None
+    _SHARED_ALIASES_ID: Optional[int] = None
+
     def __init__(
         self,
         coords: Optional[dict[str, tuple[float, float]]] = None,
@@ -543,8 +548,33 @@ class GazetteerLinker:
         geocoder: Optional[Geocoder] = None,
         allow_remote: Optional[bool] = None,
     ):
+        is_default = (coords is None and countries is None)
+        if is_default and len(config.LOCATION_COORDS) <= 3:
+            config.ensure_location_registry_loaded()
         self.coords = coords if coords is not None else config.LOCATION_COORDS
         self.countries = countries if countries is not None else config.LOCATION_COUNTRIES
+        current_aliases = getattr(config, "LOCATION_ALIASES", None)
+        cur_sig = (
+            id(self.coords),
+            len(self.coords),
+            id(current_aliases),
+            len(current_aliases or {}),
+            id(self.countries),
+            len(self.countries or {}),
+        )
+        if (
+            is_default
+            and GazetteerLinker._SHARED_FOLDED_COORDS is not None
+            and getattr(GazetteerLinker, "_SHARED_SIG", None) == cur_sig
+        ):
+            self._folded_coords = GazetteerLinker._SHARED_FOLDED_COORDS
+            self._mention_pattern = GazetteerLinker._SHARED_MENTION_PATTERN
+            self.geocoder = geocoder or NominatimGeocoder()
+            self.allow_remote = (
+                os.getenv("SURVEILLANCE_GEOCODER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+                if allow_remote is None else allow_remote
+            )
+            return
         # The old linker compared every candidate against every gazetteer row.
         # Build one folded index and one matcher per linker so article length
         # does not multiply gazetteer work.
@@ -565,8 +595,18 @@ class GazetteerLinker:
         all_names.update(getattr(extractors, "COUNTRY_ALIASES", {}).keys())
         for alias, canonical in getattr(extractors, "COUNTRY_ALIASES", {}).items():
             folded_alias = extractors._fold_location_text(alias)
-            if folded_alias and folded_alias not in self._folded_coords and canonical in self.coords:
+            if folded_alias and folded_alias not in self._folded_coords and (canonical in self.coords or canonical in self.countries):
                 self._folded_coords[folded_alias] = canonical
+        for name in self.countries:
+            folded_name = extractors._fold_location_text(name)
+            if folded_name and folded_name not in self._folded_coords:
+                self._folded_coords[folded_name] = name
+        for country in config.ASEAN_COUNTRIES:
+            folded_country = extractors._fold_location_text(country)
+            if folded_country and folded_country not in self._folded_coords:
+                self._folded_coords[folded_country] = country
+        all_names.update(self.countries.keys())
+        all_names.update(config.ASEAN_COUNTRIES)
         names = sorted(all_names, key=len, reverse=True)
         native_names = [name for name in names if extractors._is_native_script(name)]
         latin_names = [name for name in names if name not in native_names]
@@ -585,6 +625,10 @@ class GazetteerLinker:
             )
             if alternatives else None
         )
+        if is_default:
+            GazetteerLinker._SHARED_FOLDED_COORDS = self._folded_coords
+            GazetteerLinker._SHARED_MENTION_PATTERN = self._mention_pattern
+            GazetteerLinker._SHARED_SIG = cur_sig
         self.geocoder = geocoder or NominatimGeocoder()
         self.allow_remote = (
             os.getenv("SURVEILLANCE_GEOCODER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
@@ -597,20 +641,19 @@ class GazetteerLinker:
             return None
         if not extractors.is_usable_place_name(value):
             return None
-        for alias, canonical in getattr(config, "LOCATION_ALIASES", {}).items():
-            if folded == extractors._fold_location_text(alias):
-                if canonical.casefold() in NON_GEOGRAPHIC_TERMS:
-                    return None
-                return canonical
-        # Countries include aliases such as Singapura/Kamboja.
-        for alias, canonical in extractors.COUNTRY_ALIASES.items():
-            if folded == extractors._fold_location_text(alias):
-                return canonical
-        name = self._folded_coords.get(folded)
-        if name:
-            if folded in NON_GEOGRAPHIC_TERMS:
+        # O(1) lookup via pre-built folded index (covers aliases + coords)
+        folded_idx = getattr(config, "FOLDED_LOCATION_INDEX", {})
+        hit = folded_idx.get(folded) or self._folded_coords.get(folded)
+        if not hit:
+            cf = value.strip().casefold()
+            hit = folded_idx.get(cf) or self._folded_coords.get(cf)
+        if not hit:
+            country_aliases = extractors.get_folded_country_aliases()
+            hit = country_aliases.get(folded) or country_aliases.get(value.strip().casefold()) or self.countries.get(value.strip())
+        if hit:
+            if hit.casefold() in NON_GEOGRAPHIC_TERMS:
                 return None
-            return name
+            return hit
         return None
 
     def local_mentions(self, text: str) -> list[tuple[int, int, LinkedLocation]]:
@@ -1739,7 +1782,15 @@ def _extract_narrative_relations(
                 )
                 if extractors.normalize_country(value)
             ))
-            if len(local_countries) == 1:
+            local_subnational = [
+                item for item in local_locations
+                if item[2].name.casefold() not in {c.casefold() for c in local_countries}
+            ]
+            if local_subnational:
+                linked = _nearest_location(
+                    match.start(), match.end(), local_locations, text=source
+                ) or linked
+            elif len(local_countries) == 1:
                 linked = _country_level_location(
                     local_countries[0],
                     linker,
@@ -1877,11 +1928,12 @@ def extract_metric_relations(
                 continue
             case_clause = _metric_context(source, match.start(), match.end(), radius=320)
             if re.search(
-                r"\b(?:kedua|both|these\s+two|the\s+two)\s+(?:cases?|kasus|patients?|pasien)\b",
+                r"\b(?:berasal\s+dari|berpunca\s+dari|originat(?:e|ed)\s+from|came\s+from|from)\b",
                 case_clause,
                 re.IGNORECASE,
             ) and re.search(
-                r"\b(?:berasal\s+dari|berpunca\s+dari|originat(?:e|ed)\s+from|came\s+from|from)\b",
+                r"\b(?:kedua|both|these\s+two|the\s+two)\s+(?:\w+\s+){0,2}(?:cases?|kasus|patients?|pasien)\b|"
+                r"\b(?:the\s+|these\s+)?two\s+(?:cases?|patients?)\s+(?:were|are|came|originated|from)\b",
                 case_clause,
                 re.IGNORECASE,
             ):

@@ -470,8 +470,9 @@ def build_atomic_events(
             scoped_relations = []
             for relation in local_relations:
                 evidence_lower = str(relation.evidence or sentence).casefold()
+                sentence_lower = sentence.casefold()
                 explicit_location = any(
-                    token and token.casefold() in evidence_lower
+                    token and (token.casefold() in evidence_lower or token.casefold() in sentence_lower)
                     for token in (relation.location.name, relation.location.country)
                 )
                 same_country = relation.location.country.casefold() == scoped_country.casefold()

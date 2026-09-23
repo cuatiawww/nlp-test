@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import re
 from typing import Optional, Any
 
@@ -960,9 +960,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if value and extractors.canonical_disease_name(value).upper() != "UNKNOWN"
             and extractors.disease_has_textual_evidence(value, text)
         ))
+        # Reuse the linker from build_surveillance_output if available,
+        # otherwise create a singleton — avoid re-instantiating the heavy
+        # gazetteer index on every call.
+        _reused_linker = strict_output._linker if hasattr(strict_output, '_linker') else GazetteerLinker()
         relational_events = extract_metric_relations(
             text,
-            linker=GazetteerLinker(),
+            linker=_reused_linker,
             published_date=published_at,
             source_country=source_country,
         )
