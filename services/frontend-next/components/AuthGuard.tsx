@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { isLoggedIn, getAuthUser, hasModuleAccess, AuthUser } from '@/lib/auth'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
+import { useSettings } from '@/lib/settings-context'
 import { ShieldAlert, ArrowLeft, Home } from 'lucide-react'
 import Link from 'next/link'
 
@@ -11,6 +12,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const { t } = useTranslation()
+  const { settings } = useSettings()
   const [mounted, setMounted] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -35,9 +37,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const allowed = hasModuleAccess(currentAuth, pathname)
+    const allowed = hasModuleAccess(currentAuth, pathname, settings.navigation_menu)
     setHasAccess(allowed)
-  }, [pathname, router])
+  }, [pathname, router, settings.navigation_menu])
 
   if (!mounted) {
     return (

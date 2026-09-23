@@ -1,6 +1,7 @@
 'use client';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { SidebarGroupConfig, DEFAULT_NAVIGATION_CONFIG } from '@/lib/menu';
+import { setNavigationCache } from '@/lib/auth';
 
 export interface SystemSettings {
   app_name: string;
@@ -55,12 +56,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const json = await res.json();
         if (json.success && json.data?.config_data) {
           const config = json.data.config_data;
+          const navMenu = Array.isArray(config.navigation_menu) && config.navigation_menu.length > 0
+            ? config.navigation_menu
+            : DEFAULT_SETTINGS.navigation_menu;
+          setNavigationCache(navMenu);
           setSettings({
             ...DEFAULT_SETTINGS,
             ...config,
-            navigation_menu: Array.isArray(config.navigation_menu) && config.navigation_menu.length > 0
-              ? config.navigation_menu
-              : DEFAULT_SETTINGS.navigation_menu,
+            navigation_menu: navMenu,
             app_name: config.app_name === 'ASEAN Disease Outbreak Surveillance AI'
               ? DEFAULT_SETTINGS.app_name
               : config.app_name,
@@ -81,6 +84,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateSettings = useCallback((partial: Partial<SystemSettings>) => {
+    if (partial.navigation_menu) {
+      setNavigationCache(partial.navigation_menu);
+    }
     setSettings((prev) => ({ ...prev, ...partial }));
   }, []);
 

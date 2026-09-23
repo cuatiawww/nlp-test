@@ -1,5 +1,44 @@
+import {
+  SYSTEM_MODULES,
+  type SystemModule,
+  getActiveModules,
+  isModulePermitted,
+  type ActiveModule,
+} from './modules';
+import type { SidebarGroupConfig } from './menu';
+
+export { SYSTEM_MODULES, type SystemModule };
+
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "auth_user";
+const NAV_CACHE_KEY = "sys_nav_cache";
+
+let memoryNavMenu: SidebarGroupConfig[] | null = null;
+
+export function setNavigationCache(menu: SidebarGroupConfig[] | null | undefined) {
+  if (Array.isArray(menu) && menu.length > 0) {
+    memoryNavMenu = menu;
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(NAV_CACHE_KEY, JSON.stringify(menu));
+      } catch {}
+    }
+  }
+}
+
+export function getNavigationCache(): SidebarGroupConfig[] | null {
+  if (memoryNavMenu) return memoryNavMenu;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(NAV_CACHE_KEY);
+      if (stored) {
+        memoryNavMenu = JSON.parse(stored);
+        return memoryNavMenu;
+      }
+    } catch {}
+  }
+  return null;
+}
 
 export type AuthUser = {
   token: string;
@@ -8,49 +47,6 @@ export type AuthUser = {
   role: string;
   permissions?: string[];
 };
-
-export interface SystemModule {
-  id: string;
-  label: string;
-  description: string;
-  category: 'Surveillance & Monitoring' | 'Master Data & Configuration' | 'System Management';
-  path: string;
-}
-
-export const SYSTEM_MODULES: SystemModule[] = [
-  // Surveillance & Monitoring
-  { id: 'dashboard', label: 'Dashboard & Map', description: 'Surveillance dashboard, distribution map, and events', category: 'Surveillance & Monitoring', path: '/' },
-  { id: 'lite_dashboard', label: 'Lite Dashboard', description: 'Public Guest situational awareness and regional outbreak summary', category: 'Surveillance & Monitoring', path: '/lite-dashboard' },
-  { id: 'asean_countries', label: 'ASEAN Countries', description: 'Surveillance and cross-border threat monitoring across the 11 ASEAN member states', category: 'Surveillance & Monitoring', path: '/asean-countries' },
-  { id: 'asean_3', label: 'ASEAN +3', description: 'Expanded regional surveillance covering 11 ASEAN states plus China, Japan, and South Korea', category: 'Surveillance & Monitoring', path: '/asean-3' },
-  { id: 'outside_asean', label: 'Outside ASEAN', description: 'Global disease surveillance, international outbreaks, and non-ASEAN threat horizons', category: 'Surveillance & Monitoring', path: '/outside-asean' },
-  { id: 'analysis_dashboard', label: 'Analysis Dashboard', description: 'Consolidated URL and document NLP extraction intelligence, accuracy metrics, and text-mining triage', category: 'Surveillance & Monitoring', path: '/analysis-dashboard' },
-  { id: 'web_services_dashboard', label: 'Web Services Dashboard', description: 'Internal microservices mesh health, external environmental geoproxies, and interoperability API catalog', category: 'Surveillance & Monitoring', path: '/web-services-dashboard' },
-  { id: 'crawling_dashboard', label: 'Crawling Dashboard', description: 'Web ingestion, scraper operations, and collection pipeline intelligence', category: 'Surveillance & Monitoring', path: '/crawling-dashboard' },
-  { id: 'disease_dashboard', label: 'Disease Dashboard', description: 'WHO ICD-11 pathogen concepts, morbidity trends, and disease surveillance', category: 'Surveillance & Monitoring', path: '/disease-dashboard' },
-  { id: 'executive_dashboard', label: 'Executive Dashboard', description: 'Macro situational awareness, strategic threat triage, and policy briefing', category: 'Surveillance & Monitoring', path: '/executive-dashboard' },
-  { id: 'events', label: 'Disease Events', description: 'Disease event logs, cases, and data verification', category: 'Surveillance & Monitoring', path: '/events' },
-  { id: 'sources', label: 'Data Sources', description: 'Manage news feeds and API collection sources', category: 'Surveillance & Monitoring', path: '/sources' },
-  { id: 'analyze', label: 'URL Analysis', description: 'Analyze a single web article or PDF independently', category: 'Surveillance & Monitoring', path: '/analyze' },
-  { id: 'manual_crawler', label: 'Manual Crawler', description: 'Run an on-demand disease and location surveillance crawl', category: 'Surveillance & Monitoring', path: '/manual-crawler' },
-  { id: 'crawl_history', label: 'Crawl History', description: 'Browse stored health-surveillance crawl results (non-health noise hidden by default)', category: 'Surveillance & Monitoring', path: '/crawl-history' },
-  { id: 'processing', label: 'Processing & Queue', description: 'Monitor worker queues and collection status', category: 'Surveillance & Monitoring', path: '/processing' },
-  { id: 'reports', label: 'Reports & Matrix', description: 'Epidemiological reports and summary matrices', category: 'Surveillance & Monitoring', path: '/reports' },
-  { id: 'tv', label: 'TV Command Center', description: 'Wide-screen command center dashboard view', category: 'Surveillance & Monitoring', path: '/tv' },
-
-  // Master Data & Configuration
-  { id: 'locations', label: 'Locations', description: 'Administrative location master data and coordinates', category: 'Master Data & Configuration', path: '/locations' },
-  { id: 'disease_master', label: 'Disease Master', description: 'WHO ICD-11 disease concepts used by the NLP pipeline', category: 'Master Data & Configuration', path: '/disease-master' },
-  { id: 'credibility', label: 'Source Credibility', description: 'Source media credibility scores and reputation', category: 'Master Data & Configuration', path: '/source-credibility' },
-  { id: 'outbreak_rules', label: 'Outbreak Rules', description: 'Outbreak thresholds and alert rule configuration', category: 'Master Data & Configuration', path: '/outbreak-rules' },
-  { id: 'nlp_config', label: 'NLP Labels & Keywords', description: 'NER labels, keyword dictionaries, and language models', category: 'Master Data & Configuration', path: '/nlp-labels' },
-  { id: 'interoperability', label: 'Interoperability', description: 'Manage external APIs, feeds, and service integration status', category: 'Master Data & Configuration', path: '/interoperability' },
-
-  // System Management
-  { id: 'console_users', label: 'User Management', description: 'Create accounts and manage module permissions', category: 'System Management', path: '/console/users' },
-  { id: 'console_settings', label: 'Settings & Audit', description: 'Application branding and activity audit history', category: 'System Management', path: '/console/settings' },
-  { id: 'configuration_modul', label: 'Configuration Modul', description: 'Configure navigation groups, modules, and sub-modules for sidebar', category: 'System Management', path: '/console/configuration-modul' },
-];
 
 export const ROLE_PRESET_MODULES: Record<string, string[]> = {
   admin: ['*'],
@@ -63,45 +59,96 @@ export const ROLE_PRESET_MODULES: Record<string, string[]> = {
   viewer: ['dashboard', 'executive_dashboard', 'reports'],
 };
 
-export function hasModuleAccess(user: AuthUser | null, moduleKeyOrPath: string): boolean {
+export function hasModuleAccess(
+  user: AuthUser | null,
+  moduleKeyOrPath: string,
+  navigationMenu?: SidebarGroupConfig[]
+): boolean {
   if (!user) return false;
   const role = user.role?.toLowerCase();
   if (role === 'admin' || role === 'superadmin' || role === 'webmaster' || user.permissions?.includes('*')) return true;
 
+  // Direct permission match
   if (user.permissions?.includes(moduleKeyOrPath)) return true;
 
-  // Path mapping check
-  const target = SYSTEM_MODULES.find(m => m.path === moduleKeyOrPath || m.id === moduleKeyOrPath);
+  // Clean path (remove query params)
+  const cleanPath = moduleKeyOrPath.split('?')[0];
+
+  // 1. Dynamic active modules check from active navigation configuration
+  const activeMenu = navigationMenu || getNavigationCache();
+  const activeModules: ActiveModule[] = getActiveModules(activeMenu || undefined);
+
+  for (const mod of activeModules) {
+    const isTargetMod =
+      mod.id === moduleKeyOrPath ||
+      mod.path === cleanPath ||
+      (mod.aliases && mod.aliases.includes(moduleKeyOrPath)) ||
+      (mod.aliases && mod.aliases.includes(cleanPath)) ||
+      (mod.path && mod.path !== '/' && cleanPath.startsWith(mod.path));
+
+    if (isTargetMod) {
+      if (isModulePermitted(mod, user.permissions)) {
+        return true;
+      }
+    }
+
+    // Check sub-modules
+    if (mod.subItems && mod.subItems.length > 0) {
+      for (const sub of mod.subItems) {
+        const isTargetSub =
+          sub.id === moduleKeyOrPath ||
+          sub.path === cleanPath ||
+          (sub.aliases && sub.aliases.includes(moduleKeyOrPath)) ||
+          (sub.aliases && sub.aliases.includes(cleanPath)) ||
+          (sub.path && sub.path !== '/' && cleanPath.startsWith(sub.path));
+
+        if (isTargetSub) {
+          // If parent module or sub-module itself is permitted, allow access
+          if (
+            isModulePermitted(mod, user.permissions) ||
+            user.permissions?.includes(sub.id) ||
+            user.permissions?.includes(sub.path) ||
+            sub.aliases.some((a) => user.permissions?.includes(a))
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Fallback to static SYSTEM_MODULES path mapping
+  const target = SYSTEM_MODULES.find(m => m.path === cleanPath || m.id === moduleKeyOrPath);
   if (target && user.permissions?.includes(target.id)) return true;
 
-  // Group paths check
-  if (moduleKeyOrPath.startsWith('/lite-dashboard')) return true;
-  if (moduleKeyOrPath.startsWith('/asean-countries')) return true;
-  if (moduleKeyOrPath.startsWith('/asean-3')) return true;
-  if (moduleKeyOrPath.startsWith('/outside-asean')) return true;
-  if (moduleKeyOrPath.startsWith('/analysis-dashboard')) return true;
-  if (moduleKeyOrPath.startsWith('/web-services-dashboard')) return true;
-  if (moduleKeyOrPath.startsWith('/crawling-dashboard')) return true;
-  if (moduleKeyOrPath.startsWith('/disease-dashboard')) return true;
-  if (moduleKeyOrPath === '/' && user.permissions?.includes('dashboard')) return true;
-  if (moduleKeyOrPath.startsWith('/executive-dashboard') && (user.permissions?.includes('executive_dashboard') || user.permissions?.includes('dashboard') || user.permissions?.includes('reports') || user.permissions?.includes('tv'))) return true;
-  if (moduleKeyOrPath.startsWith('/events') && user.permissions?.includes('events')) return true;
-  if (moduleKeyOrPath.startsWith('/sources') && user.permissions?.includes('sources')) return true;
-  if (moduleKeyOrPath.startsWith('/analyze') && user.permissions?.includes('analyze')) return true;
-  if (moduleKeyOrPath.startsWith('/manual-crawler') && user.permissions?.includes('manual_crawler')) return true;
-  if (moduleKeyOrPath.startsWith('/crawl-history') && (user.permissions?.includes('crawl_history') || user.permissions?.includes('manual_crawler'))) return true;
-  if (moduleKeyOrPath.startsWith('/processing') && user.permissions?.includes('processing')) return true;
-  if ((moduleKeyOrPath.startsWith('/reports') || moduleKeyOrPath.startsWith('/laporan')) && user.permissions?.includes('reports')) return true;
-  if (moduleKeyOrPath.startsWith('/tv') && user.permissions?.includes('tv')) return true;
-  if (moduleKeyOrPath.startsWith('/locations') && user.permissions?.includes('locations')) return true;
-  if (moduleKeyOrPath.startsWith('/disease-master') && (user.permissions?.includes('disease_master') || user.permissions?.includes('locations') || user.permissions?.includes('nlp_config'))) return true;
-  if (moduleKeyOrPath.startsWith('/source-credibility') && user.permissions?.includes('credibility')) return true;
-  if (moduleKeyOrPath.startsWith('/outbreak-rules') && user.permissions?.includes('outbreak_rules')) return true;
-  if ((moduleKeyOrPath.startsWith('/nlp-labels') || moduleKeyOrPath.startsWith('/nlp-keywords') || moduleKeyOrPath.startsWith('/language-markers') || moduleKeyOrPath.startsWith('/extraction-rules') || moduleKeyOrPath.startsWith('/language-models')) && user.permissions?.includes('nlp_config')) return true;
-  if (moduleKeyOrPath.startsWith('/interoperability') && user.permissions?.includes('interoperability')) return true;
-  if (moduleKeyOrPath.startsWith('/console/users') && user.permissions?.includes('console_users')) return true;
-  if (moduleKeyOrPath.startsWith('/console/settings') && user.permissions?.includes('console_settings')) return true;
-  if (moduleKeyOrPath.startsWith('/console/configuration-modul') && (user.permissions?.includes('configuration_modul') || user.permissions?.includes('console_settings'))) return true;
+  // 3. Fallback to group paths check
+  if (cleanPath.startsWith('/lite-dashboard') && (user.permissions?.includes('lite_dashboard') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/asean-countries') && (user.permissions?.includes('asean_countries') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/asean-3') && (user.permissions?.includes('asean_3') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/outside-asean') && (user.permissions?.includes('outside_asean') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/analysis-dashboard') && (user.permissions?.includes('analysis_dashboard') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/web-services-dashboard') && (user.permissions?.includes('web_services_dashboard') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/crawling-dashboard') && (user.permissions?.includes('crawling_dashboard') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/disease-dashboard') && (user.permissions?.includes('disease_dashboard') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath === '/' && user.permissions?.includes('dashboard')) return true;
+  if (cleanPath.startsWith('/executive-dashboard') && (user.permissions?.includes('executive_dashboard') || user.permissions?.includes('dashboard') || user.permissions?.includes('reports') || user.permissions?.includes('tv'))) return true;
+  if (cleanPath.startsWith('/events') && user.permissions?.includes('events')) return true;
+  if (cleanPath.startsWith('/sources') && user.permissions?.includes('sources')) return true;
+  if (cleanPath.startsWith('/analyze') && user.permissions?.includes('analyze')) return true;
+  if (cleanPath.startsWith('/manual-crawler') && user.permissions?.includes('manual_crawler')) return true;
+  if (cleanPath.startsWith('/crawl-history') && (user.permissions?.includes('crawl_history') || user.permissions?.includes('manual_crawler'))) return true;
+  if (cleanPath.startsWith('/processing') && user.permissions?.includes('processing')) return true;
+  if ((cleanPath.startsWith('/reports') || cleanPath.startsWith('/laporan')) && user.permissions?.includes('reports')) return true;
+  if (cleanPath.startsWith('/tv') && user.permissions?.includes('tv')) return true;
+  if (cleanPath.startsWith('/locations') && user.permissions?.includes('locations')) return true;
+  if (cleanPath.startsWith('/disease-master') && (user.permissions?.includes('disease_master') || user.permissions?.includes('locations') || user.permissions?.includes('nlp_config'))) return true;
+  if (cleanPath.startsWith('/source-credibility') && user.permissions?.includes('credibility')) return true;
+  if (cleanPath.startsWith('/outbreak-rules') && user.permissions?.includes('outbreak_rules')) return true;
+  if ((cleanPath.startsWith('/nlp-labels') || cleanPath.startsWith('/nlp-keywords') || cleanPath.startsWith('/language-markers') || cleanPath.startsWith('/extraction-rules') || cleanPath.startsWith('/language-models')) && user.permissions?.includes('nlp_config')) return true;
+  if (cleanPath.startsWith('/interoperability') && user.permissions?.includes('interoperability')) return true;
+  if (cleanPath.startsWith('/console/users') && user.permissions?.includes('console_users')) return true;
+  if (cleanPath.startsWith('/console/settings') && user.permissions?.includes('console_settings')) return true;
+  if (cleanPath.startsWith('/console/configuration-modul') && (user.permissions?.includes('configuration_modul') || user.permissions?.includes('console_settings'))) return true;
 
   return false;
 }

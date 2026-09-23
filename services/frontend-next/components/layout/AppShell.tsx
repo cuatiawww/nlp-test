@@ -101,7 +101,7 @@ export default function AppShell({
           if (!item.href) return true;
           // Business Process doc is accessible
           if (item.href === '/business-process') return true;
-          return hasModuleAccess(currentUser, item.href);
+          return hasModuleAccess(currentUser, item.href, settings.navigation_menu);
         });
 
         return {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Plus,
   Trash2,
@@ -26,11 +26,18 @@ import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import UserForm, { UserItem } from '@/components/UserForm'
 import RoleForm from '@/components/RoleForm'
-import { SYSTEM_MODULES } from '@/lib/auth'
+import { useSettings } from '@/lib/settings-context'
+import { getActiveModules, resolveModuleLabel } from '@/lib/modules'
 import { toast } from 'sonner'
 
 export default function ConsoleUsersPage() {
   const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users')
+  const { settings } = useSettings()
+
+  const activeModules = useMemo(
+    () => getActiveModules(settings.navigation_menu),
+    [settings.navigation_menu]
+  )
 
   // Users data
   const {
@@ -176,7 +183,7 @@ export default function ConsoleUsersPage() {
       return (
         <div className="flex items-center gap-1.5">
           <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-            <Sparkles className="h-3 w-3 text-emerald-600" /> All Modules ({SYSTEM_MODULES.length})
+            <Sparkles className="h-3 w-3 text-emerald-600" /> All Modules ({activeModules.length})
           </span>
         </div>
       )
@@ -184,7 +191,7 @@ export default function ConsoleUsersPage() {
 
     const permitted = user.permissions || []
     const moduleLabels = permitted
-      .map(id => SYSTEM_MODULES.find(m => m.id === id)?.label || id)
+      .map(id => resolveModuleLabel(id, activeModules))
       .filter(Boolean)
 
     if (permitted.length === 0) {
@@ -409,7 +416,7 @@ export default function ConsoleUsersPage() {
                 const isFullAccess = r.id === 'admin' || r.permissions?.includes('*')
                 const perms = r.permissions || []
                 const moduleLabels = perms
-                  .map(id => SYSTEM_MODULES.find(m => m.id === id)?.label || id)
+                  .map(id => resolveModuleLabel(id, activeModules))
                   .filter(Boolean)
 
                 return (
