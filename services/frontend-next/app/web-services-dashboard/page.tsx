@@ -799,796 +799,765 @@ export default function WebServicesDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 pb-20">
-      {/* ── Top Command & Title Header ── */}
-      <div className="border-b border-[#cfe0f1] bg-white sticky top-0 z-30 shadow-[0_2px_8px_rgba(0,0,0,.03)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  SERVICE MESH 100% OPERATIONAL
-                </span>
-                <span className="text-xs text-slate-400">|</span>
-                <span className="text-xs font-medium text-slate-500 tracking-wide uppercase">
-                  Reverse Proxy & Geocoding Bus
-                </span>
-              </div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight mt-1 flex items-center gap-2">
-                <Cpu className="w-6 h-6 text-[#0060a9]" />
-                Web Services & Interoperability Dashboard
-              </h1>
-              <p className="text-sm text-slate-500 mt-0.5">
-                Real-Time Microservices Health, Upstream Environmental Geoproxies, and REST API Catalog
-              </p>
-            </div>
-
-            {/* Quick Action Controls */}
-            <div className="flex items-center flex-wrap gap-2.5">
-              <button
-                type="button"
-                onClick={() => {
-                  toast.promise(fetchPipelineHealth(), {
-                    loading: 'Pinging microservices mesh...',
-                    success: 'Core mesh verified operational (200 OK)',
-                    error: 'Error reaching backend gateway',
-                  })
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#cfe0f1] bg-white hover:bg-slate-50 text-slate-700 transition-colors shadow-sm"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-[#0060a9]" />
-                Ping Mesh
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCopyCatalog}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#cfe0f1] bg-white hover:bg-slate-50 text-slate-700 transition-colors shadow-sm"
-              >
-                <Copy className="w-3.5 h-3.5 text-slate-500" />
-                Copy Registry
-              </button>
-
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#cfe0f1] bg-white hover:bg-slate-50 text-slate-700 transition-colors shadow-sm"
-              >
-                <Printer className="w-3.5 h-3.5 text-slate-500" />
-                Print Spec
-              </button>
-
-              <Link
-                href="/interoperability"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#0060a9] hover:bg-[#004f8c] text-white transition-colors shadow-sm"
-              >
-                <Terminal className="w-3.5 h-3.5" />
-                Manage APIs
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
-        {/* ── Situational Mesh Connectivity Banner ── */}
-        <div
-          className="border border-[#cfe0f1] bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.12)] relative overflow-hidden"
-          style={{ borderRadius: '17px 17px 22px 17px' }}
-        >
-          <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
-          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="p-1 rounded-md bg-white/10 text-blue-200">
-                  <Network className="w-4 h-4" />
-                </span>
-                <span className="text-xs font-bold tracking-wider uppercase text-blue-200">
-                  ARCHITECTURE & GATEWAY TELEMETRY
-                </span>
-              </div>
-              <h2 className="text-lg font-bold text-white tracking-tight">
-                Secure Zero-Leak Reverse Proxy & Microservices Bus Active
-              </h2>
-              <p className="text-xs text-blue-100/80 max-w-3xl leading-relaxed">
-                Client browsers interface strictly with same-origin endpoints on the Rust Axum Gateway (`:8081`). Third-party APIs (OpenSky, Open-Meteo, NASA, Overpass) are cached with tiered TTLs (45s–600s) and protected by mutex locks to prevent rate exhaustion.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white/5 border border-white/10 p-3 rounded-xl backdrop-blur-md">
-              <div className="text-center px-2">
-                <div className="text-lg font-extrabold text-emerald-400">99.98%</div>
-                <div className="text-[10px] text-blue-200/70 uppercase font-semibold">Mesh SLA Uptime</div>
-              </div>
-              <div className="text-center px-2 border-l border-white/10">
-                <div className="text-lg font-extrabold text-sky-400">38 ms</div>
-                <div className="text-[10px] text-blue-200/70 uppercase font-semibold">Avg Gateway Latency</div>
-              </div>
-              <div className="text-center px-2 border-l border-white/10">
-                <div className="text-lg font-extrabold text-amber-300">91.4%</div>
-                <div className="text-[10px] text-blue-200/70 uppercase font-semibold">Cache Hit Ratio</div>
-              </div>
-              <div className="text-center px-2 border-l border-white/10">
-                <div className="text-lg font-extrabold text-indigo-300">28 / 28</div>
-                <div className="text-[10px] text-blue-200/70 uppercase font-semibold">Healthy Endpoints</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ── 5 Macro Web Services KPIs ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          {/* Card 1: Total Services */}
-          <div
-            className="border border-[#cfe0f1] bg-white p-4 shadow-[0_6px_18px_rgba(0,96,169,.06)] relative overflow-hidden group hover:border-[#0060a9] transition-all"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                Total Web Services
-              </span>
-              <span className="p-2 rounded-xl bg-blue-50 text-[#0060a9]">
-                <Layers className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">28</span>
-              <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                +4 Fallbacks
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Internal microservices, geoproxies, and satellite WMTS
-            </p>
-          </div>
-
-          {/* Card 2: Core Microservices */}
-          <div
-            className="border border-[#cfe0f1] bg-white p-4 shadow-[0_6px_18px_rgba(0,96,169,.06)] relative overflow-hidden group hover:border-[#0060a9] transition-all"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                Internal Core Mesh
-              </span>
-              <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
-                <Server className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">6 / 6</span>
-              <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                100% Online
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Rust :8081, NLP :8000, Collector :8002, RabbitMQ, DB, MinIO
-            </p>
-          </div>
-
-          {/* Card 3: Geo & Climate Proxies */}
-          <div
-            className="border border-[#cfe0f1] bg-white p-4 shadow-[0_6px_18px_rgba(0,96,169,.06)] relative overflow-hidden group hover:border-[#0060a9] transition-all"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                Geo & Climate Proxies
-              </span>
-              <span className="p-2 rounded-xl bg-amber-50 text-amber-600">
-                <CloudSun className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">12</span>
-              <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                Tiered Caching
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Open-Meteo, NASA FIRMS, OpenSky, Overpass, WorldPop
-            </p>
-          </div>
-
-          {/* Card 4: Biomedical & AI Taxonomy */}
-          <div
-            className="border border-[#cfe0f1] bg-white p-4 shadow-[0_6px_18px_rgba(0,96,169,.06)] relative overflow-hidden group hover:border-[#0060a9] transition-all"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                Biomedical & AI Feeds
-              </span>
-              <span className="p-2 rounded-xl bg-purple-50 text-purple-600">
-                <Activity className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">5</span>
-              <span className="text-xs font-semibold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">
-                ICD-11 Linked
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              WHO ICD-11, GDELT 2.0, NLLB-200, WHO RSS, Google News
-            </p>
-          </div>
-
-          {/* Card 5: Gateway Cache Performance */}
-          <div
-            className="border border-[#cfe0f1] bg-white p-4 shadow-[0_6px_18px_rgba(0,96,169,.06)] relative overflow-hidden group hover:border-[#0060a9] transition-all"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                Gateway Latency
-              </span>
-              <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
-                <Zap className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">38 ms</span>
-              <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                &lt; 50ms Target
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              In-memory LRU + Mutex lock eliminates 429 rate limit errors
-            </p>
-          </div>
-        </div>
-
-        {/* ── Architecture Topology & Service Flow ── */}
-        <div
-          className="border border-[#cfe0f1] bg-white p-6 shadow-[0_6px_18px_rgba(0,96,169,.06)]"
-          style={{ borderRadius: '17px 17px 22px 17px' }}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4 mb-5">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Network className="w-4 h-4 text-[#0060a9]" />
-                Microservices Mesh & Upstream Data Flow Topology
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Multi-stage asynchronous pipeline separating real-time dashboard queries from background crawlers
-              </p>
-            </div>
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700">
-              <Lock className="w-3 h-3 text-emerald-600" /> Isolated Upstream Network
+    <div className="w-full space-y-6 bg-[#f8fafc] px-4 py-6 sm:px-6 lg:px-8">
+      {/* ─────────────────────────────────────────────────────────────
+          1. HEADER & COMMAND CONTROLS
+          ───────────────────────────────────────────────────────────── */}
+      <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              SERVICE MESH 100% OPERATIONAL
+            </span>
+            <span className="text-xs text-slate-400">•</span>
+            <span className="text-xs font-semibold text-slate-500">
+              Reverse Proxy & Geocoding Bus
             </span>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 relative">
-            {/* Step 1 */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-4 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-1">
-                  <span>STAGE 01</span>
-                  <Globe2 className="w-3.5 h-3.5 text-blue-600" />
-                </div>
-                <div className="font-bold text-sm text-slate-900">Upstream Providers</div>
-                <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
-                  <div>• NASA FIRMS / POWER / GIBS</div>
-                  <div>• Open-Meteo & ECMWF CAMS</div>
-                  <div>• OpenSky & iNaturalist</div>
-                  <div>• USGS & GDACS Hazards</div>
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200 text-[10px] text-blue-700 font-semibold">
-                External REST & RSS
-              </div>
-            </div>
-
-            {/* Step 2 */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-4 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-1">
-                  <span>STAGE 02</span>
-                  <Server className="w-3.5 h-3.5 text-indigo-600" />
-                </div>
-                <div className="font-bold text-sm text-slate-900">Collector (:8002)</div>
-                <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
-                  <div>• APScheduler scheduled runs</div>
-                  <div>• Stealth browser fetcher</div>
-                  <div>• Surveillance PDF parser</div>
-                  <div>• Polite rate throttler</div>
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200 text-[10px] text-indigo-700 font-semibold">
-                Raw HTML & Metadata
-              </div>
-            </div>
-
-            {/* Step 3 */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-4 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-1">
-                  <span>STAGE 03</span>
-                  <HardDrive className="w-3.5 h-3.5 text-amber-600" />
-                </div>
-                <div className="font-bold text-sm text-slate-900">Broker & Storage</div>
-                <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
-                  <div>• RabbitMQ (:5672) queues</div>
-                  <div>• MinIO (:9000) documents</div>
-                  <div>• Deduplication hashing</div>
-                  <div>• Decoupled job workers</div>
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200 text-[10px] text-amber-700 font-semibold">
-                AMQP Message Bus
-              </div>
-            </div>
-
-            {/* Step 4 */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-4 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-1">
-                  <span>STAGE 04</span>
-                  <Activity className="w-3.5 h-3.5 text-purple-600" />
-                </div>
-                <div className="font-bold text-sm text-slate-900">NLP Engine (:8000)</div>
-                <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
-                  <div>• Biomedical NER classification</div>
-                  <div>• WHO ICD-11 ontology match</div>
-                  <div>• NLLB-200 local translation</div>
-                  <div>• Case & death count mining</div>
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200 text-[10px] text-purple-700 font-semibold">
-                Structured Health Incident
-              </div>
-            </div>
-
-            {/* Step 5 */}
-            <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-4 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-1">
-                  <span>STAGE 05</span>
-                  <Cpu className="w-3.5 h-3.5 text-emerald-600" />
-                </div>
-                <div className="font-bold text-sm text-slate-900">Rust Gateway (:8081)</div>
-                <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
-                  <div>• In-memory LRU layer cache</div>
-                  <div>• PostgreSQL (:5432) persistence</div>
-                  <div>• Security & RBAC authentication</div>
-                  <div>• Next.js Client delivery (:3010)</div>
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200 text-[10px] text-emerald-700 font-semibold">
-                Aggregated Dashboard API
-              </div>
-            </div>
-          </div>
+          <h1 className="mt-1 text-2xl font-black uppercase tracking-wide text-slate-900">
+            Web Services & Interoperability Dashboard
+          </h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Real-Time Microservices Health, Upstream Environmental Geoproxies, and REST API Catalog
+          </p>
         </div>
 
-        {/* ── Interactive Live API Endpoint Probe Console ── */}
-        <div
-          className="border border-[#cfe0f1] bg-white p-6 shadow-[0_6px_18px_rgba(0,96,169,.06)]"
-          style={{ borderRadius: '17px 17px 22px 17px' }}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4 mb-5">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-[#0060a9]" />
-                Interactive Live API Endpoint Probe & Testing Console
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Send live HTTP requests through the gateway to measure latency, cache headers, and payload schemas
-              </p>
-            </div>
+        {/* Quick Action Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 print:hidden">
+          <button
+            type="button"
+            onClick={() => {
+              toast.promise(fetchPipelineHealth(), {
+                loading: 'Pinging microservices mesh...',
+                success: 'Core mesh verified operational (200 OK)',
+                error: 'Error reaching backend gateway',
+              })
+            }}
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[#0060A9] transition hover:bg-blue-100 disabled:opacity-50 shadow-xs"
+          >
+            <RefreshCw className="h-4 w-4 text-[#0060A9]" />
+            <span>Ping Mesh</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopyCatalog}
+            className="inline-flex items-center gap-2 rounded-xl border border-[#cfe0f1] bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+          >
+            <Copy className="h-4 w-4 text-slate-500" />
+            <span>Copy Registry</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="inline-flex items-center gap-2 rounded-xl border border-[#cfe0f1] bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+          >
+            <Printer className="h-4 w-4 text-slate-500" />
+            <span>Print Spec</span>
+          </button>
+
+          <Link
+            href="/interoperability"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-xs transition hover:bg-[#004b85] active:scale-[0.98]"
+          >
+            <Terminal className="h-4 w-4" />
+            <span>Manage APIs</span>
+          </Link>
+        </div>
+      </section>
+
+      {/* ─────────────────────────────────────────────────────────────
+          2. ARCHITECTURE & GATEWAY TELEMETRY BANNER
+          ───────────────────────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-5 sm:p-6 shadow-xs border-l-4 border-l-[#0060A9]">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500">Method:</span>
-              <span className="px-2 py-0.5 text-xs font-mono font-bold bg-blue-100 text-blue-800 rounded">
-                GET
+              <span className="rounded-md bg-blue-50 p-1 text-[#0060A9] border border-blue-100">
+                <Network className="h-4 w-4" />
+              </span>
+              <span className="text-[11px] font-extrabold tracking-wider uppercase text-[#0060A9]">
+                Architecture & Gateway Telemetry
               </span>
             </div>
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              Secure Zero-Leak Reverse Proxy & Microservices Bus Active
+            </h2>
+            <p className="text-xs text-slate-600 max-w-3xl leading-relaxed">
+              Client browsers interface strictly with same-origin endpoints on the Rust Axum Gateway (`:8081`). Third-party APIs (OpenSky, Open-Meteo, NASA, Overpass) are cached with tiered TTLs (45s–600s) and protected by mutex locks to prevent rate exhaustion.
+            </p>
           </div>
 
-          <div className="space-y-4">
-            {/* Input & Target Selector */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <div className="relative flex-1">
-                <select
-                  value={probeEndpoint}
-                  onChange={(e) => setProbeEndpoint(e.target.value)}
-                  className="w-full pl-3 pr-8 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0060a9]"
-                >
-                  <optgroup label="System & Health Telemetry">
-                    <option value="/api/v1/pipeline-health">GET /api/v1/pipeline-health (Core Containers)</option>
-                    <option value="/api/v1/crawling-stats">GET /api/v1/crawling-stats (Collection Yield)</option>
-                    <option value="/api/v1/crawl-ops">GET /api/v1/crawl-ops (Crawler Runtime Metrics)</option>
-                    <option value="/api/v1/sources/summary">GET /api/v1/sources/summary (Active Sources)</option>
-                  </optgroup>
-                  <optgroup label="Geospatial & Environmental Proxies">
-                    <option value="/api/v1/region-context?country=Indonesia">GET /api/v1/region-context?country=Indonesia (Weather & AQI)</option>
-                    <option value="/api/v1/map-layers/vectors">GET /api/v1/map-layers/vectors (iNaturalist Aedes)</option>
-                    <option value="/api/v1/map-layers/fires">GET /api/v1/map-layers/fires (NASA FIRMS Active Fires)</option>
-                    <option value="/api/v1/map-layers/flights">GET /api/v1/map-layers/flights (OpenSky Live Aircraft)</option>
-                    <option value="/api/v1/map-layers/facilities?country=Indonesia">GET /api/v1/map-layers/facilities?country=Indonesia (Clinics)</option>
-                    <option value="/api/v1/map-layers/news?disease=dengue">GET /api/v1/map-layers/news?disease=dengue (GDELT / WHO News)</option>
-                    <option value="/api/v1/map-layers/hazards">GET /api/v1/map-layers/hazards (USGS & GDACS Alerts)</option>
-                  </optgroup>
-                  <optgroup label="Epidemiological Aggregations">
-                    <option value="/api/v1/public-dashboard?country=ASEAN&year=2024">GET /api/v1/public-dashboard?country=ASEAN (Macro KPIs)</option>
-                    <option value="/api/v1/spatial-heatmap?country=ASEAN&year=2024">GET /api/v1/spatial-heatmap?country=ASEAN (Spatial Heatmap)</option>
-                    <option value="/api/v1/disease-trend-overview?country=ASEAN&days=30">GET /api/v1/disease-trend-overview (30-Day Trends)</option>
-                    <option value="/api/v1/morbidity-mortality?country=ASEAN">GET /api/v1/morbidity-mortality (CFR Statistics)</option>
-                    <option value="/api/v1/interoperability-integrations">GET /api/v1/interoperability-integrations (Registered Catalog)</option>
-                  </optgroup>
-                </select>
-              </div>
-
-              <button
-                type="button"
-                disabled={probeLoading}
-                onClick={() => handleRunProbe()}
-                className="inline-flex items-center justify-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-[#0060a9] hover:bg-[#004f8c] disabled:opacity-50 rounded-lg shadow-sm transition-all"
-              >
-                {probeLoading ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    Probing...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    Send Probe Request
-                  </>
-                )}
-              </button>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/80 border border-slate-200/80 p-3.5 rounded-xl">
+            <div className="text-center px-2">
+              <div className="text-xl font-black text-emerald-600">99.98%</div>
+              <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Mesh SLA Uptime</div>
             </div>
+            <div className="text-center px-2 border-l border-slate-200">
+              <div className="text-xl font-black text-[#0060A9]">38 ms</div>
+              <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Avg Gateway Latency</div>
+            </div>
+            <div className="text-center px-2 border-l border-slate-200">
+              <div className="text-xl font-black text-amber-600">91.4%</div>
+              <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Cache Hit Ratio</div>
+            </div>
+            <div className="text-center px-2 border-l border-slate-200">
+              <div className="text-xl font-black text-indigo-600">28 / 28</div>
+              <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Healthy Endpoints</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-            {/* Probe Response Screen */}
-            {probeResult ? (
-              <div className="bg-slate-950 text-slate-200 rounded-xl p-4 font-mono text-xs border border-slate-800 shadow-inner">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3 mb-3">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                        probeResult.status === 200
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                          : 'bg-red-500/20 text-red-400 border border-red-500/40'
-                      }`}
-                    >
-                      HTTP {probeResult.status} {probeResult.statusText}
-                    </span>
-                    <span className="text-slate-400 text-[11px] flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-sky-400" />
-                      Latency: <strong className="text-sky-300">{probeResult.latencyMs} ms</strong>
-                    </span>
-                    <span className="text-slate-400 text-[11px]">
-                      Size: <strong className="text-slate-300">{(probeResult.sizeBytes / 1024).toFixed(2)} KB</strong>
-                    </span>
-                  </div>
+      {/* ─────────────────────────────────────────────────────────────
+          3. MACRO WEB SERVICES KPIS
+          ───────────────────────────────────────────────────────────── */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Card 1: Total Services */}
+        <div className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs transition hover:border-[#0060A9]/50 hover:shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              Total Web Services
+            </span>
+            <span className="p-2 rounded-xl bg-blue-50 text-[#0060A9]">
+              <Layers className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">28</span>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-700 border border-emerald-200">
+              +4 Fallbacks
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Internal microservices, geoproxies, and satellite WMTS
+          </p>
+        </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500">Timestamp: {probeResult.timestamp}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(JSON.stringify(probeResult.data, null, 2))
-                        toast.success('JSON payload copied!')
-                      }}
-                      className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-                      title="Copy JSON Payload"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
+        {/* Card 2: Core Microservices */}
+        <div className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs transition hover:border-[#0060A9]/50 hover:shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              Internal Core Mesh
+            </span>
+            <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+              <Server className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">6 / 6</span>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-700 border border-emerald-200">
+              100% Online
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Rust :8081, NLP :8000, Collector :8002, RabbitMQ, DB, MinIO
+          </p>
+        </div>
 
-                <div className="max-h-60 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-800">
-                  <pre className="text-slate-300 leading-relaxed text-[11px] whitespace-pre-wrap">
-                    {JSON.stringify(probeResult.data, null, 2)}
-                  </pre>
-                </div>
+        {/* Card 3: Geo & Climate Proxies */}
+        <div className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs transition hover:border-[#0060A9]/50 hover:shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              Geo & Climate Proxies
+            </span>
+            <span className="p-2 rounded-xl bg-amber-50 text-amber-600">
+              <CloudSun className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">12</span>
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-amber-700 border border-amber-200">
+              Tiered Caching
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Open-Meteo, NASA FIRMS, OpenSky, Overpass, WorldPop
+          </p>
+        </div>
+
+        {/* Card 4: Biomedical & AI Taxonomy */}
+        <div className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs transition hover:border-[#0060A9]/50 hover:shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              Biomedical & AI Feeds
+            </span>
+            <span className="p-2 rounded-xl bg-purple-50 text-purple-600">
+              <Activity className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">5</span>
+            <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-purple-700 border border-purple-200">
+              ICD-11 Linked
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            WHO ICD-11, GDELT 2.0, NLLB-200, WHO RSS, Google News
+          </p>
+        </div>
+
+        {/* Card 5: Gateway Latency */}
+        <div className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs transition hover:border-[#0060A9]/50 hover:shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              Gateway Latency
+            </span>
+            <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+              <Zap className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">38 ms</span>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-700 border border-emerald-200">
+              &lt; 50ms Target
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            In-memory LRU + Mutex lock eliminates 429 rate limit errors
+          </p>
+        </div>
+      </section>
+
+      {/* ─────────────────────────────────────────────────────────────
+          4. ARCHITECTURE TOPOLOGY & SERVICE FLOW
+          ───────────────────────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-5 sm:p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4 mb-5">
+          <div>
+            <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
+              <Network className="h-4 w-4 text-[#0060A9]" />
+              Microservices Mesh & Upstream Data Flow Topology
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Multi-stage asynchronous pipeline separating real-time dashboard queries from background crawlers
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+            <Lock className="h-3 w-3 text-emerald-600" /> Isolated Upstream Network
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3.5">
+          {/* Step 1 */}
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 flex flex-col justify-between transition hover:bg-white hover:border-blue-300">
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-slate-500 mb-1">
+                <span className="text-[10px] tracking-wider uppercase">STAGE 01</span>
+                <Globe2 className="h-4 w-4 text-blue-600" />
               </div>
-            ) : (
-              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-6 text-center text-slate-400 text-xs">
-                Select an endpoint above and click <strong>&quot;Send Probe Request&quot;</strong> to inspect real-time response latency, headers, and JSON structure.
+              <div className="font-bold text-sm text-slate-900">Upstream Providers</div>
+              <div className="text-[11px] text-slate-600 mt-2 space-y-1">
+                <div>• NASA FIRMS / POWER / GIBS</div>
+                <div>• Open-Meteo & ECMWF CAMS</div>
+                <div>• OpenSky & iNaturalist</div>
+                <div>• USGS & GDACS Hazards</div>
               </div>
-            )}
+            </div>
+            <div className="mt-3 pt-2.5 border-t border-slate-200 text-[11px] text-[#0060A9] font-bold">
+              External REST & RSS
+            </div>
+          </div>
+
+          {/* Step 2 */}
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 flex flex-col justify-between transition hover:bg-white hover:border-blue-300">
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-slate-500 mb-1">
+                <span className="text-[10px] tracking-wider uppercase">STAGE 02</span>
+                <Server className="h-4 w-4 text-indigo-600" />
+              </div>
+              <div className="font-bold text-sm text-slate-900">Collector (:8002)</div>
+              <div className="text-[11px] text-slate-600 mt-2 space-y-1">
+                <div>• APScheduler scheduled runs</div>
+                <div>• Stealth browser fetcher</div>
+                <div>• Surveillance PDF parser</div>
+                <div>• Polite rate throttler</div>
+              </div>
+            </div>
+            <div className="mt-3 pt-2.5 border-t border-slate-200 text-[11px] text-indigo-700 font-bold">
+              Raw HTML & Metadata
+            </div>
+          </div>
+
+          {/* Step 3 */}
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 flex flex-col justify-between transition hover:bg-white hover:border-blue-300">
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-slate-500 mb-1">
+                <span className="text-[10px] tracking-wider uppercase">STAGE 03</span>
+                <HardDrive className="h-4 w-4 text-amber-600" />
+              </div>
+              <div className="font-bold text-sm text-slate-900">Broker & Storage</div>
+              <div className="text-[11px] text-slate-600 mt-2 space-y-1">
+                <div>• RabbitMQ (:5672) queues</div>
+                <div>• MinIO (:9000) documents</div>
+                <div>• Deduplication hashing</div>
+                <div>• Decoupled job workers</div>
+              </div>
+            </div>
+            <div className="mt-3 pt-2.5 border-t border-slate-200 text-[11px] text-amber-700 font-bold">
+              AMQP Message Bus
+            </div>
+          </div>
+
+          {/* Step 4 */}
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 flex flex-col justify-between transition hover:bg-white hover:border-blue-300">
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-slate-500 mb-1">
+                <span className="text-[10px] tracking-wider uppercase">STAGE 04</span>
+                <Activity className="h-4 w-4 text-purple-600" />
+              </div>
+              <div className="font-bold text-sm text-slate-900">NLP Engine (:8000)</div>
+              <div className="text-[11px] text-slate-600 mt-2 space-y-1">
+                <div>• Biomedical NER classification</div>
+                <div>• WHO ICD-11 ontology match</div>
+                <div>• NLLB-200 local translation</div>
+                <div>• Case & death count mining</div>
+              </div>
+            </div>
+            <div className="mt-3 pt-2.5 border-t border-slate-200 text-[11px] text-purple-700 font-bold">
+              Structured Health Incident
+            </div>
+          </div>
+
+          {/* Step 5 */}
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 flex flex-col justify-between transition hover:bg-white hover:border-blue-300">
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-slate-500 mb-1">
+                <span className="text-[10px] tracking-wider uppercase">STAGE 05</span>
+                <Cpu className="h-4 w-4 text-emerald-600" />
+              </div>
+              <div className="font-bold text-sm text-slate-900">Rust Gateway (:8081)</div>
+              <div className="text-[11px] text-slate-600 mt-2 space-y-1">
+                <div>• In-memory LRU layer cache</div>
+                <div>• PostgreSQL (:5432) persistence</div>
+                <div>• Security & RBAC authentication</div>
+                <div>• Next.js Client delivery (:3010)</div>
+              </div>
+            </div>
+            <div className="mt-3 pt-2.5 border-t border-slate-200 text-[11px] text-emerald-700 font-bold">
+              Aggregated Dashboard API
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────────────────────────────────────────────────────────
+          5. INTERACTIVE LIVE API ENDPOINT PROBE CONSOLE
+          ───────────────────────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-5 sm:p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4 mb-5">
+          <div>
+            <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
+              <Terminal className="h-4 w-4 text-[#0060A9]" />
+              Interactive Live API Endpoint Probe & Testing Console
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Send live HTTP requests through the gateway to measure latency, cache headers, and payload schemas
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-500">Method:</span>
+            <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-blue-50 text-[#0060A9] border border-blue-200 rounded-full">
+              GET
+            </span>
           </div>
         </div>
 
-        {/* ── Web Services & Interoperability Directory Table ── */}
-        <div
-          className="border border-[#cfe0f1] bg-white p-6 shadow-[0_6px_18px_rgba(0,96,169,.06)] space-y-5"
-          style={{ borderRadius: '17px 17px 22px 17px' }}
-        >
-          {/* Header & Filter Bar */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Database className="w-4 h-4 text-[#0060a9]" />
-                Web Services & API Interoperability Catalog
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Showing {filteredServices.length} of {WEB_SERVICES_CATALOG.length} configured system integrations
-              </p>
-            </div>
-
-            {/* Controls */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* Search */}
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search name, provider, endpoint..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0060a9] w-48 sm:w-64"
-                />
-              </div>
-
-              {/* Status Filter */}
+        <div className="space-y-4">
+          {/* Input & Target Selector */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="relative flex-1">
               <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="py-1.5 pl-2.5 pr-7 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0060a9]"
+                value={probeEndpoint}
+                onChange={(e) => setProbeEndpoint(e.target.value)}
+                className="w-full pl-3.5 pr-8 py-2.5 text-xs font-mono bg-slate-50/80 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-[#0060A9] focus:bg-white focus:ring-2 focus:ring-blue-100 transition"
               >
-                <option value="all">All Statuses</option>
-                <option value="ACTIVE">Active (Operational)</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="FALLBACK">Fallback Active</option>
+                <optgroup label="System & Health Telemetry">
+                  <option value="/api/v1/pipeline-health">GET /api/v1/pipeline-health (Core Containers)</option>
+                  <option value="/api/v1/crawling-stats">GET /api/v1/crawling-stats (Collection Yield)</option>
+                  <option value="/api/v1/crawl-ops">GET /api/v1/crawl-ops (Crawler Runtime Metrics)</option>
+                  <option value="/api/v1/sources/summary">GET /api/v1/sources/summary (Active Sources)</option>
+                </optgroup>
+                <optgroup label="Geospatial & Environmental Proxies">
+                  <option value="/api/v1/region-context?country=Indonesia">GET /api/v1/region-context?country=Indonesia (Weather & AQI)</option>
+                  <option value="/api/v1/map-layers/vectors">GET /api/v1/map-layers/vectors (iNaturalist Aedes)</option>
+                  <option value="/api/v1/map-layers/fires">GET /api/v1/map-layers/fires (NASA FIRMS Active Fires)</option>
+                  <option value="/api/v1/map-layers/flights">GET /api/v1/map-layers/flights (OpenSky Live Aircraft)</option>
+                  <option value="/api/v1/map-layers/facilities?country=Indonesia">GET /api/v1/map-layers/facilities?country=Indonesia (Clinics)</option>
+                  <option value="/api/v1/map-layers/news?disease=dengue">GET /api/v1/map-layers/news?disease=dengue (GDELT / WHO News)</option>
+                  <option value="/api/v1/map-layers/hazards">GET /api/v1/map-layers/hazards (USGS & GDACS Alerts)</option>
+                </optgroup>
+                <optgroup label="Epidemiological Aggregations">
+                  <option value="/api/v1/public-dashboard?country=ASEAN&year=2024">GET /api/v1/public-dashboard?country=ASEAN (Macro KPIs)</option>
+                  <option value="/api/v1/spatial-heatmap?country=ASEAN&year=2024">GET /api/v1/spatial-heatmap?country=ASEAN (Spatial Heatmap)</option>
+                  <option value="/api/v1/disease-trend-overview?country=ASEAN&days=30">GET /api/v1/disease-trend-overview (30-Day Trends)</option>
+                  <option value="/api/v1/morbidity-mortality?country=ASEAN">GET /api/v1/morbidity-mortality (CFR Statistics)</option>
+                  <option value="/api/v1/interoperability-integrations">GET /api/v1/interoperability-integrations (Registered Catalog)</option>
+                </optgroup>
               </select>
             </div>
+
+            <button
+              type="button"
+              disabled={probeLoading}
+              onClick={() => handleRunProbe()}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white bg-[#0060A9] hover:bg-[#004b85] disabled:opacity-50 rounded-xl shadow-sm transition active:scale-[0.98]"
+            >
+              {probeLoading ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span>Probing...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 fill-current" />
+                  <span>Send Probe Request</span>
+                </>
+              )}
+            </button>
           </div>
 
-          {/* Category Filter Pills */}
-          <div className="flex flex-wrap items-center gap-1.5 pb-1">
-            {[
-              { id: 'all', label: 'All Services' },
-              { id: 'internal', label: 'Core Microservices' },
-              { id: 'environmental', label: 'Environmental & Climate' },
-              { id: 'geospatial', label: 'Geospatial & Vectors' },
-              { id: 'hazard', label: 'Disaster & Hazards' },
-              { id: 'biomedical', label: 'Biomedical & AI' },
-              { id: 'satellite', label: 'Satellite WMTS' },
-            ].map((cat) => (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => setCategoryFilter(cat.id)}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
-                  categoryFilter === cat.id
-                    ? 'bg-[#0060a9] text-white shadow-sm'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {cat.label} ({categoryCounts[cat.id] || 0})
-              </button>
-            ))}
+          {/* Probe Response Screen */}
+          {probeResult ? (
+            <div className="bg-slate-950 text-slate-200 rounded-2xl p-4 font-mono text-xs border border-slate-800 shadow-inner">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3 mb-3">
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                      probeResult.status === 200
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                        : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                    }`}
+                  >
+                    HTTP {probeResult.status} {probeResult.statusText}
+                  </span>
+                  <span className="text-slate-400 text-[11px] flex items-center gap-1">
+                    <Clock className="h-3 w-3 text-sky-400" />
+                    Latency: <strong className="text-sky-300">{probeResult.latencyMs} ms</strong>
+                  </span>
+                  <span className="text-slate-400 text-[11px]">
+                    Size: <strong className="text-slate-300">{(probeResult.sizeBytes / 1024).toFixed(2)} KB</strong>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500">Timestamp: {probeResult.timestamp}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(JSON.stringify(probeResult.data, null, 2))
+                      toast.success('JSON payload copied!')
+                    }}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                    title="Copy JSON Payload"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-60 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-800">
+                <pre className="text-slate-300 leading-relaxed text-[11px] whitespace-pre-wrap">
+                  {JSON.stringify(probeResult.data, null, 2)}
+                </pre>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-slate-50/80 border border-dashed border-slate-200 rounded-2xl p-6 text-center text-slate-500 text-xs">
+              Select an endpoint above and click <strong className="text-slate-700">&quot;Send Probe Request&quot;</strong> to inspect real-time response latency, headers, and JSON structure.
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ─────────────────────────────────────────────────────────────
+          6. WEB SERVICES & INTEROPERABILITY DIRECTORY TABLE
+          ───────────────────────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-5 sm:p-6 shadow-xs space-y-5">
+        {/* Header & Filter Bar */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
+              <Database className="h-4 w-4 text-[#0060A9]" />
+              Web Services & API Interoperability Catalog
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Showing {filteredServices.length} of {WEB_SERVICES_CATALOG.length} configured system integrations
+            </p>
           </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto border border-slate-200 rounded-xl">
-            <table className="w-full text-left text-xs text-slate-700">
-              <thead className="bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+          {/* Controls */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Search */}
+            <div className="relative">
+              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search name, provider, endpoint..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-3 py-2 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#0060A9] focus:bg-white focus:ring-2 focus:ring-blue-100 transition w-56 sm:w-72"
+              />
+            </div>
+
+            {/* Status Filter */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="py-2 pl-3 pr-8 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-[#0060A9] focus:bg-white focus:ring-2 focus:ring-blue-100 transition font-semibold"
+            >
+              <option value="all">All Statuses</option>
+              <option value="ACTIVE">Active (Operational)</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="FALLBACK">Fallback Active</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Category Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2 pb-1">
+          {[
+            { id: 'all', label: 'All Services' },
+            { id: 'internal', label: 'Core Microservices' },
+            { id: 'environmental', label: 'Environmental & Climate' },
+            { id: 'geospatial', label: 'Geospatial & Vectors' },
+            { id: 'hazard', label: 'Disaster & Hazards' },
+            { id: 'biomedical', label: 'Biomedical & AI' },
+            { id: 'satellite', label: 'Satellite WMTS' },
+          ].map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setCategoryFilter(cat.id)}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition ${
+                categoryFilter === cat.id
+                  ? 'bg-[#0060A9] text-white shadow-xs'
+                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              {cat.label} ({categoryCounts[cat.id] || 0})
+            </button>
+          ))}
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto rounded-2xl border border-[#cfe0f1]">
+          <table className="w-full text-left text-xs text-slate-700">
+            <thead className="bg-slate-50 text-slate-700 font-extrabold uppercase tracking-wider text-[10px] border-b border-slate-200">
+              <tr>
+                <th className="py-3.5 px-4">Service & Architecture</th>
+                <th className="py-3.5 px-4">Provider & Source URL</th>
+                <th className="py-3.5 px-4">Proxy Route / Endpoint</th>
+                <th className="py-3.5 px-4">Caching & Rate Strategy</th>
+                <th className="py-3.5 px-4">Integrated Dashboards</th>
+                <th className="py-3.5 px-4 text-center">Status</th>
+                <th className="py-3.5 px-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredServices.length === 0 ? (
                 <tr>
-                  <th className="py-3 px-3.5">Service & Architecture</th>
-                  <th className="py-3 px-3.5">Provider & Source URL</th>
-                  <th className="py-3 px-3.5">Proxy Route / Endpoint</th>
-                  <th className="py-3 px-3.5">Caching & Rate Strategy</th>
-                  <th className="py-3 px-3.5">Integrated Dashboards</th>
-                  <th className="py-3 px-3.5 text-center">Status</th>
-                  <th className="py-3 px-3.5 text-right">Action</th>
+                  <td colSpan={7} className="py-10 text-center text-slate-400">
+                    No web services match your search or filter criteria.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredServices.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-400">
-                      No web services match your search or filter criteria.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredServices.map((service) => (
-                    <tr key={service.id} className="hover:bg-slate-50/80 transition-colors">
-                      {/* Name & Category */}
-                      <td className="py-3 px-3.5 font-medium text-slate-900">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`p-1.5 rounded-lg ${
-                              service.category === 'internal'
-                                ? 'bg-blue-50 text-blue-700'
-                                : service.category === 'environmental'
-                                ? 'bg-amber-50 text-amber-700'
-                                : service.category === 'geospatial'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : service.category === 'hazard'
-                                ? 'bg-rose-50 text-rose-700'
-                                : service.category === 'satellite'
-                                ? 'bg-cyan-50 text-cyan-700'
-                                : 'bg-purple-50 text-purple-700'
-                            }`}
-                          >
-                            {service.category === 'internal' && <Server className="w-3.5 h-3.5" />}
-                            {service.category === 'environmental' && <CloudSun className="w-3.5 h-3.5" />}
-                            {service.category === 'geospatial' && <Globe2 className="w-3.5 h-3.5" />}
-                            {service.category === 'hazard' && <AlertTriangle className="w-3.5 h-3.5" />}
-                            {service.category === 'satellite' && <Layers className="w-3.5 h-3.5" />}
-                            {service.category === 'biomedical' && <Activity className="w-3.5 h-3.5" />}
-                          </span>
-                          <div>
-                            <div className="font-bold text-slate-900">{service.name}</div>
-                            <span className="text-[10px] text-slate-400 capitalize">
-                              {service.category} domain • ~{service.latencyEstimate}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Provider */}
-                      <td className="py-3 px-3.5">
-                        <div className="font-medium text-slate-800">{service.provider}</div>
-                        <a
-                          href={service.sourceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] text-[#0060a9] hover:underline flex items-center gap-0.5 truncate max-w-[180px]"
-                        >
-                          {service.sourceUrl}
-                          <ExternalLink className="w-2.5 h-2.5 inline" />
-                        </a>
-                      </td>
-
-                      {/* Endpoint */}
-                      <td className="py-3 px-3.5 font-mono text-[11px] text-slate-700">
-                        <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-800">
-                          {service.endpoint}
-                        </span>
-                      </td>
-
-                      {/* Cache & Rate */}
-                      <td className="py-3 px-3.5">
-                        <div className="text-slate-800 font-medium">{service.cacheTtl}</div>
-                        <div className="text-[10px] text-slate-400">{service.rateLimit}</div>
-                      </td>
-
-                      {/* Integrated Modules */}
-                      <td className="py-3 px-3.5">
-                        <div className="flex flex-wrap gap-1 max-w-[220px]">
-                          {service.integratedIn.map((mod, idx) => (
-                            <span
-                              key={idx}
-                              className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200"
-                            >
-                              {mod}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-3 px-3.5 text-center">
+              ) : (
+                filteredServices.map((service) => (
+                  <tr key={service.id} className="hover:bg-blue-50/30 transition-colors">
+                    {/* Name & Category */}
+                    <td className="py-3.5 px-4 font-medium text-slate-900">
+                      <div className="flex items-center gap-2.5">
                         <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            service.status === 'ACTIVE'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : service.status === 'IN_PROGRESS'
-                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                              : 'bg-slate-100 text-slate-600 border border-slate-200'
+                          className={`p-2 rounded-xl ${
+                            service.category === 'internal'
+                              ? 'bg-blue-50 text-[#0060A9]'
+                              : service.category === 'environmental'
+                              ? 'bg-amber-50 text-amber-700'
+                              : service.category === 'geospatial'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : service.category === 'hazard'
+                              ? 'bg-rose-50 text-rose-700'
+                              : service.category === 'satellite'
+                              ? 'bg-cyan-50 text-cyan-700'
+                              : 'bg-purple-50 text-purple-700'
                           }`}
                         >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              service.status === 'ACTIVE'
-                                ? 'bg-emerald-500'
-                                : service.status === 'IN_PROGRESS'
-                                ? 'bg-amber-500'
-                                : 'bg-slate-400'
-                            }`}
-                          />
-                          {service.status === 'ACTIVE' ? 'OPERATIONAL' : service.status}
+                          {service.category === 'internal' && <Server className="h-4 w-4" />}
+                          {service.category === 'environmental' && <CloudSun className="h-4 w-4" />}
+                          {service.category === 'geospatial' && <Globe2 className="h-4 w-4" />}
+                          {service.category === 'hazard' && <AlertTriangle className="h-4 w-4" />}
+                          {service.category === 'satellite' && <Layers className="h-4 w-4" />}
+                          {service.category === 'biomedical' && <Activity className="h-4 w-4" />}
                         </span>
-                      </td>
+                        <div>
+                          <div className="font-bold text-slate-900">{service.name}</div>
+                          <span className="text-[10px] text-slate-400 capitalize">
+                            {service.category} domain • ~{service.latencyEstimate}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
 
-                      {/* Action */}
-                      <td className="py-3 px-3.5 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {service.endpoint.startsWith('/api/') && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setProbeEndpoint(service.endpoint.split(',')[0].trim())
-                                handleRunProbe(service.endpoint.split(',')[0].trim())
-                              }}
-                              className="px-2 py-1 text-[11px] font-semibold rounded bg-blue-50 text-[#0060a9] hover:bg-blue-100 transition-colors"
-                              title="Test endpoint in probe console"
-                            >
-                              Probe
-                            </button>
-                          )}
+                    {/* Provider */}
+                    <td className="py-3.5 px-4">
+                      <div className="font-bold text-slate-800">{service.provider}</div>
+                      <a
+                        href={service.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-[#0060A9] hover:underline inline-flex items-center gap-1 truncate max-w-[200px]"
+                      >
+                        {service.sourceUrl}
+                        <ExternalLink className="h-3 w-3 inline shrink-0" />
+                      </a>
+                    </td>
+
+                    {/* Endpoint */}
+                    <td className="py-3.5 px-4 font-mono text-[11px] text-slate-700">
+                      <span className="bg-slate-100 px-2 py-1 rounded-lg text-slate-800 border border-slate-200/60 font-semibold">
+                        {service.endpoint}
+                      </span>
+                    </td>
+
+                    {/* Cache & Rate */}
+                    <td className="py-3.5 px-4">
+                      <div className="text-slate-900 font-bold text-xs">{service.cacheTtl}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">{service.rateLimit}</div>
+                    </td>
+
+                    {/* Integrated Modules */}
+                    <td className="py-3.5 px-4">
+                      <div className="flex flex-wrap gap-1 max-w-[220px]">
+                        {service.integratedIn.map((mod, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200"
+                          >
+                            {mod}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+
+                    {/* Status */}
+                    <td className="py-3.5 px-4 text-center">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${
+                          service.status === 'ACTIVE'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : service.status === 'IN_PROGRESS'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            service.status === 'ACTIVE'
+                              ? 'bg-emerald-500'
+                              : service.status === 'IN_PROGRESS'
+                              ? 'bg-amber-500'
+                              : 'bg-slate-400'
+                          }`}
+                        />
+                        {service.status === 'ACTIVE' ? 'OPERATIONAL' : service.status}
+                      </span>
+                    </td>
+
+                    {/* Action */}
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {service.endpoint.startsWith('/api/') && (
                           <button
                             type="button"
-                            onClick={() => setSelectedService(service)}
-                            className="px-2.5 py-1 text-[11px] font-semibold rounded border border-[#cfe0f1] bg-white hover:bg-slate-50 text-slate-700 transition-colors shadow-sm"
+                            onClick={() => {
+                              setProbeEndpoint(service.endpoint.split(',')[0].trim())
+                              handleRunProbe(service.endpoint.split(',')[0].trim())
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 text-[#0060A9] hover:bg-blue-100 border border-blue-200 transition"
+                            title="Test endpoint in probe console"
                           >
-                            Inspect
+                            Probe
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedService(service)}
+                          className="px-3 py-1 text-[11px] font-bold rounded-lg border border-[#cfe0f1] bg-white hover:bg-slate-50 text-slate-700 transition shadow-xs"
+                        >
+                          Inspect
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ─────────────────────────────────────────────────────────────
+          7. ARCHITECTURE & ENGINEERING GOVERNANCE CARDS
+          ───────────────────────────────────────────────────────────── */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="rounded-2xl border border-[#cfe0f1] bg-white p-5 shadow-xs space-y-2 transition hover:border-[#0060A9]/40">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-blue-50 text-[#0060A9]">
+              <ShieldCheck className="h-5 w-5" />
+            </span>
+            <h4 className="font-bold text-sm text-slate-900">Zero-Direct Browser Leaks</h4>
           </div>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Browser clients communicate exclusively with the internal Rust Axum Gateway. No external API credentials, bearer tokens, or user client IPs are ever forwarded directly to upstream third-party web services.
+          </p>
         </div>
 
-        {/* ── 3 Architecture & Engineering Governance Cards ── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div
-            className="border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)] space-y-2"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
-            <div className="flex items-center gap-2">
-              <span className="p-2 rounded-xl bg-blue-50 text-[#0060a9]">
-                <ShieldCheck className="w-5 h-5" />
-              </span>
-              <h4 className="font-bold text-sm text-slate-900">Zero-Direct Browser Leaks</h4>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Browser clients communicate exclusively with the internal Rust Axum Gateway. No external API credentials, bearer tokens, or user client IPs are ever forwarded directly to upstream third-party web services.
-            </p>
+        <div className="rounded-2xl border border-[#cfe0f1] bg-white p-5 shadow-xs space-y-2 transition hover:border-[#0060A9]/40">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+              <RefreshCw className="h-5 w-5" />
+            </span>
+            <h4 className="font-bold text-sm text-slate-900">Multi-Tiered Fallback Resilience</h4>
           </div>
-
-          <div
-            className="border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)] space-y-2"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
-            <div className="flex items-center gap-2">
-              <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
-                <RefreshCw className="w-5 h-5" />
-              </span>
-              <h4 className="font-bold text-sm text-slate-900">Multi-Tiered Fallback Resilience</h4>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              When external providers experience outages or rate limits (429/504), automated fallback failovers activate: GDELT falls back to WHO News RSS, Healthsites falls back to Overpass, and FIRMS ingests public VIIRS CSV.
-            </p>
-          </div>
-
-          <div
-            className="border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)] space-y-2"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
-            <div className="flex items-center gap-2">
-              <span className="p-2 rounded-xl bg-purple-50 text-purple-600">
-                <Activity className="w-5 h-5" />
-              </span>
-              <h4 className="font-bold text-sm text-slate-900">Decoupled Asynchronous Queues</h4>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              CPU-intensive natural language processing and web scraping operate on background RabbitMQ worker queues. HTTP endpoints remain lightweight, bounded by strict timeout budgets to prevent client connection drops.
-            </p>
-          </div>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            When external providers experience outages or rate limits (429/504), automated fallback failovers activate: GDELT falls back to WHO News RSS, Healthsites falls back to Overpass, and FIRMS ingests public VIIRS CSV.
+          </p>
         </div>
-      </div>
 
-      {/* ── Web Service Detail Modal ── */}
+        <div className="rounded-2xl border border-[#cfe0f1] bg-white p-5 shadow-xs space-y-2 transition hover:border-[#0060A9]/40">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-purple-50 text-purple-600">
+              <Activity className="h-5 w-5" />
+            </span>
+            <h4 className="font-bold text-sm text-slate-900">Decoupled Asynchronous Queues</h4>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            CPU-intensive natural language processing and web scraping operate on background RabbitMQ worker queues. HTTP endpoints remain lightweight, bounded by strict timeout budgets to prevent client connection drops.
+          </p>
+        </div>
+      </section>
+
+      {/* ─────────────────────────────────────────────────────────────
+          8. WEB SERVICE DETAIL MODAL
+          ───────────────────────────────────────────────────────────── */}
       {selectedService && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div
-            className="bg-white border border-[#cfe0f1] w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-6 relative"
-            style={{ borderRadius: '17px 17px 22px 17px' }}
-          >
+          <div className="bg-white border border-[#cfe0f1] w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl p-6 sm:p-7 rounded-2xl relative">
             {/* Modal Header */}
             <div className="flex items-start justify-between border-b border-slate-100 pb-4 mb-4">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#0060a9] bg-blue-50 px-2 py-0.5 rounded">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#0060A9] bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
                   {selectedService.category} Web Service
                 </span>
-                <h3 className="text-xl font-bold text-slate-900 mt-1">{selectedService.name}</h3>
+                <h3 className="text-xl font-black text-slate-900 mt-2">{selectedService.name}</h3>
                 <p className="text-xs text-slate-500 mt-0.5">{selectedService.provider}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedService(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
               >
                 ✕
               </button>
@@ -1597,59 +1566,59 @@ export default function WebServicesDashboardPage() {
             {/* Modal Body */}
             <div className="space-y-4 text-xs">
               <div>
-                <h4 className="font-bold text-slate-800 mb-1">Service Description</h4>
+                <h4 className="font-bold text-slate-900 mb-1">Service Description</h4>
                 <p className="text-slate-600 leading-relaxed">{selectedService.description}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Internal Gateway Endpoint</span>
-                  <span className="font-mono text-slate-900 font-semibold">{selectedService.endpoint}</span>
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Internal Gateway Endpoint</span>
+                  <span className="font-mono text-slate-900 font-bold">{selectedService.endpoint}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Upstream Source URL</span>
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Upstream Source URL</span>
                   <a
                     href={selectedService.sourceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[#0060a9] hover:underline flex items-center gap-1 font-mono truncate"
+                    className="text-[#0060A9] hover:underline inline-flex items-center gap-1 font-mono truncate max-w-full font-semibold"
                   >
                     {selectedService.sourceUrl}
-                    <ExternalLink className="w-3 h-3 inline" />
+                    <ExternalLink className="h-3 w-3 inline shrink-0" />
                   </a>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Authentication & Security</span>
-                  <span className="text-slate-800">{selectedService.authModel}</span>
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Authentication & Security</span>
+                  <span className="text-slate-800 font-semibold">{selectedService.authModel}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Caching Protocol & TTL</span>
-                  <span className="text-slate-800">{selectedService.cacheTtl}</span>
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Caching Protocol & TTL</span>
+                  <span className="text-slate-800 font-semibold">{selectedService.cacheTtl}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Rate Limit Policy</span>
-                  <span className="text-slate-800">{selectedService.rateLimit}</span>
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Rate Limit Policy</span>
+                  <span className="text-slate-800 font-semibold">{selectedService.rateLimit}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Estimated Round-trip Latency</span>
-                  <span className="text-slate-800 font-semibold">{selectedService.latencyEstimate}</span>
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Estimated Round-trip Latency</span>
+                  <span className="text-slate-800 font-bold">{selectedService.latencyEstimate}</span>
                 </div>
               </div>
 
               <div>
-                <h4 className="font-bold text-slate-800 mb-1">Resilience & Failover Rules</h4>
-                <p className="text-slate-600 bg-amber-50/60 border border-amber-200/80 p-3 rounded-lg leading-relaxed">
+                <h4 className="font-bold text-slate-900 mb-1">Resilience & Failover Rules</h4>
+                <p className="text-slate-700 bg-amber-50/60 border border-amber-200/80 p-3 rounded-xl leading-relaxed">
                   {selectedService.fallbackMechanism}
                 </p>
               </div>
 
               <div>
-                <h4 className="font-bold text-slate-800 mb-1">Integrated Dashboards & Consumer Modules</h4>
+                <h4 className="font-bold text-slate-900 mb-1.5">Integrated Dashboards & Consumer Modules</h4>
                 <div className="flex flex-wrap gap-1.5">
                   {selectedService.integratedIn.map((mod, i) => (
                     <span
                       key={i}
-                      className="px-2 py-0.5 text-xs font-semibold rounded bg-slate-100 text-slate-700 border border-slate-200"
+                      className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-slate-100 text-slate-700 border border-slate-200"
                     >
                       {mod}
                     </span>
@@ -1659,34 +1628,34 @@ export default function WebServicesDashboardPage() {
 
               {/* Sample Payload */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-bold text-slate-800">Sample Response Payload Schema</h4>
+                <div className="flex items-center justify-between mb-1.5">
+                  <h4 className="font-bold text-slate-900">Sample Response Payload Schema</h4>
                   <button
                     type="button"
                     onClick={() => {
                       navigator.clipboard.writeText(JSON.stringify(selectedService.samplePayload, null, 2))
                       toast.success('Sample payload copied!')
                     }}
-                    className="text-[#0060a9] hover:underline flex items-center gap-1 text-[11px]"
+                    className="text-[#0060A9] hover:underline inline-flex items-center gap-1 text-[11px] font-bold"
                   >
-                    <Copy className="w-3 h-3" /> Copy Schema
+                    <Copy className="h-3.5 w-3.5" /> Copy Schema
                   </button>
                 </div>
-                <pre className="bg-slate-950 text-slate-200 p-3 rounded-xl font-mono text-[11px] overflow-x-auto max-h-48 border border-slate-800">
+                <pre className="bg-slate-950 text-slate-200 p-4 rounded-xl font-mono text-[11px] overflow-x-auto max-h-48 border border-slate-800">
                   {JSON.stringify(selectedService.samplePayload, null, 2)}
                 </pre>
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
+            <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
               <span className="text-[11px] text-slate-400">
                 Verified against Disease Surveillance AI Interoperability Standards (v0.4.2)
               </span>
               <button
                 type="button"
                 onClick={() => setSelectedService(null)}
-                className="px-4 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 transition-colors"
+                className="px-4 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 transition"
               >
                 Close Spec
               </button>
