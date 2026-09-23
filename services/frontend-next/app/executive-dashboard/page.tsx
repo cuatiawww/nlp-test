@@ -61,28 +61,44 @@ const SpatialOutbreakMap = dynamic(
     ),
   }
 )
+import { formatSeverityEn } from '@/lib/surveillance-formatters'
 
 const SEVERITY_CONFIG: Record<
   string,
   { label: string; badgeClass: string; borderClass: string }
 > = {
   AWAS: {
-    label: 'CRITICAL (AWAS)',
+    label: 'CRITICAL',
+    badgeClass: 'bg-[#ED2939] text-white font-bold',
+    borderClass: 'border-[#ED2939]/30 bg-red-50/60',
+  },
+  CRITICAL: {
+    label: 'CRITICAL',
     badgeClass: 'bg-[#ED2939] text-white font-bold',
     borderClass: 'border-[#ED2939]/30 bg-red-50/60',
   },
   SIAGA: {
-    label: 'HIGH ALERT (SIAGA)',
+    label: 'HIGH ALERT',
+    badgeClass: 'bg-[#B49B58] text-white font-bold',
+    borderClass: 'border-[#B49B58]/30 bg-amber-50/60',
+  },
+  HIGH: {
+    label: 'HIGH ALERT',
     badgeClass: 'bg-[#B49B58] text-white font-bold',
     borderClass: 'border-[#B49B58]/30 bg-amber-50/60',
   },
   WASPADA: {
-    label: 'GUARDED (WASPADA)',
+    label: 'WATCH',
+    badgeClass: 'bg-amber-400 text-slate-950 font-bold',
+    borderClass: 'border-yellow-300 bg-yellow-50/60',
+  },
+  WATCH: {
+    label: 'WATCH',
     badgeClass: 'bg-amber-400 text-slate-950 font-bold',
     borderClass: 'border-yellow-300 bg-yellow-50/60',
   },
   NORMAL: {
-    label: 'BASELINE (NORMAL)',
+    label: 'NORMAL',
     badgeClass: 'bg-emerald-600 text-white font-medium',
     borderClass: 'border-emerald-300 bg-emerald-50/60',
   },
@@ -294,7 +310,7 @@ Surveillance Scope: ${selectedCountry === 'ALL' ? 'Regional ASEAN 11' : selected
 MACRO KEY INDICATORS:
 - Total Detected Cases: ${formatNumber(macroStats.cases, numLocale)}
 - Total Reported Deaths: ${formatNumber(macroStats.deaths, numLocale)} (CFR: ${formatPercent(macroStats.cfr)})
-- Active Early Warning Signals: ${macroStats.alertsCount} clusters (${macroStats.awasCount} AWAS, ${macroStats.siagaCount} SIAGA)
+- Active Early Warning Signals: ${macroStats.alertsCount} clusters (${macroStats.awasCount} Critical, ${macroStats.siagaCount} High Alert)
 - Monitored Active Jurisdictions: ${macroStats.locationsCount} active locations
 - Regional Cross-Border Share: ${formatPercent(macroStats.crossBorderRatio)}
 
@@ -602,10 +618,10 @@ Source: Disease Surveillance AI Platform — ASEAN Health Intelligence.`
             </p>
             <div className="mt-1.5 flex items-center gap-1 text-[9px] font-extrabold leading-tight">
               <span className="rounded bg-red-100 px-1.5 py-0.2 text-red-700">
-                {macroStats.awasCount} AWAS
+                {macroStats.awasCount} CRITICAL
               </span>
               <span className="rounded bg-amber-100 px-1.5 py-0.2 text-amber-800">
-                {macroStats.siagaCount} SIAGA
+                {macroStats.siagaCount} HIGH ALERT
               </span>
             </div>
           </div>
@@ -683,10 +699,10 @@ Source: Disease Surveillance AI Platform — ASEAN Health Intelligence.`
               <div className="flex flex-wrap items-center gap-1.5 print:hidden">
                 <span className="text-[11px] font-bold text-slate-500 mr-1">Severity:</span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold bg-[#ED2939] text-white">
-                  AWAS (CRITICAL)
+                  CRITICAL
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold bg-[#B49B58] text-white">
-                  SIAGA (HIGH)
+                  HIGH ALERT
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-[#0060A9]">
                   BASELINE
@@ -797,7 +813,7 @@ Source: Disease Surveillance AI Platform — ASEAN Health Intelligence.`
                               : 'bg-blue-100 text-[#0060A9]'
                           }`}
                         >
-                          {loc.severity}
+                          {formatSeverityEn(loc.severity)}
                         </span>
                       </div>
                     </button>

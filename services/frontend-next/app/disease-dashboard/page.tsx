@@ -64,22 +64,22 @@ const SEVERITY_CONFIG: Record<
   { label: string; badgeClass: string; borderClass: string }
 > = {
   AWAS: {
-    label: 'CRITICAL (AWAS)',
+    label: 'CRITICAL',
     badgeClass: 'bg-[#ED2939] text-white font-bold',
     borderClass: 'border-[#ED2939]/30 bg-red-50/60',
   },
   SIAGA: {
-    label: 'HIGH ALERT (SIAGA)',
+    label: 'HIGH ALERT',
     badgeClass: 'bg-[#B49B58] text-white font-bold',
     borderClass: 'border-[#B49B58]/30 bg-amber-50/60',
   },
   WASPADA: {
-    label: 'GUARDED (WASPADA)',
+    label: 'WATCH',
     badgeClass: 'bg-amber-400 text-slate-950 font-bold',
     borderClass: 'border-yellow-300 bg-yellow-50/60',
   },
   NORMAL: {
-    label: 'BASELINE (NORMAL)',
+    label: 'NORMAL',
     badgeClass: 'bg-emerald-600 text-white font-medium',
     borderClass: 'border-emerald-300 bg-emerald-50/60',
   },
@@ -321,7 +321,7 @@ KEY DISEASE METRICS:
 - Total Deaths: ${formatNumber(macroStats.deaths, numLocale)} (CFR: ${formatPercent(macroStats.cfr)})
 - Active Pathogens Tracked: ${macroStats.activePathogensCount}
 - Leading Pathogen: ${macroStats.leadingPathogen}
-- Active Outbreak Alerts: ${macroStats.alertsCount} (${macroStats.awasCount} AWAS, ${macroStats.siagaCount} SIAGA)
+- Active Outbreak Alerts: ${macroStats.alertsCount} (${macroStats.awasCount} Critical, ${macroStats.siagaCount} High Alert)
 
 TOP MONITORED DISEASES:
 ${topDiseases.slice(0, 5).map((d, i) => `${i + 1}. ${d.name}: ${formatNumber(d.cases, numLocale)} cases, ${formatNumber(d.deaths, numLocale)} deaths (CFR ${formatPercent(d.cfr)})`).join('\n')}
@@ -696,10 +696,10 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
             </p>
             <div className="mt-1.5 flex items-center gap-1 text-[9px] font-extrabold leading-tight">
               <span className="rounded bg-red-100 px-1.5 py-0.2 text-red-700">
-                {macroStats.awasCount} AWAS
+                {macroStats.awasCount} CRITICAL
               </span>
               <span className="rounded bg-amber-100 px-1.5 py-0.2 text-amber-800">
-                {macroStats.siagaCount} SIAGA
+                {macroStats.siagaCount} HIGH ALERT
               </span>
             </div>
           </div>

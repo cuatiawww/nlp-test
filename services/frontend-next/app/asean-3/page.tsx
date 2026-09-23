@@ -58,6 +58,7 @@ import {
   isAseanCountryName,
 } from '@/lib/asean-scope'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
+import { formatSeverityEn } from '@/lib/surveillance-formatters'
 import { toast } from 'sonner'
 import type { OutbreakLocation, PublicDashboard } from '@/types'
 
@@ -363,7 +364,7 @@ MACRO SURVEILLANCE METRICS:
 - Combined Fatalities: ${formatNumber(macroAsean3Stats.totalDeaths, numLocale)} (Macro Regional CFR: ${formatPercent(macroAsean3Stats.cfr)})
 - Regional Volume Distribution: ASEAN ${macroAsean3Stats.aseanRatio.toFixed(1)}% | East Asia (+3) ${macroAsean3Stats.plus3Ratio.toFixed(1)}%
 - East Asia (+3) Partner Burden: ${formatNumber(macroAsean3Stats.plus3SubtotalCases, numLocale)} cases, ${formatNumber(macroAsean3Stats.plus3SubtotalDeaths, numLocale)} deaths
-- Cross-Border Outbreak Alerts: ${macroAsean3Stats.totalAlerts} Signals (${macroAsean3Stats.awasCount} High AWAS, ${macroAsean3Stats.siagaCount} Moderate SIAGA)
+- Cross-Border Outbreak Alerts: ${macroAsean3Stats.totalAlerts} Signals (${macroAsean3Stats.awasCount} Critical, ${macroAsean3Stats.siagaCount} High Alert)
 
 EAST ASIA (+3) PARTNER SPOTLIGHT:
 ${eastAsiaPartners.map((p) => `- ${p.displayName} (${p.code}): ${formatNumber(p.cases, numLocale)} cases, CFR ${formatPercent(p.cfr)} — Dominant: ${p.leadingPathogen}`).join('\n')}
@@ -683,10 +684,10 @@ Source: ASEAN+3 Health Cooperation Surveillance Engine.`
             </p>
             <div className="mt-1.5 flex items-center gap-1 text-[9px] font-extrabold leading-tight">
               <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-700">
-                {macroAsean3Stats.awasCount} AWAS
+                {macroAsean3Stats.awasCount} CRITICAL
               </span>
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">
-                {macroAsean3Stats.siagaCount} SIAGA
+                {macroAsean3Stats.siagaCount} HIGH ALERT
               </span>
             </div>
           </div>
@@ -776,7 +777,7 @@ Source: ASEAN+3 Health Cooperation Surveillance Engine.`
                   <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${
                     partner.alertStatus === 'SIAGA' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                   }`}>
-                    {partner.alertStatus}
+                    {formatSeverityEn(partner.alertStatus)}
                   </span>
                 </div>
 
@@ -923,7 +924,7 @@ Source: ASEAN+3 Health Cooperation Surveillance Engine.`
                         ? 'bg-amber-100 text-amber-800'
                         : 'bg-emerald-100 text-emerald-800'
                     }`}>
-                      {item.alertStatus}
+                      {formatSeverityEn(item.alertStatus)}
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-center">
@@ -1004,7 +1005,7 @@ Source: ASEAN+3 Health Cooperation Surveillance Engine.`
                   </td>
                   <td className="py-2.5 px-3 text-center">
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-100 text-amber-800">
-                      {loc.severity || 'SIAGA'}
+                      {formatSeverityEn(loc.severity || 'SIAGA')}
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-center">

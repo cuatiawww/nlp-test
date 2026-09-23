@@ -45,6 +45,7 @@ import SurveillanceDetailModal from '@/components/SurveillanceDetailModal'
 import { getCurrentEpiWeek } from '@/lib/epi-week'
 import { isAseanCountryName } from '@/lib/asean-scope'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
+import { formatSeverityEn } from '@/lib/surveillance-formatters'
 import { toast } from 'sonner'
 import type { OutbreakLocation, PublicDashboard } from '@/types'
 
@@ -364,7 +365,7 @@ MACRO EPIDEMIOLOGICAL METRICS:
 - Global Reported Deaths: ${formatNumber(macroStats.deaths, numLocale)} (Case Fatality Rate: ${formatPercent(macroStats.cfr)})
 - Active Global Epicenters: ${macroStats.activeEpicenters} Sovereign States
 - Leading Global Pathogen: ${macroStats.leadingDisease}
-- Global Early Warning Alerts: ${macroStats.alertsCount} Signals (${macroStats.awasCount} High AWAS, ${macroStats.siagaCount} Moderate SIAGA)
+- Global Early Warning Alerts: ${macroStats.alertsCount} Signals (${macroStats.awasCount} Critical, ${macroStats.siagaCount} High Alert)
 
 CONTINENTAL BURDEN BREAKDOWN:
 ${continentalBreakdown.map((c, i) => `${i + 1}. ${c.name}: ${formatNumber(c.cases, numLocale)} cases (${c.share}% share) — Dominant: ${c.leadingDisease} [${c.riskLevel}]`).join('\n')}
@@ -677,10 +678,10 @@ Source: Global Epidemic Intelligence Engine — Outside ASEAN Division.`
             </p>
             <div className="mt-1.5 flex items-center gap-1 text-[9px] font-extrabold leading-tight">
               <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-700">
-                {macroStats.awasCount} AWAS
+                {macroStats.awasCount} CRITICAL
               </span>
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">
-                {macroStats.siagaCount} SIAGA
+                {macroStats.siagaCount} HIGH ALERT
               </span>
             </div>
           </div>
@@ -1024,7 +1025,7 @@ Source: Global Epidemic Intelligence Engine — Outside ASEAN Division.`
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {evt.severity || (isAwas ? 'AWAS' : 'SIAGA')}
+                          {formatSeverityEn(evt.severity || (isAwas ? 'AWAS' : 'SIAGA'))}
                         </span>
                       </td>
                       <td className="py-2.5 px-3 text-center">

@@ -60,6 +60,7 @@ import CountryFlag from '@/components/CountryFlag'
 import { getCurrentEpiWeek } from '@/lib/epi-week'
 import { ASEAN11_DISPLAY } from '@/lib/asean-scope'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
+import { formatSourceTypeEn } from '@/lib/surveillance-formatters'
 import { toast } from 'sonner'
 
 function formatNumber(val?: number | null, locale = 'en-US'): string {
@@ -220,7 +221,7 @@ export default function CrawlingDashboardPage() {
   const channelData = useMemo(() => {
     if (stats?.by_source_type && stats.by_source_type.length > 0) {
       return stats.by_source_type.map((st) => ({
-        channel: st.source_type?.toUpperCase() || 'NEWS',
+        channel: formatSourceTypeEn(st.source_type),
         total: st.total || 0,
         processed: st.processed || 0,
         this_month: st.this_month || 0,
@@ -229,7 +230,7 @@ export default function CrawlingDashboardPage() {
     }
 
     return [
-      { channel: 'NEWS MEDIA', total: 64200, processed: 58900, this_month: 8500, rate: 91.7 },
+      { channel: 'ONLINE NEWS', total: 64200, processed: 58900, this_month: 8500, rate: 91.7 },
       { channel: 'OFFICIAL API', total: 18400, processed: 18100, this_month: 2400, rate: 98.4 },
       { channel: 'RSS FEEDS', total: 12100, processed: 10800, this_month: 1650, rate: 89.2 },
     ]
@@ -772,7 +773,7 @@ Source: Disease Surveillance AI Ingestion Pipeline — ASEAN Regional Scraper.`
                       </div>
                     </td>
                     <td className="py-2.5 px-3 text-slate-600 uppercase text-[10px] font-bold">
-                      {src.source_type}
+                      {formatSourceTypeEn(src.source_type)}
                     </td>
                     <td className="py-2.5 px-3 text-center">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-[#0060A9] border border-blue-100">

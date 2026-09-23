@@ -57,6 +57,7 @@ import {
   scopeDashboardLocations,
 } from '@/lib/asean-scope'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
+import { formatSeverityEn } from '@/lib/surveillance-formatters'
 import { toast } from 'sonner'
 import type { OutbreakLocation, PublicDashboard } from '@/types'
 
@@ -388,7 +389,7 @@ MACRO EPIDEMIOLOGICAL TOTALS:
 - Reported Deaths: ${formatNumber(macroStats.deaths, numLocale)} (Case Fatality Rate: ${formatPercent(macroStats.cfr)})
 - Active Outbreak Jurisdictions: ${macroStats.activeCountriesCount} of 11 Member States
 - Leading Burden State: ${macroStats.highestCountry} (${formatNumber(macroStats.highestCountryCases, numLocale)} cases, ${macroStats.highestCountryShare.toFixed(1)}% share)
-- Early Warning Outbreak Alerts: ${macroStats.alertsCount} (${macroStats.awasCount} AWAS, ${macroStats.siagaCount} SIAGA)
+- Early Warning Outbreak Alerts: ${macroStats.alertsCount} (${macroStats.awasCount} Critical, ${macroStats.siagaCount} High Alert)
 
 TOP 5 BURDEN JURISDICTIONS:
 ${topBurden.map((c, i) => `${i + 1}. ${c.displayName}: ${formatNumber(c.cases, numLocale)} cases, ${formatNumber(c.deaths, numLocale)} deaths (CFR ${formatPercent(c.cfr)}) — Dominant: ${c.leadingPathogen}`).join('\n')}
@@ -760,10 +761,10 @@ Source: ASEAN Regional Health Intelligence System.`
             </p>
             <div className="mt-1.5 flex items-center gap-1 text-[9px] font-extrabold leading-tight">
               <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-700">
-                {macroStats.awasCount} AWAS
+                {macroStats.awasCount} CRITICAL
               </span>
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">
-                {macroStats.siagaCount} SIAGA
+                {macroStats.siagaCount} HIGH ALERT
               </span>
             </div>
           </div>
@@ -843,7 +844,7 @@ Source: ASEAN Regional Health Intelligence System.`
                       ? 'bg-amber-100 text-amber-800'
                       : 'bg-emerald-100 text-emerald-800'
                   }`}>
-                    {c.alertStatus}
+                    {formatSeverityEn(c.alertStatus)}
                   </span>
                 </div>
               </div>
@@ -928,7 +929,7 @@ Source: ASEAN Regional Health Intelligence System.`
                           : 'bg-emerald-100 text-emerald-800'
                       }`}
                     >
-                      {c.alertStatus}
+                      {formatSeverityEn(c.alertStatus)}
                     </span>
                   </div>
 
@@ -1086,7 +1087,7 @@ Source: ASEAN Regional Health Intelligence System.`
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {evt.severity || (isAwas ? 'AWAS' : 'SIAGA')}
+                          {formatSeverityEn(evt.severity || (isAwas ? 'AWAS' : 'SIAGA'))}
                         </span>
                       </td>
                       <td className="py-2.5 px-3 text-center">
