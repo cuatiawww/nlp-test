@@ -22,14 +22,29 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  SlidersHorizontal,
+  X,
+  RotateCcw,
+  Sparkles,
+  ShieldCheck,
+  Activity,
+  MapPin,
+  Radio,
+  Layers,
+  FileText,
+  Filter,
+  LayoutGrid,
+  ListFilter,
+  Edit3,
+  Eye,
+  CheckCircle2,
+  Clock,
 } from 'lucide-react'
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
 import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
 import CountryFlag from '@/components/CountryFlag'
-import { LayoutGrid, ListFilter } from 'lucide-react'
-import { Edit3, Eye, CheckCircle2, Clock } from 'lucide-react'
 import {
   downloadCrawlHistoryExport,
   fetchCrawlHistoryJobs,
@@ -51,10 +66,10 @@ const PAGE_SIZE = 25
 const FILTER_DEBOUNCE_MS = 400
 
 const CHANNELS: { id: ChannelFilter; label: string }[] = [
-  { id: 'all', label: 'All stored results' },
-  { id: 'manual', label: 'Manual jobs' },
-  { id: 'continuous', label: 'Continuous crawl' },
-  { id: 'analyze-url', label: 'Analyze URL' },
+  { id: 'all', label: 'All Sources' },
+  { id: 'continuous', label: 'Continuous Feed' },
+  { id: 'analyze-url', label: 'Analyzed URLs' },
+  { id: 'manual', label: 'Manual Crawl' },
 ]
 
 export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
@@ -390,6 +405,17 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
   const [jobPage, setJobPage] = useState(1)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  const activeAdvancedCount = useMemo(() => {
+    let count = 0
+    if (country) count++
+    if (disease) count++
+    if (dateFrom || dateTo) count++
+    if (status !== 'all') count++
+    if (geo !== 'all') count++
+    return count
+  }, [country, disease, dateFrom, dateTo, status, geo])
   const [rows, setRows] = useState<CrawlHistoryRow[]>([])
   const [jobs, setJobs] = useState<CrawlHistoryJob[]>([])
   const [total, setTotal] = useState(0)
@@ -584,12 +610,42 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   }
 
   const cards = [
-    { label: 'Manual jobs', value: summary ? fmtNum(summary.jobs) || '0' : '—' },
-    { label: 'Surveillance rows', value: summary ? fmtNum(summary.quality?.surveillance ?? summary.matrix_rows) || '0' : '—' },
-    { label: 'Continuous', value: summary ? fmtNum(summary.by_channel?.continuous) || '0' : '—' },
-    { label: 'Analyze URL', value: summary ? fmtNum(summary.by_channel?.analyze_url) || '0' : '—' },
-    { label: 'Mapped / with geo', value: summary ? `${fmtNum(summary.mapped) || '0'} / ${fmtNum(summary.with_geo) || '0'}` : '—' },
-    { label: 'Noise excluded', value: summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) || '0' : '—' },
+    {
+      label: 'Surveillance Events',
+      value: summary ? fmtNum(summary.quality?.surveillance ?? summary.matrix_rows) || '0' : '—',
+      icon: Activity,
+      color: 'text-[#0060A9] bg-blue-50 border-blue-200',
+    },
+    {
+      label: 'Continuous Feed',
+      value: summary ? fmtNum(summary.by_channel?.continuous) || '0' : '—',
+      icon: Radio,
+      color: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+    },
+    {
+      label: 'Analyzed URLs',
+      value: summary ? fmtNum(summary.by_channel?.analyze_url) || '0' : '—',
+      icon: ExternalLink,
+      color: 'text-indigo-700 bg-indigo-50 border-indigo-200',
+    },
+    {
+      label: 'Mapped Locations',
+      value: summary ? `${fmtNum(summary.with_geo || summary.mapped) || '0'}` : '—',
+      icon: MapPin,
+      color: 'text-rose-700 bg-rose-50 border-rose-200',
+    },
+    {
+      label: 'Filtered Non-Health',
+      value: summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) || '0' : '—',
+      icon: Filter,
+      color: 'text-slate-600 bg-slate-50 border-slate-200',
+    },
+    {
+      label: 'Batch Tasks',
+      value: summary ? fmtNum(summary.jobs) || '0' : '—',
+      icon: Layers,
+      color: 'text-amber-700 bg-amber-50 border-amber-200',
+    },
   ]
 
   const activeColumns = viewMode === 'surveillance' ? SURVEILLANCE_COLUMNS : ALL_LOG_COLUMNS
@@ -597,69 +653,223 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
 
   return (
     <section className="mt-5 space-y-4">
+      {/* KPI Stat Cards */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{card.label}</div>
-            <div className="mt-1 text-lg font-bold text-slate-900">{card.value}</div>
+        {cards.map((card) => {
+          const Icon = card.icon
+          return (
+            <div
+              key={card.label}
+              className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs transition-all hover:shadow-xs hover:border-slate-300"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  {card.label}
+                </span>
+                <span className={`flex h-6 w-6 items-center justify-center rounded-lg border ${card.color}`}>
+                  <Icon className="h-3 w-3" />
+                </span>
+              </div>
+              <div className="mt-2 text-xl font-extrabold text-slate-900 tracking-tight">
+                {card.value}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Quality Summary Distribution Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1 py-0.5">
+        <span className="font-medium text-slate-600">
+          {summary?.note || t('pages.crawlHistory.qualityHint')}
+        </span>
+        {summary?.quality ? (
+          <div className="flex flex-wrap items-center gap-3 text-[11px]">
+            <span className="inline-flex items-center gap-1.5 font-medium">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Surveillance: <strong className="text-slate-800">{fmtNum(summary.quality.surveillance) || '0'}</strong>
+            </span>
+            <span className="inline-flex items-center gap-1.5 font-medium">
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              Needs Review: <strong className="text-slate-800">{fmtNum(summary.quality.review) || '0'}</strong>
+            </span>
+            <span className="inline-flex items-center gap-1.5 font-medium">
+              <span className="h-2 w-2 rounded-full bg-slate-400" />
+              Non-Health: <strong className="text-slate-800">{fmtNum(summary.quality.noise) || '0'}</strong>
+            </span>
+            {typeof summary.disease_events === 'number' && (
+              <span className="inline-flex items-center gap-1.5 text-slate-400">
+                (Total events: <strong className="text-slate-700">{fmtNum(summary.disease_events) || '0'}</strong>)
+              </span>
+            )}
           </div>
-        ))}
-      </div>
-      <p className="text-[11px] leading-relaxed text-slate-500">
-        {summary?.note || t('pages.crawlHistory.qualityHint')}
-      </p>
-      {summary?.quality ? (
-        <p className="text-[11px] text-slate-500">
-          Surveillance {fmtNum(summary.quality.surveillance) || '0'} · Review {fmtNum(summary.quality.review) || '0'} · Noise {fmtNum(summary.quality.noise) || '0'}
-          {typeof summary.disease_events === 'number' ? ` · Stored events ${fmtNum(summary.disease_events) || '0'}` : ''}
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        {([
-          { id: 'matrix' as Tab, label: t('pages.crawlHistory.matrixTab') },
-          { id: 'jobs' as Tab, label: t('pages.crawlHistory.jobsTab') },
-        ]).map((item) => (
-          <button
-            key={item.id}
-            onClick={() => {
-              setStatus('all')
-              setTab(item.id)
-            }}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide ${
-              tab === item.id ? 'bg-[#0060A9] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-        <button
-          onClick={() => (tab === 'matrix' ? loadRows() : loadJobs())}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
-        </button>
+        ) : null}
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      {/* Main Filter & Navigation Card */}
+      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs space-y-3.5">
+        {/* Top Control Bar: Tab Switcher + View Mode Switcher + Exports + Refresh */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          {/* Main Tabs: Articles & Events vs Crawl Tasks */}
+          <div className="inline-flex rounded-xl bg-slate-100 p-1">
+            {([
+              { id: 'matrix' as Tab, label: t('pages.crawlHistory.matrixTab'), icon: FileText },
+              { id: 'jobs' as Tab, label: t('pages.crawlHistory.jobsTab'), icon: Layers },
+            ]).map((item) => {
+              const Icon = item.icon
+              const isActive = tab === item.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setStatus('all')
+                    setTab(item.id)
+                  }}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-white text-[#0060A9] shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span>{item.label}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Right Toolbar Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            {tab === 'matrix' && (
+              <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('surveillance')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                    viewMode === 'surveillance'
+                      ? 'bg-white text-[#0060A9] shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Clean epidemiological surveillance view"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  <span>Standard View</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('all')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                    viewMode === 'all'
+                      ? 'bg-white text-[#0060A9] shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Full data table with all 31 columns"
+                >
+                  <ListFilter className="h-3.5 w-3.5" />
+                  <span>Detailed Table</span>
+                </button>
+              </div>
+            )}
+
+            {tab === 'matrix' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => exportRows('csv')}
+                  disabled={exporting || total === 0}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs disabled:opacity-50 cursor-pointer"
+                  title="Export filtered records to CSV"
+                >
+                  <Download className="h-3.5 w-3.5 text-slate-500" />
+                  <span>CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportRows('xlsx')}
+                  disabled={exporting || total === 0}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs disabled:opacity-50 cursor-pointer"
+                  title="Export filtered records to Excel"
+                >
+                  <Download className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Excel</span>
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={() => (tab === 'matrix' ? loadRows() : loadJobs())}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs cursor-pointer"
+              title="Refresh data"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: Channel Selector & Quick Quality Filter Pills */}
         {tab === 'matrix' && (
-          <div className="mb-3 flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
-            {CHANNELS.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setChannel(item.id)}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
-                  channel === item.id ? 'bg-white text-[#0060A9] shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100/90 p-1">
+              {CHANNELS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setChannel(item.id)
+                    setPage(1)
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                    channel === item.id
+                      ? 'bg-white text-[#0060A9] shadow-xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Quick Quality Filter Pills (Mirrors Events Page mental model) */}
+            <div className="flex items-center gap-1 rounded-xl bg-slate-100/90 p-1 text-xs">
+              <span className="px-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Status:
+              </span>
+              {[
+                { id: 'surveillance' as QualityFilter, label: t('pages.crawlHistory.qualitySurveillance') },
+                { id: 'review' as QualityFilter, label: t('pages.crawlHistory.qualityReview') },
+                { id: 'all' as QualityFilter, label: t('pages.crawlHistory.qualityAll') },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    setQuality(opt.id)
+                    setPage(1)
+                  }}
+                  className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all cursor-pointer ${
+                    quality === opt.id
+                      ? 'bg-white text-[#0060A9] shadow-xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <div className="flex gap-2 xl:col-span-2">
+
+        {/* Row 3: Main Search Input + Advanced Filter Toggle */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Unified Search Input */}
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
+              type="text"
               value={qInput}
               onChange={(e) => setQInput(e.target.value)}
               onKeyDown={(e) => {
@@ -669,126 +879,173 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                 }
               }}
               placeholder={t('pages.crawlHistory.searchPlaceholder')}
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-9 pr-10 text-xs font-medium text-slate-800 placeholder-slate-400 outline-none transition focus:border-[#0060A9] focus:bg-white focus:ring-1 focus:ring-[#0060A9]"
             />
+            {qInput && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQInput('')
+                  setQ('')
+                  setPage(1)
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setQ(qInput.trim())
+              setPage(1)
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#0060A9] px-4 py-2.5 text-xs font-bold text-white shadow-2xs hover:bg-[#004b85] transition cursor-pointer"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span>Search</span>
+          </button>
+
+          {/* Advanced Filter Toggle Button */}
+          {tab === 'matrix' && (
             <button
               type="button"
-              onClick={() => {
-                setQ(qInput.trim())
-                setPage(1)
-              }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0060A9] px-3 py-2 text-xs font-semibold text-white hover:bg-[#004b85]"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs font-bold transition shadow-2xs cursor-pointer ${
+                showAdvanced || activeAdvancedCount > 0
+                  ? 'border-[#0060A9] bg-blue-50/60 text-[#0060A9]'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
             >
-              <Search className="h-3.5 w-3.5" />
-              {t('common.search')}
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              <span>Filters</span>
+              {activeAdvancedCount > 0 && (
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0060A9] text-[10px] font-extrabold text-white">
+                  {activeAdvancedCount}
+                </span>
+              )}
             </button>
-          </div>
-          <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-            <option value="">{t('pages.crawlHistory.allCountries')}</option>
-            <option value="ASEAN">ASEAN</option>
-            {ASEAN11_DISPLAY.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-            <option value="OUTSIDE ASEAN">OUTSIDE ASEAN</option>
-          </select>
-          <input
-            value={diseaseInput}
-            onChange={(e) => setDiseaseInput(e.target.value)}
-            placeholder={t('pages.crawlHistory.diseasePlaceholder')}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          />
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-            <option value="all">{t('pages.crawlHistory.allStatuses')}</option>
-            {tab === 'jobs' ? (
-              <>
-                <option value="queued">Queued</option>
-                <option value="processing">Processing</option>
-                <option value="completed">Completed</option>
-                <option value="partial">Partial</option>
-                <option value="failed">Failed</option>
-              </>
-            ) : (
-              <>
-                <option value="processed">Processed</option>
-                <option value="needs_review">Needs review</option>
-                <option value="failed">Failed</option>
-              </>
-            )}
-          </select>
-          {tab === 'matrix' && (
-            <select value={quality} onChange={(e) => setQuality(e.target.value as QualityFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-              <option value="surveillance">{t('pages.crawlHistory.qualitySurveillance')}</option>
-              <option value="review">{t('pages.crawlHistory.qualityReview')}</option>
-              <option value="noise">{t('pages.crawlHistory.qualityNoise')}</option>
-              <option value="all">{t('pages.crawlHistory.qualityAll')}</option>
-            </select>
-          )}
-          {tab === 'matrix' && (
-            <select value={geo} onChange={(e) => setGeo(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-              <option value="all">{t('pages.crawlHistory.allGeo')}</option>
-              <option value="yes">Has geo</option>
-              <option value="no">No geo</option>
-            </select>
           )}
         </div>
-        {jobId && tab === 'matrix' && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-            <span className="rounded-full bg-blue-50 px-3 py-1 font-medium text-[#0060A9]">
-              Job {jobId}
-            </span>
-            <button onClick={() => setJobId('')} className="text-slate-500 underline hover:text-slate-800">
-              Clear job filter
-            </button>
-          </div>
-        )}
-        {tab === 'matrix' && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
-            {/* View Mode Switcher */}
-            <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 text-xs">
-              <button
-                type="button"
-                onClick={() => setViewMode('surveillance')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all ${
-                  viewMode === 'surveillance'
-                    ? 'bg-white text-[#0060A9] shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                <span>Surveillance View (Clean)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('all')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-lg transition-all ${
-                  viewMode === 'all'
-                    ? 'bg-white text-[#0060A9] shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <ListFilter className="h-3.5 w-3.5" />
-                <span>All Debug Logs (31 Cols)</span>
-              </button>
+
+        {/* Collapsible Advanced Filters Panel */}
+        {tab === 'matrix' && showAdvanced && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 pt-3 text-xs space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                <Filter className="h-3.5 w-3.5 text-[#0060A9]" />
+                Filter Options
+              </span>
+              {activeAdvancedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCountry('')
+                    setDiseaseInput('')
+                    setDisease('')
+                    setDateFrom('')
+                    setDateTo('')
+                    setStatus('all')
+                    setGeo('all')
+                    setPage(1)
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 hover:text-rose-800 cursor-pointer"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>Reset Filters</span>
+                </button>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
-            <button
-              onClick={() => exportRows('csv')}
-              disabled={exporting || total === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              <Download className="h-3.5 w-3.5" /> CSV
-            </button>
-            <button
-              onClick={() => exportRows('xlsx')}
-              disabled={exporting || total === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              <Download className="h-3.5 w-3.5" /> Excel
-            </button>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {/* Country Selection */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-600 mb-1">
+                  Country / Region
+                </label>
+                <select
+                  value={country}
+                  onChange={(e) => {
+                    setCountry(e.target.value)
+                    setPage(1)
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-[#0060A9]"
+                >
+                  <option value="">{t('pages.crawlHistory.allCountries')}</option>
+                  <option value="ASEAN">ASEAN Region (All)</option>
+                  {ASEAN11_DISPLAY.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                  <option value="OUTSIDE ASEAN">OUTSIDE ASEAN</option>
+                </select>
+              </div>
+
+              {/* Disease Name */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-600 mb-1">
+                  Disease Name
+                </label>
+                <input
+                  type="text"
+                  value={diseaseInput}
+                  onChange={(e) => setDiseaseInput(e.target.value)}
+                  placeholder={t('pages.crawlHistory.diseasePlaceholder')}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-[#0060A9]"
+                />
+              </div>
+
+              {/* Date From */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-600 mb-1">
+                  Date From
+                </label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => {
+                    setDateFrom(e.target.value)
+                    setPage(1)
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-[#0060A9]"
+                />
+              </div>
+
+              {/* Date To */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-600 mb-1">
+                  Date To
+                </label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => {
+                    setDateTo(e.target.value)
+                    setPage(1)
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-[#0060A9]"
+                />
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* Active Task Filter Banner */}
+        {jobId && tab === 'matrix' && (
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-slate-600">
+            <span className="rounded-full bg-blue-50 border border-blue-200 px-3 py-1 font-semibold text-[#0060A9]">
+              Task ID: {jobId}
+            </span>
+            <button
+              type="button"
+              onClick={() => setJobId('')}
+              className="text-slate-500 underline hover:text-slate-800 text-[11px]"
+            >
+              Clear Task Filter
+            </button>
           </div>
         )}
       </div>
@@ -881,11 +1138,11 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                               <button
                                 type="button"
                                 onClick={() => void openRow(row)}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 transition shadow-xs cursor-pointer"
-                                title="View article summary & facts"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-[#0060A9] hover:bg-blue-50/60 hover:text-[#0060A9] transition shadow-2xs cursor-pointer"
+                                title="Review article & extracted disease events"
                               >
-                                <Eye className="h-3.5 w-3.5 text-blue-600" />
-                                <span>Summary</span>
+                                <Eye className="h-3.5 w-3.5 text-[#0060A9]" />
+                                <span>Review</span>
                               </button>
                             </td>
                           )
