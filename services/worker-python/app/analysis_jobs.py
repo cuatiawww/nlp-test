@@ -374,7 +374,7 @@ def _clean_iso_date(value):
     return m.group(1) if m else None
 
 def save_completed(conn, job_id, result, raw_report_id=None):
-    """Add a new version without deleting any existing report or event."""
+    """Save analysis result, superseding any previous events for this article to avoid duplicates."""
     if not raw_report_id:
         raw_report_id, _ = retain_raw_or_get_cached(
             conn, result["url"], result, allow_cached=False
@@ -448,6 +448,29 @@ def save_completed(conn, job_id, result, raw_report_id=None):
                    WHERE id=%s RETURNING id""",
                 (*values, resolved["id"]),
             ).fetchone()
+    # Supersede and purge existing events for this article to prevent duplicate accumulation
+    conn.execute(
+        """DELETE FROM disease_events
+           WHERE parent_event_id IN (
+               SELECT id FROM disease_events
+               WHERE raw_report_id = %s
+                  OR (source_url IS NOT NULL AND (source_url = %s OR source_url = %s))
+           )""",
+        (row["id"], result.get("url"), result.get("normalized_url")),
+    )
+    conn.execute(
+        """DELETE FROM disease_events
+           WHERE raw_report_id = %s
+              OR (source_url IS NOT NULL AND (source_url = %s OR source_url = %s))""",
+        (row["id"], result.get("url"), result.get("normalized_url")),
+    )
+    conn.execute(
+        """DELETE FROM crawl_matrix_rows
+           WHERE raw_report_id = %s
+              OR (source_url IS NOT NULL AND (source_url = %s OR source_url = %s))""",
+        (row["id"], result.get("url"), result.get("normalized_url")),
+    )
+
     from psycopg.types.json import Jsonb
     event = conn.execute(
         """INSERT INTO disease_events(raw_report_id,source_type,source_name,published_at,original_text,

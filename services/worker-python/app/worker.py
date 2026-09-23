@@ -676,6 +676,10 @@ def callback(ch, method, properties, body):
                 if existing:
                     raw_id = existing["id"]
                     conn.execute(
+                        "DELETE FROM disease_events WHERE parent_event_id IN (SELECT id FROM disease_events WHERE raw_report_id=%s)",
+                        (raw_id,),
+                    )
+                    conn.execute(
                         "DELETE FROM disease_events WHERE raw_report_id=%s",
                         (raw_id,),
                     )

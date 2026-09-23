@@ -3882,10 +3882,6 @@ async fn analyze_url(
     let raw_id: Uuid = if let Some(row) = existing_raw {
         let raw_id: Uuid = row.get(0);
         client
-            .execute("DELETE FROM disease_events WHERE raw_report_id=$1", &[&raw_id])
-            .await
-            .map_err(internal_error)?;
-        client
             .query_one(
                 "UPDATE raw_reports SET source_type=$1, source_name=$2, original_text=$3,
                     summary=$4, url=$5, processing_status='PROCESSED', normalized_url=$6,
@@ -3946,6 +3942,33 @@ async fn analyze_url(
             .await
             .map_err(internal_error)?;
     }
+
+    // Supersede and purge existing events for this article to avoid duplicate accumulation
+    client
+        .execute(
+            "DELETE FROM disease_events WHERE parent_event_id IN (
+                SELECT id FROM disease_events WHERE raw_report_id = $1
+                    OR (source_url IS NOT NULL AND (source_url = $2 OR source_url = $3))
+            )",
+            &[&raw_id, &Some(url.clone()), &normalized_url],
+        )
+        .await
+        .map_err(internal_error)?;
+    client
+        .execute(
+            "DELETE FROM disease_events WHERE raw_report_id = $1
+                OR (source_url IS NOT NULL AND (source_url = $2 OR source_url = $3))",
+            &[&raw_id, &Some(url.clone()), &normalized_url],
+        )
+        .await
+        .map_err(internal_error)?;
+    let _ = client
+        .execute(
+            "DELETE FROM crawl_matrix_rows WHERE raw_report_id = $1
+                OR (source_url IS NOT NULL AND (source_url = $2 OR source_url = $3))",
+            &[&raw_id, &Some(url.clone()), &normalized_url],
+        )
+        .await;
 
     let event_id: Uuid = client
         .query_one(
