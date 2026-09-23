@@ -134,6 +134,9 @@ export function hasModuleAccess(
   if (cleanPath.startsWith('/web-services-dashboard') && (user.permissions?.includes('web_services_dashboard') || user.permissions?.includes('dashboard'))) return true;
   if (cleanPath.startsWith('/crawling-dashboard') && (user.permissions?.includes('crawling_dashboard') || user.permissions?.includes('dashboard'))) return true;
   if (cleanPath.startsWith('/disease-dashboard') && (user.permissions?.includes('disease_dashboard') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/nlp-ai') && (user.permissions?.includes('nlp_ai') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/spatial-dashboard') && (user.permissions?.includes('spatial_dashboard') || user.permissions?.includes('dashboard'))) return true;
+  if (cleanPath.startsWith('/countries-dashboard') && (user.permissions?.includes('countries_dashboard') || user.permissions?.includes('dashboard'))) return true;
   if (cleanPath === '/') return true;
   if (cleanPath.startsWith('/main-dashboard') && (user.permissions?.includes('main_dashboard') || user.permissions?.includes('dashboard'))) return true;
   if (cleanPath.startsWith('/executive-dashboard') && (user.permissions?.includes('executive_dashboard') || user.permissions?.includes('dashboard') || user.permissions?.includes('reports') || user.permissions?.includes('tv'))) return true;

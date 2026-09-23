@@ -32,7 +32,13 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     setUser(currentAuth)
 
     // Bypass check for public/neutral paths
-    if (pathname === '/business-process' || pathname === '/login') {
+    if (
+      pathname === '/business-process' ||
+      pathname === '/login' ||
+      pathname === '/nlp-ai' ||
+      pathname === '/spatial-dashboard' ||
+      pathname === '/countries-dashboard'
+    ) {
       setHasAccess(true)
       return
     }
