@@ -432,6 +432,3 @@ BEGIN
     ON CONFLICT DO NOTHING;
   END IF;
 END $$;
-
-INSERT INTO schema_migrations(filename) VALUES('116_standardize_master_diseases.sql')
-ON CONFLICT (filename) DO NOTHING;
