@@ -13,3 +13,11 @@ spec:
   accessModes: [ReadWriteOnce]
   storageClassName: local-path
   resources: {requests: {storage: 4Gi}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: pg-migration-data}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: {requests: {storage: 8Gi}}
