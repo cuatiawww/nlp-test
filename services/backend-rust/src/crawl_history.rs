@@ -1101,7 +1101,9 @@ fn event_where_sql(quality: Quality, matrix_ready: bool) -> String {
                OR COALESCE(de.disease_classification, '') ILIKE '%'||$1||'%'
                OR COALESCE(de.source_name, '') ILIKE '%'||$1||'%'
                OR COALESCE(de.location_name, '') ILIKE '%'||$1||'%'
-               OR COALESCE(rr.url, de.source_url, '') ILIKE '%'||$1||'%')
+               OR COALESCE(rr.url, de.source_url, '') ILIKE '%'||$1||'%'
+               OR LEFT(COALESCE(rr.original_text, ''), 1000) ILIKE '%'||$1||'%'
+               OR COALESCE(rr.summary, '') ILIKE '%'||$1||'%')
           AND (
                 $2::text IS NULL
                 OR ($2 = 'continuous' AND LOWER(COALESCE(de.source_name, rr.source_name, '')) <> 'url analyzer'
@@ -1251,6 +1253,10 @@ async fn load_filtered_rows(
     let include_matrix = matrix_ready && matches!(parsed_channel, Channel::All | Channel::Manual);
     let include_events = job_id.is_none()
         && matches!(parsed_channel, Channel::All | Channel::Continuous | Channel::AnalyzeUrl);
+    // An Analyze URL re-run can target an article that already has a
+    // continuous/manual matrix row. Let the explicit Analyze URL view read
+    // the persisted disease event instead of hiding it behind the matrix guard.
+    let event_matrix_ready = matrix_ready && !matches!(parsed_channel, Channel::AnalyzeUrl);
 
     let params = filter_params(
         &q,
@@ -1301,7 +1307,7 @@ async fn load_filtered_rows(
     if include_events {
         let key_rows = client
             .query(
-                &event_key_page_sql(quality, matrix_ready),
+                &event_key_page_sql(quality, event_matrix_ready),
                 &[
                     &q,
                     &channel,
@@ -1329,7 +1335,7 @@ async fn load_filtered_rows(
                 collapse_article_sql(&format!(
                     "{} {} AND {key} = ANY($11::text[])",
                     event_select_sql(evidence_chars),
-                    event_where_sql(quality, matrix_ready),
+                    event_where_sql(quality, event_matrix_ready),
                     key = event_article_key_sql(),
                 ))
             );
@@ -1403,7 +1409,7 @@ async fn load_filtered_rows(
     }
     if include_events {
         total += client
-            .query_one(&event_key_count_sql(quality, matrix_ready), &params)
+            .query_one(&event_key_count_sql(quality, event_matrix_ready), &params)
             .await
             .map_err(internal_error)?
             .get::<_, i64>(0);
@@ -2048,7 +2054,8 @@ mod tests {
         let keys = event_key_page_sql(Quality::Surveillance, false);
         assert!(keys.contains("GROUP BY 1"));
         assert!(keys.contains("LIMIT $11"));
-        assert!(!keys.contains("original_text"));
+        assert!(keys.contains("original_text"));
+        assert!(keys.contains("summary"));
         assert!(!keys.contains("epidemiological_evidence"));
         assert!(keys.contains("loc_hist"));
         let count_sql = event_key_count_sql(Quality::Surveillance, false);

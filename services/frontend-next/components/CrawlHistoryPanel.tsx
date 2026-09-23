@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
+  Search,
 } from 'lucide-react'
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
@@ -657,12 +658,31 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
           </div>
         )}
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <input
-            value={qInput}
-            onChange={(e) => setQInput(e.target.value)}
-            placeholder={t('pages.crawlHistory.searchPlaceholder')}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm xl:col-span-2"
-          />
+          <div className="flex gap-2 xl:col-span-2">
+            <input
+              value={qInput}
+              onChange={(e) => setQInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setQ(e.currentTarget.value.trim())
+                  setPage(1)
+                }
+              }}
+              placeholder={t('pages.crawlHistory.searchPlaceholder')}
+              className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setQ(qInput.trim())
+                setPage(1)
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0060A9] px-3 py-2 text-xs font-semibold text-white hover:bg-[#004b85]"
+            >
+              <Search className="h-3.5 w-3.5" />
+              {t('common.search')}
+            </button>
+          </div>
           <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
             <option value="">{t('pages.crawlHistory.allCountries')}</option>
             <option value="ASEAN">ASEAN</option>
