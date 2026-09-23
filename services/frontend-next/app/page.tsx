@@ -565,28 +565,28 @@ export default function HomePage() {
         </div>
 
         {/* Action Controls & Fast Navigation */}
-        <div className="flex flex-wrap items-center gap-2.5 print:hidden">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-3.5 print:hidden">
           <Link
             href="/main-dashboard"
-            className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-[#004b85] active:scale-[0.98]"
+            className="inline-flex items-center gap-2.5 rounded-2xl bg-[#0060A9] px-5 py-3 sm:px-6 sm:py-3.5 text-sm sm:text-base font-bold text-white shadow-md shadow-[#0060A9]/20 transition hover:bg-[#004b85] hover:shadow-lg active:scale-[0.98]"
           >
-            <LayoutDashboard className="h-4 w-4" />
-            Open Main Dashboard
-            <ArrowRight className="h-3.5 w-3.5" />
+            <LayoutDashboard className="h-5 w-5" />
+            <span>Open Main Dashboard</span>
+            <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
-            href="/analysis-dashboard"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#cfe0f1] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+            href="/analyze"
+            className="inline-flex items-center gap-2.5 rounded-2xl border-2 border-slate-200 bg-white px-5 py-3 sm:px-6 sm:py-3.5 text-sm sm:text-base font-bold text-slate-800 shadow-sm transition hover:border-[#0060A9] hover:bg-blue-50/40 hover:text-[#0060A9] active:scale-[0.98]"
           >
-            <Activity className="h-4 w-4 text-[#0060A9]" />
-            Analysis Dashboard
+            <Search className="h-5 w-5 text-[#0060A9]" />
+            <span>URL Analysis</span>
           </Link>
           <Link
             href="/asean-countries"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#cfe0f1] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+            className="inline-flex items-center gap-2.5 rounded-2xl border-2 border-slate-200 bg-white px-5 py-3 sm:px-6 sm:py-3.5 text-sm sm:text-base font-bold text-slate-800 shadow-sm transition hover:border-[#0060A9] hover:bg-blue-50/40 hover:text-[#0060A9] active:scale-[0.98]"
           >
-            <Globe2 className="h-4 w-4 text-[#0060A9]" />
-            ASEAN Countries
+            <Globe2 className="h-5 w-5 text-[#0060A9]" />
+            <span>ASEAN Countries</span>
           </Link>
         </div>
       </section>
