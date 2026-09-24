@@ -57,6 +57,9 @@ export default function EpiFilterBar({
   const { t, locale } = useTranslation();
   const dateLocale = locale === 'en' ? 'en' : 'id';
 
+  // Local draft state for smooth user selection before clicking 'Terapkan'
+  const [draft, setDraft] = useState<EpiFilterState>(value);
+
   const startWeeksList = useMemo(() => {
     const total = getWeeksInYear(draft.startYear || 2026);
     return Array.from({ length: total }, (_, i) => i + 1);
@@ -66,9 +69,6 @@ export default function EpiFilterBar({
     const total = getWeeksInYear(draft.endYear || 2026);
     return Array.from({ length: total }, (_, i) => i + 1);
   }, [draft.endYear]);
-
-  // Local draft state for smooth user selection before clicking 'Terapkan'
-  const [draft, setDraft] = useState<EpiFilterState>(value);
 
   // Synchronize draft if parent value changes externally
   useEffect(() => {

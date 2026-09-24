@@ -38,9 +38,13 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://disease-backend-rust:8081';
+    const auth = req.headers.get('authorization');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (auth) headers['Authorization'] = auth;
+
     const res = await fetch(`${backendUrl}/api/v1/epiweeks`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
     if (res.ok) {

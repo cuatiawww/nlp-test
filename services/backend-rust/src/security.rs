@@ -154,6 +154,7 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/interoperability-integrations",
         "/api/v1/dashboard/summary",
         "/api/v1/public/report-issues",
+        "/api/v1/epiweeks",
     ];
     PUBLIC_GET
         .iter()

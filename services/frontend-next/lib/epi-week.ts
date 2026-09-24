@@ -201,11 +201,16 @@ export function formatEpiRangeDescription(
 // API CLIENT CALLS (Backend Rust & Public API Integration)
 // -------------------------------------------------------------
 
-import { API_BASE_URL } from "./api";
+function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    return process.env.NEXT_PUBLIC_BASE_PATH || "";
+  }
+  return process.env.BACKEND_INTERNAL_URL || "http://localhost:8081";
+}
 
 export async function fetchEpiWeeks(year?: number): Promise<EpiWeeksApiResponse> {
   const targetYear = year || getCurrentEpiWeek().year;
-  const url = `${API_BASE_URL}/api/v1/epiweeks?year=${targetYear}`;
+  const url = `${getApiBaseUrl()}/api/v1/epiweeks?year=${targetYear}`;
   try {
     const res = await fetch(url);
     if (!res.ok) {
@@ -240,7 +245,7 @@ export async function fetchCurrentEpiWeekApi(): Promise<{
   label: string;
   range_label: string;
 }> {
-  const url = `${API_BASE_URL}/api/v1/epiweeks/current`;
+  const url = `${getApiBaseUrl()}/api/v1/epiweeks/current`;
   try {
     const res = await fetch(url);
     if (res.ok) return await res.json();
@@ -274,7 +279,7 @@ export async function calculateEpiWeekApi(dateStr: string): Promise<{
   total_weeks_in_year: number;
   label: string;
 }> {
-  const url = `${API_BASE_URL}/api/v1/epiweeks/calculate?date=${encodeURIComponent(dateStr)}`;
+  const url = `${getApiBaseUrl()}/api/v1/epiweeks/calculate?date=${encodeURIComponent(dateStr)}`;
   try {
     const res = await fetch(url);
     if (res.ok) return await res.json();
@@ -299,7 +304,7 @@ export async function calculateEpiWeekApi(dateStr: string): Promise<{
 }
 
 export async function saveEpiWeekConfig(data: EpiWeekConfig): Promise<{ success: boolean; data: EpiWeekConfig }> {
-  const url = `${API_BASE_URL}/api/v1/epiweeks`;
+  const url = `${getApiBaseUrl()}/api/v1/epiweeks`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -313,7 +318,7 @@ export async function saveEpiWeekConfig(data: EpiWeekConfig): Promise<{ success:
 }
 
 export async function deleteEpiWeekConfig(id: number): Promise<{ success: boolean; message: string }> {
-  const url = `${API_BASE_URL}/api/v1/epiweeks/config/${id}`;
+  const url = `${getApiBaseUrl()}/api/v1/epiweeks/config/${id}`;
   const res = await fetch(url, { method: 'DELETE' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Gagal menghapus konfigurasi' }));
