@@ -14,7 +14,10 @@ spec:
             pathType: Prefix
             backend:
               service: {name: disease-backend-rust, port: {number: 8081}}
-          - path: /
+          - path: /nlp
             pathType: Prefix
             backend:
-              service: {name: disease-frontend-next, port: {number: 3000}}
+              service:
+                name: disease-frontend-next
+                port:
+                  number: 3000
