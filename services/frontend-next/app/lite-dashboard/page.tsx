@@ -478,13 +478,13 @@ Source: Disease Surveillance AI Platform — ASEAN Public Health Intelligence.`
 
             <p className="text-sm leading-relaxed text-slate-700">
               {data?.ai_summary?.text ||
-                'Aggregating verified epidemiological indicators across official Indicator-Based Surveillance (IBS - SKDR) and open-source Event-Based Surveillance (EBS). Data normalized according to WHO ICD-11 MMS canonical standards.'}
+                'Aggregating verified epidemiological indicators across official Indicator-Based Surveillance (IBS - SKDR) and open-source Event-Based Surveillance (EBS). Data resolved against the local disease master.'}
             </p>
 
             <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                WHO ICD-11 MMS Standardized
+                Local Disease Master
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-[#0060A9]">
                 <ShieldCheck className="h-3.5 w-3.5 text-[#0060A9]" />
@@ -844,7 +844,7 @@ Source: Disease Surveillance AI Platform — ASEAN Public Health Intelligence.`
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Evaluation of detected cases, fatalities, and Case Fatality Rate (CFR %) standardized to
-              WHO ICD-11 concepts
+              Local disease concepts
             </p>
           </div>
 
@@ -1138,7 +1138,7 @@ Source: Disease Surveillance AI Platform — ASEAN Public Health Intelligence.`
           <div className="space-y-1.5 pt-2 text-xs">
             <div className="flex justify-between">
               <span className="text-slate-500">Classification Standard:</span>
-              <strong className="text-slate-800">WHO ICD-11 MMS v2</strong>
+              <strong className="text-slate-800">ASEAN Master Catalog</strong>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">NLP Validation:</span>

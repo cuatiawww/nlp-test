@@ -68,3 +68,6 @@ database/dump*.sql
 
 *.tsbuildinfo
 .state_checkpoints.json
+
+# Agent settings
+.agents/

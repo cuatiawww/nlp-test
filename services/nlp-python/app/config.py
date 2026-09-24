@@ -101,12 +101,9 @@ TRANSLATION_INTERACTIVE_TIMEOUT_SECONDS = max(
 )
 # Interactive URL analysis: hard cap on source text fed to extractors /
 # surveillance. Typical ASEAN news lede+body fits; long crawls must not
-# multiply gazetteer/WHO full-document scans into multi-minute CPU.
+# multiply full-document scans into multi-minute CPU.
 INTERACTIVE_ANALYSIS_MAX_CHARS = max(
     1500, int(os.getenv("INTERACTIVE_ANALYSIS_MAX_CHARS", "6000"))
-)
-INTERACTIVE_WHO_SCAN_MAX_CHARS = max(
-    500, int(os.getenv("INTERACTIVE_WHO_SCAN_MAX_CHARS", "2500"))
 )
 INTERACTIVE_LOCATION_SCAN_MAX_CHARS = max(
     800, int(os.getenv("INTERACTIVE_LOCATION_SCAN_MAX_CHARS", "4000"))
@@ -126,20 +123,9 @@ AGENT_MIN_INTERVAL_SECONDS = max(0.0, float(os.getenv("AGENT_MIN_INTERVAL_SECOND
 AGENT_RESPONSE_CACHE_TTL_SECONDS = max(0, int(os.getenv("AGENT_RESPONSE_CACHE_TTL_SECONDS", "600")))
 AGENT_RESPONSE_CACHE_SIZE = max(16, int(os.getenv("AGENT_RESPONSE_CACHE_SIZE", "256")))
 
-# WHO ICD-11 MMS Configuration
-WHO_ICD_CLIENT_ID = os.getenv("WHO_ICD_CLIENT_ID", "").strip()
-WHO_ICD_CLIENT_SECRET = os.getenv("WHO_ICD_CLIENT_SECRET", "").strip()
-WHO_ICD_TOKEN_URL = os.getenv("WHO_ICD_TOKEN_URL", "https://icdaccessmanagement.who.int/connect/token")
-WHO_ICD_API_URL = os.getenv("WHO_ICD_API_URL", "https://id.who.int").rstrip("/")
-WHO_ICD_RELEASE = os.getenv("WHO_ICD_RELEASE", "11/2026-01/mms").strip("/")
-WHO_ICD_LANGUAGE = os.getenv("WHO_ICD_LANGUAGE", "en")
-WHO_ICD_API_VERSION = os.getenv("WHO_ICD_API_VERSION", "v2")
-WHO_DISCOVERY_ENABLED = os.getenv("WHO_DISCOVERY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
-WHO_DISCOVERY_MIN_CONFIDENCE = float(os.getenv("WHO_DISCOVERY_MIN_CONFIDENCE", "0.70"))
-WHO_TERM_RESOLUTION_ENABLED = os.getenv("WHO_TERM_RESOLUTION_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
-# Public disease labels must be backed by a WHO ICD-11 code. The original
-# surface form remains available in review evidence when this is enabled.
-ICD11_CANONICAL_OUTPUT_ONLY = os.getenv("ICD11_CANONICAL_OUTPUT_ONLY", "true").lower() in {"1", "true", "yes", "on"}
+# Disease resolution is local-master only. The legacy ICD settings are no
+# longer read by the runtime and are intentionally not loaded here.
+DISEASE_MASTER_RESOLUTION_ENABLED = os.getenv("DISEASE_MASTER_RESOLUTION_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
 MODEL_MAP = {
     "xlm-roberta": "xlm-roberta-base",
@@ -348,7 +334,7 @@ DEFAULT_LEXICON_TERMS: dict[str, dict[str, list[str]]] = {
 LANGUAGE_MARKERS: dict[str, list[str]] = {k: list(v) for k, v in DEFAULT_LANGUAGE_MARKERS.items()}
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
-WHO_DISEASE_CONCEPTS: list[dict[str, Any]] = []
+DISEASE_MASTER_CONCEPTS: list[dict[str, Any]] = []
 # Shared DB-backed lexical registry.  The legacy language_markers name is
 # retained for API compatibility, but its marker_type now separates language
 # detection from metric and temporal vocabulary.
@@ -402,14 +388,15 @@ def load_keywords_from_db():
         )
 
 
-def load_who_disease_concepts_from_db():
-    global WHO_DISEASE_CONCEPTS
+def load_disease_master_from_db():
+    global DISEASE_MASTER_CONCEPTS
     try:
         import psycopg
         from psycopg.rows import dict_row
         conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
         rows = conn.execute(
-            """SELECT c.canonical_name, c.english_name, c.ontology_code, c.ontology_uri,
+            """SELECT c.disease_id, c.canonical_name, c.english_name, c.ontology_system,
+                      c.source,
                       COALESCE(
                         json_agg(
                           json_build_object('alias', a.alias, 'language', a.language)
@@ -420,18 +407,18 @@ def load_who_disease_concepts_from_db():
                FROM disease_concepts c
                LEFT JOIN disease_aliases a
                  ON a.concept_id = c.id AND a.is_active = TRUE
-               WHERE c.is_active = TRUE AND c.ontology_system = 'WHO ICD-11 MMS'
-               GROUP BY c.id, c.canonical_name, c.english_name, c.ontology_code, c.ontology_uri
+               WHERE c.is_active = TRUE
+               GROUP BY c.id, c.disease_id, c.canonical_name, c.english_name, c.ontology_system, c.source
                ORDER BY c.canonical_name"""
         ).fetchall()
         conn.close()
-        WHO_DISEASE_CONCEPTS = list(rows)
+        DISEASE_MASTER_CONCEPTS = list(rows)
         # The database concept/alias catalog is authoritative when it knows a
         # surface form. Keep the legacy map as a fallback for concepts that
         # have not been migrated yet, but let DB aliases win on collisions.
         try:
             from . import extractors
-            for concept in WHO_DISEASE_CONCEPTS:
+            for concept in DISEASE_MASTER_CONCEPTS:
                 canonical = str(concept.get("canonical_name") or "").strip()
                 if not canonical:
                     continue
@@ -445,10 +432,10 @@ def load_who_disease_concepts_from_db():
             # catalog itself from loading.
             pass
         import logging
-        logging.getLogger(__name__).info("Loaded %d WHO ICD-11 disease concepts", len(rows))
+        logging.getLogger(__name__).info("Loaded %d local disease-master concepts", len(rows))
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning("Failed to load WHO concepts: %s", e)
+        logging.getLogger(__name__).warning("Failed to load local disease-master concepts: %s", e)
 
 
 def load_outbreak_rules_from_db():
@@ -903,204 +890,3 @@ def load_language_models_from_db():
         logging.getLogger(__name__).warning(
             "Failed to load language models from DB: %s", e
         )
-
-
-def upsert_discovered_disease_concept(
-    canonical_name: str,
-    english_name: str,
-    ontology_code: str,
-    ontology_uri: str,
-    ontology_release: str = WHO_ICD_RELEASE,
-    aliases: list[dict[str, Any]] | None = None,
-) -> bool:
-    """Atomic upsert of a validated WHO ICD-11 disease concept, aliases, keywords, and labels."""
-    if not canonical_name or not ontology_code:
-        return False
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        def _norm(s: str) -> str:
-            return re.sub(r"\s+", " ", re.sub(r"[^\w\s-]", " ", (s or "").lower())).strip()
-
-        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
-            with conn.transaction():
-                # 1. Resolve by active ICD-11 code first. A code is the
-                # stable identity; a WHO search title must never create a
-                # second active concept for the same code.
-                row = conn.execute(
-                    """
-                    SELECT id, canonical_name
-                    FROM disease_concepts
-                    WHERE ontology_code = %s AND is_active = TRUE
-                    ORDER BY created_at ASC
-                    LIMIT 1
-                    """,
-                    (ontology_code,),
-                ).fetchone()
-
-                if row:
-                    concept_id = row["id"]
-                    concept_name = row["canonical_name"]
-                    conn.execute(
-                        """
-                        UPDATE disease_concepts
-                        SET english_name = COALESCE(NULLIF(%s, ''), english_name),
-                            ontology_system = 'WHO ICD-11 MMS',
-                            ontology_uri = COALESCE(NULLIF(%s, ''), ontology_uri),
-                            ontology_release = COALESCE(NULLIF(%s, ''), ontology_release),
-                            canonicalization_status = 'validated',
-                            is_active = TRUE,
-                            updated_at = NOW()
-                        WHERE id = %s
-                        """,
-                        (english_name or concept_name, ontology_uri, ontology_release, concept_id),
-                    )
-                else:
-                    name_conflict = conn.execute(
-                        """
-                        SELECT id, ontology_code, is_active
-                        FROM disease_concepts
-                        WHERE canonical_name = %s
-                        LIMIT 1
-                        """,
-                        (canonical_name,),
-                    ).fetchone()
-                    if name_conflict and name_conflict["ontology_code"] not in (None, ontology_code):
-                        logging.getLogger(__name__).warning(
-                            "ICD-11 canonical name conflict requires review: name=%s existing_code=%s new_code=%s",
-                            canonical_name, name_conflict["ontology_code"], ontology_code,
-                        )
-                        return False
-
-                    row = conn.execute(
-                        """
-                        INSERT INTO disease_concepts
-                          (canonical_name, english_name, ontology_system, ontology_code,
-                           ontology_uri, ontology_release, source, confidence, is_active,
-                           canonicalization_status, updated_at)
-                        VALUES (%s, %s, 'WHO ICD-11 MMS', %s, %s, %s, 'who_icd11_discovery', 1.0, TRUE, 'validated', NOW())
-                        ON CONFLICT (canonical_name) DO UPDATE SET
-                          english_name = EXCLUDED.english_name,
-                          ontology_system = 'WHO ICD-11 MMS',
-                          ontology_code = COALESCE(disease_concepts.ontology_code, EXCLUDED.ontology_code),
-                          ontology_uri = COALESCE(disease_concepts.ontology_uri, EXCLUDED.ontology_uri),
-                          ontology_release = COALESCE(disease_concepts.ontology_release, EXCLUDED.ontology_release),
-                          is_active = TRUE,
-                          updated_at = NOW()
-                        RETURNING id, canonical_name
-                        """,
-                        (canonical_name, english_name or canonical_name, ontology_code, ontology_uri, ontology_release),
-                    ).fetchone()
-                    concept_id = row["id"]
-                    concept_name = row["canonical_name"]
-
-                # 2. Add aliases
-                all_aliases = list(aliases or [])
-                all_aliases.append({"surface_form": concept_name, "language": "en", "confidence": 1.0})
-                if english_name and english_name != canonical_name:
-                    all_aliases.append({"surface_form": english_name, "language": "en", "confidence": 1.0})
-
-                for item in all_aliases:
-                    surface = str(item.get("surface_form") or "").strip()
-                    if not surface:
-                        continue
-                    lang = str(item.get("language") or "unknown")
-                    conf = float(item.get("confidence") or 1.0)
-                    norm_alias = _norm(surface)
-                    conn.execute(
-                        """
-                        INSERT INTO disease_aliases
-                          (concept_id, alias, normalized_alias, language, source, confidence, is_active, updated_at)
-                        VALUES (%s, %s, %s, %s, 'who_icd11_discovery', %s, TRUE, NOW())
-                        ON CONFLICT (concept_id, normalized_alias, language) DO UPDATE SET
-                          confidence = GREATEST(disease_aliases.confidence, EXCLUDED.confidence),
-                          is_active = TRUE,
-                          updated_at = NOW()
-                        """,
-                        (concept_id, surface, norm_alias, lang, conf),
-                    )
-                    # 3. Add to nlp_keywords
-                    conn.execute(
-                        """
-                        INSERT INTO nlp_keywords (category, keyword, target_label, priority, is_active, updated_at)
-                        VALUES ('disease', %s, %s, 350, TRUE, NOW())
-                        ON CONFLICT (category, keyword) DO UPDATE SET
-                          target_label = EXCLUDED.target_label,
-                          is_active = TRUE,
-                          priority = LEAST(nlp_keywords.priority, EXCLUDED.priority),
-                          updated_at = NOW()
-                        """,
-                        (norm_alias, concept_name),
-                    )
-
-                # 4. Add to nlp_labels
-                conn.execute(
-                    """
-                    INSERT INTO nlp_labels (category, label, priority, is_active, updated_at)
-                    VALUES ('disease', %s, 50, TRUE, NOW())
-                    ON CONFLICT (category, label) DO UPDATE SET is_active = TRUE, updated_at = NOW()
-                    """,
-                    (concept_name,),
-                )
-
-                # 5. Add default outbreak rule if missing
-                conn.execute(
-                    """
-                    INSERT INTO disease_outbreak_rules (disease_name, display_label, min_case_count, priority, is_active, updated_at)
-                    VALUES (%s, %s, %s, 50, TRUE, NOW())
-                    ON CONFLICT (disease_name) DO NOTHING
-                    """,
-                    (concept_name.upper(), concept_name, EXPLICIT_KNOWN_DISEASE_MIN_CASES),
-                )
-
-        # 6. Hot reload in-memory cache
-        load_keywords_from_db()
-        load_who_disease_concepts_from_db()
-        load_outbreak_rules_from_db()
-        try:
-            from .models.classifier import refresh_labels_from_db
-            refresh_labels_from_db()
-        except Exception:
-            pass
-        return True
-    except Exception as e:
-        logging.getLogger(__name__).warning("Failed to upsert discovered WHO disease concept '%s': %s", canonical_name, e)
-        return False
-
-
-def upsert_disease_discovery_candidate(
-    surface_form: str,
-    sample_text: str = "",
-    language: str = "unknown",
-    provider: str = "",
-    confidence: float = 0.0,
-) -> bool:
-    """Quarantine terminology that an agent found but WHO did not validate."""
-    if not surface_form or not surface_form.strip():
-        return False
-    normalized = re.sub(r"\s+", " ", re.sub(r"[^\w\s-]", " ", surface_form.lower())).strip()
-    if not normalized:
-        return False
-    try:
-        import psycopg
-        with psycopg.connect(DATABASE_URL) as conn:
-            conn.execute(
-                """INSERT INTO disease_discovery_candidates
-                   (surface_form, normalized_form, language, sample_text, provider, confidence)
-                   VALUES (%s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (normalized_form) DO UPDATE SET
-                     occurrences = disease_discovery_candidates.occurrences + 1,
-                     sample_text = COALESCE(EXCLUDED.sample_text, disease_discovery_candidates.sample_text),
-                     provider = COALESCE(NULLIF(EXCLUDED.provider, ''), disease_discovery_candidates.provider),
-                     confidence = GREATEST(COALESCE(disease_discovery_candidates.confidence, 0), EXCLUDED.confidence),
-                     updated_at = NOW()""",
-                (surface_form.strip(), normalized, language or "unknown", sample_text[:5000], provider, confidence),
-            )
-        return True
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(
-            "Failed to store unresolved disease candidate '%s': %s", surface_form, e,
-        )
-        return False

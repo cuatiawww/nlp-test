@@ -1,4 +1,4 @@
-"""Optional runtime disease resolver constrained by WHO ICD-11 concepts."""
+"""Optional runtime disease resolver constrained by the local disease master."""
 
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ def _normalize(value: str) -> str:
 
 
 def detect_disease(text: str) -> dict[str, Any] | None:
-    """Return a WHO-approved concept, or None when the optional LLM is unavailable."""
-    if not config.WHO_DISEASE_CONCEPTS:
+    """Return a local-master concept, or None when the optional LLM is unavailable."""
+    if not config.DISEASE_MASTER_CONCEPTS:
         return None
 
     folded = (text or "").lower()
     ranked = []
-    for item in config.WHO_DISEASE_CONCEPTS:
+    for item in config.DISEASE_MASTER_CONCEPTS:
         name = str(item.get("canonical_name") or "").lower()
         first = name.split()[0] if name else ""
         score = 1 if first and first in folded else 0
@@ -35,14 +35,14 @@ def detect_disease(text: str) -> dict[str, Any] | None:
         {
             "canonical_label": item["canonical_name"],
             "english_name": item.get("english_name") or item["canonical_name"],
-            "icd_code": item.get("ontology_code"),
+            "disease_id": item.get("disease_id"),
         }
         for item in selected
     ]
     prompt = (
         "Detect the PRIMARY disease or pathogen of this report. Return JSON only: "
-        "{canonical_label,english_name,icd_code,confidence} or null values. "
-        "canonical_label and icd_code MUST exactly match one allowed WHO ICD-11 "
+        "{canonical_label,english_name,disease_id,confidence} or null values. "
+        "canonical_label and disease_id MUST exactly match one allowed local disease-master "
         "concept. Prefer the title, headline and lead paragraph. Diseases mentioned "
         "only as examples, comparisons, prevention targets, historical background, "
         "or a list introduced by 'including' are secondary and must not replace the "
@@ -57,22 +57,23 @@ def detect_disease(text: str) -> dict[str, Any] | None:
     )
 
     label = str(result.get("canonical_label") or "").strip()
-    code = str(result.get("icd_code") or "").strip()
+    disease_id = str(result.get("disease_id") or "").strip()
     try:
         score = float(result.get("confidence") or 0.0)
     except (TypeError, ValueError):
         score = 0.0
-    by_label = {_normalize(item["canonical_name"]): item for item in config.WHO_DISEASE_CONCEPTS}
-    by_code = {str(item.get("ontology_code")): item for item in config.WHO_DISEASE_CONCEPTS if item.get("ontology_code")}
-    concept = by_code.get(code) or by_label.get(_normalize(label))
+    by_label = {_normalize(item["canonical_name"]): item for item in config.DISEASE_MASTER_CONCEPTS}
+    by_id = {str(item.get("disease_id")): item for item in config.DISEASE_MASTER_CONCEPTS if item.get("disease_id")}
+    concept = by_id.get(disease_id) or by_label.get(_normalize(label))
     if not concept or score < config.DEEPSEEK_MIN_CONFIDENCE:
         return None
     return {
         "canonical_name": concept["canonical_name"],
         "english_name": concept.get("english_name") or concept["canonical_name"],
-        "ontology_code": concept.get("ontology_code"),
+        "disease_id": concept.get("disease_id"),
+        "master_source": concept.get("source") or "local_database",
         "confidence": min(score, 0.99),
-        "resolution_source": result.get("_provider", "agent") + "+WHO ICD-11",
+        "resolution_source": result.get("_provider", "agent") + "+local_disease_master",
     }
 
 

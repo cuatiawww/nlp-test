@@ -51,7 +51,7 @@ export default function DiseaseMasterPage() {
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Deduplicated master disease catalog with WHO ICD-11 ontology codes and country-specific ASEAN aliases
+            Local disease catalog with database identifiers and country-specific ASEAN aliases
           </p>
         </div>
         <button
@@ -68,7 +68,7 @@ export default function DiseaseMasterPage() {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search by disease ID, name, category, or ICD-11..."
+            placeholder="Search by disease ID, name, category, or alias..."
           />
         </div>
         <div className="text-xs text-slate-500 font-medium">
@@ -90,7 +90,7 @@ export default function DiseaseMasterPage() {
                 <th className="px-4 py-3.5">Standardized Clinical Name</th>
                 <th className="px-4 py-3.5">Category</th>
                 <th className="px-4 py-3.5 text-center">Zoonotic</th>
-                <th className="px-4 py-3.5">ICD-11 Code</th>
+                <th className="px-4 py-3.5">Master Source</th>
                 <th className="px-4 py-3.5 text-center">Engine / Portal</th>
                 <th className="px-4 py-3.5 text-center">Aliases</th>
                 <th className="px-4 py-3.5 text-right">Actions</th>
@@ -138,30 +138,11 @@ export default function DiseaseMasterPage() {
                     )}
                   </td>
 
-                  {/* ICD-11 Code */}
+                  {/* Local master source */}
                   <td className="px-4 py-3">
-                    {concept.ontology_code ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-xs font-semibold text-slate-800 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
-                          {concept.ontology_code}
-                        </span>
-                        {concept.ontology_uri && (
-                          <a
-                            href={concept.ontology_uri}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] text-blue-600 hover:underline"
-                            title={concept.ontology_uri}
-                          >
-                            WHO
-                          </a>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-400">
-                        Pending
-                      </span>
-                    )}
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      {concept.source || 'database'}
+                    </span>
                   </td>
 
                   {/* Engine & Public Badges */}

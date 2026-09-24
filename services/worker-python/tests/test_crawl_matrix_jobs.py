@@ -14,6 +14,7 @@ from app.crawl_matrix_jobs import (
     extract_article,
     LeaseLost,
     persist_dashboard_event_from_analysis,
+    pipeline_analysis_to_matrix,
     prepare_text_for_nlp,
     selected_concept,
 )
@@ -38,7 +39,7 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertTrue(article_matches(article, analysis, ["Dengue"], "Indonesia"))
         self.assertFalse(article_matches(article, analysis, ["Measles"], "Indonesia"))
 
-    def test_campak_and_dbd_aliases_match_icd11_filters(self):
+    def test_campak_and_dbd_aliases_match_local_master_filters(self):
         self.assertTrue(article_matches(
             {"title": "Wabah di Jawa", "content": "petugas kesehatan"},
             {"disease_classification": ["campak"], "locations": [{"country": "Indonesia"}]},
@@ -141,7 +142,6 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn("IS NOT DISTINCT FROM", calls[1][0])
 
     def test_pipeline_analysis_to_matrix_keeps_primary_country(self):
-        from app.crawl_matrix_jobs import pipeline_analysis_to_matrix
         adapted = pipeline_analysis_to_matrix({
             "disease_classification": "Dengue",
             "country": "Malaysia",
@@ -154,6 +154,39 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         })
         self.assertEqual(adapted["locations"][0]["country"], "Malaysia")
         self.assertEqual(adapted["locations"][0]["reported_cases"], 19313)
+
+    def test_pipeline_analysis_to_matrix_preserves_disease_specific_sub_events(self):
+        adapted = pipeline_analysis_to_matrix({
+            "disease_classification": "Dengue",
+            "country": "Indonesia",
+            "location_name": "Jakarta",
+            "case_count": 20,
+            "sub_events": [
+                {
+                    "disease": "Dengue",
+                    "country": "Indonesia",
+                    "location_name": "Jakarta",
+                    "case_count": 12,
+                    "death_count": 1,
+                    "evidence": "Jakarta reported 12 dengue cases and 1 death.",
+                },
+                {
+                    "disease": "Measles",
+                    "country": "Indonesia",
+                    "location_name": "Jakarta",
+                    "case_count": 8,
+                    "death_count": 0,
+                    "evidence": "Jakarta reported 8 measles cases.",
+                },
+            ],
+        })
+        disease_rows = [
+            (item["disease"], item["reported_cases"])
+            for item in adapted["locations"]
+            if item.get("disease")
+        ]
+        self.assertIn(("Dengue", 12), disease_rows)
+        self.assertIn(("Measles", 8), disease_rows)
 
     def test_analyze_article_passes_title_and_source_country(self):
         from unittest.mock import Mock, patch
@@ -176,18 +209,18 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
     def test_concept_resolution_keeps_full_label(self):
         label, concept = selected_concept(
             ["Dengue"],
-            [{"canonical_name": "Dengue", "ontology_code": "1D2Z"}],
+            [{"disease_id": "DENGUE", "canonical_name": "Dengue", "source": "asean_master_database"}],
         )
         self.assertEqual(label, "Dengue")
-        self.assertEqual(concept["ontology_code"], "1D2Z")
+        self.assertEqual(concept["disease_id"], "DENGUE")
 
     def test_concept_resolution_maps_campak_alias_to_measles(self):
         label, concept = selected_concept(
             ["campak"],
-            [{"canonical_name": "Measles", "ontology_code": "1F03"}],
+            [{"disease_id": "MEASLES", "canonical_name": "Measles", "source": "asean_master_database"}],
         )
         self.assertEqual(label, "campak")
-        self.assertEqual(concept["ontology_code"], "1F03")
+        self.assertEqual(concept["disease_id"], "MEASLES")
 
     def test_extract_article_never_uses_stealth_or_auto(self):
         from unittest.mock import Mock, patch

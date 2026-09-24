@@ -1,8 +1,8 @@
 """Small provider-agnostic JSON agent client used by disease resolution.
 
 The agent is deliberately a bounded helper.  It may extract terminology and
-rank candidates, but it never gets to create an ICD code; that decision stays
-with the WHO ICD-11 API and the local database validator.
+rank candidates, but it never gets to create an external ontology code; that decision stays
+with the local disease-master validator.
 """
 
 from __future__ import annotations

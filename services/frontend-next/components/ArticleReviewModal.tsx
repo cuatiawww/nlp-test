@@ -116,7 +116,6 @@ function EventCorrectionModal({
   const [submitting, setSubmitting] = useState(false)
   const [draft, setDraft] = useState({
     disease: '',
-    icd11: '',
     country: '',
     region: '',
     province: '',
@@ -131,7 +130,6 @@ function EventCorrectionModal({
     if (event) {
       setDraft({
         disease: event.disease || event.disease_classification || '',
-        icd11: event.icd11_code || event.disease_icd11_code || '',
         country: (event.country !== 'MULTI_COUNTRY' ? event.country : '') || (event.case_country !== 'MULTI_COUNTRY' ? event.case_country : '') || '',
         region: (event.region !== 'MULTI_COUNTRY' ? event.region : '') || (event.surveillance_scope !== 'MULTI_COUNTRY' ? event.surveillance_scope : '') || '',
         province: event.province || '',
@@ -205,7 +203,6 @@ function EventCorrectionModal({
         ...event,
         disease: draft.disease.trim(),
         disease_classification: draft.disease.trim(),
-        icd11_code: draft.icd11.trim() || event.icd11_code,
         country: draft.country.trim(),
         case_country: draft.country.trim(),
         region: draft.region.trim(),
@@ -309,20 +306,6 @@ function EventCorrectionModal({
                   onChange={(e) => setDraft((p) => ({ ...p, disease: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
                   placeholder="e.g. Measles, COVID-19, Pneumonia"
-                />
-              </div>
-
-              {/* ICD-11 Code */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                  WHO ICD-11 Code (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={draft.icd11}
-                  onChange={(e) => setDraft((p) => ({ ...p, icd11: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
-                  placeholder="e.g. 1D60, RA01"
                 />
               </div>
 
@@ -765,7 +748,7 @@ export default function ArticleReviewModal({
                   <thead>
                     <tr className="bg-slate-50 text-[10px] uppercase font-bold text-slate-600 border-b border-slate-200">
                       <th className="px-3.5 py-2.5 text-center w-10">#</th>
-                      <th className="px-3.5 py-2.5 w-44">Disease & ICD-11</th>
+                      <th className="px-3.5 py-2.5 w-44">Disease</th>
                       <th className="px-3.5 py-2.5 w-40">Country & Region</th>
                       <th className="px-3.5 py-2.5 w-48">Province & City</th>
                       <th className="px-3.5 py-2.5 text-right w-24">Cases</th>
@@ -778,7 +761,6 @@ export default function ArticleReviewModal({
                   <tbody className="divide-y divide-slate-100">
                     {eventsList.map((evt, idx) => {
                       const diseaseName = evt.disease || evt.disease_classification || 'Unknown'
-                      const icdCode = evt.icd11_code || evt.disease_icd11_code
                       const rawCountry = evt.country || evt.case_country
                       const countryName = (rawCountry && rawCountry !== 'MULTI_COUNTRY') ? rawCountry : '-'
                       const rawRegion = evt.region || evt.surveillance_scope
@@ -812,11 +794,6 @@ export default function ArticleReviewModal({
                                 <span className="font-bold text-slate-900 block leading-tight">
                                   {diseaseName}
                                 </span>
-                                {icdCode && (
-                                  <span className="text-[10px] font-mono text-blue-700 bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
-                                    ICD: {icdCode}
-                                  </span>
-                                )}
                                 {isCorrected && (
                                   <span className="mt-1 inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                                     <Check className="h-2.5 w-2.5" /> Corrected

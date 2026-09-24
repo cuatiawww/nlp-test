@@ -25,6 +25,9 @@ logger = logging.getLogger("worker")
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/%2f")
 RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "disease.raw")
+NLP_REQUEST_TIMEOUT_SECONDS = max(
+    120, int(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "270"))
+)
 RABBITMQ_SOCIAL_QUEUE = os.getenv("RABBITMQ_SOCIAL_QUEUE", "disease.social")
 RABBITMQ_SKDR_QUEUE = os.getenv("RABBITMQ_SKDR_QUEUE", "disease.skdr")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
@@ -540,7 +543,7 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
         "source_country": source_country,
         "historical_fast": HISTORICAL_FAST_NON_HEALTH,
     }
-    resp = requests.post(url, json=payload, timeout=120)
+    resp = requests.post(url, json=payload, timeout=NLP_REQUEST_TIMEOUT_SECONDS)
     resp.raise_for_status()
     return resp.json()
 

@@ -269,11 +269,6 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
           <span className="font-semibold text-slate-900 truncate max-w-[140px]" title={row.disease || ''}>
             {fmtText(row.disease) || '—'}
           </span>
-          {row.icd11_code ? (
-            <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-1 rounded w-fit">
-              ICD-11: {row.icd11_code}
-            </span>
-          ) : null}
         </div>
       )
     case 'crawling_date':

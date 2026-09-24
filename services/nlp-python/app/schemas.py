@@ -47,6 +47,9 @@ class LocationItem(BaseModel):
 class DiseaseMention(BaseModel):
     surface_form: str
     canonical_name: str
+    disease_id: Optional[str] = None
+    master_source: Optional[str] = None
+    # Legacy nullable field retained for reading historical records only.
     icd11_code: Optional[str] = None
     role: str = "secondary"
     evidence: str = ""
@@ -58,6 +61,8 @@ class DiseaseMention(BaseModel):
 class SubEvent(BaseModel):
     """A single decomposed event from a multi-event document."""
     disease: str
+    disease_id: Optional[str] = None
+    # Legacy nullable field retained for reading historical records only.
     disease_icd11_code: Optional[str] = None
     location_name: str
     country: Optional[str] = None

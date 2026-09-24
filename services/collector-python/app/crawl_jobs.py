@@ -91,7 +91,7 @@ def sanitize_crawl_url(url: str | None, resolver=None) -> str | None:
 def _build_news_query(disease_names: list[str], country: str | None, region: str | None) -> str:
     disease_terms = [f'"{name}"' if " " in name else name for name in disease_names if name]
     if not disease_terms:
-        raise ValueError("Select at least one disease from the ICD-11 master")
+        raise ValueError("Select at least one disease from the local disease master")
     query = f"({' OR '.join(disease_terms)})"
     geography = (country or "").strip()
     if not geography and region and region.casefold() not in {"asean", "global"}:
@@ -138,12 +138,12 @@ def _matching_concepts(conn, ids: list[str]) -> list[dict]:
     if not ids:
         return []
     rows = conn.execute(
-        """SELECT id, canonical_name, ontology_code FROM disease_concepts
+        """SELECT id, disease_id, canonical_name, source FROM disease_concepts
            WHERE is_active=TRUE AND id = ANY(%s::uuid[]) ORDER BY canonical_name""",
         (ids,),
     ).fetchall()
     if len(rows) != len(set(ids)):
-        raise ValueError("One or more selected diseases are missing or inactive in the ICD-11 master")
+        raise ValueError("One or more selected diseases are missing or inactive in the local disease master")
     return [dict(row) for row in rows]
 
 
@@ -170,7 +170,7 @@ def _disease_labels(analysis: dict) -> list[str]:
 
 
 def _selected_concept(labels: list[str], concepts: list[dict]) -> tuple[str, dict | None]:
-    """Resolve one NLP label to the selected ICD-11 concept."""
+    """Resolve one NLP label to the selected local-master concept."""
     for label in labels:
         label_key = label.casefold()
         for concept in concepts:
@@ -317,7 +317,7 @@ def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts:
                 source_url, article_title, evidence, confidence, processing_status)
                VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (job_id, raw_id, concept["id"] if concept else None, disease,
-             concept.get("ontology_code") if concept else None,
+             None,
              "ASEAN" if country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
              country, ", ".join(provinces), published, item.get("time_frame") or "",
              int(item.get("reported_cases") or 0), int(item.get("deaths") or 0), latitude, longitude,
@@ -413,7 +413,7 @@ async def create(payload: CrawlJobRequest):
     with _connection() as conn:
         concepts = _matching_concepts(conn, payload.disease_concept_ids)
         if not concepts:
-            raise HTTPException(400, "Select at least one active disease from the ICD-11 master")
+            raise HTTPException(400, "Select at least one active disease from the local disease master")
         row = conn.execute(
             """INSERT INTO crawl_matrix_jobs(disease_concept_ids,disease_names,region,country,province_city,date_from,date_to,max_articles,query)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,status,created_at""",

@@ -40,6 +40,9 @@ logger = logging.getLogger("crawl-matrix-worker")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 COLLECTOR_URL = os.getenv("COLLECTOR_URL", "http://disease-collector-python:8002").rstrip("/")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000").rstrip("/")
+NLP_REQUEST_TIMEOUT_SECONDS = max(
+    120, int(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "270"))
+)
 POLL_SECONDS = max(1.0, float(os.getenv("CRAWL_MATRIX_POLL_SECONDS", "5")))
 STALE_MINUTES = max(5, int(os.getenv("CRAWL_MATRIX_STALE_MINUTES", "15")))
 CRAWL_QUEUE = os.getenv("CRAWL_MATRIX_QUEUE", "disease.crawl-matrix")
@@ -114,7 +117,7 @@ def build_news_query(disease_names: list[str], country: str | None, region: str 
     """Build an effective Google News query for the selected filters."""
     disease_terms = [f'"{name}"' if " " in name else name for name in disease_names if name]
     if not disease_terms:
-        raise ValueError("Select at least one disease from the ICD-11 master")
+        raise ValueError("Select at least one disease from the local disease master")
     # Take up to 5 diseases to prevent query overflow in Google News
     selected_diseases = disease_terms[:5]
     query = f"({' OR '.join(selected_diseases)})"
@@ -253,7 +256,7 @@ NON_COUNTRY_LOCATION_LABELS = {
 
 
 def expand_disease_terms(names: list[str] | tuple[str, ...] | set[str]) -> list[str]:
-    """Expand ICD-11 names so campak/DBD still match Measles/Dengue filters."""
+    """Expand local master names so campak/DBD match selected concepts."""
     terms: list[str] = []
     seen: set[str] = set()
     for name in names:
@@ -451,14 +454,14 @@ def store_cached_analysis(conn, identity_hash: str, raw_report_id, analysis: dic
 
 def matching_concepts(conn, ids: list[str]) -> list[dict]:
     rows = conn.execute(
-        """SELECT id, canonical_name, ontology_code
+        """SELECT id, disease_id, canonical_name, source
            FROM disease_concepts
            WHERE is_active=TRUE AND id = ANY(%s::uuid[])
            ORDER BY canonical_name""",
         (ids,),
     ).fetchall()
     if len(rows) != len(set(ids)):
-        raise ValueError("One or more selected diseases are missing or inactive in the ICD-11 master")
+        raise ValueError("One or more selected diseases are missing or inactive in the local disease master")
     return [dict(row) for row in rows]
 
 
@@ -571,6 +574,10 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
     disease, concept = selected_concept(disease_labels(analysis), concepts)
     rows = 0
     for item in analysis.get("locations") or []:
+        item_disease = str(item.get("disease") or disease or "").strip()
+        item_concept_name, item_concept = selected_concept([item_disease], concepts)
+        item_disease = item_concept_name or item_disease or disease
+        item_concept = item_concept or concept
         country = str(item.get("country") or "").strip()
         if not country:
             continue
@@ -605,14 +612,16 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 scoped_analysis["locations"] = [area_item]
                 rows += persist_article(conn, job_id, raw_id, article, scoped_analysis, concepts, request)
             continue
-        evidence = next(
-            (
-                sentence.strip()[:1000]
-                for sentence in re.split(r"(?<=[.!?])\s+|\n+", article.get("content", ""))
-                if country.casefold() in sentence.casefold() and re.search(r"\d", sentence)
-            ),
-            "",
-        )
+        evidence = str(item.get("evidence") or "").strip()[:1000]
+        if not evidence:
+            evidence = next(
+                (
+                    sentence.strip()[:1000]
+                    for sentence in re.split(r"(?<=[.!?])\s+|\n+", article.get("content", ""))
+                    if country.casefold() in sentence.casefold() and re.search(r"\d", sentence)
+                ),
+                "",
+            )
         latitude, longitude = country_coordinates(conn, country, provinces)
         province, city = split_province_city(provinces)
         province_city_case = ", ".join(provinces) or None
@@ -630,8 +639,8 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                source_url, article_title, evidence, confidence, processing_status)
                VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
-                job_id, raw_id, concept["id"] if concept else None, disease,
-                concept.get("ontology_code") if concept else None,
+                job_id, raw_id, item_concept["id"] if item_concept else None, item_disease,
+                None,
                 "ASEAN" if country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
                 country, province_city_case, province, city, published, date_case,
                 0 if analysis.get("case_count_unknown") else int(item.get("reported_cases") or 0),
@@ -639,7 +648,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 latitude, longitude, "news", article.get("source_name"),
                 analysis.get("source_country") or article.get("source_country"), article.get("url"),
                 article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.0),
-                "needs_review" if (not evidence or analysis.get("case_count_unknown") or analysis.get("needs_review")) else "processed",
+                "needs_review" if (not evidence or analysis.get("case_count_unknown") or analysis.get("needs_review") or item.get("needs_review")) else "processed",
             ),
         )
         rows += 1
@@ -685,7 +694,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                    VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     job_id, raw_id, concept["id"] if concept else None, disease,
-                    concept.get("ontology_code") if concept else None,
+                    None,
                     "ASEAN" if detected_country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
                     detected_country,
                     province_city_case, analysis.get("city"), published, date_case,
@@ -776,7 +785,7 @@ def analyze_article(article: dict) -> dict:
             "published_at": article.get("published_at"),
             "source_url": article.get("url"),
         },
-        timeout=(5, 120),
+        timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
     )
     response.raise_for_status()
     payload = response.json()
@@ -787,42 +796,76 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
     """Adapt ingest NLP output into the crawl-matrix persist shape."""
     out = dict(analysis or {})
     locations = []
-    seen: set[str] = set()
+    seen: set[tuple] = set()
 
-    def add(country, provinces, cases, deaths, time_frame="", cities=None):
+    primary_disease = out.get("disease_display") or out.get("disease_classification")
+    if isinstance(primary_disease, (list, tuple)):
+        primary_disease = primary_disease[0] if primary_disease else ""
+
+    def add(
+        country,
+        provinces,
+        cases,
+        deaths,
+        time_frame="",
+        cities=None,
+        disease=None,
+        evidence="",
+        confidence=None,
+        needs_review=False,
+    ):
         name = str(country or "").strip()
         if not name:
             return
-        key = name.casefold()
-        if key in seen:
-            return
-        seen.add(key)
+        disease_name = str(disease or primary_disease or "").strip()
         subplaces = [
             str(item).strip()
             for item in [*(provinces or []), *(cities or [])]
-            if str(item).strip() and str(item).strip().casefold() != key
+            if str(item).strip() and str(item).strip().casefold() != name.casefold()
         ]
-        locations.append({
+        key = (
+            disease_name.casefold(),
+            name.casefold(),
+            tuple(dict.fromkeys(item.casefold() for item in subplaces)),
+            int(cases or 0),
+            int(deaths or 0),
+            time_frame or out.get("event_date") or "",
+        )
+        if key in seen:
+            return
+        seen.add(key)
+        item = {
             "country": name,
             "provinces": list(dict.fromkeys(subplaces)),
             "reported_cases": int(cases or 0),
             "deaths": int(deaths or 0),
             "time_frame": time_frame or out.get("event_date") or "",
-        })
+        }
+        if disease_name:
+            item["disease"] = disease_name
+        if evidence:
+            item["evidence"] = str(evidence).strip()[:1000]
+        if confidence is not None:
+            item["confidence"] = float(confidence or 0.0)
+        if needs_review:
+            item["needs_review"] = True
+        locations.append(item)
 
-    primary_country = out.get("country")
-    if primary_country and str(primary_country).casefold() == "outside asean":
-        primary_country = None
-    primary_place = out.get("location_name") or out.get("province")
-    add(
-        primary_country,
-        [primary_place] if primary_place and str(primary_place).casefold() != str(primary_country or "").casefold() else [],
-        0 if out.get("case_count_unknown") else out.get("case_count"),
-        out.get("death_count"),
-    )
-    for event in out.get("sub_events") or []:
-        if not isinstance(event, dict):
-            continue
+    sub_events = [event for event in (out.get("sub_events") or []) if isinstance(event, dict)]
+    if not sub_events:
+        primary_country = out.get("country")
+        if primary_country and str(primary_country).casefold() == "outside asean":
+            primary_country = None
+        primary_place = out.get("location_name") or out.get("province")
+        add(
+            primary_country,
+            [primary_place] if primary_place and str(primary_place).casefold() != str(primary_country or "").casefold() else [],
+            0 if out.get("case_count_unknown") else out.get("case_count"),
+            out.get("death_count"),
+            disease=primary_disease,
+            confidence=out.get("confidence"),
+        )
+    for event in sub_events:
         add(
             event.get("country"),
             [event.get("location_name")],
@@ -832,8 +875,15 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             or event.get("event_date_start")
             or event.get("event_date_end")
             or "",
+            disease=event.get("disease"),
+            evidence=event.get("evidence") or event.get("source_evidence"),
+            confidence=event.get("confidence"),
+            needs_review=event.get("needs_review", False),
         )
-    for item in out.get("locations") or []:
+    # A structured sub-event already carries the disease-location-metric
+    # relation. Do not add the collapsed location projection again, or the
+    # matrix would count the same article twice with different totals.
+    for item in ([] if sub_events else out.get("locations") or []):
         if not isinstance(item, dict):
             continue
         add(
@@ -843,6 +893,9 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             item.get("deaths"),
             item.get("time_frame") or "",
             item.get("cities") or [],
+            disease=item.get("disease") or primary_disease,
+            evidence=item.get("evidence"),
+            confidence=item.get("confidence"),
         )
     out["locations"] = locations
     out["source_country"] = out.get("source_country") or ""

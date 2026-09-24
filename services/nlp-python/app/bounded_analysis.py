@@ -37,15 +37,11 @@ def inference_stage(payload, translation, rules_only):
     orig_translate = pipeline.translate_and_extract
     orig_model = config.NLP_MODEL
     orig_agent = config.AGENT_ENABLED
-    orig_who_disc = config.WHO_DISCOVERY_ENABLED
-    orig_who_res = config.WHO_TERM_RESOLUTION_ENABLED
     try:
         pipeline.translate_and_extract = lambda text, language: translation
         if rules_only or payload.get("interactive"):
             config.NLP_MODEL = "none"
             config.AGENT_ENABLED = False
-            config.WHO_DISCOVERY_ENABLED = False
-            config.WHO_TERM_RESOLUTION_ENABLED = False
             # Cap before pipeline so forked workers never see the full crawl.
             text = str(payload.get("text") or "")
             limit = int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000)
@@ -77,8 +73,6 @@ def inference_stage(payload, translation, rules_only):
         pipeline.translate_and_extract = orig_translate
         config.NLP_MODEL = orig_model
         config.AGENT_ENABLED = orig_agent
-        config.WHO_DISCOVERY_ENABLED = orig_who_disc
-        config.WHO_TERM_RESOLUTION_ENABLED = orig_who_res
 
 
 @router.post("/nlp/analyze-bounded")

@@ -326,7 +326,7 @@ KEY DISEASE METRICS:
 TOP MONITORED DISEASES:
 ${topDiseases.slice(0, 5).map((d, i) => `${i + 1}. ${d.name}: ${formatNumber(d.cases, numLocale)} cases, ${formatNumber(d.deaths, numLocale)} deaths (CFR ${formatPercent(d.cfr)})`).join('\n')}
 
-Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
+Source: Disease Surveillance AI Platform — Local Disease Master.`
 
     navigator.clipboard.writeText(text)
     toast.success('Disease intelligence briefing copied to clipboard')
@@ -358,7 +358,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200/80 bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0060A9]">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-              PATHOGEN SURVEILLANCE • ICD-11 MMS TAXONOMY
+              PATHOGEN SURVEILLANCE • LOCAL DISEASE MASTER
             </span>
             <span className="text-xs text-slate-400">•</span>
             <span className="text-xs font-semibold text-slate-500">
@@ -369,7 +369,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
             Disease Dashboard
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Epidemiological Burden, WHO ICD-11 MMS Taxonomy & Pathogen Distribution
+              Epidemiological Burden, Local Disease Master & Pathogen Distribution
           </p>
         </div>
 
@@ -450,7 +450,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
           <Link
             href="/diseases"
             className="inline-flex items-center gap-1.5 rounded-xl border border-[#cfe0f1] bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
-            title="Browse ICD-11 Disease Directory"
+            title="Browse Disease Directory"
           >
             <Layers className="h-3.5 w-3.5 text-[#0060A9]" />
             <span>Directory</span>
@@ -486,7 +486,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          2. EPIDEMIOLOGICAL RISK & WHO ICD-11 TAXONOMY BANNER
+          2. EPIDEMIOLOGICAL RISK & LOCAL DISEASE MASTER BANNER
           ───────────────────────────────────────────────────────────── */}
       <section
         className="border border-[#0060A9]/20 bg-gradient-to-r from-blue-50/90 via-sky-50/80 to-[#fdfbf5] p-5 shadow-sm"
@@ -504,20 +504,20 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
                   Pathogen Intelligence & Epidemiological Profile
                 </h2>
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
-                  Standard: WHO ICD-11 MMS International Classification of Diseases
+                  Standard: Local Disease Master Database
                 </span>
               </div>
             </div>
 
             <p className="text-sm leading-relaxed text-slate-700">
               {data?.ai_summary?.text ||
-                'Surveillance models continuously monitor pathogen prevalence, clinical mortality indicators, and cross-border contagion risks across ASEAN jurisdictions. Data is standardized to WHO ICD-11 MMS concepts with automated alias harmonization.'}
+                'Surveillance models continuously monitor pathogen prevalence, clinical mortality indicators, and cross-border contagion risks across ASEAN jurisdictions. Data is resolved against the local disease master with multilingual alias matching.'}
             </p>
 
             <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                WHO ICD-11 MMS Canonical
+                Local Disease Master
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-[#0060A9]">
                 <ShieldCheck className="h-3.5 w-3.5 text-[#0060A9]" />
@@ -862,7 +862,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
       </section>
 
       {/* ─────────────────────────────────────────────────────────────
-          5. WHO ICD-11 PATHOGEN BURDEN & MORTALITY MATRIX TABLE
+          5. LOCAL DISEASE BURDEN & MORTALITY MATRIX TABLE
           ───────────────────────────────────────────────────────────── */}
       <section
         className="border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)] space-y-4"
@@ -872,7 +872,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
           <div>
             <h2 className="text-base font-black uppercase text-slate-900 flex items-center gap-2">
               <Stethoscope className="h-4 w-4 text-[#0060A9]" />
-              WHO ICD-11 MMS Pathogen Burden Matrix
+              Local Disease Master Burden Matrix
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Comparative analysis of confirmed morbidity, fatalities, and Case Fatality Rate (CFR %) across monitored pathogen concepts
@@ -888,7 +888,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50/90 text-left border-b border-slate-200/80 font-bold text-slate-600 text-[10px] uppercase tracking-wider">
-                <th className="py-3 px-3">Pathogen Concept (ICD-11)</th>
+              <th className="py-3 px-3">Disease Concept</th>
                 <th className="py-3 px-3 text-right">Detected Cases</th>
                 <th className="py-3 px-3 text-right">Fatalities</th>
                 <th className="py-3 px-3 text-right">CFR (%)</th>
@@ -909,7 +909,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
                   <tr key={`matrix-${d.name}-${idx}`} className="hover:bg-slate-50/60 transition">
                     <td className="py-3 px-3">
                       <p className="font-bold text-slate-900 text-sm">{translateDisease(d.name)}</p>
-                      <p className="text-[10px] text-slate-400">WHO ICD-11 MMS Concept</p>
+                      <p className="text-[10px] text-slate-400">Local database concept</p>
                     </td>
                     <td className="py-3 px-3 text-right font-black text-[#0060A9] text-sm">
                       {formatNumber(d.cases, numLocale)}
@@ -1078,7 +1078,7 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
           7. DISEASE SURVEILLANCE STANDARDS & TAXONOMY INTEGRITY (3 Cards)
           ───────────────────────────────────────────────────────────── */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* ICD-11 Alignment */}
+        {/* Local master alignment */}
         <article
           className="border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)] space-y-3"
           style={{ borderRadius: '17px 17px 22px 17px' }}
@@ -1086,17 +1086,17 @@ Source: Disease Surveillance AI Platform — WHO ICD-11 Standardized Taxonomy.`
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
             <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 uppercase tracking-wider">
               <ShieldCheck className="h-4 w-4 text-emerald-600" />
-              WHO ICD-11 MMS Harmonization
+              Local Disease Master Harmonization
             </div>
             <span className="text-[10px] text-slate-400 font-mono font-bold">ONTOLOGY</span>
           </div>
           <p className="text-xs text-slate-600">
-            Pathogens and colloquial disease expressions are normalized to WHO ICD-11 MMS canonical URI definitions.
+            Pathogens and colloquial disease expressions are resolved against active local disease concepts and their aliases.
           </p>
           <div className="space-y-1.5 pt-2 text-xs">
             <div className="flex justify-between">
               <span className="text-slate-500">Ontology Release:</span>
-              <strong className="text-slate-800">WHO ICD-11 2024-01 MMS</strong>
+              <strong className="text-slate-800">ASEAN Master Catalog</strong>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Canonical Concepts:</span>

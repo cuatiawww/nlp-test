@@ -610,7 +610,7 @@ function ExecutiveReportContent() {
                     onClick={() => scrollToSection("disease-distribution")}
                     className="w-full text-left rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-50 transition flex items-center justify-between"
                   >
-                    <span>Disease Distribution (ICD-11)</span>
+                    <span>Disease Distribution (Local Master)</span>
                   </button>
                   <button
                     type="button"

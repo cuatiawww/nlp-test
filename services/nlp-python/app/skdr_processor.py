@@ -14,38 +14,6 @@ from . import config, pipeline
 
 logger = logging.getLogger(__name__)
 
-SKDR_DISEASE_MAP = {
-    "dbd": ("Dengue Fever", "1D20"),
-    "dengue": ("Dengue Fever", "1D20"),
-    "demam berdarah": ("Dengue Fever", "1D20"),
-    "demam berdarah dengue": ("Dengue Fever", "1D20"),
-    "diare": ("Diarrhoeal diseases", "1A00"),
-    "diare akut": ("Diarrhoeal diseases", "1A00"),
-    "malaria": ("Malaria", "1F40"),
-    "ili": ("Influenza", "1E30"),
-    "influenza like illness": ("Influenza", "1E30"),
-    "influenza": ("Influenza", "1E30"),
-    "afp": ("Acute Flaccid Paralysis", "8B80"),
-    "campak": ("Measles", "1F03"),
-    "measles": ("Measles", "1F03"),
-    "difteri": ("Diphtheria", "1B90"),
-    "pertusis": ("Pertussis", "1C12"),
-    "rabies": ("Rabies", "1D80"),
-    "ghpr": ("Rabies", "1D80"),
-    "gigitan hewan penular rabies": ("Rabies", "1D80"),
-    "leptospirosis": ("Leptospirosis", "1B93"),
-    "antraks": ("Anthrax", "1B91"),
-    "tetanus": ("Tetanus", "1C17"),
-    "covid-19": ("COVID-19", "RA01"),
-    "covid": ("COVID-19", "RA01"),
-    "pneumonia": ("Pneumonia", "CA40"),
-    "hepatitis": ("Hepatitis", "1E50"),
-    "kolera": ("Cholera", "1A00"),
-    "tipoid": ("Typhoid fever", "1A07"),
-    "demam tifoid": ("Typhoid fever", "1A07"),
-}
-
-
 def _parse_int(val: Optional[str], default: int = 0) -> int:
     if val is None:
         return default
@@ -97,8 +65,10 @@ def process_skdr(payload: AnalyzeRequest) -> AnalyzeResponse:
         logger.info("SKDR payload lacks standard headers, falling back to general pipeline")
         return pipeline.run(payload)
 
-    d_clean = disease_str.lower().strip()
-    canonical_disease, icd11 = SKDR_DISEASE_MAP.get(d_clean, (disease_str.title() if disease_str else "Unknown Disease", None))
+    from .disease_master import resolve_local_disease_term
+
+    resolved = resolve_local_disease_term(disease_str)
+    canonical_disease = resolved["canonical_name"] if resolved else (disease_str.title() if disease_str else "Unknown Disease")
 
     lat, lon = (None, None)
     country = "Indonesia"
@@ -125,7 +95,9 @@ def process_skdr(payload: AnalyzeRequest) -> AnalyzeResponse:
         disease_mentions.append(DiseaseMention(
             surface_form=disease_str or canonical_disease,
             canonical_name=canonical_disease,
-            icd11_code=icd11,
+            disease_id=resolved.get("disease_id") if resolved else None,
+            master_source=resolved.get("master_source") if resolved else None,
+            icd11_code=None,
             role="primary",
             evidence="SKDR Official Surveillance Report",
             confidence=0.98,

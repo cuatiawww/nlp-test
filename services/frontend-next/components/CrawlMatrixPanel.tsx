@@ -74,7 +74,7 @@ export default function CrawlMatrixPanel() {
 
   const visibleDiseases = useMemo(() => {
     const query = diseaseSearch.trim().toLowerCase()
-    return diseases.filter(item => !query || `${item.canonical_name} ${item.ontology_code || ''}`.toLowerCase().includes(query)).slice(0, 40)
+    return diseases.filter(item => !query || `${item.disease_id || ''} ${item.canonical_name} ${item.category || ''}`.toLowerCase().includes(query)).slice(0, 40)
   }, [diseases, diseaseSearch])
 
   function toggleDisease(id: string) {
@@ -82,7 +82,7 @@ export default function CrawlMatrixPanel() {
   }
 
   async function startCrawl() {
-    if (!selectedDiseases.length) return toast.error('Select at least one disease from the ICD-11 master')
+    if (!selectedDiseases.length) return toast.error('Select at least one disease from the local master')
     setBusy(true)
     try {
       const created = await createCrawlJob({
@@ -144,24 +144,24 @@ export default function CrawlMatrixPanel() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-slate-900">Manual disease surveillance crawler</h2>
-            <p className="mt-1 text-xs text-slate-500">Run an on-demand crawl using active WHO ICD-11 diseases and review validated location, date, case, death, source, and evidence fields.</p>
+            <p className="mt-1 text-xs text-slate-500">Run an on-demand crawl using active diseases from the local database master and review location, date, case, death, source, and evidence fields.</p>
           </div>
           <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-[#0060A9]">{statusLabel}</span>
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-[1.6fr_1fr_1fr]">
           <div>
-            <label className="text-xs font-semibold text-slate-600">ICD-11 disease master</label>
-            <input value={diseaseSearch} onChange={e => setDiseaseSearch(e.target.value)} placeholder="Search disease name or ICD-11 code" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+            <label className="text-xs font-semibold text-slate-600">Local disease master</label>
+            <input value={diseaseSearch} onChange={e => setDiseaseSearch(e.target.value)} placeholder="Search disease ID or name" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
             <div className="mt-2 max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-2">
               {loadingMaster ? <span className="text-xs text-slate-400">Loading disease master...</span> : visibleDiseases.map(item => (
                 <label key={item.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-slate-50">
                   <input type="checkbox" checked={selectedDiseases.includes(item.id)} onChange={() => toggleDisease(item.id)} />
-                  <span className="font-medium text-slate-700">{item.canonical_name}</span><span className="ml-auto text-[10px] text-slate-400">{item.ontology_code || 'ICD-11'}</span>
+                  <span className="font-medium text-slate-700">{item.canonical_name}</span><span className="ml-auto text-[10px] text-slate-400">{item.disease_id || item.source || 'database'}</span>
                 </label>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-slate-400">{selectedDiseases.length} disease(s) selected — Start stays disabled until at least one ICD-11 disease is checked.</p>
+            <p className="mt-1 text-[11px] text-slate-400">{selectedDiseases.length} disease(s) selected — Start stays disabled until at least one local disease is checked.</p>
             <label className="mt-3 block text-xs font-semibold text-slate-600">Article URL (optional)</label>
             <input value={articleUrl} onChange={e => setArticleUrl(e.target.value)} placeholder="Leave empty for multi-source discovery" type="url" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
             <p className="mt-1 text-[11px] text-slate-400">When provided, the dedicated worker analyzes this URL directly.</p>
@@ -222,7 +222,7 @@ export default function CrawlMatrixPanel() {
             </ul>
           </details>
         )}
-        <div className="overflow-x-auto"><table className="min-w-[1250px] w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{['No.', 'Crawl Date', 'Diseases', 'Region', 'Country', 'Province', 'City', 'Province & City', 'Published Date', 'Case Date', 'Cases', 'Deaths', 'Latitude', 'Longitude', 'Source Type'].map(header => <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{job.rows.map((row: CrawlMatrixRow, index) => <tr key={row.id} className="align-top hover:bg-slate-50"><td className="px-3 py-3">{index + 1}</td><td className="px-3 py-3">{row.crawling_date || '-'}</td><td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}<div className="text-[10px] font-normal text-slate-400">{row.icd11_code || 'ICD-11'}</div></td><td className="px-3 py-3">{row.region || '-'}</td><td className="px-3 py-3 font-semibold">{row.country}</td><td className="px-3 py-3">{row.province || '-'}</td><td className="px-3 py-3">{row.city || '-'}</td><td className="max-w-[180px] px-3 py-3">{row.province_city_case || '-'}</td><td className="px-3 py-3">{row.article_date || '-'}</td><td className="max-w-[190px] px-3 py-3">{row.date_case || '-'}</td><td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('en-US')}</td><td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('en-US')}</td><td className="px-3 py-3">{row.latitude ?? '-'}</td><td className="px-3 py-3">{row.longitude ?? '-'}</td><td className="px-3 py-3">{row.source_type || '-'}<div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div><details className="mt-1"><summary className="cursor-pointer text-[#0060A9]">Evidence</summary><p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Needs review'}</p>{row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Article <ExternalLink className="h-3 w-3" /></a>}</details></td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="min-w-[1250px] w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{['No.', 'Crawl Date', 'Diseases', 'Region', 'Country', 'Province', 'City', 'Province & City', 'Published Date', 'Case Date', 'Cases', 'Deaths', 'Latitude', 'Longitude', 'Source Type'].map(header => <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{job.rows.map((row: CrawlMatrixRow, index) => <tr key={row.id} className="align-top hover:bg-slate-50"><td className="px-3 py-3">{index + 1}</td><td className="px-3 py-3">{row.crawling_date || '-'}</td><td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}</td><td className="px-3 py-3">{row.region || '-'}</td><td className="px-3 py-3 font-semibold">{row.country}</td><td className="px-3 py-3">{row.province || '-'}</td><td className="px-3 py-3">{row.city || '-'}</td><td className="max-w-[180px] px-3 py-3">{row.province_city_case || '-'}</td><td className="px-3 py-3">{row.article_date || '-'}</td><td className="max-w-[190px] px-3 py-3">{row.date_case || '-'}</td><td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('en-US')}</td><td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('en-US')}</td><td className="px-3 py-3">{row.latitude ?? '-'}</td><td className="px-3 py-3">{row.longitude ?? '-'}</td><td className="px-3 py-3">{row.source_type || '-'}<div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div><details className="mt-1"><summary className="cursor-pointer text-[#0060A9]">Evidence</summary><p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Needs review'}</p>{row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Article <ExternalLink className="h-3 w-3" /></a>}</details></td></tr>)}</tbody></table></div>
         {!job.rows.length && !['queued', 'processing', 'waiting_for_collector'].includes(job.status) && <div className="p-8 text-center text-sm text-slate-400">No validated rows matched the filters. Try a broader country or date range.</div>}
       </div>}
     </section>

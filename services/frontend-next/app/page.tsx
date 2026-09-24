@@ -107,7 +107,7 @@ const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
   {
     id: 'mod_disease_dashboard',
     title: 'Disease Dashboard',
-    description: 'Pathogen-specific surveillance breakdown, WHO ICD-11 concepts, and morbidity progression.',
+    description: 'Pathogen-specific surveillance breakdown, local disease concepts, and morbidity progression.',
     path: '/disease-dashboard',
     category: 'Surveillance Dashboards',
     icon: Stethoscope,
@@ -302,11 +302,11 @@ const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
   {
     id: 'mod_disease_master',
     title: 'Disease Master Data',
-    description: 'WHO ICD-11 pathogen concepts, standard display names, clinical taxonomy, and multilingual aliases.',
+    description: 'Local disease concepts, standard display names, clinical categories, and multilingual aliases.',
     path: '/disease-master',
     category: 'Master Data & Configuration',
     icon: Stethoscope,
-    badge: 'WHO ICD-11',
+    badge: 'Disease Master',
     badgeColor: 'rose',
     priority: 3,
   },
@@ -510,7 +510,7 @@ export default function HomePage() {
       {
         label: 'Monitored Pathogens',
         value: totalDiseases,
-        change: 'WHO ICD-11 Standardized',
+    change: 'Local Master Active',
         icon: Stethoscope,
         color: 'text-[#0060A9]',
         iconBg: 'bg-blue-50 text-[#0060A9] border border-blue-200/60',

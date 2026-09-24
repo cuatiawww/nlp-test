@@ -23,7 +23,7 @@ export const SYSTEM_MODULES: SystemModule[] = [
   { id: 'analysis_dashboard', label: 'Analysis Dashboard', description: 'Consolidated URL and document NLP extraction intelligence, accuracy metrics, and text-mining triage', category: 'Surveillance & Monitoring', path: '/analysis-dashboard' },
   { id: 'web_services_dashboard', label: 'Web Services Dashboard', description: 'Internal microservices mesh health, external environmental geoproxies, and interoperability API catalog', category: 'Surveillance & Monitoring', path: '/web-services-dashboard' },
   { id: 'crawling_dashboard', label: 'Crawling Dashboard', description: 'Web ingestion, scraper operations, and collection pipeline intelligence', category: 'Surveillance & Monitoring', path: '/crawling-dashboard' },
-  { id: 'disease_dashboard', label: 'Disease Dashboard', description: 'WHO ICD-11 pathogen concepts, morbidity trends, and disease surveillance', category: 'Surveillance & Monitoring', path: '/disease-dashboard' },
+  { id: 'disease_dashboard', label: 'Disease Dashboard', description: 'Local disease concepts, morbidity trends, and disease surveillance', category: 'Surveillance & Monitoring', path: '/disease-dashboard' },
   { id: 'executive_dashboard', label: 'Executive Dashboard', description: 'Macro situational awareness, strategic threat triage, and policy briefing', category: 'Surveillance & Monitoring', path: '/executive-dashboard' },
   { id: 'events', label: 'Disease Events', description: 'Disease event logs, cases, and data verification', category: 'Surveillance & Monitoring', path: '/events' },
   { id: 'sources', label: 'Data Sources', description: 'Manage news feeds and API collection sources', category: 'Surveillance & Monitoring', path: '/sources' },
@@ -36,7 +36,7 @@ export const SYSTEM_MODULES: SystemModule[] = [
 
   // Master Data & Configuration
   { id: 'locations', label: 'Locations', description: 'Administrative location master data and coordinates', category: 'Master Data & Configuration', path: '/locations' },
-  { id: 'disease_master', label: 'Disease Master', description: 'WHO ICD-11 disease concepts used by the NLP pipeline', category: 'Master Data & Configuration', path: '/disease-master' },
+  { id: 'disease_master', label: 'Disease Master', description: 'Local disease concepts used by the NLP pipeline', category: 'Master Data & Configuration', path: '/disease-master' },
   { id: 'credibility', label: 'Source Credibility', description: 'Source media credibility scores and reputation', category: 'Master Data & Configuration', path: '/source-credibility' },
   { id: 'outbreak_rules', label: 'Outbreak Rules', description: 'Outbreak thresholds and alert rule configuration', category: 'Master Data & Configuration', path: '/outbreak-rules' },
   { id: 'nlp_config', label: 'NLP Labels & Keywords', description: 'NER labels, keyword dictionaries, and language models', category: 'Master Data & Configuration', path: '/nlp-labels' },

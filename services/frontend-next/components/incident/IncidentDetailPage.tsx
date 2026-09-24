@@ -4719,7 +4719,6 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
     distrik?: string
     provinsi: string
     diagnosa: string
-    icd11?: string
     kanal: string
     unit: string
     kel_unit?: string
@@ -10199,7 +10198,7 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                     <th className="py-3 px-3 text-center w-10">No.</th>
                     <th className="py-3 px-3">Reporting Region</th>
                     <th className="py-3 px-3">Reporting Facility</th>
-                    <th className="py-3 px-3">Diagnosis &amp; Disease (ICD-11)</th>
+                    <th className="py-3 px-3">Diagnosis &amp; Disease Master</th>
                     <th className="py-3 px-3 text-center">Surveillance Channel</th>
                     <th className="py-3 px-3 text-center">Case Count</th>
                     <th className="py-3 px-3 text-center">Response Status</th>
@@ -10254,9 +10253,6 @@ export default function IncidentDetailPage({ selectedEvent, onBack, onDetailLoad
                         </td>
                         <td className="py-3 px-3">
                           <div className="font-black text-slate-900">{row.diagnosa}</div>
-                          <span className="inline-block mt-0.5 px-2 py-0.2 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                            ICD-11: {row.icd11 || 'Not mapped'}
-                          </span>
                         </td>
                         <td className="py-3 px-3 text-center">
                           <span

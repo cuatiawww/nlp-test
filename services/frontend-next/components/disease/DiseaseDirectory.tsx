@@ -5,7 +5,6 @@ import {
   Activity,
   Bug,
   CheckCircle2,
-  CircleAlert,
   Database,
   Search,
   ShieldAlert,
@@ -15,7 +14,7 @@ import {
 import { fetchPaginated, fetchPublicDashboard, type DiseaseConcept } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n/LanguageContext";
 
-type DiseaseStatus = "all" | "validated" | "pending" | "inactive";
+type DiseaseStatus = "all" | "active" | "inactive";
 type DiseaseCategory = "Viral" | "Bacterial" | "Parasitic" | "Fungal" | "Prion" | "Other";
 
 type DiseaseCard = DiseaseConcept & {
@@ -129,12 +128,11 @@ export default function DiseaseDirectory() {
   const visibleDiseases = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return diseaseCards.filter((disease) => {
-      const matchesQuery = !normalizedQuery || `${disease.canonical_name} ${disease.ontology_code || ""}`.toLowerCase().includes(normalizedQuery);
+      const matchesQuery = !normalizedQuery || `${disease.disease_id || ""} ${disease.canonical_name} ${disease.description || ""}`.toLowerCase().includes(normalizedQuery);
       const matchesCategory = category === "all" || disease.category === category;
       const matchesStatus =
         status === "all" ||
-        (status === "validated" && disease.is_active && Boolean(disease.ontology_code)) ||
-        (status === "pending" && disease.is_active && !disease.ontology_code) ||
+        (status === "active" && disease.is_active) ||
         (status === "inactive" && !disease.is_active);
       return matchesQuery && matchesCategory && matchesStatus;
     });
@@ -146,7 +144,7 @@ export default function DiseaseDirectory() {
   }, [diseaseCards]);
 
   const formatNumber = (value: number) => new Intl.NumberFormat("en-US").format(value);
-  const statusOptions: DiseaseStatus[] = ["all", "validated", "pending", "inactive"];
+  const statusOptions: DiseaseStatus[] = ["all", "active", "inactive"];
 
   return (
     <main className="min-h-screen bg-[#f8fafc] px-4 py-3 md:px-6 md:py-5">
@@ -171,7 +169,7 @@ export default function DiseaseDirectory() {
         <section className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800 shadow-sm">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <p>
-            Disease names use the reviewed ICD-11 master. Legacy spellings remain available as aliases for matching and audit, while new dashboard output uses the canonical display name.
+            Disease names come from the local database master. Legacy spellings remain available as aliases for matching and audit, while dashboard output uses the active canonical name.
           </p>
         </section>
 
@@ -234,17 +232,17 @@ export default function DiseaseDirectory() {
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
             {visibleDiseases.map((disease) => {
-              const validated = disease.is_active && Boolean(disease.ontology_code);
+              const active = disease.is_active;
               return (
                 <article key={disease.id} className="group flex min-h-52 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-900/5">
                   <div className="flex items-start justify-between gap-2">
                     <span className={`rounded-md border px-2 py-1 text-[10px] font-bold ${CATEGORY_COLORS[disease.category]}`}>{disease.category}</span>
-                    <span className="font-mono text-[10px] font-bold text-slate-500">{disease.ontology_code || "—"}</span>
+                    <span className="font-mono text-[10px] font-bold text-slate-500">{disease.disease_id || "—"}</span>
                   </div>
                   <h2 className="mt-4 min-h-10 text-base font-black leading-5 text-slate-900">{disease.canonical_name}</h2>
                   <div className="mt-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    {validated ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : disease.is_active ? <CircleAlert className="h-3.5 w-3.5 text-amber-500" /> : <Database className="h-3.5 w-3.5" />}
-                    <span>{validated ? t("diseaseDirectory.validated") : disease.is_active ? t("diseaseDirectory.pending") : t("diseaseDirectory.inactive")}</span>
+                    {active ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <Database className="h-3.5 w-3.5" />}
+                    <span>{active ? t("diseaseDirectory.active") : t("diseaseDirectory.inactive")}</span>
                   </div>
                   <div className="mt-auto grid grid-cols-3 divide-x divide-slate-100 border-t border-slate-100 pt-4">
                     <DiseaseMetric label={t("diseaseDirectory.cases")} value={formatNumber(disease.cases)} />

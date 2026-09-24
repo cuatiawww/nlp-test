@@ -69,11 +69,11 @@ def startup():
     from .config import (NLP_MODEL, load_keywords_from_db, load_outbreak_rules_from_db,
                           load_locations_from_db, load_credibility_from_db,
                           load_language_markers_from_db, load_extraction_rules_from_db,
-                          load_language_models_from_db, load_who_disease_concepts_from_db,
+                          load_language_models_from_db, load_disease_master_from_db,
                           DISEASE_LABELS)
     logger.info("NLP service starting — model=%s fallback_labels=%d", NLP_MODEL, len(DISEASE_LABELS))
     load_keywords_from_db()
-    load_who_disease_concepts_from_db()
+    load_disease_master_from_db()
     load_outbreak_rules_from_db()
     load_locations_from_db()
     load_credibility_from_db()
@@ -178,13 +178,23 @@ def process_skdr_endpoint(_payload: AnalyzeRequest):
 
 @app.post("/nlp/analyze/url")
 def analyze_url_endpoint(payload: AnalyzeRequest):
-    """Dedicated endpoint for on-demand interactive URL analysis."""
-    from .bounded_analysis import analyze_bounded
-    from .schemas import as_interactive
+    """Analyze a URL article with the same full pipeline as crawler workers.
+
+    The bounded endpoint remains available at ``/nlp/analyze-bounded`` for
+    explicitly latency-sensitive callers. URL jobs are surveillance data, so
+    this compatibility route must not silently use a lower-fidelity profile.
+    """
     try:
-        # Keep the URL endpoint isolated from the bulk pipeline while still
-        # allowing the worker's bounded rules-only fallback after an NLP error.
-        return analyze_bounded(as_interactive(payload))
+        # URL analysis is a trigger, not a different NLP contract. Keep the
+        # same source text, model, translation, and strict relation stages as
+        # /nlp/analyze/raw. rules_only remains available for the worker's
+        # explicit degraded fallback.
+        normalized = payload.model_copy(update={"interactive": False})
+        with _INFERENCE_SEM:
+            result = pipeline.run(normalized)
+        output = result.model_dump()
+        output["stage_warnings"] = []
+        return output
     except HTTPException:
         raise
     except TimeoutError as exc:
@@ -201,7 +211,7 @@ def analyze_url_endpoint(payload: AnalyzeRequest):
         )
 
 
-class ICD11ResolveRequest(BaseModel):
+class DiseaseResolveRequest(BaseModel):
     text: str
     language: Optional[str] = "unknown"
 
@@ -242,14 +252,20 @@ def translate_endpoint(payload: TranslationRequest):
         ) from exc
 
 
-@app.post("/icd11/resolve")
-def resolve_icd11(payload: ICD11ResolveRequest):
-    """Resolve an unseen disease from news text against WHO ICD-11 and persist to DB."""
-    from .icd11 import resolve_and_learn_disease
-    resolved = resolve_and_learn_disease(payload.text, language=payload.language or "unknown")
+@app.post("/disease/resolve")
+def resolve_disease(payload: DiseaseResolveRequest):
+    """Resolve a disease term against the local database master."""
+    from .disease_master import resolve_local_disease_term
+    resolved = resolve_local_disease_term(payload.text)
     if resolved:
         return {"success": True, "data": resolved}
-    return {"success": False, "message": "No verified WHO ICD-11 concept resolved for the given text"}
+    return {"success": False, "message": "No local disease-master concept resolved for the given text"}
+
+
+@app.post("/icd11/resolve", include_in_schema=False)
+def resolve_legacy_disease(payload: DiseaseResolveRequest):
+    """Compatibility alias for old clients; it never contacts an external API."""
+    return resolve_disease(payload)
 
 
 @app.post("/reload")
@@ -259,10 +275,10 @@ def reload_runtime_data():
         load_keywords_from_db, load_outbreak_rules_from_db, load_locations_from_db,
         load_credibility_from_db, load_language_markers_from_db,
         load_extraction_rules_from_db, load_language_models_from_db,
-        load_who_disease_concepts_from_db,
+        load_disease_master_from_db,
     )
     load_keywords_from_db()
-    load_who_disease_concepts_from_db()
+    load_disease_master_from_db()
     load_outbreak_rules_from_db()
     load_locations_from_db()
     load_credibility_from_db()

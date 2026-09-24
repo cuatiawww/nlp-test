@@ -589,7 +589,7 @@ Source: ASEAN Regional Health Intelligence System.`
               </span>
               <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 border border-slate-200 shadow-2xs">
                 <ShieldCheck className="h-3 w-3 text-[#0060A9]" />
-                WHO ICD-11 Standardized
+                Local Disease Master
               </span>
               <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 border border-slate-200 shadow-2xs">
                 <Zap className="h-3 w-3 text-amber-600" />

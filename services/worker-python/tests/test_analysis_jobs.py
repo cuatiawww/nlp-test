@@ -222,29 +222,34 @@ class AnalysisJobTests(unittest.TestCase):
                 fetch_article("https://example.org/news")
         self.assertEqual(ctx.exception.code, "empty_article")
 
-    def test_analyze_article_marks_request_interactive(self):
+    def test_analyze_article_uses_full_raw_pipeline(self):
         response = Mock()
         response.ok = True
         response.json.return_value = {"disease_classification": "Dengue", "case_count": 10}
         with patch("requests.post", return_value=response) as post:
             analyze_article(
-                {"title": "DBD", "content": "10 kasus demam berdarah", "source_country": "Indonesia"},
+                {
+                    "title": "DBD",
+                    "content": "10 kasus demam berdarah",
+                    "source_country": "Indonesia",
+                    "url": "https://example.org/news",
+                },
                 fallback=False,
             )
         sent = post.call_args.kwargs["json"]
-        self.assertTrue(sent["interactive"])
         self.assertFalse(sent["rules_only"])
-        self.assertIn("/nlp/analyze/url", post.call_args.args[0])
+        self.assertEqual(sent["source_url"], "https://example.org/news")
+        self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
 
-    def test_analyze_article_fallback_stays_interactive(self):
+    def test_analyze_article_fallback_keeps_raw_contract(self):
         response = Mock()
         response.ok = True
         response.json.return_value = {"disease_classification": "Measles"}
         with patch("requests.post", return_value=response) as post:
             analyze_article({"content": "Kasus campak di Semarang"}, fallback=True)
         sent = post.call_args.kwargs["json"]
-        self.assertTrue(sent["interactive"])
         self.assertTrue(sent["rules_only"])
+        self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
 
     def test_url_worker_spawns_manual_crawler_in_the_existing_service(self):
         from app.analysis_jobs import spawn_matrix_worker_enabled, analysis_prefetch, QUEUE

@@ -175,7 +175,7 @@ def parse_html_links(payload: bytes, page_url: str) -> list[dict]:
 
 
 def expand_disease_terms(names: list[str] | tuple[str, ...] | set[str]) -> list[str]:
-    """Expand ICD-11 / local aliases so campak matches Measles, DBD matches Dengue."""
+    """Expand local-master aliases so campak matches Measles and DBD matches Dengue."""
     terms: list[str] = []
     seen: set[str] = set()
     for name in names:

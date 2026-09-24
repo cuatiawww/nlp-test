@@ -57,9 +57,8 @@ docker compose exec -T postgres psql -U postgres -d disease_ai -c "ALTER TABLE d
 
 Akses: **http://localhost:3010/nlp/**
 
-Walkthrough implementasi agent WHO ICD-11, fallback DeepSeek/OpenAI, disease
-mentions, dan verifikasi hasil tersedia di
-[`docs/ICD11_AGENT_WALKTHROUGH.md`](docs/ICD11_AGENT_WALKTHROUGH.md).
+Audit alur crawling, resolusi Disease Master lokal, dan perbandingan jalur
+analisis tersedia di `docs/audit/`.
 
 Panduan lengkap sumber data, definisi KPI, EWS, NLP fields, SKDR IBS/EBS,
 dan batasan fallback dashboard tersedia di
@@ -265,7 +264,7 @@ tidak tersedia, bukan nol.
 
 ### Re-analysis Data Health Lama
 
-Untuk menerapkan aturan NLP, WHO ICD-11, lokasi, dan deteksi outbreak terbaru
+Untuk menerapkan aturan NLP, Disease Master lokal, lokasi, dan deteksi outbreak terbaru
 ke data yang sudah tersimpan, gunakan command berikut. Proses ini membaca
 `disease_events.original_text` dan tidak mengambil ulang URL sumber.
 
@@ -282,11 +281,8 @@ Jalankan simulasi terlebih dahulu tanpa mengubah database:
 sh scripts/reanalyze_health.sh --dry-run --limit 20
 ```
 
-Secara default command ini juga mencoba menemukan istilah pada event `UNKNOWN`,
-memvalidasinya ke WHO ICD-11, menyimpan konsep yang valid, lalu me-reload
-runtime NLP sebelum analisis event. Batasi pemindaian WHO dengan
-`--who-limit 500`, atau gunakan `--skip-who-sync` jika hanya ingin mengulang
-inferensi dari konsep yang sudah ada.
+Secara default command ini hanya mengulang inferensi dari Disease Master lokal
+dan tidak melakukan sinkronisasi katalog eksternal.
 
 Jika hasil sudah sesuai, proses seluruh event dengan `is_health_related = TRUE`:
 
@@ -615,18 +611,27 @@ Catatan operasional:
 Retraining hanya menggunakan data ber-confidence tinggi, mengevaluasi kandidat
 terlebih dahulu, dan menyimpan model lama untuk rollback.
 
-### Bootstrap Data Multilingual dari Data Existing
+### Disease Master Lokal
+
+Resolusi penyakit hanya menggunakan konsep aktif dari `disease_concepts` dan
+alias pada `disease_aliases`. Migration master lokal tersedia di
+`database/init/120_clean_and_inject_asean_master_diseases.sql`; setelah migrasi,
+reload service NLP dengan `docker compose up -d --force-recreate disease-nlp-python`.
+
+Bagian bootstrap dan sinkronisasi ontology eksternal di bawah ini sudah tidak
+digunakan.
+
+<!-- Arsip instruksi lama dipertahankan untuk audit sejarah, bukan untuk operasi. -->
+### Arsip Bootstrap Data Lama
 
 Data existing dapat dipakai untuk mengisi konsep penyakit, alias multilingual,
 dan training examples tanpa input manual. Jalankan migration `021` terlebih
 dahulu, kemudian:
 
 ```bash
-python3 scripts/bootstrap_multilingual_data.py --dry-run
-python3 scripts/bootstrap_multilingual_data.py --no-llm
+docker compose up -d --force-recreate disease-nlp-python
 
 # Optional: normalisasi alias dan report UNKNOWN dengan DeepSeek
-DEEPSEEK_API_KEY=... python3 scripts/bootstrap_multilingual_data.py
 ```
 
 Untuk mengisi kode canonical WHO ICD-11 MMS secara otomatis, tambahkan
@@ -657,20 +662,16 @@ URI selalu berasal dari WHO. Pastikan `DEEPSEEK_API_KEY`,
 Uji kasus tertentu tanpa menulis database:
 
 ```bash
-sh scripts/sync_who_unknowns.sh --term Ebola --dry-run
 ```
 
 Jika hasilnya benar, simpan konsep WHO tersebut:
 
 ```bash
-sh scripts/sync_who_unknowns.sh --term Ebola
 ```
 
 Untuk memindai report UNKNOWN secara otomatis:
 
 ```bash
-sh scripts/sync_who_unknowns.sh --limit 500 --dry-run
-sh scripts/sync_who_unknowns.sh --limit 500
 ```
 
 Secara default hanya UNKNOWN yang sudah berstatus non-health yang dipindai.
@@ -678,7 +679,6 @@ Gunakan `--include-health` untuk data lama yang masih memiliki kombinasi
 `UNKNOWN` dan `is_health_related = TRUE`:
 
 ```bash
-sh scripts/sync_who_unknowns.sh --include-health --limit 500 --dry-run
 ```
 
 Setelah konsep baru masuk, restart NLP agar cache konsep WHO dan keyword

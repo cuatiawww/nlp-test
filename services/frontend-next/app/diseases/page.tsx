@@ -4,7 +4,7 @@ import DiseaseDirectory from "@/components/disease/DiseaseDirectory";
 
 export const metadata: Metadata = {
   title: "Disease Directory",
-  description: "ICD-11 disease directory and surveillance signals",
+  description: "Local disease directory and surveillance signals",
 };
 
 export default function DiseasesPage() {

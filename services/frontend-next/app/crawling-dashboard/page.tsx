@@ -407,7 +407,7 @@ Source: Disease Surveillance AI Ingestion Pipeline — ASEAN Regional Scraper.`
             <p className="text-sm leading-relaxed text-slate-700">
               Automated surveillance pipeline continuously ingesting raw articles, RSS syndications,
               and ministry health bulletins across Southeast Asia. Ingested documents undergo noise
-              sanitization, multi-lingual translation, zero-shot entity extraction, and canonical WHO ICD-11 normalization.
+              sanitization, multi-lingual translation, zero-shot entity extraction, and local disease master normalization.
             </p>
 
             {/* Pipeline Stage Steps */}

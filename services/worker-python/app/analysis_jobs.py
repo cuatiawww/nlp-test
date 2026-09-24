@@ -41,6 +41,9 @@ def _json_safe(value):
 QUEUE = os.getenv("RABBITMQ_ANALYSIS_URL_QUEUE", "disease.analysis-url")
 TRANSLATION_QUEUE = os.getenv("RABBITMQ_TRANSLATION_QUEUE", "disease.translation")
 TRANSLATION_NLP_URL = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000")
+NLP_REQUEST_TIMEOUT_SECONDS = max(
+    120, int(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "270"))
+)
 
 
 class UnknownAnalysisJob(ValueError):
@@ -350,12 +353,11 @@ def _prepare_text_for_nlp(extracted, max_chars=35000):
 
 def analyze_article(extracted, fallback=False):
     import requests
-    # Interactive URL analysis has its own NLP runtime. Keep the old variable
-    # as a fallback so one-off worker runs and older deployments still work.
+    # URL analysis uses the same full NLP contract as bulk and matrix workers.
     endpoint = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000")
     text_payload = _prepare_text_for_nlp(extracted)
     response = requests.post(
-        endpoint + "/nlp/analyze/url",
+        endpoint + "/nlp/analyze/raw",
         json={
             "text": text_payload,
             "source_type": "web",
@@ -363,7 +365,7 @@ def analyze_article(extracted, fallback=False):
             "source_country": extracted.get("source_country"),
             "published_at": extracted.get("published_at"),
             "rules_only": fallback,
-            "interactive": True,
+            "source_url": extracted.get("url"),
         },
         timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
     )

@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--skip-who-sync", action="store_true",
-        help="Lewati resolusi UNKNOWN ke WHO ICD-11 sebelum re-analysis.",
+        help="Kompatibilitas CLI lama; tidak ada sinkronisasi katalog eksternal.",
     )
     parser.add_argument(
         "--who-limit", type=int, default=500,
@@ -257,8 +257,8 @@ def update_event(conn: psycopg.Connection, row: dict, result: dict) -> None:
 
 def main() -> int:
     args = parse_args()
-    if args.limit < 0 or args.offset < 0 or args.batch_size < 1 or args.who_limit < 0:
-        raise SystemExit("--limit/--offset/--who-limit harus >= 0 dan --batch-size harus >= 1")
+    if args.limit < 0 or args.offset < 0 or args.batch_size < 1:
+        raise SystemExit("--limit/--offset harus >= 0 dan --batch-size harus >= 1")
 
     total = processed = failed = 0
     last_created_at = None
@@ -266,23 +266,6 @@ def main() -> int:
 
     wait_for_nlp()
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
-        if not args.skip_who_sync:
-            try:
-                from .sync_who_unknowns import sync_unknown_concepts
-                resolved = sync_unknown_concepts(
-                    conn,
-                    limit=args.who_limit,
-                    include_health=True,
-                    dry_run=args.dry_run,
-                )
-                if resolved and not args.dry_run:
-                    reload_response = requests.post(f"{NLP_SERVICE_URL}/reload", timeout=30)
-                    reload_response.raise_for_status()
-                    logger.info("Reloaded NLP runtime after WHO sync (%d concepts)", resolved)
-            except Exception as exc:
-                logger.warning("WHO sync before re-analysis skipped: %s", exc)
-                if args.stop_on_error:
-                    return 1
         count_row = conn.execute(
             "SELECT COUNT(*) AS count FROM disease_events WHERE is_health_related IS TRUE"
         ).fetchone()

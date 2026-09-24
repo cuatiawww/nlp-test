@@ -40,7 +40,7 @@ export default function CorrectionModal({ open, target, onClose, onSuccess }: Pr
   const FIELD_LABELS: Record<string, string> = {
     case_count: 'Jumlah Kasus (Cases)',
     death_count: 'Jumlah Kematian (Deaths)',
-    disease: 'Klasifikasi Penyakit (Disease / ICD-11)',
+    disease: 'Klasifikasi Penyakit (Disease Master)',
     location: 'Nama Wilayah / Kota (Location)',
     country: 'Negara (Country)',
   }

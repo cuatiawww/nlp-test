@@ -199,30 +199,28 @@ export default function AnalysisDashboardPage() {
 
   // Top extracted diseases
   const topExtractedDiseases = useMemo(() => {
-    const dMap = new Map<string, { count: number; cases: number; icd11: string }>()
+    const dMap = new Map<string, { count: number; cases: number }>()
     rows.forEach((r) => {
       const d = r.disease || 'General Infection'
-      const existing = dMap.get(d) || { count: 0, cases: 0, icd11: r.icd11_code || '1D00' }
+      const existing = dMap.get(d) || { count: 0, cases: 0 }
       existing.count += 1
       existing.cases += r.cases || 0
-      if (r.icd11_code) existing.icd11 = r.icd11_code
       dMap.set(d, existing)
     })
 
     if (dMap.size === 0) {
       return [
-        { name: 'Dengue', icd11: '1D20', count: 184, cases: 12450, precision: 98.2 },
-        { name: 'Avian Influenza', icd11: '1E30', count: 89, cases: 412, precision: 96.5 },
-        { name: 'Acute Diarrhea', icd11: '1A00', count: 72, cases: 3820, precision: 95.1 },
-        { name: 'Mpox', icd11: '1E71', count: 48, cases: 145, precision: 97.4 },
-        { name: 'Malaria', icd11: '1F40', count: 36, cases: 890, precision: 94.8 },
+        { name: 'Dengue', count: 184, cases: 12450, precision: 98.2 },
+        { name: 'Avian Influenza', count: 89, cases: 412, precision: 96.5 },
+        { name: 'Acute Diarrhea', count: 72, cases: 3820, precision: 95.1 },
+        { name: 'Mpox', count: 48, cases: 145, precision: 97.4 },
+        { name: 'Malaria', count: 36, cases: 890, precision: 94.8 },
       ]
     }
 
     return Array.from(dMap.entries())
       .map(([name, stat]) => ({
         name,
-        icd11: stat.icd11,
         count: stat.count,
         cases: stat.cases,
         precision: 95.5,
@@ -299,8 +297,8 @@ MACRO EXTRACTION METRICS:
 - Average Model Confidence: ${formatPercent(macroStats.avgConfidence)}
 - Source Credibility Index: ${formatPercent(macroStats.credibilityScore)}
 
-TOP EXTRACTED DISEASES (WHO ICD-11):
-${topExtractedDiseases.map((d, i) => `${i + 1}. ${d.name} (${d.icd11}): ${formatNumber(d.count, numLocale)} mentions, ${formatNumber(d.cases, numLocale)} cases mined (${d.precision}% precision)`).join('\n')}
+TOP EXTRACTED DISEASES (LOCAL MASTER):
+${topExtractedDiseases.map((d, i) => `${i + 1}. ${d.name}: ${formatNumber(d.count, numLocale)} mentions, ${formatNumber(d.cases, numLocale)} cases mined (${d.precision}% precision)`).join('\n')}
 
 Source: URL Analysis & NLP Cognitive Engine.`
 
@@ -438,7 +436,7 @@ Source: URL Analysis & NLP Cognitive Engine.`
             </div>
 
             <p className="text-xs leading-relaxed text-slate-700 bg-white/70 p-3.5 rounded-xl border border-blue-100 shadow-xs">
-              Automated document intelligence ingesting unstructured news articles, official health ministry press releases, and epidemiological dispatches. Extracts named entities (Disease, Location, Case Counts, Deaths), standardizes diagnoses to WHO ICD-11, resolves PostGIS geographic coordinates, and calculates source credibility scores.
+      Automated document intelligence ingesting unstructured news articles, official health ministry press releases, and epidemiological dispatches. Extracts named entities (Disease, Location, Case Counts, Deaths), resolves them against the local disease master, maps PostGIS geographic coordinates, and calculates source credibility scores.
             </p>
 
             <div className="flex flex-wrap items-center gap-2 pt-1 text-[10px] font-bold text-slate-600">
@@ -448,7 +446,7 @@ Source: URL Analysis & NLP Cognitive Engine.`
               </span>
               <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 border border-slate-200 shadow-2xs">
                 <ShieldCheck className="h-3 w-3 text-[#0060A9]" />
-                WHO ICD-11 MMS Standardized
+                Local Disease Master
               </span>
               <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 border border-slate-200 shadow-2xs">
                 <MapPin className="h-3 w-3 text-purple-600" />
@@ -703,7 +701,7 @@ Source: URL Analysis & NLP Cognitive Engine.`
       </section>
 
       {/* ─────────────────────────────────────────────────────────────
-          5. EXTRACTED DISEASE & WHO ICD-11 PERFORMANCE MATRIX
+          5. EXTRACTED DISEASE & LOCAL MASTER PERFORMANCE MATRIX
           ───────────────────────────────────────────────────────────── */}
       <section
         className="border border-[#cfe0f1] bg-white p-5 shadow-[0_6px_18px_rgba(0,96,169,.06)]"
@@ -713,14 +711,14 @@ Source: URL Analysis & NLP Cognitive Engine.`
           <div>
             <h2 className="text-sm font-black uppercase tracking-wider text-slate-900 flex items-center gap-2">
               <Stethoscope className="h-4 w-4 text-[#0060A9]" />
-              Top Extracted Disease Concepts & WHO ICD-11 MMS Mapping
+              Top Extracted Disease Concepts & Local Master Mapping
             </h2>
             <p className="text-xs text-slate-500">
-              Leading pathogens identified across analyzed articles with standard taxonomic codes
+              Leading pathogens identified across analyzed articles from the local disease master
             </p>
           </div>
           <span className="text-[10px] font-bold bg-blue-50 text-[#0060A9] px-2.5 py-1 rounded border border-blue-100">
-            ICD-11 Taxonomy Standardized
+            Local Master Resolved
           </span>
         </div>
 
@@ -732,9 +730,6 @@ Source: URL Analysis & NLP Cognitive Engine.`
             >
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs font-black text-slate-900 truncate">{dis.name}</span>
-                <span className="text-[9px] font-mono font-bold bg-blue-100 text-[#0060A9] px-1.5 py-0.2 rounded">
-                  {dis.icd11}
-                </span>
               </div>
               <div className="space-y-0.5 text-[11px] text-slate-600">
                 <div className="flex justify-between">

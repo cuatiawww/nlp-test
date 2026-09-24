@@ -304,6 +304,7 @@ export type AnalyzeResponse = {
   event_id: string;
   sub_events?: {
     disease: string;
+    disease_id?: string | null;
     disease_icd11_code?: string | null;
     location_name: string;
     country?: string | null;
@@ -316,6 +317,7 @@ export type AnalyzeResponse = {
   disease_mentions?: {
     surface_form?: string;
     canonical_name?: string;
+    disease_id?: string | null;
     role?: string;
     icd11_code?: string | null;
     evidence?: string;
@@ -349,6 +351,7 @@ export type InteroperabilityIntegration = {
 export type CrawlMatrixRow = {
   id: string;
   disease_name: string;
+  disease_id?: string | null;
   icd11_code?: string | null;
   crawling_date?: string | null;
   region?: string | null;
@@ -392,6 +395,7 @@ export type CrawlHistoryRow = {
   province?: string | null;
   city?: string | null;
   disease?: string | null;
+  disease_id?: string | null;
   icd11_code?: string | null;
   cases?: number | null;
   deaths?: number | null;

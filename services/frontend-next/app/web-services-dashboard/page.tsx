@@ -91,16 +91,16 @@ const WEB_SERVICES_CATALOG: WebServiceItem[] = [
     name: 'Biomedical NLP Intelligence Engine',
     category: 'internal',
     provider: 'Disease AI NLP (FastAPI / PyTorch)',
-    endpoint: '/nlp/analyze, /nlp/translate, /icd11/resolve',
+    endpoint: '/nlp/analyze, /nlp/translate',
     sourceUrl: 'http://disease-nlp-python:8000',
     status: 'ACTIVE',
     latencyEstimate: '120 - 450 ms',
     cacheTtl: 'No-Cache (Deterministic Inference Engine)',
-    integratedIn: ['URL Analysis', 'Continuous Crawler', 'Manual Jobs', 'ICD-11 Resolution'],
+    integratedIn: ['URL Analysis', 'Continuous Crawler', 'Manual Jobs', 'Disease Master'],
     authModel: 'Internal Network Token / Shared Secret',
     rateLimit: 'Bounded concurrency (Semaphore = 4 concurrent batches)',
     description:
-      'Biomedical Named Entity Recognition (NER), disease classification, quantitative metric extraction (cases/deaths), NLLB-200 translation, and WHO ICD-11 ontology resolution.',
+      'Biomedical Named Entity Recognition (NER), disease classification, quantitative metric extraction (cases/deaths), NLLB-200 translation, and local disease-master resolution.',
     fallbackMechanism: 'Bounded rules-only extractor fallback when model inference exceeds 90-second timeout budget.',
     samplePayload: {
       status: 'ok',
@@ -480,29 +480,6 @@ const WEB_SERVICES_CATALOG: WebServiceItem[] = [
   },
 
   // Biomedical, News & AI APIs
-  {
-    id: 'who-icd11',
-    name: 'WHO ICD-11 Classification API & Ontology',
-    category: 'biomedical',
-    provider: 'World Health Organization (WHO API)',
-    endpoint: '/icd11/resolve, /api/v1/disease-concepts',
-    sourceUrl: 'https://id.who.int/icd/release/11/search',
-    status: 'ACTIVE',
-    latencyEstimate: '35 - 120 ms (DB-backed cache)',
-    cacheTtl: 'Persistent in database table who_disease_concepts',
-    integratedIn: ['NLP Pipeline', 'Disease Master', 'Disease Dashboard', 'Executive Dashboard'],
-    authModel: 'OAuth2 Client Credentials (WHO Identity)',
-    rateLimit: 'Synchronized offline into local database cache',
-    description:
-      'International Classification of Diseases 11th Revision (ICD-11) hierarchy mapping raw multilingual pathogen names to standardized epidemiological codes.',
-    fallbackMechanism: 'Offline gazetteer search against local PostgreSQL table when live WHO OAuth2 token expires.',
-    samplePayload: {
-      icd11_code: '1D20',
-      title: 'Dengue',
-      category: 'Certain infectious or parasitic diseases',
-      source: 'WHO ICD-11 Release 2024-01',
-    },
-  },
   {
     id: 'gdelt-news',
     name: 'GDELT Project DOC 2.0 Disease News API',
@@ -991,11 +968,11 @@ export default function WebServicesDashboardPage() {
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">5</span>
             <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-purple-700 border border-purple-200">
-              ICD-11 Linked
+              Local Master Linked
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            WHO ICD-11, GDELT 2.0, NLLB-200, WHO RSS, Google News
+            Disease Master, GDELT 2.0, NLLB-200, WHO RSS, Google News
           </p>
         </div>
 
@@ -1111,7 +1088,7 @@ export default function WebServicesDashboardPage() {
               <div className="font-bold text-sm text-slate-900">NLP Engine (:8000)</div>
               <div className="text-[11px] text-slate-600 mt-2 space-y-1">
                 <div>• Biomedical NER classification</div>
-                <div>• WHO ICD-11 ontology match</div>
+                <div>• Local disease master match</div>
                 <div>• NLLB-200 local translation</div>
                 <div>• Case & death count mining</div>
               </div>

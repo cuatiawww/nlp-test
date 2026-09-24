@@ -418,7 +418,7 @@ export const updateMasterRegion = (
 export const deleteMasterRegion = (id: string) =>
   delFrom(`/api/v1/master/regions/${id}`);
 
-// ── Disease Master (WHO ICD-11) ───────────────────
+// ── Disease Master (local database catalog) ───────
 
 export interface DiseaseConcept {
   id: string;
@@ -429,10 +429,6 @@ export interface DiseaseConcept {
   description?: string | null;
   is_public?: boolean;
   allow_engine?: boolean;
-  ontology_system?: string | null;
-  ontology_code?: string | null;
-  ontology_uri?: string | null;
-  ontology_release?: string | null;
   source: string;
   confidence: number;
   is_active: boolean;

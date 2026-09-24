@@ -302,18 +302,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # Keyword/alias hits already cover dengue/cholera style ASEAN news.
         # Full WHO concept regex over thousands of rows is a common 408 cause;
         # map the cheap keyword set instead of scanning every concept alias.
-        who_mentions = extractors.canonicalize_who_disease_labels(
+        who_mentions = extractors.canonicalize_disease_labels(
             keyword_diseases + primary_aliases,
-            config.WHO_DISEASE_CONCEPTS,
+            config.DISEASE_MASTER_CONCEPTS,
         )
     else:
-        who_mentions = extractors.extract_who_disease_mentions(
+        who_mentions = extractors.extract_disease_mentions(
             text[:5000] + " " + analysis_text[:5000],
-            config.WHO_DISEASE_CONCEPTS,
+            config.DISEASE_MASTER_CONCEPTS,
         )
     who_mentions = sorted(set(
         who_mentions
-        + extractors.canonicalize_who_disease_labels(keyword_diseases, config.WHO_DISEASE_CONCEPTS)
+        + extractors.canonicalize_disease_labels(keyword_diseases, config.DISEASE_MASTER_CONCEPTS)
     ))
     
     def _rank_diseases(candidates: list[str], sample: str) -> list[str]:
@@ -487,23 +487,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 ]
                 has_keywords = True
                 is_health_related = True
-            elif (
-                disease == "UNKNOWN"
-                or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
-            ):
-                # Dynamic WHO ICD-11 Discovery & Self-Learning
-                from .icd11 import resolve_and_learn_disease
-                dynamic_resolved = resolve_and_learn_disease(analysis_text or text, language=language)
-                if dynamic_resolved and extractors.disease_has_textual_evidence(
-                    dynamic_resolved.get("canonical_name") or "", text + " " + analysis_text
-                ):
-                    disease = dynamic_resolved["canonical_name"]
-                    confidence = dynamic_resolved["confidence"]
-                    extracted = [disease, *[x for x in extracted if x != disease]]
-                    has_keywords = True
-                    is_health_related = True
         except Exception as e:
-            logger.info("DeepSeek / WHO ICD-11 discovery fallback unavailable: %s", e)
+            logger.info("DeepSeek local disease-master fallback unavailable: %s", e)
 
     extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
     if translated_text and extracted:
@@ -715,17 +700,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     def _canonical_display(value: str) -> str:
         return extractors.canonical_disease_name(
             value,
-            concepts=config.WHO_DISEASE_CONCEPTS,
+            concepts=config.DISEASE_MASTER_CONCEPTS,
         )
 
     disease = _canonical_display(disease)
     extracted = [_canonical_display(d) for d in extracted]
     extracted = list(dict.fromkeys(extracted))
 
-    # Resolve every explicit mention, including secondary diseases. The agent
-    # chooses the primary disease, but WHO validation is applied to the full
-    # mention set so related diseases are not lost.
-    from .icd11 import resolve_disease_term, resolve_local_icd11_term
+    # Resolve every explicit mention, including secondary diseases, against
+    # the same local disease master used by the extractor.
+    from .disease_master import resolve_disease_term, resolve_local_disease_term
 
     resolved_concept_overrides = {}
     try:
@@ -735,7 +719,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if not candidate or str(candidate).upper() == "UNKNOWN":
                 continue
             if payload.interactive:
-                term_resolutions[candidate] = resolve_local_icd11_term(candidate)
+                term_resolutions[candidate] = resolve_local_disease_term(candidate)
             else:
                 term_resolutions[candidate] = resolve_disease_term(
                     candidate, language=language, sample_text=text
@@ -753,7 +737,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     confidence = max(confidence, resolved_term.get("confidence", 0.90))
         extracted = list(dict.fromkeys(extracted))
     except Exception as exc:
-        logger.info("WHO term resolution unavailable: %s", exc)
+        logger.info("Local disease-master resolution unavailable: %s", exc)
 
     def _norm_disease(value: str) -> str:
         # Keep Unicode disease names (Thai/Lao/Khmer/etc.) available for
@@ -764,19 +748,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         normalized = _norm_disease(value)
         if not normalized:
             return None
-        # A concept resolved through the live WHO API may not be in the
-        # startup cache yet. Keep that validated result attached to this
-        # article so the disease mention receives its ICD-11 code now.
-        live_concept = resolved_concept_overrides.get(normalized)
-        if live_concept and live_concept.get("ontology_code"):
+        resolved_concept = resolved_concept_overrides.get(normalized)
+        if resolved_concept and resolved_concept.get("disease_id"):
             return {
-                "canonical_name": live_concept.get("canonical_name") or value,
-                "english_name": live_concept.get("english_name") or value,
-                "ontology_code": live_concept.get("ontology_code"),
-                "ontology_uri": live_concept.get("ontology_uri"),
+                "disease_id": resolved_concept.get("disease_id"),
+                "canonical_name": resolved_concept.get("canonical_name") or value,
+                "english_name": resolved_concept.get("english_name") or value,
+                "source": resolved_concept.get("master_source") or "local_database",
+                "ontology_code": None,
+                "ontology_uri": None,
                 "aliases": [],
             }
-        for concept in config.WHO_DISEASE_CONCEPTS:
+        for concept in config.DISEASE_MASTER_CONCEPTS:
             names = [concept.get("canonical_name"), concept.get("english_name")]
             names.extend(
                 item.get("alias") if isinstance(item, dict) else item
@@ -788,13 +771,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 for name in cleaned if name
             ):
                 return concept
-        local_resolved = resolve_local_icd11_term(value)
-        if local_resolved and local_resolved.get("ontology_code"):
+        local_resolved = resolve_local_disease_term(value)
+        if local_resolved and local_resolved.get("disease_id"):
             return {
+                "disease_id": local_resolved.get("disease_id"),
                 "canonical_name": local_resolved.get("canonical_name") or value,
                 "english_name": local_resolved.get("english_name") or value,
-                "ontology_code": local_resolved.get("ontology_code"),
-                "ontology_uri": local_resolved.get("ontology_uri"),
+                "source": local_resolved.get("master_source") or "local_database",
+                "ontology_code": None,
+                "ontology_uri": None,
                 "aliases": [],
             }
         return None
@@ -825,18 +810,20 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             DiseaseMention(
                 surface_form=surface,
                 canonical_name=canonical,
-                icd11_code=concept.get("ontology_code") if concept else None,
+                disease_id=concept.get("disease_id") if concept else None,
+                master_source=concept.get("source") if concept else None,
+                icd11_code=None,
                 role="primary" if _norm_disease(canonical) == _norm_disease(disease) else "secondary",
                 evidence=evidence,
                 confidence=max(confidence if canonical == disease else 0.70, 0.0),
-                resolution_source=("WHO ICD-11" if concept and concept.get("ontology_code") else "keyword/agent"),
+                resolution_source=("local_disease_master" if concept and concept.get("disease_id") else "keyword/agent"),
             )
         )
 
-    if config.ICD11_CANONICAL_OUTPUT_ONLY:
-        from .icd11 import project_icd11_public_output
+    if config.DISEASE_MASTER_RESOLUTION_ENABLED:
+        from .disease_master import project_disease_master_output
 
-        public_projection = project_icd11_public_output(
+        public_projection = project_disease_master_output(
             primary=disease,
             extracted=extracted,
             mentions=disease_mentions,
@@ -847,7 +834,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             # disease name or dashboard aggregation key.
             disease_mentions[index].canonical_name = "UNKNOWN"
             disease_mentions[index].role = "mentioned"
-            disease_mentions[index].resolution_source = "pending_icd11"
+            disease_mentions[index].resolution_source = "pending_local_master"
         disease = public_projection["primary"]
         extracted = public_projection["extracted"]
         if public_projection["unresolved_indexes"]:
@@ -1750,14 +1737,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         evt.evidence_offset_space = evidence_offset_space
         if evidence_offset_space != "original":
             evt.provenance["source_text"] = "repaired_original"
-        resolved_sub = resolve_local_icd11_term(evt.disease)
-        if resolved_sub and resolved_sub.get("ontology_code"):
+        resolved_sub = resolve_local_disease_term(evt.disease)
+        if resolved_sub and resolved_sub.get("disease_id"):
             evt.disease = resolved_sub["canonical_name"]
-            evt.disease_icd11_code = resolved_sub["ontology_code"]
+            evt.disease_id = resolved_sub["disease_id"]
 
     coded_mentions = [
         mention for mention in disease_mentions
-        if mention.icd11_code
+        if mention.disease_id
         and mention.canonical_name
         and mention.canonical_name.upper() != "UNKNOWN"
     ]
@@ -1771,8 +1758,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             [mention.canonical_name for mention in coded_mentions] + list(extracted)
         ))
     else:
-        resolved_primary = resolve_local_icd11_term(disease)
-        if resolved_primary and resolved_primary.get("ontology_code"):
+        resolved_primary = resolve_local_disease_term(disease)
+        if resolved_primary and resolved_primary.get("disease_id"):
             disease = resolved_primary["canonical_name"]
 
     summary = _build_article_summary(

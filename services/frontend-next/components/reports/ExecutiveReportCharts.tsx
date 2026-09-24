@@ -382,7 +382,7 @@ interface DiseaseDistributionDonutProps {
 
 export const DiseaseDistributionDonut: React.FC<DiseaseDistributionDonutProps> = ({
   shares,
-  title = "Dominant Monitored Diseases Distribution (ICD-11)",
+  title = "Dominant Monitored Diseases Distribution (Local Master)",
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null)
 
@@ -441,7 +441,7 @@ export const DiseaseDistributionDonut: React.FC<DiseaseDistributionDonutProps> =
         <div>
           <h4 className="text-sm sm:text-base font-bold text-[#004b87]">{title}</h4>
           <p className="text-[11px] font-medium text-slate-500 mt-0.5">
-            Proportional disease burden breakdown by ICD-11 diagnostic category
+            Proportional disease burden breakdown by local disease category
           </p>
         </div>
         <button

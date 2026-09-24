@@ -35,7 +35,7 @@ class EntityRelationTests(unittest.TestCase):
                         "canonical_name": "dengue fever",
                         "role": "primary",
                         "evidence": "Vientiane reported 10 dengue cases.",
-                        "icd11_code": "1B01",
+                        "disease_id": "DENGUE",
                     },
                     {
                         "surface_form": "measles",
@@ -49,7 +49,7 @@ class EntityRelationTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["case_count"], 10)
-        self.assertEqual(rows[0]["icd11_code"], "1B01")
+        self.assertEqual(rows[0]["disease_id"], "DENGUE")
         self.assertIsNone(rows[1]["case_count"])
         self.assertEqual(rows[1]["role"], "mentioned")
 
@@ -57,21 +57,21 @@ class EntityRelationTests(unittest.TestCase):
         self.assertEqual(location_relation_rows({"location_name": None}), [])
         self.assertEqual(disease_relation_rows({"disease_classification": "UNKNOWN"}), [])
 
-    def test_disease_aliases_with_same_icd11_code_are_one_relation(self):
+    def test_disease_aliases_with_same_master_id_are_one_relation(self):
         rows = disease_relation_rows(
             {
                 "disease_classification": "COVID-19",
                 "case_count": 12,
                 "disease_mentions": [
-                    {"surface_form": "COVID-19", "canonical_name": "COVID-19", "role": "primary", "icd11_code": "1D2Z"},
-                    {"surface_form": "coronavirus", "canonical_name": "COVID-19 coronavirus", "role": "secondary", "icd11_code": "1D2Z"},
+                    {"surface_form": "COVID-19", "canonical_name": "COVID-19", "role": "primary", "disease_id": "COVID_19"},
+                    {"surface_form": "coronavirus", "canonical_name": "COVID-19 coronavirus", "role": "secondary", "disease_id": "COVID_19"},
                 ],
             }
         )
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["role"], "primary")
-        self.assertEqual(rows[0]["icd11_code"], "1D2Z")
+        self.assertEqual(rows[0]["disease_id"], "COVID_19")
 
 
     def test_sub_event_child_relation_rows(self):

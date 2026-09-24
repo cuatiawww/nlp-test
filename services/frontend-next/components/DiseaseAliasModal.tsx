@@ -157,11 +157,6 @@ export default function DiseaseAliasModal({ concept, open, onClose, onSaved }: P
               {concept?.disease_id || concept?.canonical_name}
             </span>
             <span className="text-sm font-semibold text-slate-800">{concept?.canonical_name}</span>
-            {concept?.ontology_code && (
-              <span className="text-xs font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
-                ICD-11: {concept.ontology_code}
-              </span>
-            )}
           </div>
           <div className="text-xs text-slate-600 font-medium">
             Total Aliases Configured: <span className="font-bold text-[#0060A9]">{totalAliases}</span>

@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { createDiseaseConcept, DiseaseConcept, updateDiseaseConcept } from '@/lib/api'
-import { ChevronDown, ChevronUp, Stethoscope } from 'lucide-react'
 
 interface Props {
   concept?: DiseaseConcept | null
@@ -35,12 +34,6 @@ export default function DiseaseConceptForm({ concept, onSaved, onCancel }: Props
   const [allowEngine, setAllowEngine] = useState(true)
   const [description, setDescription] = useState('')
 
-  // ICD-11 & Ontology fields
-  const [showOntology, setShowOntology] = useState(false)
-  const [ontologyCode, setOntologyCode] = useState('')
-  const [ontologyUri, setOntologyUri] = useState('')
-  const [ontologyRelease, setOntologyRelease] = useState('')
-  const [ontologySystem, setOntologySystem] = useState('WHO ICD-11 MMS')
   const [source, setSource] = useState('manual')
   const [confidence, setConfidence] = useState(1)
   const [isActive, setIsActive] = useState(true)
@@ -55,16 +48,9 @@ export default function DiseaseConceptForm({ concept, onSaved, onCancel }: Props
     setAllowEngine(concept?.allow_engine !== false)
     setDescription(concept?.description || '')
 
-    setOntologyCode(concept?.ontology_code || '')
-    setOntologyUri(concept?.ontology_uri || '')
-    setOntologyRelease(concept?.ontology_release || '11/2026-01/mms')
-    setOntologySystem(concept?.ontology_system || 'WHO ICD-11 MMS')
-    setSource(concept?.source || 'manual')
+    setSource(concept?.source || 'asean_master_database')
     setConfidence(typeof concept?.confidence === 'number' ? concept.confidence : 1)
     setIsActive(concept?.is_active !== false)
-    if (concept?.ontology_code) {
-      setShowOntology(true)
-    }
   }, [concept])
 
   const handleNameChange = (val: string) => {
@@ -96,11 +82,7 @@ export default function DiseaseConceptForm({ concept, onSaved, onCancel }: Props
         is_public: isPublic,
         allow_engine: allowEngine,
         description: description.trim() || null,
-        ontology_code: ontologyCode.trim() || null,
-        ontology_uri: ontologyUri.trim() || null,
-        ontology_release: ontologyRelease.trim() || null,
-        ontology_system: ontologySystem.trim() || 'WHO ICD-11 MMS',
-        source: source.trim() || 'manual',
+        source: source.trim() || 'asean_master_database',
         confidence: Math.min(1, Math.max(0, Number(confidence) || 0)),
         is_active: isActive,
       }
@@ -125,7 +107,7 @@ export default function DiseaseConceptForm({ concept, onSaved, onCancel }: Props
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">
-            Disease ID / Code <span className="text-red-500">*</span>
+            Disease Master ID <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
@@ -232,86 +214,28 @@ export default function DiseaseConceptForm({ concept, onSaved, onCancel }: Props
         </label>
       </div>
 
-      {/* Expandable WHO ICD-11 MMS Ontology Section */}
-      <div className="border border-slate-200 rounded-xl overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowOntology(!showOntology)}
-          className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 text-left transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <Stethoscope className="h-4 w-4 text-[#0060A9]" />
-            <span className="text-xs font-bold uppercase tracking-[0.06em] text-slate-700">
-              WHO ICD-11 MMS Ontology Mapping {ontologyCode ? `(${ontologyCode})` : ''}
-            </span>
-          </div>
-          {showOntology ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
-        </button>
-
-        {showOntology && (
-          <div className="p-4 space-y-3 bg-white border-t border-slate-200">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">ICD-11 Code</label>
-                <input
-                  value={ontologyCode}
-                  onChange={(e) => setOntologyCode(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
-                  placeholder="e.g. 1D2Z, 1C62"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Ontology Release</label>
-                <input
-                  value={ontologyRelease}
-                  onChange={(e) => setOntologyRelease(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="11/2026-01/mms"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">ICD-11 URI Entity</label>
-              <input
-                value={ontologyUri}
-                onChange={(e) => setOntologyUri(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono text-xs"
-                placeholder="https://id.who.int/icd/entity/..."
-              />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Ontology System</label>
-                <input
-                  value={ontologySystem}
-                  onChange={(e) => setOntologySystem(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Source</label>
-                <input
-                  value={source}
-                  onChange={(e) => setSource(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="who_api"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Confidence (0-1)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={confidence}
-                  onChange={(e) => setConfidence(Number(e.target.value))}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
-                />
-              </div>
-            </div>
-          </div>
-        )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+        <div>
+          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Master Source</label>
+          <input
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            placeholder="asean_master_database"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Confidence (0-1)</label>
+          <input
+            type="number"
+            min="0"
+            max="1"
+            step="0.01"
+            value={confidence}
+            onChange={(e) => setConfidence(Number(e.target.value))}
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
+          />
+        </div>
       </div>
 
       {/* Buttons */}

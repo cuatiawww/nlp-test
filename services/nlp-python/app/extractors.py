@@ -22,7 +22,7 @@ def normalize_disease_display(disease: str, language: str = "unknown", text: str
     """Normalize model/database labels to one stable disease display name.
 
     Classifier labels are legacy strings (for example ``coronavirus MERS``)
-    while the disease master contains reviewed ICD-11 names.  This function is
+    while the disease master contains reviewed local names.  This function is
     deliberately deterministic and conservative: taxonomy words such as
     ``Viral`` are not diseases and therefore become ``UNKNOWN``.
     """
@@ -1079,7 +1079,7 @@ def country_scope(country: Optional[str]) -> Optional[str]:
     return config.OUTSIDE_ASEAN_COUNTRY
 
 
-WHO_STOPWORDS = {
+DISEASE_STOPWORDS = {
     "infectious", "without", "specification", "agent", "unspecified", "organism",
     "exposure", "harmful", "effects", "vaccines", "identified", "syndrome",
     "disease", "virus", "fever", "human", "late", "acute", "with", "from", "other",
@@ -1094,8 +1094,8 @@ def _normalize_entity_text(value: str) -> str:
     folded = folded.replace("_", " ")
     return re.sub(r"[^\w]+", " ", folded, flags=re.UNICODE).strip()
 
-def extract_who_disease_mentions(text: str, concepts: list[dict], max_chars: int | None = None) -> list[str]:
-    """Match explicit WHO concept names and their clean specific variants."""
+def extract_disease_mentions(text: str, concepts: list[dict], max_chars: int | None = None) -> list[str]:
+    """Match explicit local-master disease names and their specific variants."""
     if max_chars is not None and max_chars > 0 and text and len(text) > max_chars:
         text = text[:max_chars]
     value = _normalize_entity_text(text)
@@ -1106,19 +1106,19 @@ def extract_who_disease_mentions(text: str, concepts: list[dict], max_chars: int
         terms = set()
         for name in (canonical, english):
             full_folded = _normalize_entity_text(name)
-            if full_folded and full_folded not in WHO_STOPWORDS and len(full_folded) >= 4:
+            if full_folded and full_folded not in DISEASE_STOPWORDS and len(full_folded) >= 4:
                 terms.add(full_folded)
             for sub in re.split(r"[/,()]", name):
                 t = _normalize_entity_text(sub)
-                if len(t) >= 4 and t not in WHO_STOPWORDS:
+                if len(t) >= 4 and t not in DISEASE_STOPWORDS:
                     terms.add(t)
             for token in full_folded.split():
-                if len(token) >= 4 and token not in WHO_STOPWORDS and any(c.isdigit() for c in token):
+                if len(token) >= 4 and token not in DISEASE_STOPWORDS and any(c.isdigit() for c in token):
                     terms.add(token)
         for alias_item in concept.get("aliases") or []:
             alias = alias_item.get("alias") if isinstance(alias_item, dict) else alias_item
             alias_clean = _normalize_entity_text(str(alias or ""))
-            if len(alias_clean) >= 4 and alias_clean not in WHO_STOPWORDS:
+            if len(alias_clean) >= 4 and alias_clean not in DISEASE_STOPWORDS:
                 terms.add(alias_clean)
 
         for term in sorted(terms, key=len, reverse=True):
@@ -1128,7 +1128,7 @@ def extract_who_disease_mentions(text: str, concepts: list[dict], max_chars: int
     return sorted(set(mentions))
 
 
-def canonicalize_who_disease_labels(labels: list[str], concepts: list[dict]) -> list[str]:
+def canonicalize_disease_labels(labels: list[str], concepts: list[dict]) -> list[str]:
     """Map local keyword labels (e.g. KOLERA/MEASLES/AVIAN_INFLUENZA) to WHO canonicals."""
     matched = []
     for label in labels:
@@ -1188,12 +1188,12 @@ def canonicalize_who_disease_labels(labels: list[str], concepts: list[dict]) -> 
 
 
 def canonical_disease_name(disease: str, concepts: Optional[list[dict]] = None) -> str:
-    """Return the active ICD-11 master name for a legacy/model label."""
+    """Return the active local-master name for a legacy/model label."""
     normalized = normalize_disease_display(disease)
     if normalized == "UNKNOWN":
         return normalized
-    active_concepts = config.WHO_DISEASE_CONCEPTS if concepts is None else concepts
-    matched = canonicalize_who_disease_labels([normalized], active_concepts)
+    active_concepts = config.DISEASE_MASTER_CONCEPTS if concepts is None else concepts
+    matched = canonicalize_disease_labels([normalized], active_concepts)
     return matched[0] if matched else normalized
 
 def extract_location(
@@ -4129,3 +4129,9 @@ def is_challenge_or_blocked_content(text: str) -> bool:
         return False
     sample = text[:5000].lower()
     return any(marker in sample for marker in CHALLENGE_CONTENT_MARKERS)
+
+
+def get_folded_country_aliases() -> dict[str, str]:
+    """Return folded country aliases dictionary from config."""
+    from . import config
+    return getattr(config, "FOLDED_COUNTRY_ALIASES", {})

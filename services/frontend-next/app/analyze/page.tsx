@@ -694,11 +694,6 @@ export default function AnalyzePage() {
                                 <div className="flex items-center gap-1.5">
                                   <Bug className="h-3 w-3 text-[#0060A9] shrink-0" />
                                   <span>{evt.disease || result.disease_classification}</span>
-                                  {evt.disease_icd11_code && (
-                                    <span className="text-[9px] text-slate-400 font-mono">
-                                      ({evt.disease_icd11_code})
-                                    </span>
-                                  )}
                                 </div>
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-semibold text-slate-800">
@@ -985,11 +980,6 @@ export default function AnalyzePage() {
                                       <Bug className="h-3.5 w-3.5 text-[#0060A9] shrink-0" />
                                       <span>{evt.disease || result.disease_classification}</span>
                                     </div>
-                                    {evt.disease_icd11_code && (
-                                      <span className="mt-0.5 inline-block text-[10px] text-slate-400 font-mono">
-                                        ICD-11: {evt.disease_icd11_code}
-                                      </span>
-                                    )}
                                   </td>
                                   <td className="py-3 px-3.5 text-slate-700">
                                     <div className="flex items-center gap-1">

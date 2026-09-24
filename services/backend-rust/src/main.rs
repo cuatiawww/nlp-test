@@ -9091,7 +9091,7 @@ async fn delete_master_region(
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
 }
 
-// ─── DISEASE MASTER (WHO ICD-11 CONCEPTS) ───────
+// ─── DISEASE MASTER (LOCAL DATABASE CONCEPTS) ────
 
 async fn list_disease_concepts(
     State(state): State<Arc<AppState>>,
@@ -9189,7 +9189,7 @@ async fn create_disease_concept(
     if canonical_name.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"success": false, "error": "WHO ICD-11 disease name is required"})),
+            Json(json!({"success": false, "error": "Disease name is required"})),
         ));
     }
 
@@ -9206,7 +9206,7 @@ async fn create_disease_concept(
                  ontology_uri, ontology_release, source, confidence, is_active)
              VALUES ($1, $2, $2, COALESCE(NULLIF($3, ''), 'General Infectious'),
                      COALESCE($4, FALSE), $5, COALESCE($6, TRUE), COALESCE($7, TRUE),
-                     COALESCE(NULLIF($8, ''), 'WHO ICD-11 MMS'), $9,
+                     COALESCE(NULLIF($8, ''), 'ASEAN Master Catalog'), $9,
                      $10, $11, COALESCE(NULLIF($12, ''), 'manual'),
                      COALESCE($13, 1.0), COALESCE($14, TRUE))
              RETURNING id, disease_id, canonical_name, category, is_zoonotic, description,
@@ -9262,7 +9262,7 @@ async fn update_disease_concept(
     {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"success": false, "error": "WHO ICD-11 disease name cannot be empty"})),
+            Json(json!({"success": false, "error": "Disease name cannot be empty"})),
         ));
     }
 
@@ -9314,7 +9314,7 @@ async fn update_disease_concept(
             if e.code().map(|code| code.code()) == Some("23505") {
                 (
                     StatusCode::CONFLICT,
-                    Json(json!({"success": false, "error": "WHO ICD-11 disease name already exists"})),
+                    Json(json!({"success": false, "error": "Disease name already exists"})),
                 )
             } else {
                 (

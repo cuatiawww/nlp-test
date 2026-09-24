@@ -106,15 +106,15 @@ def disease_relation_rows(nlp: dict[str, Any]) -> list[dict[str, Any]]:
             })
             known.add(name.casefold())
 
-    # Collapse aliases that point to the same WHO concept before persistence.
+    # Collapse aliases that point to the same local master concept before persistence.
     # The legacy JSON can contain both the surface form and canonical form;
     # those are one disease relation, not two matrix topics.
     compact_candidates: list[dict[str, Any]] = []
     candidate_index: dict[str, int] = {}
     for item in candidates:
         canonical = str(item.get("canonical_name") or item.get("surface_form") or "").strip()
-        code = str(item.get("icd11_code") or "").strip().casefold()
-        identity = f"icd11:{code}" if code else f"name:{canonical.casefold()}"
+        master_id = str(item.get("disease_id") or "").strip().casefold()
+        identity = f"master:{master_id}" if master_id else f"name:{canonical.casefold()}"
         existing_index = candidate_index.get(identity)
         if existing_index is None:
             candidate_index[identity] = len(compact_candidates)
@@ -142,8 +142,9 @@ def disease_relation_rows(nlp: dict[str, Any]) -> list[dict[str, Any]]:
         rows.append({
             "surface_form": str(item.get("surface_form") or canonical).strip(),
             "disease_name": canonical,
+            "disease_id": item.get("disease_id"),
             "role": role,
-            "icd11_code": item.get("icd11_code"),
+            "icd11_code": None,
             "confidence": item.get("confidence"),
             "evidence": str(item.get("evidence") or "").strip() or None,
             "resolution_source": str(item.get("resolution_source") or "unknown"),
