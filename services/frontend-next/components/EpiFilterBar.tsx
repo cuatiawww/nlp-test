@@ -1,4 +1,4 @@
-import Link from 'next/link';
+﻿import Link from 'next/link';
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -131,29 +131,34 @@ export default function EpiFilterBar({
     onApply(defaultState);
   };
 
-  // Combine built-in standard diseases with dynamic DB ones
-  const diseaseOptions = useMemo(() => {
-    const standardPriority = [
-      'COVID-19',
-      'dengue fever DBD',
-      'Campak',
-      'RABIES',
-      'hand foot mouth disease',
-      'Kolera',
-      'Malaria',
-      'Flu Burung',
-    ];
+  // Standardized Diseases strictly from Master Data catalog (no hardcoded informal slop)
+  const [masterDiseases, setMasterDiseases] = useState<string[]>(availableDiseases || []);
 
-    const uniqueSet = new Set<string>();
-    standardPriority.forEach((d) => uniqueSet.add(d));
-    availableDiseases.forEach((d) => {
-      if (d && d.trim() && !d.toUpperCase().startsWith('UNKNOWN') && !d.toUpperCase().startsWith('NEGATIVE')) {
-        uniqueSet.add(d.trim());
-      }
-    });
-
-    return Array.from(uniqueSet);
+  useEffect(() => {
+    if (availableDiseases && availableDiseases.length > 0) {
+      setMasterDiseases(availableDiseases);
+    } else {
+      const base = process.env.NEXT_PUBLIC_BASE_PATH || '';
+      fetch(((process.env.NEXT_PUBLIC_BASE_PATH || '') + '/api/v1/disease-concepts?per_page=100'))
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (json?.data && Array.isArray(json.data)) {
+            const names = json.data
+              .filter((c: any) => c.is_active && c.canonical_name && !c.canonical_name.toLowerCase().includes('unknown'))
+              .map((c: any) => c.canonical_name);
+            setMasterDiseases(names);
+          }
+        })
+        .catch(() => {});
+    }
   }, [availableDiseases]);
+
+  const diseaseOptions = useMemo(() => {
+    const list = masterDiseases
+      .filter((d) => d && d.trim() && !d.toUpperCase().startsWith('UNKNOWN') && !d.toUpperCase().startsWith('NEGATIVE'))
+      .map((d) => d.trim());
+    return Array.from(new Set(list)).sort((a, b) => a.localeCompare(b));
+  }, [masterDiseases]);
 
   return (
     <section className="w-full rounded-2xl border border-[#cfe0f1] bg-white p-4 shadow-[0_8px_24px_rgba(0,96,169,0.06)] transition-all">
