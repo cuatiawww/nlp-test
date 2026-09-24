@@ -7,6 +7,7 @@ resources:
   - storage.yaml
   - workloads.yaml
   - ingress.yaml
+  - root-redirect.yaml
 images:
   - name: disease-nlp-python
     newName: registry.dev.abvc-surveillance.org/nlp/disease-nlp-python

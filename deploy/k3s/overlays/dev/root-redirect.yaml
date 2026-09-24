@@ -1,0 +1,9 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: nlp-root-redirect
+spec:
+  redirectRegex:
+    regex: ^https?://dev\.abvc-surveillance\.org/?$
+    replacement: https://dev.abvc-surveillance.org/nlp
+    permanent: false

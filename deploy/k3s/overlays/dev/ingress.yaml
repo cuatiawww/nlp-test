@@ -4,6 +4,7 @@ metadata:
   name: nlp-dev
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: nlp-dev-nlp-root-redirect@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
@@ -13,8 +14,18 @@ spec:
           - path: /api
             pathType: Prefix
             backend:
-              service: {name: disease-backend-rust, port: {number: 8081}}
+              service:
+                name: disease-backend-rust
+                port:
+                  number: 8081
           - path: /nlp
+            pathType: Prefix
+            backend:
+              service:
+                name: disease-frontend-next
+                port:
+                  number: 3000
+          - path: /
             pathType: Prefix
             backend:
               service:
