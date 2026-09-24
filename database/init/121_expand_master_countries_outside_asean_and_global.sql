@@ -1381,8 +1381,3 @@ FROM locations l
 JOIN (VALUES ('united states'), ('as'), ('usa'), ('amerika serikat')) AS a(alias_name) ON TRUE
 WHERE l.name = 'United States' AND l.country = 'United States'
 ON CONFLICT (location_id, alias_name, language) DO NOTHING;
-
--- 8. Record Migration in schema_migrations
-INSERT INTO schema_migrations (filename, applied_at)
-VALUES ('121_expand_master_countries_outside_asean_and_global.sql', NOW())
-ON CONFLICT (filename) DO UPDATE SET applied_at = NOW();
