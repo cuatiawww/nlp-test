@@ -5,8 +5,8 @@ Environment kedua, terpisah dari Docker Hermes.
 - `nlpdev01`: application/control-plane
 - `nlpdev02`: NLP/model data (`role=nlp-data`)
 - `nlpdev03`: PostgreSQL (`role=database`); K3s agent
-- Registry: `registry.dev.abvc-surveillance.org` (OCI, HTTPS, private)
-- Domain: `dev.abvc-surveillance.org`
+- Registry: `registry.abvc-surveillance.org` (OCI, HTTPS, private)
+- Domain: `abvc-surveillance.org`
 - All workload Pods pull through namespace Secret `registry-pull`; do not add registry credentials to manifests or Git.
 - CI builds/pushes immutable `dev-<commit-SHA>` tags and deploys this overlay. The repository runner on `nlpdev01` reads its push credential from `/home/nlpdev/.config/registry/registry-dev-login.txt` (0600); keep that file outside Git and do not print it.
 

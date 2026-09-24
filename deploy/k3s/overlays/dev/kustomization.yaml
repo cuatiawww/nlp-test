@@ -10,29 +10,29 @@ resources:
   - root-redirect.yaml
 images:
   - name: disease-nlp-python
-    newName: registry.dev.abvc-surveillance.org/nlp/disease-nlp-python
+    newName: registry.abvc-surveillance.org/nlp/disease-nlp-python
     newTag: dev
   - name: disease-backend-rust
-    newName: registry.dev.abvc-surveillance.org/nlp/disease-backend-rust
+    newName: registry.abvc-surveillance.org/nlp/disease-backend-rust
     newTag: dev
   - name: disease-frontend-next
-    newName: registry.dev.abvc-surveillance.org/nlp/disease-frontend-next
+    newName: registry.abvc-surveillance.org/nlp/disease-frontend-next
     newTag: dev
   - name: disease-collector-python
-    newName: registry.dev.abvc-surveillance.org/nlp/disease-collector-python
+    newName: registry.abvc-surveillance.org/nlp/disease-collector-python
     newTag: dev
   - name: disease-worker-python
-    newName: registry.dev.abvc-surveillance.org/nlp/worker-python
+    newName: registry.abvc-surveillance.org/nlp/worker-python
     newTag: dev
   - name: disease-analysis-job-worker
-    newName: registry.dev.abvc-surveillance.org/nlp/worker-python
+    newName: registry.abvc-surveillance.org/nlp/worker-python
     newTag: analysis-dev
   - name: postgis/postgis
-    newName: registry.dev.abvc-surveillance.org/postgres/postgis
+    newName: registry.abvc-surveillance.org/postgres/postgis
     newTag: 17-3.5-alpine
   - name: rabbitmq
-    newName: registry.dev.abvc-surveillance.org/infra/rabbitmq
+    newName: registry.abvc-surveillance.org/infra/rabbitmq
     newTag: 3.13-management-alpine
   - name: quay.io/minio/minio
-    newName: registry.dev.abvc-surveillance.org/infra/minio
+    newName: registry.abvc-surveillance.org/infra/minio
     newTag: sha-14cea493d9a3

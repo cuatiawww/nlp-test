@@ -4,6 +4,6 @@ metadata:
   name: nlp-root-redirect
 spec:
   redirectRegex:
-    regex: ^https?://dev\.abvc-surveillance\.org/?$
-    replacement: https://dev.abvc-surveillance.org/nlp
+    regex: ^https?://abvc-surveillance\.org/?$
+    replacement: https://abvc-surveillance.org/nlp
     permanent: false

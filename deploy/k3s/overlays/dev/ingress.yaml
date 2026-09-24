@@ -8,7 +8,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: dev.abvc-surveillance.org
+    - host: abvc-surveillance.org
       http:
         paths:
           - path: /api

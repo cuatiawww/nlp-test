@@ -11,7 +11,7 @@ jobs:
       group: nlp-penyakit-k3s-dev
       cancel-in-progress: false
     env:
-      REGISTRY: registry.dev.abvc-surveillance.org
+      REGISTRY: registry.abvc-surveillance.org
       IMAGE_TAG: dev-${{ gitea.sha }}
       WORKSPACE: /tmp/nlp-penyakit-k3s-dev-${{ gitea.sha }}
     steps:
@@ -55,7 +55,7 @@ jobs:
           printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USER" --password-stdin
           unset REGISTRY_PASSWORD
           docker build -t "$REGISTRY/nlp/disease-nlp-python:$IMAGE_TAG" services/nlp-python
-          docker build -t "$REGISTRY/nlp/disease-backend-rust:$IMAGE_TAG" services/backend-rust
+          docker build -f deploy/k3s/backend-rust.Dockerfile -t "$REGISTRY/nlp/disease-backend-rust:$IMAGE_TAG" .
           docker build --build-arg NEXT_PUBLIC_API_BASE_URL=/api --build-arg NEXT_PUBLIC_BASE_PATH=/nlp --build-arg BACKEND_INTERNAL_URL=http://disease-backend-rust:8081 -t "$REGISTRY/nlp/disease-frontend-next:$IMAGE_TAG" services/frontend-next
           docker build -t "$REGISTRY/nlp/disease-collector-python:$IMAGE_TAG" services/collector-python
           docker build -t "$REGISTRY/nlp/worker-python:$IMAGE_TAG" services/worker-python
