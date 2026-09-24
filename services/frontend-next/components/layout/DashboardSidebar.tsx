@@ -78,7 +78,12 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
     if (!href || href === "#") return "#";
     if (href.startsWith("http")) return href;
     const cleanPath = href.startsWith("/") ? href : `/${href}`;
-    return `${PUBLIC_BASE_PATH}${cleanPath === "/" ? "" : cleanPath}` || "/nlp";
+    const basePath = PUBLIC_BASE_PATH.replace(/\/$/, "");
+    if (cleanPath === basePath) return "/";
+    if (cleanPath.startsWith(`${basePath}/`)) {
+      return cleanPath.slice(basePath.length) || "/";
+    }
+    return cleanPath;
   };
 
   return (
