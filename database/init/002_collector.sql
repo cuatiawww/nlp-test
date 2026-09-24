@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS collector_sources (
     source_type VARCHAR(50) NOT NULL CHECK (source_type IN ('rss','web','csv','social_media','api')),
     config JSONB NOT NULL DEFAULT '{}',
     schedule VARCHAR(50),
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );

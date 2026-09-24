@@ -78,11 +78,11 @@ def _json_response(value: str) -> dict[str, Any]:
 
 
 def _providers() -> list[tuple[str, str, str, str]]:
+    """Configured LLM providers: DeepSeek is the exclusive provider."""
     configured = {
         "deepseek": (config.DEEPSEEK_API_KEY, config.DEEPSEEK_BASE_URL, config.DEEPSEEK_MODEL),
-        "openai": (config.OPENAI_API_KEY, config.OPENAI_BASE_URL, config.OPENAI_MODEL),
     }
-    order = [x.strip().lower() for x in config.AGENT_PROVIDER_ORDER.split(",") if x.strip()]
+    order = [x.strip().lower() for x in config.AGENT_PROVIDER_ORDER.split(",") if x.strip() and x.strip().lower() == "deepseek"]
     providers: list[tuple[str, str, str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     for name in order:
@@ -93,14 +93,6 @@ def _providers() -> list[tuple[str, str, str, str]]:
             seen.add(item)
     return providers
 
-
-def _is_openai_model(provider: str, base_url: str, model: str) -> bool:
-    if provider == "openai" or "api.openai.com" in base_url.lower():
-        return True
-    m = model.lower()
-    if m.startswith(("gpt-", "o1", "o3", "chatgpt")):
-        return True
-    return False
 
 
 def _cache_key(system_prompt: str, user_prompt: str, max_tokens: int) -> str:
@@ -161,9 +153,6 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> di
         if provider in _PROVIDER_FAILURES and now < _PROVIDER_FAILURES[provider]:
             continue
         url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
-        is_openai = _is_openai_model(provider, base_url, model)
-        tok_key = "max_completion_tokens" if is_openai else "max_tokens"
-
         body = {
             "model": model,
             "messages": [
@@ -171,11 +160,9 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> di
                 {"role": "user", "content": user_prompt},
             ],
             "response_format": {"type": "json_object"},
-            tok_key: max_tokens,
+            "max_tokens": max_tokens,
+            "temperature": 0,
         }
-        # OpenAI reasoning models (e.g. gpt-5.6-luna, o1, o3) reject temperature: 0
-        if not is_openai:
-            body["temperature"] = 0
 
         def _send(payload_dict):
             req = urllib.request.Request(

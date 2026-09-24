@@ -1,8 +1,8 @@
-"""Decide when optional DeepSeek/OpenAI fallbacks may run.
+"""Decide when optional DeepSeek rear-gate validator and corrector may run.
 
-Rules NLP and gazetteer matching always run first. The LLM is only for
-ambiguous extraction / needs_review escalation — never every raw crawl item,
-and never full dashboard payloads.
+Rules NLP and gazetteer matching always run first. The LLM is strictly a
+Rear-Gate Validator for ambiguous/low-confidence extractions — never every
+raw crawl item, and never educational/non-event articles.
 """
 
 from __future__ import annotations
@@ -22,30 +22,41 @@ def should_escalate_to_llm(
     needs_review: bool = False,
     location_missing: bool = False,
     non_health_topic: bool = False,
+    sub_events: list | None = None,
 ) -> bool:
-    """Return True only for high-value, low-confidence steps.
-
-    Multiple extracted diseases are *not* an LLM trigger: prevention articles
-    commonly list several pathogens and local ranking already handles that.
-    """
+    """Return True ONLY for valid outbreak candidates requiring rear-gate validation/correction."""
     if historical_fast or interactive or is_noisy or non_health_topic:
         return False
     if not config.AGENT_ENABLED:
         return False
+
     extracted = extracted or []
     label = (disease or "").strip().upper()
     unknown = label in {"", "UNKNOWN"} or label.startswith("NEGATIVE")
+
+    # Strictly guard: If local pipeline found NO candidates and NO disease,
+    # do NOT escalate (save 100% tokens on non-health/junk articles).
+    if unknown and not extracted:
+        return False
+
+    # Escalation criteria:
+    # 1. Disease is UNKNOWN or confidence < threshold
     if unknown or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE:
         return True
+
+    # 2. Pipeline flagged needs_review or missing location for an active metric
     if needs_review or location_missing:
         return True
+
+    # 3. Non-English/Indonesian article with missing extraction
     if language not in {"en", "id"} and not extracted:
         return True
+
     return False
 
 
 def truncate_for_llm(text: str | None, limit: int | None = None) -> str:
-    """Bound prompt size so crawl bodies never dump a full article or dashboard."""
+    """Bound prompt size for LLM input (up to 16,000 characters for full clean context)."""
     cap = config.DEEPSEEK_PROMPT_CHARS if limit is None else limit
     value = text or ""
     if cap <= 0:

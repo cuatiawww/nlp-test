@@ -4,7 +4,7 @@ import { useTranslation } from '@/lib/i18n/LanguageContext'
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Play, Trash2 } from 'lucide-react'
 import type { Source, Run } from '@/types'
-import { fetchSources, fetchRuns, triggerCollect, updateSource, deleteSource } from '@/lib/api'
+import { fetchSource, fetchRuns, triggerCollect, updateSource, deleteSource } from '@/lib/api'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -17,18 +17,15 @@ export default function SourceDetailPage() {
   const [runs, setRuns] = useState<Run[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ name: '', schedule: '' })
+  const [form, setForm] = useState({ name: '', schedule: '', enabled: false })
 
   const load = async () => {
     setLoading(true)
     try {
-      const all = await fetchSources()
-      const found = all.find((s: Source) => s.id === id)
-      setSource(found || null)
-      if (found) {
-        setForm({ name: found.name, schedule: found.schedule || '' })
-        setRuns(await fetchRuns(id))
-      }
+      const found = await fetchSource(id)
+      setSource(found)
+      setForm({ name: found.name, schedule: found.schedule || '', enabled: found.enabled })
+      setRuns(await fetchRuns(id))
     } catch {}
     setLoading(false)
   }
@@ -56,6 +53,16 @@ export default function SourceDetailPage() {
     }
   }
 
+  const handleToggle = async () => {
+    try {
+      await updateSource(id, { enabled: !source?.enabled })
+      toast.success(`${source?.name || 'Source'}: ${source?.enabled ? 'nonaktif' : 'aktif'}`)
+      await load()
+    } catch (e: any) {
+      toast.error(e?.message || t('common.saveFailed'))
+    }
+  }
+
   const handleDelete = async () => {
     if (!confirm(t('common.confirmDelete', { name: source?.name || '' }))) return
     try {
@@ -70,6 +77,11 @@ export default function SourceDetailPage() {
   if (loading) return <div className="p-8 text-center text-slate-400">{t("common.loading")}</div>
   if (!source) return <div className="p-8 text-center text-slate-400">{t("common.noData")}</div>
 
+  const successfulRuns = runs.filter((run) => run.status === 'SUCCESS').length
+  const recordsFound = runs.reduce((total, run) => total + (run.records_found || 0), 0)
+  const recordsIngested = runs.reduce((total, run) => total + (run.records_ingested || 0), 0)
+  const ingestRate = recordsFound > 0 ? Math.round((recordsIngested / recordsFound) * 100) : 0
+
   return (
     <div className="px-4 md:px-6">
       <Link href="/sources" className="inline-flex items-center gap-1 text-sm font-semibold text-[#0060A9] hover:text-[#0060A9]">
@@ -82,6 +94,9 @@ export default function SourceDetailPage() {
           <p className="mt-1 text-sm text-slate-500">{t('common.type')}: {source.catalog_type || source.config?.catalog_type || source.source_type} | {t('pages.sources.colFrequency')}: {source.schedule || 'manual'}</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={handleToggle} className={`inline-flex items-center rounded-xl border px-3 py-2 text-sm font-bold uppercase transition ${source.enabled ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>
+            {source.enabled ? 'Pause source' : 'Aktifkan source'}
+          </button>
           <button onClick={handleTrigger} className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold uppercase text-[#0060A9] transition hover:bg-blue-100">
             <Play className="h-4 w-4" /> Trigger
           </button>
@@ -90,6 +105,21 @@ export default function SourceDetailPage() {
           </button>
         </div>
       </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          ['Run tercatat', runs.length.toLocaleString()],
+          ['Run berhasil', successfulRuns.toLocaleString()],
+          ['URL ditemukan', recordsFound.toLocaleString()],
+          ['Artikel masuk', `${recordsIngested.toLocaleString()} (${ingestRate}%)`],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{label}</p>
+            <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-slate-500">Ringkasan ini mengukur kinerja collector source. Ini belum merupakan akurasi NLP terverifikasi.</p>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
@@ -106,6 +136,10 @@ export default function SourceDetailPage() {
               disabled={!editing}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-500" />
           </div>
+          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} disabled={!editing} className="h-4 w-4" />
+            Jalankan source otomatis
+          </label>
           <div>
             <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colFrequency')} (interval:minutes)</label>
             <input type="text" value={form.schedule} onChange={e => setForm(f => ({ ...f, schedule: e.target.value }))}
@@ -129,14 +163,14 @@ export default function SourceDetailPage() {
         )}
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50 px-5 py-3">
           <h2 className="text-base font-bold uppercase tracking-[0.04em] text-slate-900">Collection History</h2>
         </div>
         {runs.length === 0 ? (
           <div className="p-8 text-center text-slate-400">{t("common.noData")}</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="min-w-[760px] w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-left">
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("common.date")}</th>

@@ -240,6 +240,7 @@ export async function loginUser(
 // ── Existing named helpers ─────────────────────────
 
 export const fetchSources = () => fetchFrom<Source[]>("/api/v1/sources");
+export const fetchSource = (id: string) => fetchFrom<Source>(`/api/v1/sources/${id}`);
 export const fetchSourceSummary = () => fetchFrom<SourceSummary>("/api/v1/sources/summary");
 export const createSource = (data: Partial<Source>) =>
   postTo<Source>("/api/v1/sources", data);

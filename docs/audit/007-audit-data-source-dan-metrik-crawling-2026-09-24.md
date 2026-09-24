@@ -1,7 +1,7 @@
 # Audit Data Source dan Metrik Crawling
 
 Tanggal: 2026-09-24  
-Status: rancangan audit dan kebutuhan implementasi. Belum mengubah kode, database, atau konfigurasi runtime.
+Status: audit dan implementasi tahap kontrol source. Metrik NLP per source masih menjadi pekerjaan lanjutan.
 
 Dokumen terkait:
 
@@ -258,6 +258,19 @@ Hasil yang perlu dilihat:
 - lokasi yang terdeteksi;
 - jumlah sub-events.
 
+## 10. Implementasi tahap kontrol source
+
+Yang sudah diterapkan:
+
+- Source baru default `enabled=false` pada database dan endpoint create.
+- Migration `122_data_source_controls.sql` mengubah default dan mematikan source lama saat migrasi dijalankan.
+- Halaman Sources memiliki aksi per source: `Aktifkan/Pause`, `Jalankan`, dan `Hasil`.
+- Halaman detail source menampilkan riwayat run, URL ditemukan, artikel masuk, dan ringkasan ingest.
+- Scheduler tetap hanya membaca source aktif; tombol `Jalankan` tetap dapat menguji satu source secara eksplisit.
+- Tabel dibuat dapat digeser secara horizontal pada layar kecil.
+
+Catatan interpretasi: angka pada UI saat ini berasal dari `collector_runs` (`records_found` dan `records_ingested`). Angka tersebut belum membuktikan akurasi NLP, jumlah artikel kesehatan, `needs_review`, penyakit, atau `sub_events` per source. Untuk itu provenance `source_id`/`run_id` perlu diteruskan sampai penyimpanan hasil NLP.
+
 Metrik kesehatan tidak boleh hanya berupa jumlah URL. Yang ingin diukur adalah:
 
 ~~~text
@@ -337,4 +350,3 @@ Implementasi dianggap selesai jika:
 - error dan timeout memiliki status jelas;
 - menonaktifkan source menghentikan run berikutnya;
 - focused tests dan regression tests lulus.
-

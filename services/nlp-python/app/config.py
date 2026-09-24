@@ -30,14 +30,11 @@ NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
 NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.19.multilingual-source-first")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", os.getenv("OPENAI_MAX_TOKENS", "400")))
+DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "1500"))
 DEEPSEEK_TIMEOUT_SECONDS = int(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "20"))
 DEEPSEEK_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_MIN_CONFIDENCE", "0.85"))
 DEEPSEEK_TRIGGER_CONFIDENCE = float(os.getenv("DEEPSEEK_TRIGGER_CONFIDENCE", "0.75"))
@@ -48,7 +45,7 @@ DEEPSEEK_LOCATION_MAX_CANDIDATES = int(os.getenv("DEEPSEEK_LOCATION_MAX_CANDIDAT
 # External LLM review is opt-in. It must never be an implicit dependency of
 # high-volume crawling or a synchronous source extraction request.
 AGENT_ENABLED = os.getenv("AGENT_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
-AGENT_PROVIDER_ORDER = os.getenv("AGENT_PROVIDER_ORDER", "deepseek,openai")
+AGENT_PROVIDER_ORDER = os.getenv("AGENT_PROVIDER_ORDER", "deepseek")
 AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", str(DEEPSEEK_TIMEOUT_SECONDS)))
 
 

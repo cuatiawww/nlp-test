@@ -1781,6 +1781,7 @@ struct CreateSourceRequest {
     schedule: Option<String>,
     #[serde(default)]
     country: Option<String>,
+    enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -7430,10 +7431,10 @@ async fn create_source(
     let (coverage_scope, covers_asean) = source_coverage_fields(&payload.country);
     let row = client
         .query_one(
-            "INSERT INTO collector_sources (name, source_type, config, schedule, country, coverage_scope, covers_asean)
-             VALUES ($1, $2, $3, $4, COALESCE($5, NULLIF(BTRIM($3->>'country'), '')), $6, $7)
+            "INSERT INTO collector_sources (name, source_type, config, schedule, enabled, country, coverage_scope, covers_asean)
+             VALUES ($1, $2, $3, $4, COALESCE($5, FALSE), COALESCE($6, NULLIF(BTRIM($3->>'country'), '')), $7, $8)
              RETURNING id, name, source_type, config, schedule, enabled, created_at::text, updated_at::text, country, coverage_scope, covers_asean",
-            &[&payload.name, &payload.source_type, &payload.config, &payload.schedule, &payload.country, &coverage_scope, &covers_asean],
+            &[&payload.name, &payload.source_type, &payload.config, &payload.schedule, &payload.enabled, &payload.country, &coverage_scope, &covers_asean],
         )
         .await
         .map_err(internal_error)?;

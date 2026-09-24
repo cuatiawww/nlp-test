@@ -10,11 +10,11 @@ import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import SourceForm from '@/components/SourceForm'
-import { fetchSourceSummary, triggerCollect, triggerCollectAll, deleteSource, recomputeSourceCredibility } from '@/lib/api'
+import { fetchSourceSummary, triggerCollect, deleteSource, updateSource } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
 import { resolveSourceCountry, credibilityReasonLabel } from '@/lib/source-country'
 import { sourceCatalogType, sourceOrigin, sourceValidityStatus } from '@/lib/source-catalog.mjs'
-import CrawlOpsPanel from '@/components/CrawlOpsPanel'
+import Link from 'next/link'
 
 function coveragePath(filter: string) {
   if (filter === 'asean_outlet') return '/api/v1/sources?coverage_scope=asean_outlet'
@@ -34,6 +34,7 @@ export default function SourcesPage() {
   const [summary, setSummary] = useState<SourceSummary | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [showCoverage, setShowCoverage] = useState(false)
+  const [updatingSourceId, setUpdatingSourceId] = useState<string | null>(null)
 
   const loadSummary = useCallback(async () => {
     setSummaryLoading(true)
@@ -53,12 +54,17 @@ export default function SourcesPage() {
     })
   }
 
-  const handleTriggerAll = () => {
-    toast.promise(triggerCollectAll(), {
-      loading: t('pages.sources.processingAll'),
-      success: () => { setTimeout(refreshSources, 1000); return t('pages.sources.allDone') },
-      error: t('common.error'),
-    })
+  const handleToggle = async (source: Source) => {
+    setUpdatingSourceId(source.id)
+    try {
+      await updateSource(source.id, { enabled: !source.enabled })
+      toast.success(`${source.name}: ${!source.enabled ? 'aktif' : 'nonaktif'}`)
+      refreshSources()
+    } catch (error: any) {
+      toast.error(error?.message || t('common.error'))
+    } finally {
+      setUpdatingSourceId(null)
+    }
   }
 
   const handleDelete = async (id: string, name: string) => {
@@ -114,21 +120,6 @@ export default function SourcesPage() {
           <button onClick={reload} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold uppercase text-slate-600 transition hover:bg-slate-50">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             {t("common.refresh")}
-          </button>
-          <button onClick={handleTriggerAll}
-            className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-amber-700">
-            <Play className="h-4 w-4" /> Trigger All
-          </button>
-          <button
-            onClick={() => {
-              toast.promise(recomputeSourceCredibility(), {
-                loading: 'Refreshing credibility scores…',
-                success: () => { void loadSummary(); return 'Credibility refreshed' },
-                error: 'Admin session required to recompute credibility',
-              })
-            }}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold uppercase text-slate-600 transition hover:bg-slate-50">
-            Refresh scores
           </button>
           <button onClick={() => { setEditSource(null); setShowModal(true) }}
             className="inline-flex items-center gap-2 rounded-xl bg-[#0060A9] px-3 py-2 text-sm font-bold uppercase text-white transition hover:bg-[#004b85]">
@@ -203,7 +194,7 @@ export default function SourcesPage() {
               {summary?.last_credibility_refresh ? (
                 <p className="mt-1 text-[11px] text-slate-400">Last refresh {summary.last_credibility_refresh.slice(0, 19)}</p>
               ) : (
-                <p className="mt-1 text-[11px] text-slate-400">Not refreshed yet — use Refresh scores</p>
+                <p className="mt-1 text-[11px] text-slate-400">Belum ada refresh skor katalog</p>
               )}
             </div>
             <span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600"><ShieldCheck className="h-5 w-5" /></span>
@@ -259,15 +250,13 @@ export default function SourcesPage() {
         </div>
       )}
 
-      <CrawlOpsPanel />
-
-      <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
           <div className="p-8 text-center text-slate-400 text-sm">{t("common.loading")}</div>
         ) : data.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">{t("common.noData")}</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="min-w-[980px] w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-left">
                 <th className="px-4 py-3 font-semibold text-slate-600">{t("pages.sources.colName")}</th>
@@ -287,7 +276,7 @@ export default function SourcesPage() {
                     return (
                       <>
                   <td className="px-4 py-3">
-                    <span className="font-semibold text-[#0060A9]">{s.name}</span>
+                    <Link href={`/sources/${s.id}`} className="font-semibold text-[#0060A9] hover:underline">{s.name}</Link>
                     <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ${s.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                       {s.enabled ? 'Active' : 'Off'}
                     </span>
@@ -318,6 +307,15 @@ export default function SourcesPage() {
                       className="rounded-lg p-1.5 text-slate-400 transition hover:bg-blue-50 hover:text-[#0060A9]" title={t("common.trigger")}>
                       <Play className="h-4 w-4" />
                     </button>
+                    <button
+                      onClick={() => handleToggle(s)}
+                      disabled={updatingSourceId === s.id}
+                      className={`rounded-lg px-2 py-1 text-xs font-semibold disabled:cursor-wait disabled:opacity-50 ${s.enabled ? 'text-amber-700 hover:bg-amber-50' : 'text-emerald-700 hover:bg-emerald-50'}`}
+                      title={s.enabled ? 'Nonaktifkan source' : 'Aktifkan source'}
+                    >
+                      {updatingSourceId === s.id ? '...' : s.enabled ? 'Pause' : 'Aktifkan'}
+                    </button>
+                    <Link href={`/sources/${s.id}`} className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100">Hasil</Link>
                     <button onClick={() => { setEditSource(s); setShowModal(true) }}
                       className="rounded-lg px-2 py-1 text-xs font-semibold text-[#0060A9] hover:bg-blue-50">{t("common.edit")}</button>
                     <button onClick={() => handleDelete(s.id, s.name)}

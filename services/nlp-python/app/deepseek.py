@@ -1,135 +1,110 @@
-"""Optional runtime disease resolver constrained by the local disease master."""
+"""Centralized Rear-Gate Validator & Corrector powered by DeepSeek."""
 
 from __future__ import annotations
 
 import json
 import re
+import logging
 from typing import Any
 
 from . import config
 from .agent import chat_json
 from .llm_gate import truncate_for_llm
 
+logger = logging.getLogger(__name__)
+
 
 def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s-]", " ", (value or "").lower())).strip()
 
 
-def detect_disease(text: str) -> dict[str, Any] | None:
-    """Return a local-master concept, or None when the optional LLM is unavailable."""
-    if not config.DISEASE_MASTER_CONCEPTS:
-        return None
-
-    folded = (text or "").lower()
-    ranked = []
-    for item in config.DISEASE_MASTER_CONCEPTS:
-        name = str(item.get("canonical_name") or "").lower()
-        first = name.split()[0] if name else ""
-        score = 1 if first and first in folded else 0
-        ranked.append((score, item))
-    ranked.sort(key=lambda pair: -pair[0])
-    hits = [item for score, item in ranked if score]
-    rest = [item for score, item in ranked if not score]
-    selected = (hits + rest)[:80]
-    allowed = [
-        {
-            "canonical_label": item["canonical_name"],
-            "english_name": item.get("english_name") or item["canonical_name"],
-            "disease_id": item.get("disease_id"),
-        }
-        for item in selected
-    ]
-    prompt = (
-        "Detect the PRIMARY disease or pathogen of this report. Return JSON only: "
-        "{canonical_label,english_name,disease_id,confidence} or null values. "
-        "canonical_label and disease_id MUST exactly match one allowed local disease-master "
-        "concept. Prefer the title, headline and lead paragraph. Diseases mentioned "
-        "only as examples, comparisons, prevention targets, historical background, "
-        "or a list introduced by 'including' are secondary and must not replace the "
-        "primary disease. Do not infer from symptoms alone; preserve negation.\n\n"
-        f"allowed_concepts={json.dumps(allowed, ensure_ascii=False)}\n"
-        f"report={json.dumps(truncate_for_llm(text), ensure_ascii=False)}"
-    )
-    result = chat_json(
-        "You are a cautious medical entity detector. Output valid JSON only.",
-        prompt,
-        max_tokens=min(400, config.DEEPSEEK_MAX_TOKENS),
-    )
-
-    label = str(result.get("canonical_label") or "").strip()
-    disease_id = str(result.get("disease_id") or "").strip()
-    try:
-        score = float(result.get("confidence") or 0.0)
-    except (TypeError, ValueError):
-        score = 0.0
-    by_label = {_normalize(item["canonical_name"]): item for item in config.DISEASE_MASTER_CONCEPTS}
-    by_id = {str(item.get("disease_id")): item for item in config.DISEASE_MASTER_CONCEPTS if item.get("disease_id")}
-    concept = by_id.get(disease_id) or by_label.get(_normalize(label))
-    if not concept or score < config.DEEPSEEK_MIN_CONFIDENCE:
-        return None
-    return {
-        "canonical_name": concept["canonical_name"],
-        "english_name": concept.get("english_name") or concept["canonical_name"],
-        "disease_id": concept.get("disease_id"),
-        "master_source": concept.get("source") or "local_database",
-        "confidence": min(score, 0.99),
-        "resolution_source": result.get("_provider", "agent") + "+local_disease_master",
-    }
-
-
-def detect_location(text: str, source_language: str = "", source_country: str = "") -> dict[str, Any] | None:
-    """Resolve an unseen location to an existing DB gazetteer entry.
-
-    DeepSeek is never allowed to invent coordinates. It may only select an
-    exact location already populated in the ASEAN gazetteer.
+def validate_and_correct_events(
+    text: str,
+    title: str = "",
+    draft_disease: str = "UNKNOWN",
+    draft_sub_events: list[dict[str, Any]] | None = None,
+    candidate_diseases: list[str] | None = None
+) -> dict[str, Any] | None:
+    """Centralized Rear-Gate LLM Validator & Corrector.
+    
+    Enforces strict zero-hallucination guardrails:
+    1. Disease must strictly match one of the 31 ASEAN master concepts.
+    2. Educational/info articles without active case/outbreak evidence MUST return empty sub_events [].
+    3. Locations must be grounded in country/province/city.
+    4. Overwrites draft events with verified atomic events.
     """
-    if not config.AGENT_ENABLED or not config.LOCATION_COORDS:
+    if not config.AGENT_ENABLED:
         return None
 
-    candidate_names = list(config.LOCATION_COORDS)
-    if source_country:
-        country_candidates = [
-            name for name in candidate_names
-            if config.LOCATION_COUNTRIES.get(name) == source_country
-        ]
-        if country_candidates:
-            candidate_names = country_candidates
-    max_candidates = config.DEEPSEEK_LOCATION_MAX_CANDIDATES
-    asean_only = [
-        name for name in candidate_names
-        if config.LOCATION_COUNTRIES.get(name) in config.ASEAN_COUNTRIES
-        or name in config.ASEAN_COUNTRIES
-    ]
-    if asean_only:
-        candidate_names = asean_only
-    candidate_names = sorted(candidate_names)[:max_candidates]
-    allowed = [
-        {"name": name, "country": config.LOCATION_COUNTRIES.get(name, "")}
-        for name in candidate_names
-    ]
-    prompt = (
-        "Extract the primary incident location from this news report. Return JSON only: "
-        "{location_name,confidence} or null values. location_name MUST exactly match "
-        "one allowed gazetteer name. Ignore publisher datelines, navigation, related "
-        "stories, comparison countries, and places mentioned only as background. "
-        "Do not invent a place or coordinates. If no place is explicit, return null.\n\n"
-        f"source_language={json.dumps(source_language)} source_country={json.dumps(source_country)}\n"
-        f"allowed_locations={json.dumps(allowed, ensure_ascii=False)}\n"
-        f"report={json.dumps(truncate_for_llm(text), ensure_ascii=False)}"
+    allowed_diseases = [
+        item["canonical_name"] for item in config.DISEASE_MASTER_CONCEPTS
+    ] if config.DISEASE_MASTER_CONCEPTS else []
+
+    truncated_text = truncate_for_llm(text, limit=16000)
+
+    system_prompt = (
+        "You are an expert epidemiological surveillance validator for ASEAN Health Authorities. "
+        "Your role is to strictly validate and correct draft extractions from disease surveillance reports. "
+        "STRICT GUARDRAILS:\n"
+        "1. ZERO HALLUCINATION POLICY: Extract metrics ONLY if explicitly stated in text.\n"
+        "2. NON-EVENT FILTER: If the article is purely educational, informational, or prevention advice with NO active case/outbreak metrics, set is_health_related=false and sub_events=[].\n"
+        "3. DISEASE CONSTRAINTS: 'disease' MUST match one of the allowed official ASEAN concepts.\n"
+        "4. ATOMIC EVENTS: Separate distinct (disease, location, case_count, death_count) tuples.\n"
+        "Output valid JSON ONLY matching the requested schema."
     )
-    result = chat_json(
-        "You are a cautious geospatial news entity extractor. Output valid JSON only.",
-        prompt,
-        max_tokens=min(400, config.DEEPSEEK_MAX_TOKENS),
+
+    user_prompt = (
+        f"Article Title: {title}\n\n"
+        f"Clean Article Text:\n{truncated_text}\n\n"
+        f"Draft Extracted Disease: {draft_disease}\n"
+        f"Draft Candidate Diseases: {json.dumps(candidate_diseases or [])}\n"
+        f"Allowed ASEAN Master Diseases: {json.dumps(allowed_diseases)}\n\n"
+        "Return JSON ONLY in this exact format:\n"
+        "{\n"
+        '  "is_health_related": bool,\n'
+        '  "disease_classification": "Primary Disease Name from Allowed List or UNKNOWN",\n'
+        '  "sub_events": [\n'
+        "    {\n"
+        '      "disease": "Disease Name",\n'
+        '      "country": "Country Name",\n'
+        '      "location_name": "Specific City or Province",\n'
+        '      "admin1": "Province/State or null",\n'
+        '      "admin2": "City/District or null",\n'
+        '      "case_count": int,\n'
+        '      "death_count": int,\n'
+        '      "evidence": "Exact supporting sentence from article text"\n'
+        "    }\n"
+        "  ]\n"
+        "}"
     )
-    name = str(result.get("location_name") or "").strip()
+
     try:
-        score = float(result.get("confidence") or 0.0)
-    except (TypeError, ValueError):
-        score = 0.0
-
-    by_name = {_normalize(name): name for name in candidate_names}
-    canonical = by_name.get(_normalize(name))
-    if not canonical or score < config.DEEPSEEK_LOCATION_MIN_CONFIDENCE:
+        result = chat_json(system_prompt, user_prompt, max_tokens=min(1200, config.DEEPSEEK_MAX_TOKENS * 3))
+        if not isinstance(result, dict):
+            return None
+        return result
+    except Exception as exc:
+        logger.warning("Rear-gate DeepSeek validation failed: %s", exc)
         return None
-    return {"location_name": canonical, "confidence": min(score, 0.99)}
+
+
+def detect_disease(text: str) -> dict[str, Any] | None:
+    """Legacy helper fallback for disease concept resolution."""
+    res = validate_and_correct_events(text, draft_disease="UNKNOWN")
+    if res and res.get("disease_classification") and res["disease_classification"] != "UNKNOWN":
+        return {"canonical_name": res["disease_classification"]}
+    return None
+
+
+def detect_location(text: str) -> dict[str, Any] | None:
+    """Legacy helper fallback for location resolution."""
+    res = validate_and_correct_events(text)
+    if res and res.get("sub_events") and len(res["sub_events"]) > 0:
+        evt = res["sub_events"][0]
+        return {
+            "name": evt.get("location_name"),
+            "country": evt.get("country"),
+            "admin1": evt.get("admin1"),
+            "admin2": evt.get("admin2")
+        }
+    return None

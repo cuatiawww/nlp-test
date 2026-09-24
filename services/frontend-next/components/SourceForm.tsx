@@ -19,7 +19,7 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
   const [url, setUrl] = useState('')
   const [country, setCountry] = useState('')
   const [schedule, setSchedule] = useState('')
-  const [enabled, setEnabled] = useState(true)
+  const [enabled, setEnabled] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
       setSchedule(source.schedule || '')
       setEnabled(source.enabled !== false)
     } else {
-      setName(''); setSourceType('rss'); setUrl(''); setCountry(''); setSchedule(''); setEnabled(true)
+      setName(''); setSourceType('rss'); setUrl(''); setCountry(''); setSchedule(''); setEnabled(false)
     }
   }, [source])
 
@@ -61,7 +61,7 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
       if (isEdit) {
         await updateSource(source.id, { name, source_type: sourceType, config, country: country.trim() || null, schedule: schedule || null, enabled })
       } else {
-        await createSource({ name, source_type: sourceType, config, country: country.trim() || null, schedule: schedule || null } as any)
+        await createSource({ name, source_type: sourceType, config, country: country.trim() || null, schedule: schedule || null, enabled } as any)
       }
       onSaved()
     } finally { setSaving(false) }
@@ -107,12 +107,11 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
         <input value={schedule} onChange={e => setSchedule(e.target.value)} placeholder="interval:60"
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
       </div>
-      {isEdit && (
-        <div className="flex items-center gap-2">
-          <input type="checkbox" id="enabled" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="h-4 w-4" />
-          <label htmlFor="enabled" className="text-xs font-semibold uppercase text-slate-500">{t('common.active')}</label>
-        </div>
-      )}
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="enabled" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="h-4 w-4" />
+        <label htmlFor="enabled" className="text-xs font-semibold uppercase text-slate-500">{t('common.active')}</label>
+        {!isEdit && <span className="text-xs text-slate-400">Source baru disimpan nonaktif</span>}
+      </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel}
           className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
