@@ -67,7 +67,8 @@ jobs:
       - name: Start dependency services
         run: |
           docker compose -f docker-compose.yml -f docker-compose-prod.override.yml stop disease-frontend-next || true
-          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d disease-nlp-python disease-rabbitmq
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d --no-deps --force-recreate disease-nlp-python
+          docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d disease-rabbitmq
           # APScheduler loads collector_sources only during collector startup.
           # Recreate the collector so schedule/source changes are picked up.
           docker compose -f docker-compose.yml -f docker-compose-prod.override.yml up -d --no-deps --force-recreate disease-collector-python
@@ -135,7 +136,7 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose-prod.override.yml \
             up -d --no-deps disease-frontend-next
           docker compose -f docker-compose.yml -f docker-compose-prod.override.yml \
-            up -d --no-deps disease-worker-python analysis-job-worker
+            up -d --no-deps --force-recreate disease-worker-python analysis-job-worker
           for i in $(seq 1 30); do
             if curl -fsS --max-time 5 http://127.0.0.1:3010/nlp/login >/dev/null 2>&1; then
               echo "✅ Frontend /nlp/login merespons (percobaan ke-$i)"
