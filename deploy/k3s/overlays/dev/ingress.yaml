@@ -21,9 +21,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: disease-frontend-next
+                name: maintenance-static
                 port:
-                  number: 3000
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:
