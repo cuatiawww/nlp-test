@@ -305,70 +305,17 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
       return fmtBool(row.outbreak_alert)
     case 'needs_review': {
       const isRev = row.needs_review === false || row.status === 'reviewed';
-      const confPct = row.confidence != null
-        ? Math.round(row.confidence <= 1 ? row.confidence * 100 : row.confidence)
-        : null;
-
       if (isRev) {
         return (
-          <div className="flex flex-col gap-0.5">
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700 w-fit">
-              <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Reviewed
-            </span>
-            {confPct != null ? (
-              <span className="text-[9px] text-slate-500 font-mono">
-                Score: <strong className="text-emerald-700">{confPct}%</strong>
-              </span>
-            ) : null}
-          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700 w-fit">
+            <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Reviewed
+          </span>
         );
       }
-
-      // Determine level / tier
-      const tierBadge = confPct != null ? (
-        confPct >= 80 ? (
-          <span className="rounded bg-emerald-100/70 border border-emerald-200 px-1 py-0.2 font-mono text-[9px] font-bold text-emerald-800" title={`Confidence: ${confPct}% (High)`}>
-            {confPct}% High
-          </span>
-        ) : confPct >= 50 ? (
-          <span className="rounded bg-amber-100/70 border border-amber-200 px-1 py-0.2 font-mono text-[9px] font-bold text-amber-800" title={`Confidence: ${confPct}% (Medium)`}>
-            {confPct}% Med
-          </span>
-        ) : (
-          <span className="rounded bg-rose-100/70 border border-rose-200 px-1 py-0.2 font-mono text-[9px] font-bold text-rose-800" title={`Confidence: ${confPct}% (Low)`}>
-            {confPct}% Low
-          </span>
-        )
-      ) : null;
-
-      // Determine reason why needs review
-      let reasonText = 'Verification Needed';
-      if (!row.has_geo && !row.province_city_case && !row.city && !row.province) {
-        reasonText = 'Location Unresolved';
-      } else if (!row.has_geo) {
-        reasonText = 'Coordinates Missing';
-      } else if (confPct != null && confPct < 70) {
-        reasonText = 'Low Confidence Score';
-      } else if (row.source_credibility != null && (row.source_credibility < 0.6 || row.source_credibility < 60)) {
-        reasonText = 'Low Source Reliability';
-      } else if (row.event_count && row.event_count > 1) {
-        reasonText = 'Multi-Event Decomp.';
-      } else if (row.relevance_score && String(row.relevance_score).toLowerCase() === 'low') {
-        reasonText = 'Low Health Relevance';
-      }
-
       return (
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1 flex-wrap">
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700 w-fit">
-              <Clock className="h-3 w-3 text-amber-600" /> Needs Review
-            </span>
-            {tierBadge}
-          </div>
-          <span className="text-[10px] text-slate-500 font-medium truncate max-w-[150px]" title={`Review reason: ${reasonText}`}>
-            {reasonText}
-          </span>
-        </div>
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700 w-fit">
+          <Clock className="h-3 w-3 text-amber-600" /> Needs Review
+        </span>
       );
     }
     case 'disease_event_id':

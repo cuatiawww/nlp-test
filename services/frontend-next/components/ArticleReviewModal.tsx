@@ -623,35 +623,13 @@ export default function ArticleReviewModal({
                   Article Review & NLP Predictions Matrix
                 </h2>
                 {isReviewed ? (
-                  <div className="inline-flex items-center gap-1.5 flex-wrap">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Reviewed
-                    </span>
-                    {target.confidence != null && (
-                      <span className="text-[10px] text-emerald-700 font-mono font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                        Score: {Math.round(target.confidence <= 1 ? target.confidence * 100 : target.confidence)}%
-                      </span>
-                    )}
-                  </div>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Reviewed
+                  </span>
                 ) : (
-                  <div className="inline-flex items-center gap-1.5 flex-wrap">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                      <Clock className="h-3.5 w-3.5" /> Needs Review
-                    </span>
-                    {target.confidence != null && (
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border ${
-                        target.confidence >= 0.8
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : target.confidence >= 0.5
-                          ? 'bg-amber-50 text-amber-700 border-amber-200'
-                          : 'bg-rose-50 text-rose-700 border-rose-200'
-                      }`}>
-                        Score: {Math.round(target.confidence <= 1 ? target.confidence * 100 : target.confidence)}% ({
-                          target.confidence >= 0.8 ? 'High' : target.confidence >= 0.5 ? 'Med' : 'Low'
-                        })
-                      </span>
-                    )}
-                  </div>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                    <Clock className="h-3.5 w-3.5" /> Needs Review
+                  </span>
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">

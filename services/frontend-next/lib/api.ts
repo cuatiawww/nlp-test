@@ -1178,42 +1178,24 @@ export interface NLPCorrectionPayload {
 export async function submitNLPCorrection(
   payload: NLPCorrectionPayload
 ): Promise<{ status: string; message: string; correction_id?: string }> {
-  const endpoint = typeof window !== 'undefined'
-    ? `${baseURL()}/api/v1/nlp/correct`
-    : 'http://disease-nlp-python:8000/correct';
+  const base = baseURL();
+  const endpoint = `${base}/correct`;
 
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(),
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch {}
-
-  // Fallback to direct NLP service on localhost if proxy is unavailable
-  const fallbackEndpoint = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:8000/correct'
-    : 'http://disease-nlp-python:8000/correct';
-
-  const fallbackRes = await fetch(fallbackEndpoint, {
+  const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
     body: JSON.stringify(payload),
   });
 
-  if (!fallbackRes.ok) {
-    const errData = await fallbackRes.json().catch(() => ({}));
-    throw new Error(errData?.detail || errData?.error || 'Gagal menyimpan koreksi ke server');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || data?.detail || 'Gagal menyimpan koreksi ke server');
   }
 
-  return await fallbackRes.json();
+  return data;
 }
 
 export async function fetchNLPTrainingDataset(
@@ -1262,38 +1244,23 @@ export async function markArticleReviewed(payload: MarkReviewedPayload) {
     notes: payload.notes || null,
   };
 
-  const endpoint = typeof window !== 'undefined'
-    ? `${baseURL()}/api/v1/nlp/mark-reviewed`
-    : `http://disease-nlp-python:8000/mark-reviewed`;
+  // Next.js Route Handler handles internal forwarding without browser CSP issues
+  const base = baseURL();
+  const endpoint = `${base}/mark-reviewed`;
 
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(),
-      },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch {}
-
-  const fallbackEndpoint = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? `http://localhost:8000/mark-reviewed`
-    : `http://disease-nlp-python:8000/mark-reviewed`;
-
-  const fallbackRes = await fetch(fallbackEndpoint, {
+  const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
     body: JSON.stringify(body),
   });
 
-  if (!fallbackRes.ok) {
-    const errData = await fallbackRes.json().catch(() => ({}));
-    throw new Error(errData?.detail || errData?.error || 'Failed to update review status');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || data?.detail || 'Failed to update review status');
   }
 
-  return await fallbackRes.json();
+  return data;
 }
