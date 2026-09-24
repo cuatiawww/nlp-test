@@ -1,5 +1,5 @@
-name: deploy-k3s-dev
-run-name: "K3s dev ${{ gitea.ref_name }} (${{ gitea.sha }})"
+name: deploy-k3s-prod
+run-name: "K3s prod ${{ gitea.ref_name }} (${{ gitea.sha }})"
 on:
   push:
     branches: [main]

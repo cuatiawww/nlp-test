@@ -3,7 +3,7 @@
 # Runner: act_runner (gitea-runner) di server nlp-abvc-dev, label: disease-deploy (host)
 # Catatan: host mode → tidak pakai actions JS (checkout manual via git + gitea.token)
 # .env, docker-compose.yml & model TIDAK di repo — file lokal server, tidak disentuh.
-name: build-and-deploy
+name: deploy-docker-stg
 run-name: "Deploy ${{ gitea.ref_name }} (${{ gitea.sha }})"
 
 on:
