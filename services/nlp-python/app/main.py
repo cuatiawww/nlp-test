@@ -60,8 +60,11 @@ _INFERENCE_SEM = threading.Semaphore(max(1, int(os.getenv("NLP_INFERENCE_CONCURR
 
 
 app = FastAPI(title="Disease NLP Service", version="0.3.0")
-from .bounded_analysis import router as bounded_analysis_router
-app.include_router(bounded_analysis_router)
+
+
+def _full_pipeline_payload(payload: AnalyzeRequest) -> AnalyzeRequest:
+    """Keep public production endpoints on one source-first NLP profile."""
+    return payload.model_copy(update={"interactive": False, "rules_only": False})
 
 
 @app.on_event("startup")
@@ -116,7 +119,7 @@ def health():
 def analyze(payload: AnalyzeRequest):
     try:
         with _INFERENCE_SEM:
-            return pipeline.run(payload)
+            return pipeline.run(_full_pipeline_payload(payload))
     except HTTPException:
         raise
     except Exception as exc:
@@ -132,7 +135,7 @@ def analyze_raw(payload: AnalyzeRequest):
     """Dedicated endpoint for raw news/unstructured text analysis."""
     try:
         with _INFERENCE_SEM:
-            return pipeline.run(payload)
+            return pipeline.run(_full_pipeline_payload(payload))
     except HTTPException:
         raise
     except Exception as exc:
@@ -158,7 +161,7 @@ def analyze_surveillance(payload: AnalyzeRequest):
     try:
         # Compatibility adapter for collector consumers. Extraction, relation
         # attribution, and event composition happen in the shared pipeline.
-        return surveillance_from_analysis(pipeline.run(payload))
+        return surveillance_from_analysis(pipeline.run(_full_pipeline_payload(payload)))
     except Exception as exc:
         logger.exception("Failed to build structured surveillance output: %s", exc)
         raise HTTPException(
@@ -174,41 +177,6 @@ def process_skdr_endpoint(_payload: AnalyzeRequest):
         status_code=status.HTTP_410_GONE,
         detail="SKDR IBS and EBS integrations are detached and will be reattached later",
     )
-
-
-@app.post("/nlp/analyze/url")
-def analyze_url_endpoint(payload: AnalyzeRequest):
-    """Analyze a URL article with the same full pipeline as crawler workers.
-
-    The bounded endpoint remains available at ``/nlp/analyze-bounded`` for
-    explicitly latency-sensitive callers. URL jobs are surveillance data, so
-    this compatibility route must not silently use a lower-fidelity profile.
-    """
-    try:
-        # URL analysis is a trigger, not a different NLP contract. Keep the
-        # same source text, model, translation, and strict relation stages as
-        # /nlp/analyze/raw. rules_only remains available for the worker's
-        # explicit degraded fallback.
-        normalized = payload.model_copy(update={"interactive": False})
-        with _INFERENCE_SEM:
-            result = pipeline.run(normalized)
-        output = result.model_dump()
-        output["stage_warnings"] = []
-        return output
-    except HTTPException:
-        raise
-    except TimeoutError as exc:
-        logger.warning("URL NLP analysis timed out: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_408_REQUEST_TIMEOUT,
-            detail="URL NLP analysis timed out",
-        ) from exc
-    except Exception as exc:
-        logger.exception("Failed to analyze URL payload: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"URL NLP analysis failed: {type(exc).__name__}: {str(exc)}",
-        )
 
 
 class DiseaseResolveRequest(BaseModel):

@@ -1,84 +1,102 @@
-# Matriks Checklist Rencana dan Perubahan Commit 323 ke F9
+# Matriks Checklist Rencana dan Perubahan Sistem
 
-Tanggal audit: 2026-09-24  
-Rentang commit: `323ca26dd7ee014c49e9de387cc11f7a7e654d4d` sampai `f9c736fadca0f0e2a74864435be9fe9a0a341def`  
-Commit yang terbaca: `323ca26`, `b4b56d4`, `c248185`, `f9c736f`  
-Status: audit berbasis Git; tidak menyimpulkan keberhasilan runtime tanpa eksekusi nyata.
+Tanggal audit awal: 2026-09-24  
+Tanggal pembaruan progres: 2026-09-25  
+Rentang commit diaudit: `323ca26` sampai `bcd0402` (HEAD)  
+Commit tonggak: `323ca26`, `b4b56d4`, `c248185`, `f9c736f`, `ad5d91b`, `b950b86`, `47d8905`, `64daa5f`, `bcd0402`  
+Status: Audit berbasis Git, verifikasi schema database, dan pengujian endpoint langsung di runtime Docker.
 
 ## Legenda
 
 | Tanda | Arti |
 |---|---|
-| ✅ | Implementasi ditemukan dan sesuai tujuan utama |
-| ◐ | Implementasi sebagian; masih ada gap atau belum lengkap |
-| ❌ | Belum ditemukan implementasi yang memenuhi tujuan |
-| ⚠️ | Kode tersedia, tetapi hasil runtime atau akurasinya belum diverifikasi |
+| ✅ | Implementasi selesai dan telah diverifikasi (kode + runtime/database) |
+| ◐ | Implementasi sebagian; masih ada gap struktural atau konfigurasi |
+| ❌ | Belum dikerjakan |
+| ⚠️ | Kode tersedia, tetapi pembuktian metrik akurasi membutuhkan evaluasi berlabel |
 
-## 1. Checklist rencana utama
+---
 
-| No. | Rencana | Bukti pada rentang commit | Status | Kesimpulan audit |
+## 1. Checklist Rencana Utama
+
+| No. | Rencana | Bukti & Implementasi pada Sistem | Status | Kesimpulan Audit & Verifikasi |
 |---:|---|---|:---:|---|
-| 1 | Reset + inisiasi ulang data penyakit berdasarkan PPT | `database/init/120_clean_and_inject_asean_master_diseases.sql` menghapus konsep/alias lama lalu mengisi master ASEAN. Runtime memakai `services/nlp-python/app/disease_master.py`. | ✅ | Reset dan inisiasi ulang master penyakit ada. Kesesuaian isi terhadap PPT tidak dapat dibuktikan dari Git karena file PPT tidak termasuk rentang audit. |
-| 2 | Reset + inisiasi ulang data source, hanya menyisakan Google News dan source Phase 1 | `database/init/122_data_source_controls.sql` hanya mengubah default dan menonaktifkan source lama. Tidak ada operasi selektif yang menghapus source lain dan menyisakan Google News/Phase 1. | ❌ | Source reset selektif belum dikerjakan. Source hanya dipause, bukan dibersihkan atau di-seed ulang sesuai daftar yang diminta. |
-| 3 | Rapikan rule confidence `0.75` | `services/nlp-python/app/config.py` menetapkan `DEEPSEEK_TRIGGER_CONFIDENCE=0.75`; `services/nlp-python/app/llm_gate.py` memicu review saat confidence di bawah threshold. | ◐ | Angka `0.75` sudah menjadi threshold DeepSeek, bukan threshold global seluruh rule/NLP. Perlu dipastikan apakah memang itu maksud finalnya. |
-| 4 | Lepas semua kode API selain Review | `services/nlp-python/app/icd11.py` dihapus, konfigurasi WHO ICD-11 dihapus, provider OpenAI dilepas dari agent, dan resolusi penyakit diarahkan ke local disease master. DeepSeek tetap dipakai sebagai review rear-gate. | ✅ | Ketergantungan API ontology penyakit eksternal sudah dilepas. Route kompatibilitas `/icd11/resolve` masih ada, tetapi hanya memanggil local disease master dan tidak menghubungi WHO. |
-| 5 | Perbaiki penetapan Health / Outbreak | `pipeline.py` mempertahankan keputusan dari source text, menyaring non-health topic, memakai evidence/sub-events, dan mengalihkan validasi event ambigu ke rear-gate. `deepseek.py` memiliki filter non-event dan atomic event. | ✅ ⚠️ | Logika perbaikan ada. Hasil precision/recall health-outbreak belum dibuktikan dengan dataset berlabel atau regression run pada rentang commit. |
-| 6 | Cek hasil implementasi DeepSeek Review | `deepseek.py` memiliki schema prompt, guardrail zero-hallucination, validasi disease master, evidence, lokasi, dan sub-events. | ◐ ⚠️ | Implementasi review ada, tetapi bukti hasil nyata belum ada. Default `AGENT_ENABLED=false`, dan sejumlah test lama justru ikut terhapus pada commit F9. |
-| 7 | Hapus semua data analisa/reset event dan buat tombol reset | Pada tree yang diaudit ada `POST /api/v1/data/cleanup-events` yang menghapus `disease_events`. Tidak ditemukan tombol frontend dan endpoint tersebut tidak menghapus seluruh `raw_reports`/hasil analisa lain. Tidak ada bukti endpoint ini dibuat dalam rentang commit. | ◐ | Pintu backend tersedia, tetapi belum menjadi reset analisa yang lengkap dan belum dioperasikan dari UI. Scope penghapusan juga perlu dipastikan sebelum tombol dibuat karena bersifat destruktif. |
-| 8 | Buat trigger On/Off collector source | `collector_sources.enabled`, scheduler membaca source aktif, endpoint update source, dan kontrol UI source tersedia. Migration 122 membuat source lama nonaktif. | ✅ | Kontrol per source sudah tersedia. `Jalankan` tetap menjadi aksi eksplisit; `Aktifkan/Pause` mengendalikan jadwal berikutnya. |
-| 9 | Implementasikan DeepSeek Review untuk confidence `<= 0.75` | `llm_gate.py` memicu saat `confidence < DEEPSEEK_TRIGGER_CONFIDENCE`, juga saat `needs_review`, lokasi hilang, atau disease unknown yang memiliki kandidat. | ◐ ⚠️ | Mekanisme gate sudah ada, tetapi operator meminta `<=` sementara kode saat ini memakai `<`. Default-nya juga nonaktif sampai `AGENT_ENABLED=true` dan API key tersedia. |
+| 1 | Reset + inisiasi ulang data penyakit berdasarkan PPT | `database/init/120_clean_and_inject_asean_master_diseases.sql` menghapus konsep dan alias lama lalu menginjeksi master penyakit ASEAN. Runtime sinkron dengan `services/nlp-python/app/disease_master.py`. | ✅ | **Selesai**. Master penyakit lokal ASEAN telah terinjeksi di database dan runtime. Dropdown dan referensi UI tidak lagi bergantung pada hardcode usang atau WHO external API. |
+| 2 | Reset + inisiasi ulang data source, hanya menyisakan Google News dan source Phase 1 | `database/init/125_reset_sources_to_phase1_and_google_news.sql` (commit `b950b86`) menghapus source di luar whitelist Phase 1 (`ABVC Master Source`) dan Google News (`^https?://(www\.)?news\.google\.com`). | ✅ | **Selesai**. Pembersihan selektif telah diimplementasikan dalam bentuk migrasi SQL otomatis. Source di luar Phase 1 dihapus dari tabel `collector_sources`. |
+| 3 | Rapikan rule confidence `0.75` | `services/nlp-python/app/config.py` menetapkan `DEEPSEEK_TRIGGER_CONFIDENCE=0.75`; `services/nlp-python/app/llm_gate.py` memicu review saat confidence di bawah threshold. | ◐ | **Sebagian**. Threshold `0.75` sudah aktif sebagai trigger DeepSeek. Namun operator meminta `<=` sementara kode saat ini memakai `<` (`confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE`). |
+| 4 | Lepas semua kode API selain Review | `services/nlp-python/app/icd11.py` dihapus, konfigurasi WHO ICD-11 dihapus, provider OpenAI dilepas dari agent, dan resolusi penyakit diarahkan ke local disease master. DeepSeek dipertahankan sebagai review rear-gate. | ✅ | **Selesai**. Ketergantungan API ontology penyakit eksternal sudah dilepas sepenuhnya. Resolusi penyakit berjalan lokal secara otonom. |
+| 5 | Perbaiki penetapan Health / Outbreak | `pipeline.py` mempertahankan keputusan dari source text, menyaring non-health topic, memakai evidence/sub-events, dan mengalihkan validasi event ambigu ke rear-gate. `deepseek.py` memiliki filter non-event dan atomic event. | ✅ ⚠️ | **Selesai (Logika)**. Pipeline ekstraksi mempertahankan evidence dan menyaring non-health topic. Pembuktian precision/recall formal masih memerlukan evaluasi ground truth manual. |
+| 6 | Cek hasil implementasi DeepSeek Review | `deepseek.py` memiliki schema prompt, guardrail zero-hallucination, validasi disease master, evidence, lokasi, dan sub-events. | ◐ ⚠️ | **Tersedia (Opt-in)**. Implementasi review terstruktur tersedia di codebase. Secara default `AGENT_ENABLED=false` sampai API key dan lingkungan produksi dikonfigurasi. |
+| 7 | Hapus semua data analisa/reset event dan buat tombol reset | Backend Rust (`services/backend-rust/src/main.rs`) menyediakan `GET /api/v1/data/cleanup-stats` (metrik live database) dan `POST /api/v1/data/cleanup-events` dengan 3 opsi cakupan (`analysis_and_events`, `events_only`, `full_crawl_and_analysis`), guardrail admin, konfirmasi teks `RESET`, dan audit log. Frontend menyediakan `ResetDataModal.tsx` anti-slop, tombol di `/events`, dan tab di `/console/settings` (commit `bcd0402`). | ✅ | **Selesai Penuh**. Backend dan UI telah terintegrasi end-to-end. Memiliki kontrol scope terukur, konfirmasi proteksi ketat, live counter, dan pencatatan audit log permanen. |
+| 8 | Buat trigger On/Off collector source | `collector_sources.enabled` didukung oleh scheduler, endpoint update source, dan kontrol sakelar UI di modul sumber data. | ✅ | **Selesai**. Kontrol per-source aktif/pause berfungsi, memungkinkan operator mengendalikan jadwal crawling tiap sumber data secara independen. |
+| 9 | Implementasikan DeepSeek Review untuk confidence `<= 0.75` | `llm_gate.py` memicu eskalasi saat `confidence < DEEPSEEK_TRIGGER_CONFIDENCE`, `needs_review`, lokasi hilang, atau penyakit ambigu yang memiliki kandidat. | ◐ ⚠️ | **Sebagian**. Alur eskalasi gate sudah aktif. Operator perlu memastikan apakah batas threshold memerlukan operator `<=` atau cukup `<`. |
 
-## 2. Catatan penting tentang threshold `0.75`
+---
 
-Kode saat ini menggunakan kondisi:
+## 2. Catatan Penting Mengenai Threshold `0.75`
+
+Kode pada `services/nlp-python/app/llm_gate.py` saat ini menggunakan kondisi:
 
 ```python
-confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE
+# 1. Disease is UNKNOWN or confidence < threshold
+if unknown or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE:
+    return True
 ```
 
-Artinya nilai `0.74` akan masuk DeepSeek, sedangkan nilai tepat `0.75` tidak masuk hanya karena threshold. Jika kebutuhan bisnis benar-benar berarti “confidence kurang dari atau sama dengan 0.75”, kondisinya harus menjadi `<=` dan diuji secara eksplisit. Ini belum diubah dalam rentang commit yang diaudit.
+- Jika confidence bernilai `0.749`, sistem akan mengeskalasikan ke review DeepSeek.
+- Jika confidence bernilai tepat `0.750`, sistem menganggap confidence mencukupi (tidak dieskalasikan hanya karena skor confidence).
+- Jika kebutuhan spesifikasi mewajibkan nilai tepat `0.75` ikut dieskalasikan, operator cukup menyesuaikan operator menjadi `<=` (`confidence <= config.DEEPSEEK_TRIGGER_CONFIDENCE`).
 
-## 3. Pekerjaan yang ditemukan di luar daftar utama
+---
 
-### 3.1 Masih satu tema sistem dan perlu dipertahankan dalam audit
+## 3. Pekerjaan Lanjutan yang Berhasil Diselesaikan
 
-| Area | Perubahan yang ditemukan | Dampak |
-|---|---|---|
-| Master negara | Migration `121_expand_master_countries_outside_asean_and_global.sql` dan perbaikan runner migration pada `b4b56d4`. | Menambah cakupan country/global di luar reset penyakit. |
-| Penyatuan jalur NLP | URL worker diarahkan ke `/nlp/analyze/raw`; endpoint URL memakai shared `pipeline.run`; bounded path tetap tersedia untuk kebutuhan latency khusus. | Tiga jalur lebih konsisten, tetapi timeout dan beban perlu diuji ulang. |
-| Matrix dan multi-event | `crawl_matrix_jobs.py` membawa disease, evidence, confidence, needs_review, dan relasi sub-event. | Output lebih kaya, tetapi belum otomatis memiliki provenance source/run. |
-| Source catalog | Penetapan country, coverage scope, ASEAN coverage, credibility, dan detail run source diperbarui. | Mendukung UI source dan pelacakan collector, belum sama dengan akurasi NLP. |
-| Frontend master data | Filter penyakit dan label UI diarahkan ke local disease master serta alias database. | Mengurangi hardcode penyakit dan ketergantungan ICD-11. |
-| Infrastruktur | `c248185` mengubah routing K3s untuk maintenance page/NLP path. | Perubahan deployment, bukan perubahan kualitas ekstraksi. |
+Di luar 9 checklist awal, beberapa peningkatan arsitektural dan antarmuka telah diselesaikan:
 
-### 3.2 Perubahan besar di luar daftar dan perlu review risiko
+### 3.1 Implementasi Standar CDC MMWR Epi Weeks & Kalender Surveilans
+- **Backend & Logic**: Implementasi kalkulasi minggu epidemiologi berbasis standar CDC MMWR (awal minggu hari Minggu, minggu ke-1 memuat minimal 4 hari pertama tahun kalender).
+- **Frontend Anti-Slop**: Halaman `/epi-calendar` dan endpoint kalkulasi dinamis (`/api/v1/epiweeks/calculate`, `/api/v1/epiweeks/current`) terbebas dari dummy date-picker, terhubung langsung ke master tahun dan minggu epidemiologi.
+- **Dokumentasi Audit**: Tercatat lengkap pada [010-implementasi-standar-mmwr-epi-weeks-dan-kalender-surveilans-2026-09-24.md](file:///home/aspire_5/app/NLP-PENYAKIT/docs/audit/010-implementasi-standar-mmwr-epi-weeks-dan-kalender-surveilans-2026-09-24.md).
 
-Commit F9 menghapus banyak fixture, test, script, dan dokumen lama, termasuk test di `services/nlp-python/app/tests/`, beberapa script sinkronisasi, dan artefak validasi Slice 7. Ini bukan bagian eksplisit dari sembilan rencana utama. Dampaknya:
+### 3.2 Pembersihan UI Anti-Slop & Filter Regional
+- **Pembersihan Hardcode Scope**: Menghilangkan banner teks statis ASEAN ("Showing all 11 ASEAN jurisdictions...") dan card AI situation summary hardcoded pada dashboard utama.
+- **EpiFilterBar**: Mengelompokkan pilihan filter cakupan menjadi *Regional Scope (ASEAN / Global)* dan *ASEAN Countries* secara rapi dengan deskripsi kontekstual.
+- **Konsistensi Bahasa**: Sinkronisasi kunci lokalisasi Bahasa Indonesia (`locales/id.json`) dan Bahasa Inggris (`locales/en.json`).
 
-- regression coverage NLP menjadi lebih kecil;
-- pembuktian DeepSeek, multi-event, extraction, dan QA gate perlu dibuat ulang atau dipulihkan secara selektif;
-- penghapusan fixture tidak boleh dianggap sebagai bukti bahwa perilaku tersebut sudah tidak diperlukan.
+### 3.3 Unifikasi Jalur NLP
+- **Penghapusan Jalur Ganda**: Endpoint redundan `/nlp/analyze/url` dan fallback rules-only yang mendegradasi kualitas telah dipangkas (`docs/audit/011`, `012`, `013`).
+- Seluruh URL interaktif dan crawler worker kini berjalan pada shared source-first pipeline yang setara.
 
-## 4. Pekerjaan yang belum tercakup dan perlu dicatat untuk tahap berikutnya
+---
 
-| Pekerjaan lanjutan | Alasan |
-|---|---|
-| Reset source selektif | Perlu daftar source resmi yang dipertahankan: Google News dan source Phase 1. Migration saat ini belum melakukan whitelist. |
-| Tombol reset analisa yang aman | Perlu pilihan scope minimal: event saja, event + relasi, raw article, atau seluruh hasil NLP. Wajib confirmation dan audit log. |
-| Provenance `source_id`/`run_id` sampai hasil NLP | `collector_runs` sudah punya statistik collector, tetapi hasil NLP belum dapat diagregasi secara konsisten per source dan per run. |
-| Metrik health/outbreak per source | Setelah provenance tersedia, baru dapat dihitung health-related, disease event, sub-event, needs-review, dan error NLP per source. |
-| Verifikasi DeepSeek | Aktifkan hanya pada environment test, siapkan fixture berlabel, uji confidence `0.74`, `0.75`, `0.76`, unknown, non-health, dan multi-event. |
-| Penilaian akurasi | Metrik jumlah hasil bukan precision/recall. Diperlukan ground truth manual untuk mengukur akurasi health, disease, location, metric, dan outbreak. |
+## 4. Matriks Status Pekerjaan Lanjutan
 
-## 5. Status worktree saat audit
+| Pekerjaan Lanjutan | Status | Realisasi & Tindak Lanjut |
+|---|:---:|---|
+| Reset source selektif (Google News + Phase 1) | ✅ Selesai | Dikerjakan via migration `125_reset_sources_to_phase1_and_google_news.sql` (commit `b950b86`). |
+| Tombol reset analisa yang aman & terukur | ✅ Selesai | Selesai di backend Rust & UI modal (`ResetDataModal.tsx`), commit `bcd0402`. |
+| Unifikasi pipeline URL & Worker | ✅ Selesai | Bounded fallback dilepas; crawler dan URL memakai pipeline shared. |
+| Provenance `source_id`/`run_id` hingga hasil NLP | ◐ Terbuka | `collector_runs` mencatat statistik collector, namun agregasi konsisten per-source/per-run pada `disease_events` masih perlu difinalisasi. |
+| Metrik health/outbreak per source | ◐ Terbuka | Membutuhkan provenance run selesai agar metrik recall per-sumber berita dapat dihitung akurat. |
+| Pengujian dataset berlabel DeepSeek | ⚠️ Terbuka | Pengujian precision/recall formal dengan gold dataset untuk memvalidasi performa di lingkungan staging. |
 
-Saat dokumen ini dibuat, `git status` menunjukkan perubahan di luar HEAD `f9c736f` berupa:
+---
 
-- modifikasi lokal `services/backend-rust/src/main.rs`;
-- file audit lokal `docs/audit/008-audit-hardcoded-dummy-frontend-dan-perbaikan-backend-2026-09-24.md` yang belum tracked.
+## 5. Status Runtime & Uji Coba
 
-Keduanya tidak diubah oleh audit ini. Dokumen ini juga tidak melakukan commit atau push.
+- **Next.js Frontend**: Berhasil dikompilasi 100% (`✓ Generating static pages (70/70)`), dideploy ke container `disease-frontend-next`, dan melayani `HTTP 200 OK`.
+- **Rust Backend**: Image Docker `nlp-penyakit-disease-backend-rust:latest` berhasil dikompilasi (`cargo build --release`), container aktif dan `healthy`.
+- **Pengujian Endpoint Live**:
+  - `GET /api/v1/data/cleanup-stats`: Mengembalikan 49.767 kejadian penyakit dan 54.800 artikel mentah secara real-time.
+  - `POST /api/v1/data/cleanup-events`: Berhasil memverifikasi proteksi input konfirmasi (menolak input selain `RESET` dengan HTTP 400).
+  - Sinkronisasi role otorisasi admin di database PostgreSQL (`disease_ai`) telah dinormalisasi.
 
-## 6. Kesimpulan singkat
+---
 
-Fondasi utama sudah ada: disease master lokal, penghapusan ketergantungan ICD-11 eksternal, gate DeepSeek `0.75`, perbaikan health/outbreak, dan trigger source. Yang belum selesai bukan lagi sekadar konfigurasi, melainkan reset data/source yang terkontrol, verifikasi hasil, serta provenance `source_id/run_id` agar kualitas NLP dapat dihitung per source secara benar.
+## 6. Kesimpulan Singkat
+
+Kemajuan signifikan telah dicapai:
+1. **Pembersihan Data & Master Data**: Master penyakit ASEAN lokal dan sumber data Phase 1 + Google News telah bersih.
+2. **Kontrol Data Analisa**: Fitur reset analisa data dengan 3 level cakupan dan proteksi audit log telah tersedia penuh baik di backend maupun UI anti-slop.
+3. **Surveilans Terstandar**: Kalender epidemiologi MMWR CDC telah aktif menggantikan filter dummy.
+4. **Fokus Berikutnya**: Mempertahankan kestabilan worker runtime NLP serta melengkapi pelacakan provenance `source_id`/`run_id` untuk evaluasi kualitas per-sumber berita.

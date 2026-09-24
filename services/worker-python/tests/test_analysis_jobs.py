@@ -72,7 +72,7 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(result["result"]["content"], "10 dengue cases")
         self.assertFalse(result["cached"])
         self.assertFalse(result["result"]["cached"])
-        self.assertFalse(nlp.call_args.kwargs["fallback"])
+        self.assertEqual(nlp.call_args.args[0]["source_url"], "https://example.org/news")
 
     def test_translation_timeout_does_not_demote_source_extraction(self):
         nlp = Mock(return_value={
@@ -91,31 +91,29 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(result["result"]["case_count"], 10)
         self.assertTrue(result["result"]["needs_review"])
 
-    def test_nlp_timeout_retries_full_nlp_without_rules(self):
+    def test_nlp_timeout_retries_only_full_nlp(self):
         nlp = Mock(side_effect=[TimeoutError(), {"disease_classification": "DENGUE", "case_count": 10}])
         result = analyze_stages(
             "https://example.org",
             Mock(return_value={"content": "10 dengue cases"}),
             nlp,
             nlp_retries=1,
-            rules_only_fallback=False,
         )
         self.assertEqual(result["status"], "completed")
         self.assertEqual(nlp.call_count, 2)
-        self.assertFalse(nlp.call_args.kwargs["fallback"])
+        self.assertTrue(all(not call.kwargs for call in nlp.call_args_list))
         self.assertEqual(result["result"]["case_count"], 10)
 
-    def test_nlp_timeout_keeps_article_and_tries_rules_when_opted_in(self):
-        nlp = Mock(side_effect=[TimeoutError(), {"disease_classification": "DENGUE", "case_count": 10}])
+    def test_nlp_timeout_keeps_article_without_degraded_retry(self):
+        nlp = Mock(side_effect=TimeoutError())
         result = analyze_stages(
             "https://example.org",
             Mock(return_value={"content": "10 dengue cases"}),
             nlp,
             nlp_retries=0,
-            rules_only_fallback=True,
         )
-        self.assertEqual(result["status"], "partial")
-        self.assertTrue(nlp.call_args.kwargs["fallback"])
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(nlp.call_count, 1)
         self.assertTrue(result["result"]["needs_review"])
 
     def test_nlp_failure_warning_keeps_a_safe_diagnostic(self):
@@ -125,7 +123,6 @@ class AnalysisJobTests(unittest.TestCase):
             Mock(return_value={"content": "Report"}),
             nlp,
             nlp_retries=0,
-            rules_only_fallback=False,
         )
         self.assertEqual(result["status"], "failed")
         self.assertIn("NLP HTTP 503: busy", result["warnings"][0])
@@ -137,7 +134,6 @@ class AnalysisJobTests(unittest.TestCase):
             Mock(return_value={"content": "Report"}),
             Mock(side_effect=TimeoutError()),
             nlp_retries=0,
-            rules_only_fallback=False,
         )
         self.assertEqual(result["status"], "failed")
         self.assertTrue(result["result"]["needs_review"])
@@ -233,22 +229,11 @@ class AnalysisJobTests(unittest.TestCase):
                     "content": "10 kasus demam berdarah",
                     "source_country": "Indonesia",
                     "url": "https://example.org/news",
-                },
-                fallback=False,
+                }
             )
         sent = post.call_args.kwargs["json"]
         self.assertFalse(sent["rules_only"])
         self.assertEqual(sent["source_url"], "https://example.org/news")
-        self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
-
-    def test_analyze_article_fallback_keeps_raw_contract(self):
-        response = Mock()
-        response.ok = True
-        response.json.return_value = {"disease_classification": "Measles"}
-        with patch("requests.post", return_value=response) as post:
-            analyze_article({"content": "Kasus campak di Semarang"}, fallback=True)
-        sent = post.call_args.kwargs["json"]
-        self.assertTrue(sent["rules_only"])
         self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
 
     def test_url_worker_spawns_manual_crawler_in_the_existing_service(self):
@@ -261,23 +246,19 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertNotEqual(QUEUE, "disease.raw")
         self.assertNotEqual(QUEUE, "disease.crawl-matrix")
 
-    def test_rules_only_fallback_is_opt_in(self):
-        from app.analysis_jobs import rules_only_fallback_enabled, is_retryable_nlp_error
-        with patch.dict("os.environ", {"ANALYZE_URL_RULES_ONLY_FALLBACK": ""}, clear=False):
-            os.environ.pop("ANALYZE_URL_RULES_ONLY_FALLBACK", None)
-            self.assertFalse(rules_only_fallback_enabled())
+    def test_nlp_retry_policy_does_not_retry_budget_timeout(self):
+        from app.analysis_jobs import is_retryable_nlp_error
         self.assertFalse(is_retryable_nlp_error(RuntimeError("NLP HTTP 408: exceeded budget (180s)")))
         self.assertTrue(is_retryable_nlp_error(RuntimeError("NLP HTTP 503: busy")))
         self.assertFalse(is_retryable_nlp_error(RuntimeError("NLP HTTP 400: bad url")))
 
-    def test_bounded_nlp_budget_failure_is_not_retried(self):
+    def test_nlp_budget_failure_is_not_retried(self):
         nlp = Mock(side_effect=RuntimeError("NLP HTTP 408: exceeded budget (30s)"))
         result = analyze_stages(
             "https://example.org",
             Mock(return_value={"content": "Report"}),
             nlp,
             nlp_retries=1,
-            rules_only_fallback=False,
         )
         self.assertEqual(result["status"], "failed")
         self.assertEqual(nlp.call_count, 1)

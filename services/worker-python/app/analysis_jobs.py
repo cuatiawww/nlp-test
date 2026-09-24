@@ -91,6 +91,7 @@ def _seconds_at_least(name, default):
 # worker HTTP wait below a Full NLP pass. Env may only raise the budget.
 NLP_REQUEST_TIMEOUT_SECONDS = _seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270)
 ANALYZE_URL_NLP_RETRIES = max(0, int(os.getenv("ANALYZE_URL_NLP_RETRIES", "1")))
+NLP_INPUT_MAX_CHARS = max(1500, int(os.getenv("NLP_INPUT_MAX_CHARS", "35000")))
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
 ).lower() in {"1", "true", "yes", "on"}
@@ -103,17 +104,6 @@ def validate_url(url):
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
         raise ValueError("A valid HTTP(S) article URL is required")
     return url
-
-
-def _env_flag(name, default=False):
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def rules_only_fallback_enabled():
-    return _env_flag("ANALYZE_URL_RULES_ONLY_FALLBACK", False)
 
 
 def nlp_retry_count():
@@ -145,7 +135,6 @@ def analyze_stages(
     nlp,
     progress=lambda stage: None,
     before_nlp=None,
-    rules_only_fallback=None,
     nlp_retries=None,
 ):
     validate_url(url)
@@ -181,8 +170,6 @@ def analyze_stages(
     # Carry the actual article URL into NLP so domain-level source reliability
     # can identify DW/BBC/Detik/Antara instead of falling back to web=0.65.
     extracted_for_analysis = {**extracted, "source_url": url}
-    if rules_only_fallback is None:
-        rules_only_fallback = rules_only_fallback_enabled()
     if nlp_retries is None:
         nlp_retries = nlp_retry_count()
     analysis = None
@@ -190,7 +177,7 @@ def analyze_stages(
     attempts = 1 + max(0, int(nlp_retries))
     for attempt in range(attempts):
         try:
-            analysis = nlp(extracted_for_analysis, fallback=False)
+            analysis = nlp(extracted_for_analysis)
             last_error = None
             break
         except Exception as exc:
@@ -214,29 +201,17 @@ def analyze_stages(
             break
     if analysis is None:
         reason = str(last_error or "unknown error").replace("\n", " ").strip()[:240]
-        if rules_only_fallback:
-            warning = "Full NLP unavailable"
-            if reason:
-                warning += f" ({reason})"
-            warnings.append(warning + "; attempted bounded rules-only analysis")
-            logger.warning("Full NLP failed for %s: %s", url, reason or type(last_error).__name__)
-            try:
-                analysis = nlp(extracted_for_analysis, fallback=True)
-            except Exception:
-                analysis = {}
-                warnings.append("NLP unavailable; source content retained for review")
-        else:
-            warning = "Full NLP failed"
-            if reason:
-                warning += f" ({reason})"
-            warnings.append(warning + "; article text retained. Retry the job; rules-only fallback is opt-in.")
-            logger.warning("Full NLP failed for %s without rules-only fallback: %s", url, reason)
-            return {
-                "status": "failed",
-                "error": warning + ". Article text was fetched; retry Full NLP (do not silently use rules-only).",
-                "result": {**extracted, "url": url, "needs_review": True},
-                "warnings": warnings,
-            }
+        warning = "Full NLP failed"
+        if reason:
+            warning += f" ({reason})"
+        warnings.append(warning + "; article text retained; no degraded NLP fallback was attempted.")
+        logger.warning("Full NLP failed for %s: %s", url, reason or type(last_error).__name__)
+        return {
+            "status": "failed",
+            "error": warning + ". Article text was fetched; retry Full NLP.",
+            "result": {**extracted, "url": url, "needs_review": True},
+            "warnings": warnings,
+        }
     warnings.extend(analysis.pop("stage_warnings", []))
     result = {**extracted, **analysis, "url": url, "cached": False}
     if warnings:
@@ -327,7 +302,8 @@ def fetch_article(url, fallback=False):
         raise last_error
     raise RuntimeError("Article fetch failed")
 
-def _prepare_text_for_nlp(extracted, max_chars=35000):
+def _prepare_text_for_nlp(extracted, max_chars=None):
+    max_chars = NLP_INPUT_MAX_CHARS if max_chars is None else max_chars
     title = (extracted.get("title") or "").strip()
     content = (extracted.get("content") or "").strip()
     if len(content) <= max_chars:
@@ -351,7 +327,7 @@ def _prepare_text_for_nlp(extracted, max_chars=35000):
         return "".join(parts).strip()
     return (title + "\n\n" + content[:max_chars]).strip()
 
-def analyze_article(extracted, fallback=False):
+def analyze_article(extracted):
     import requests
     # URL analysis uses the same full NLP contract as bulk and matrix workers.
     endpoint = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000")
@@ -364,7 +340,7 @@ def analyze_article(extracted, fallback=False):
             "source_name": "URL Analyzer",
             "source_country": extracted.get("source_country"),
             "published_at": extracted.get("published_at"),
-            "rules_only": fallback,
+            "rules_only": False,
             "source_url": extracted.get("url"),
         },
         timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
@@ -905,7 +881,7 @@ def process_job(job_id):
             )
             if reuse_stored_raw:
                 # RAW already exists but NLP did not finish, or the previous
-                # event was a rules-only/timeout fallback. Reuse stored text.
+                # event was incomplete. Reuse stored text for a Full NLP retry.
                 def fetch_for_job(_url, fallback=False):
                     return {
                         "url": row["url"],
@@ -949,23 +925,12 @@ def process_job(job_id):
                 )
                 with connect() as conn:
                     result = outcome.get("result")
-                    # Persist Full NLP completions. Rules-only partials are
-                    # opt-in and must not become a cache hit that hides a 408.
+                    # Persist only results from the shared Full NLP contract.
+                    # Failed jobs retain RAW content separately.
                     persist_event = (
                         result
                         and not outcome.get("cached")
-                        and (
-                            outcome["status"] == "completed"
-                            or (
-                                outcome["status"] == "partial"
-                                and rules_only_fallback_enabled()
-                                and not any(
-                                    "Full NLP unavailable" in str(item)
-                                    or "exceeded budget" in str(item)
-                                    for item in (outcome.get("warnings") or [])
-                                )
-                            )
-                        )
+                        and outcome["status"] in {"completed", "partial"}
                     )
                     if persist_event:
                         save_completed(conn, job_id, result, raw_report_id=retained["raw_id"])

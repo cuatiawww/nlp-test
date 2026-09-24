@@ -175,7 +175,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     language = str(language_profile.get("language") or "unknown")
     if language == "unknown" and payload.source_language:
         language = normalize_language_code(payload.source_language)
-    translation = translate_and_extract(text, language)
+    # Full source-first analysis must never wait for a heavyweight NLLB model.
+    # A pending result is queued as enrichment by the analysis worker after
+    # this primary surveillance result has been persisted.
+    translation = translate_and_extract(text, language, defer=True)
     translated_text = translation["translated_text"]
     # Deterministic extraction always sees the source article. Translation is
     # an auxiliary semantic view and must never become an evidence authority.
