@@ -881,14 +881,16 @@ export default function DashboardPage() {
     try {
       setError("");
       const dashboardFilters = dashboardApiFilters(active);
-      const [dashData, kpiData] = await Promise.all([
+      const [dashData, kpiData, crawlData] = await Promise.all([
         fetchPublicDashboard(dashboardFilters),
         fetchKpiSnapshot(dashboardFilters).catch(() => null),
+        fetchCrawlingStats().catch(() => null),
       ]);
       if (kpiData?.kpis) {
         dashData.kpis = { ...dashData.kpis, ...kpiData.kpis }
       }
       setData(dashData);
+      if (crawlData) setCrawlingStats(crawlData);
     } catch {
       setError(t("common.error"));
     } finally {

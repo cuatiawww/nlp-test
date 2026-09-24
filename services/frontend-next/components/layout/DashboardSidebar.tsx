@@ -78,12 +78,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
     if (!href || href === "#") return "#";
     if (href.startsWith("http")) return href;
     const cleanPath = href.startsWith("/") ? href : `/${href}`;
-    const basePath = PUBLIC_BASE_PATH.replace(/\/$/, "");
-    if (cleanPath === basePath) return "/";
-    if (cleanPath.startsWith(`${basePath}/`)) {
-      return cleanPath.slice(basePath.length) || "/";
-    }
-    return cleanPath;
+    return `${PUBLIC_BASE_PATH}${cleanPath === "/" ? "" : cleanPath}` || "/nlp";
   };
 
   return (
@@ -146,7 +141,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                   return (
                     <li key={itemKey}>
                       <div className="flex items-center">
-                        <Link
+                        <a
                           href={hasSubs && (!item.href || item.href === "#") ? "#" : targetUrl}
                           onClick={(e) => {
                             if (hasSubs && (!item.href || item.href === "#")) {
@@ -182,7 +177,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                               {item.badge}
                             </span>
                           )}
-                        </Link>
+                        </a>
 
                         {hasSubs && (
                           <button
@@ -211,7 +206,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
 
                             return (
                               <li key={subKey}>
-                                <Link
+                                <a
                                   href={subUrl}
                                   onClick={(e) => {
                                     onClose();
@@ -240,7 +235,7 @@ export default function DashboardSidebar({ open, menuGroups, onClose }: Props) {
                                       {sub.badge}
                                     </span>
                                   )}
-                                </Link>
+                                </a>
                               </li>
                             );
                           })}
