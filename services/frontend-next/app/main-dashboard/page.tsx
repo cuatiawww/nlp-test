@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -762,7 +762,7 @@ function Kpi({
         />
       )}
       <article
-        className="relative flex min-h-[128px] items-center gap-3 border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
+        className="relative flex min-h-[148px] flex-col justify-between border border-[#cfe0f1] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,96,169,.06)] transition hover:-translate-y-0.5 hover:border-[#0060A9]/40"
         style={{ borderRadius: "17px 17px 22px 17px" }}
       >
         {infoModal && (
@@ -775,17 +775,12 @@ function Kpi({
             <Info className="h-3.5 w-3.5" />
           </button>
         )}
-        <div
-          className={`flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full ${color}`}
-        >
-          {icon}
-        </div>
         <div className="min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
             {label}
           </p>
           <p
-            className={`mt-2 truncate text-[30px] font-bold leading-none ${tone === "red" ? "text-[#ED2939]" : tone === "gold" || tone === "orange" ? "text-[#B49B58]" : "text-[#0060A9]"}`}
+            className={`mt-2 truncate text-[34px] sm:text-[38px] font-black leading-none tracking-tight ${tone === "red" ? "text-[#ED2939]" : tone === "gold" || tone === "orange" ? "text-[#B49B58]" : "text-[#0060A9]"}`}
           >
             {formatNumber(value, numLocale)}
           </p>
@@ -1005,7 +1000,6 @@ export default function DashboardPage() {
         isLoading={loading}
       />
 
-      <AseanScopeBanner country={filters.country} />
 
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs font-bold text-red-700">
@@ -1020,10 +1014,7 @@ export default function DashboardPage() {
           style={{ borderRadius: "17px 17px 22px 17px" }}
         >
           <CrawlingInfoModal crawlingStats={crawlingStats} />
-          <div className="flex items-start gap-3">
-            <div className="flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-              <Radio className="h-5 w-5" />
-            </div>
+          <div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2 pr-7">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f4f4f]">
@@ -1034,7 +1025,7 @@ export default function DashboardPage() {
                   {Number(crawlingStats?.active_run_count || 0) > 0 ? "Running" : "Idle"}
                 </span>
               </div>
-              <p className="mt-1 truncate text-[30px] font-bold leading-none text-emerald-600">
+              <p className="mt-1 truncate text-[34px] font-black leading-none tracking-tight text-emerald-600">
                 {formatNumber(crawlingStats?.total_crawled_all_time ?? crawlingStats?.total ?? 0)}
               </p>
               <p className="mt-1 text-[9px] font-semibold text-slate-400">
@@ -1131,23 +1122,6 @@ export default function DashboardPage() {
         {/* ── Total Crawling Card ── */}
       </div>
 
-      {/* ── AI Summary Section (moved above map section) ── */}
-      <section className="mt-4 rounded-2xl border border-[#0060A9]/20 bg-gradient-to-r from-blue-50 via-sky-50 to-[#fdfbf5] p-5 shadow-sm">
-        <div className="flex gap-3">
-          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#0060A9]" />
-          <div>
-            <p className="text-xs font-black uppercase tracking-widest text-[#0060A9]">
-              {t("dashboard.aiSummaryTitle")}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              {data?.ai_summary.text}
-            </p>
-            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">
-              {t("dashboard.aiSummarySub")}
-            </p>
-          </div>
-        </div>
-      </section>
 
       <section className="w-full bg-[#f8fafc] pb-5">
         <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[381px_minmax(0,1fr)] xl:items-stretch">
@@ -1156,8 +1130,7 @@ export default function DashboardPage() {
             style={{ borderRadius: "17px 17px 22px 17px" }}
           >
             <div className="flex w-full flex-col">
-              <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
-                <AlertTriangle className="h-5 w-5 text-[#B49B58]" />
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                 <div>
                   <h2 className="text-sm font-black uppercase tracking-wide text-slate-900">
                     {t("dashboard.ewsTitle")}
@@ -1166,6 +1139,9 @@ export default function DashboardPage() {
                     {t("dashboard.ewsSubtitle")}
                   </p>
                 </div>
+                <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-800">
+                  {sortedAlerts.length} Active
+                </span>
               </div>
               <div className="flex-1 space-y-2 overflow-y-auto p-3">
                 {sortedAlerts.length ? (

@@ -245,21 +245,25 @@ export default function EpiFilterBar({
                 onChange={(e) => setDraft({ ...draft, country: e.target.value })}
                 className="w-full bg-transparent px-3 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer pr-8"
               >
-                <option value="ASEAN">{ASEAN_SCOPE_FILTER_LABEL}</option>
-                <option value="global">Global (include outside ASEAN)</option>
+                <optgroup label="Regional Scope">
+                  <option value="ASEAN">ASEAN (All 11 Member States)</option>
+                  <option value="global">Global (Including Outside ASEAN)</option>
+                </optgroup>
+                <optgroup label="ASEAN Countries">
                 {ASEAN11_DISPLAY.map((c) => (
                   <option key={c.value} value={c.value}>
                     {c.label}
                   </option>
                 ))}
+                </optgroup>
               </select>
               <ChevronDown className="pointer-events-none absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
             </div>
             <p className="text-[10px] text-slate-400 px-1 truncate">
               {draft.country === 'global'
-                ? 'Worldwide including outside ASEAN'
+                ? 'Global surveillance coverage'
                 : draft.country === 'all' || draft.country === 'ASEAN' || draft.country === 'asean11'
-                ? ASEAN_SCOPE_HINT
+                ? 'All 11 ASEAN jurisdictions (regional default)'
                 : `Selected country: ${draft.country}`}
             </p>
           </div>

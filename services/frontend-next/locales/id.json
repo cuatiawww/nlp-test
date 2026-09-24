@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "loading": "Memuat data...",
     "save": "Simpan",
@@ -140,7 +140,7 @@
   },
   "dashboard": {
     "pageTitle": "Dashboard Surveilans Real-time ASEAN",
-    "pageSubtitle": "Menampilkan seluruh 11 yurisdiksi ASEAN: Brunei, Kamboja, Indonesia, Lao PDR, Malaysia, Myanmar, Filipina, Singapura, Thailand, Timor-Leste, dan Viet Nam. Peristiwa di luar ASEAN tidak dihitung kecuali Anda memilih Global.",
+    "pageSubtitle": "Surveilans epidemiologi real-time, deteksi sinyal wabah, dan tren kasus di negara-negara anggota ASEAN.",
     "lastUpdate": "Pembaruan Terakhir",
     "stats": {
       "activeCases": "Kasus Terpantau",

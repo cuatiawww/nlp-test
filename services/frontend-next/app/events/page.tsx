@@ -6,7 +6,8 @@ import SearchInput from '@/components/SearchInput'
 import Pagination from '@/components/Pagination'
 import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
 import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
-import { Edit3, Eye } from 'lucide-react'
+import ResetDataModal from '@/components/ResetDataModal'
+import { Edit3, Eye, Trash2 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 
 function extractTitle(text: string) {
@@ -30,6 +31,7 @@ export default function EventsPage() {
   const { data, loading, page, setPage, total, totalPages, search, setSearch, nextPage, prevPage, reload } = usePaginatedFetch<any[]>(apiPath)
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
+  const [resetModalOpen, setResetModalOpen] = useState(false)
 
   function sentimentBadge(s?: string) {
     if (!s || s === 'neutral') return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{locale === 'en' ? 'Neutral' : 'Netral'}</span>
@@ -63,6 +65,14 @@ export default function EventsPage() {
             {t('pages.events.subtitle')}
           </p>
         </div>
+        <button
+          onClick={() => setResetModalOpen(true)}
+          className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50/60 px-3.5 py-2 text-xs font-bold text-red-700 hover:bg-red-100 hover:border-red-300 transition cursor-pointer shadow-2xs"
+          title={locale === 'en' ? 'Reset analysis data and events' : 'Hapus data analisa dan reset kejadian'}
+        >
+          <Trash2 className="h-4 w-4 text-red-600" />
+          <span>{locale === 'en' ? 'Reset Events' : 'Reset Data Event'}</span>
+        </button>
       </div>
 
       <div className="mt-4 flex items-center gap-4">
@@ -205,6 +215,14 @@ export default function EventsPage() {
           void reload()
         }}
         onReviewed={() => {
+          void reload()
+        }}
+      />
+
+      <ResetDataModal
+        open={resetModalOpen}
+        onClose={() => setResetModalOpen(false)}
+        onSuccess={() => {
           void reload()
         }}
       />

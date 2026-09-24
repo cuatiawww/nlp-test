@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -141,61 +141,53 @@ export default function DiseaseTrendOverview({ filters }: DiseaseTrendOverviewPr
 
       </div>
 
-      {/* ?? Quick KPI Stat Highlights ?? */}
+      {/* â”€â”€ Quick KPI Stat Highlights â”€â”€ */}
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:gap-4">
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-3.5 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
-            <Layers className="h-5 w-5" />
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+            Health Topics Monitored
           </div>
-          <div>
-            <div className="text-base font-black text-slate-900">
-              {data?.summary.total_diseases ?? 15} Health Topics
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Total Monitored Classifications
-            </div>
+          <div className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-sky-900">
+            {data?.summary.total_diseases ?? 15}
+          </div>
+          <div className="mt-0.5 text-[11px] font-semibold text-slate-400">
+            Standard Classifications
           </div>
         </div>
 
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-3.5 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
-            <Flame className="h-5 w-5" />
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-rose-800">
+            Highest Case Burden
           </div>
-          <div>
-            <div className="text-base font-black text-slate-900">
-              DBD ({data?.summary.top_burden_country ?? 'Philippines'})
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Highest Case Burden
-            </div>
+          <div className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-rose-700">
+            DBD
+          </div>
+          <div className="mt-0.5 text-[11px] font-semibold text-slate-400">
+            {data?.summary.top_burden_country ?? 'Philippines'}
           </div>
         </div>
 
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-3.5 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-            <AlertTriangle className="h-5 w-5" />
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-800">
+            Cluster Concentration
           </div>
-          <div>
-            <div className="text-base font-black text-slate-900">
-              HFMD (Malaysia)
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              1.33M Case Concentration
-            </div>
+          <div className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-amber-700">
+            1.33M
+          </div>
+          <div className="mt-0.5 text-[11px] font-semibold text-slate-400">
+            HFMD (Malaysia)
           </div>
         </div>
 
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-3.5 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-            <Globe className="h-5 w-5" />
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+            Regional Focus
           </div>
-          <div>
-            <div className="text-base font-black text-slate-900">
-              Campak & COVID-19
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Indonesia Dominance
-            </div>
+          <div className="mt-1 text-xl sm:text-2xl font-black tracking-tight text-slate-900 truncate">
+            Campak & COVID-19
+          </div>
+          <div className="mt-0.5 text-[11px] font-semibold text-slate-400">
+            Indonesia High Volume
           </div>
         </div>
       </div>

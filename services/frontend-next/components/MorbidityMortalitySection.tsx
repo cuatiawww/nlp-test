@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -117,60 +117,25 @@ export default function MorbidityMortalitySection({ filters }: MorbidityMortalit
 
       </div>
 
-      {/* ?? 3 Big Stat KPI Cards (Image format: TOTAL MORBIDITY, TOTAL MORTALITY, CFR) ?? */}
+      {/* â”€â”€ 3 Big Stat KPI Cards â”€â”€ */}
       <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3 lg:gap-4">
         {/* Card 1: TOTAL MORBIDITY */}
-        <div className="flex items-center gap-3.5 rounded-xl border border-sky-200/80 bg-gradient-to-br from-white to-sky-50/50 p-4 shadow-xs">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-600 shadow-2xs">
-            <Activity className="h-6 w-6" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-[11px] font-black uppercase tracking-wider text-sky-800">
-              Total Morbidity
-            </div>
-            <div className="text-2xl font-black text-slate-900 truncate">
-              {data ? formatCompact(data.summary?.total_morbidity) : '...'}
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Total Detected Cases
-            </div>
-          </div>
+        <div className="flex flex-col justify-between rounded-xl border border-sky-200/80 bg-gradient-to-br from-white to-sky-50/40 p-4 shadow-xs">
+          <div className="text-[11px] font-black uppercase tracking-wider text-sky-800">Total Morbidity</div>
+          <div className="my-1 text-3xl sm:text-4xl font-black tracking-tight text-slate-900 truncate">{data ? formatCompact(data.summary?.total_morbidity) : '...'}</div>
+          <div className="text-[11px] font-semibold text-slate-500">Total Detected Cases</div>
         </div>
-
         {/* Card 2: TOTAL MORTALITY */}
-        <div className="flex items-center gap-3.5 rounded-xl border border-rose-200/80 bg-gradient-to-br from-white to-rose-50/50 p-4 shadow-xs">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600 shadow-2xs">
-            <Skull className="h-6 w-6" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-[11px] font-black uppercase tracking-wider text-rose-800">
-              Total Mortality
-            </div>
-            <div className="text-2xl font-black text-slate-900 truncate">
-              {data ? formatCompact(data.summary?.total_mortality) : '...'}
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Total Reported Deaths
-            </div>
-          </div>
+        <div className="flex flex-col justify-between rounded-xl border border-rose-200/80 bg-gradient-to-br from-white to-rose-50/40 p-4 shadow-xs">
+          <div className="text-[11px] font-black uppercase tracking-wider text-rose-800">Total Mortality</div>
+          <div className="my-1 text-3xl sm:text-4xl font-black tracking-tight text-rose-700 truncate">{data ? formatCompact(data.summary?.total_mortality) : '...'}</div>
+          <div className="text-[11px] font-semibold text-slate-500">Total Reported Deaths</div>
         </div>
-
         {/* Card 3: CFR (Case Fatality Rate) */}
-        <div className="flex items-center gap-3.5 rounded-xl border border-amber-200/80 bg-gradient-to-br from-white to-amber-50/50 p-4 shadow-xs">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 shadow-2xs">
-            <Percent className="h-6 w-6" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-[11px] font-black uppercase tracking-wider text-amber-800">
-              Case Fatality Rate (CFR)
-            </div>
-            <div className="text-2xl font-black text-amber-900">
-              {data ? `${normalizeCfr(data.summary?.cfr_pct).toFixed(2)}%` : '...'}
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Case Fatality Ratio
-            </div>
-          </div>
+        <div className="flex flex-col justify-between rounded-xl border border-amber-200/80 bg-gradient-to-br from-white to-amber-50/40 p-4 shadow-xs">
+          <div className="text-[11px] font-black uppercase tracking-wider text-amber-800">Case Fatality Rate (CFR)</div>
+          <div className="my-1 text-3xl sm:text-4xl font-black tracking-tight text-amber-900">{data ? `${normalizeCfr(data.summary?.cfr_pct).toFixed(2)}%` : '...'}</div>
+          <div className="text-[11px] font-semibold text-slate-500">Case Fatality Ratio</div>
         </div>
       </div>
 

@@ -14,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { useSettings, SystemSettings } from "@/lib/settings-context";
 import { PUBLIC_BASE_PATH } from "@/lib/public-path";
+import ResetDataModal from "@/components/ResetDataModal";
 
 interface AuditLogItem {
   id: string;
@@ -30,7 +31,8 @@ export default function ConsoleSettingsPage() {
   const { settings: globalSettings, refetch } = useSettings();
   const [form, setForm] = useState<SystemSettings>({ ...globalSettings });
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<"branding" | "identity" | "audit">("branding");
+  const [tab, setTab] = useState<"branding" | "identity" | "audit" | "maintenance">("branding");
+  const [resetModalOpen, setResetModalOpen] = useState(false);
 
   // Audit Logs State
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
@@ -209,6 +211,16 @@ export default function ConsoleSettingsPage() {
           }`}
         >
           Activity Audit Logs
+        </button>
+        <button
+          onClick={() => setTab("maintenance")}
+          className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+            tab === "maintenance"
+              ? "bg-[#0060A9] text-white shadow-sm"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          Data Maintenance
         </button>
       </div>
 
@@ -587,6 +599,31 @@ export default function ConsoleSettingsPage() {
           </div>
         </div>
       )}
+      {/* TAB 4: DATA MAINTENANCE */}
+      {tab === "maintenance" && (
+        <div className="mt-6 space-y-6 max-w-4xl">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="border-b border-slate-100 pb-4 mb-6">
+              <h2 className="text-base font-bold text-slate-900">Data Maintenance & Surveillance Reset</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Kelola pembersihan data kejadian penyakit, reset hasil inferensi NLP, dan penyiapan analisa ulang artikel mentah.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 block mb-1">Reset Data Analisa & Re-Analisis</span>
+                <p className="text-xs text-slate-600 leading-relaxed mb-4">Menghapus hasil deteksi kejadian lama dan mengembalikan status artikel mentah ke NEW agar worker memproses ulang dengan model dan aturan klasifikasi terbaru.</p>
+                <button type="button" onClick={() => setResetModalOpen(true)} className="flex items-center gap-2 rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2 text-xs font-bold text-white transition shadow-sm cursor-pointer"><Trash2 className="h-4 w-4" /><span>Buka Dialog Reset Data</span></button>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 block mb-1">Audit Trail & Kepatuhan</span>
+                <p className="text-xs text-slate-600 leading-relaxed mb-4">Setiap tindakan pembersihan dicatat secara permanen ke tabel audit_logs dengan rincian pengguna, timestamp, cakupan data, dan jumlah baris terhapus.</p>
+                <button type="button" onClick={() => setTab("audit")} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 px-4 py-2 text-xs font-bold text-slate-700 transition shadow-xs cursor-pointer"><ExternalLink className="h-4 w-4 text-slate-500" /><span>Periksa Log Audit</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ResetDataModal open={resetModalOpen} onClose={() => setResetModalOpen(false)} onSuccess={() => { fetchAuditLogs(); }} />
     </div>
   );
 }

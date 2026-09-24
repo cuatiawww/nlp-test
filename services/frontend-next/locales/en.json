@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "loading": "Loading data...",
     "save": "Save",
@@ -140,7 +140,7 @@
   },
   "dashboard": {
     "pageTitle": "ASEAN Real-time Surveillance Dashboard",
-    "pageSubtitle": "Showing all 11 ASEAN jurisdictions: Brunei, Cambodia, Indonesia, Lao PDR, Malaysia, Myanmar, Philippines, Singapore, Thailand, Timor-Leste, and Viet Nam. Events outside ASEAN are excluded unless you select Global.",
+    "pageSubtitle": "Real-time epidemiological surveillance, outbreak signals, and case trends across ASEAN member states.",
     "lastUpdate": "Last Updated",
     "stats": {
       "activeCases": "Monitored Cases",

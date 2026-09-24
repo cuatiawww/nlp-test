@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -239,66 +239,31 @@ export default function CaseLocationHeatmap({ filters }: CaseLocationHeatmapProp
         </div>
       </div>
 
-      {/* ?? KPI Stat Highlights Bar (Reference Image style: 11 ASEAN Countries, 54 Locations) ?? */}
+      {/* â”€â”€ Summary Cards â”€â”€ */}
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:gap-4">
-        {/* Card 1: 11 ASEAN Countries */}
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-3.5 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
-            <Globe className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-base font-black text-slate-900">
-              11 Countries
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              ASEAN Coverage
-            </div>
-          </div>
+        {/* Card 1: 11 Countries Coverage */}
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">ASEAN Coverage</div>
+          <div className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-slate-900">11</div>
+          <div className="mt-0.5 text-[11px] font-semibold text-slate-400">Member States</div>
         </div>
-
         {/* Card 2: 54 Monitored Locations */}
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-3.5 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-            <MapPin className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-base font-black text-slate-900">
-              54 Regions
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Sub-national Points
-            </div>
-          </div>
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Sub-national Points</div>
+          <div className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-emerald-700">54 Regions</div>
+          <div className="mt-0.5 text-[11px] font-semibold text-slate-400">Active Spatial Centroids</div>
         </div>
-
         {/* Card 3: Peak Month Detection */}
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-3.5 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-            <Calendar className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-base font-black text-slate-900">
-              {metricStats.peakMonthName} {selectedYear}
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Peak {formatCompact(metricStats.peakMonthVal)} Cases
-            </div>
-          </div>
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-800">Peak Surveillance Period</div>
+          <div className="mt-1 text-xl sm:text-2xl font-black tracking-tight text-amber-900">{metricStats.peakMonthName} {selectedYear}</div>
+          <div className="mt-0.5 text-[11px] font-semibold text-slate-400">Peak {formatCompact(metricStats.peakMonthVal)} Cases</div>
         </div>
-
         {/* Card 4: Total ASEAN Cases in Year */}
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-3.5 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
-            <Activity className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-base font-black text-slate-900">
-              {data ? formatCompact(data.summary.total_cases) : '...'}
-            </div>
-            <div className="text-[11px] font-semibold text-slate-500">
-              Total Cases ({data ? formatCompact(data.summary.total_deaths) : '0'} Deaths)
-            </div>
-          </div>
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-rose-800">Total Annual Burden</div>
+          <div className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-rose-700">{data ? formatCompact(data.summary.total_cases) : '...'}</div>
+          <div className="mt-0.5 text-[11px] font-semibold text-slate-400">Total Cases ({data ? formatCompact(data.summary.total_deaths) : '0'} Deaths)</div>
         </div>
       </div>
 

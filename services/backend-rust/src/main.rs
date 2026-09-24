@@ -2495,6 +2495,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/nlp-keywords", get(list_keywords).post(create_keyword))
         .route("/api/v1/nlp-keywords/:id", put(update_keyword).delete(delete_keyword))
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
+        .route("/api/v1/data/cleanup-stats", get(get_cleanup_stats))
         .route("/api/v1/locations", get(list_locations).post(create_location))
         .route("/api/v1/locations/:id", put(update_location).delete(delete_location))
         .route("/api/v1/master/countries", get(list_master_countries).post(create_master_country))
@@ -3784,14 +3785,14 @@ async fn analyze_url(
     let published_date: Option<NaiveDate> = published_at
         .as_deref()
         .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
-    let max_len: usize = env::var("ANALYZE_MAX_CONTENT_LENGTH")
-        .unwrap_or_else(|_| "10000".to_string())
+    let max_len: usize = env::var("NLP_INPUT_MAX_CHARS")
+        .or_else(|_| env::var("ANALYZE_MAX_CONTENT_LENGTH"))
+        .unwrap_or_else(|_| "35000".to_string())
         .parse()
-        .unwrap_or(10000);
-    let content = if body_text.len() > max_len {
-        // `max_len` is a byte-oriented limit, but Rust strings are UTF-8.
-        // Truncate on a character boundary so Khmer/Lao/Myanmar content
-        // cannot panic the request handler.
+        .unwrap_or(35000);
+    let content = if body_text.chars().count() > max_len {
+        // Use the same character-oriented cap as the Python worker. Truncate
+        // on a character boundary so Khmer/Lao/Myanmar content is preserved.
         let safe_prefix: String = body_text.chars().take(max_len).collect();
         format!("{}...", safe_prefix)
     } else {
@@ -3804,9 +3805,9 @@ async fn analyze_url(
         format!("{}.\n{}", title, content)
     };
 
-    // Keep the synchronous fallback on the dedicated interactive URL route;
-    // bulk/raw ingestion uses /nlp/analyze/raw in the collector worker.
-    let nlp_url = format!("{}/nlp/analyze/url", state.nlp_service_url.trim_end_matches('/'));
+    // All article callers use the same Full NLP contract. URL analysis is
+    // only a fetch trigger; NLP itself is always the raw shared pipeline.
+    let nlp_url = format!("{}/nlp/analyze/raw", state.nlp_service_url.trim_end_matches('/'));
     let nlp: NlpResponse = state
         .http
         .post(&nlp_url)
@@ -8660,15 +8661,203 @@ async fn delete_keyword(
 
 // ─── DATA CLEANUP ─────────────────────────────────
 
+#[derive(Debug, Deserialize)]
+struct CleanupEventsRequest {
+    scope: Option<String>,
+    confirmation: Option<String>,
+    reason: Option<String>,
+}
+
+async fn get_cleanup_stats(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let total_events: i64 = client
+        .query_one("SELECT COUNT(*) FROM disease_events", &[])
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    let total_raw_reports: i64 = client
+        .query_one("SELECT COUNT(*) FROM raw_reports", &[])
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    let processed_reports: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM raw_reports WHERE processing_status = 'PROCESSED'",
+            &[],
+        )
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    let non_health_reports: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM raw_reports WHERE processing_status = 'NON_HEALTH'",
+            &[],
+        )
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    let failed_reports: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM raw_reports WHERE processing_status = 'FAILED'",
+            &[],
+        )
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    let new_reports: i64 = client
+        .query_one(
+            "SELECT COUNT(*) FROM raw_reports WHERE processing_status = 'NEW'",
+            &[],
+        )
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    let cached_nlp: i64 = client
+        .query_one("SELECT COUNT(*) FROM crawler_nlp_cache", &[])
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "total_events": total_events,
+            "total_raw_reports": total_raw_reports,
+            "processed_reports": processed_reports,
+            "non_health_reports": non_health_reports,
+            "failed_reports": failed_reports,
+            "new_reports": new_reports,
+            "reanalyzable_reports": processed_reports + non_health_reports + failed_reports,
+            "cached_nlp": cached_nlp
+        }
+    })))
+}
+
 async fn cleanup_events(
     State(state): State<Arc<AppState>>,
-) -> Json<Value> {
-    let client = match state.db.get().await {
-        Ok(c) => c,
-        Err(_) => return Json(json!({"success": false, "error": "DB error"})),
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let req: CleanupEventsRequest = if body.is_empty() {
+        CleanupEventsRequest {
+            scope: Some("events_only".to_string()),
+            confirmation: Some("RESET".to_string()),
+            reason: None,
+        }
+    } else {
+        serde_json::from_slice(&body).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "success": false,
+                    "error": format!("Invalid JSON request: {}", e)
+                })),
+            )
+        })?
     };
-    let _ = client.execute("DELETE FROM disease_events", &[]).await;
-    Json(json!({"success": true, "data": "events_cleaned"}))
+
+    let confirmation = req.confirmation.as_deref().unwrap_or("").trim();
+    if confirmation != "RESET" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": "Confirmation code 'RESET' is required to execute data cleanup."
+            })),
+        ));
+    }
+
+    let scope = req.scope.as_deref().unwrap_or("events_only");
+
+    let admin_info = require_admin(&state, &headers).await.ok();
+    let username = admin_info.as_ref().map(|(_, u)| u.clone()).unwrap_or_else(|| "admin".to_string());
+    let user_id = admin_info.as_ref().map(|(id, _)| *id);
+
+    let mut events_deleted: u64 = 0;
+    let mut reports_reset: u64 = 0;
+    let mut reports_deleted: u64 = 0;
+    let mut cache_deleted: u64 = 0;
+
+    match scope {
+        "events_only" => {
+            events_deleted = client.execute("DELETE FROM disease_events", &[]).await.unwrap_or(0);
+            let _ = client.execute("DELETE FROM kpi_snapshots", &[]).await;
+            let _ = client.execute("DELETE FROM report_narrative_cache", &[]).await;
+        }
+        "analysis_and_events" => {
+            events_deleted = client.execute("DELETE FROM disease_events", &[]).await.unwrap_or(0);
+            cache_deleted = client.execute("DELETE FROM crawler_nlp_cache", &[]).await.unwrap_or(0);
+            let _ = client.execute("DELETE FROM crawl_matrix_rows", &[]).await;
+            reports_reset = client.execute(
+                "UPDATE raw_reports SET processing_status = 'NEW' WHERE processing_status IN ('PROCESSED', 'NON_HEALTH', 'FAILED', 'PROCESSING')",
+                &[],
+            ).await.unwrap_or(0);
+            let _ = client.execute("DELETE FROM kpi_snapshots", &[]).await;
+            let _ = client.execute("DELETE FROM report_narrative_cache", &[]).await;
+        }
+        "full_crawl_and_analysis" => {
+            events_deleted = client.execute("DELETE FROM disease_events", &[]).await.unwrap_or(0);
+            cache_deleted = client.execute("DELETE FROM crawler_nlp_cache", &[]).await.unwrap_or(0);
+            let _ = client.execute("DELETE FROM crawl_matrix_rows", &[]).await;
+            let _ = client.execute("DELETE FROM crawl_matrix_jobs", &[]).await;
+            let _ = client.execute("DELETE FROM raw_report_outbox", &[]).await;
+            reports_deleted = client.execute("DELETE FROM raw_reports", &[]).await.unwrap_or(0);
+            let _ = client.execute("UPDATE collector_runs SET total_records = 0, new_records = 0", &[]).await;
+            let _ = client.execute("DELETE FROM kpi_snapshots", &[]).await;
+            let _ = client.execute("DELETE FROM report_narrative_cache", &[]).await;
+        }
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "success": false,
+                    "error": format!("Invalid scope: '{}'. Valid scopes are 'events_only', 'analysis_and_events', or 'full_crawl_and_analysis'.", scope)
+                })),
+            ));
+        }
+    }
+
+    let audit_detail = json!({
+        "scope": scope,
+        "events_deleted": events_deleted,
+        "reports_reset": reports_reset,
+        "reports_deleted": reports_deleted,
+        "cache_deleted": cache_deleted,
+        "reason": req.reason.unwrap_or_else(|| "User initiated cleanup".to_string())
+    });
+
+    let _ = client.execute(
+        "INSERT INTO audit_logs (user_id, username, action, resource, detail, created_at) VALUES ($1, $2, 'DATA_RESET', 'disease_surveillance', $3, NOW())",
+        &[&user_id, &username, &audit_detail],
+    ).await;
+
+    Ok(Json(json!({
+        "success": true,
+        "scope": scope,
+        "data": {
+            "events_deleted": events_deleted,
+            "reports_reset": reports_reset,
+            "reports_deleted": reports_deleted,
+            "cache_deleted": cache_deleted,
+            "message": match scope {
+                "events_only" => format!("Berhasil menghapus {} data kejadian (events).", events_deleted),
+                "analysis_and_events" => format!("Berhasil menghapus {} kejadian dan me-reset {} artikel ke status NEW untuk analisa ulang.", events_deleted, reports_reset),
+                "full_crawl_and_analysis" => format!("Berhasil mereset total: {} kejadian dan {} artikel dibersihkan.", events_deleted, reports_deleted),
+                _ => "Pembersihan selesai.".to_string(),
+            }
+        }
+    })))
 }
 
 // ─── LOCATIONS ──────────────────────────────────
