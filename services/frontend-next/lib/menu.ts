@@ -194,9 +194,11 @@ export const DEFAULT_NAVIGATION_CONFIG: SidebarGroupConfig[] = [
         subItems: [
           { id: 'sub_reports_list', label: 'Sitrep Bulletins', href: '/reports', icon: 'FileText', order: 1, enabled: true },
           { id: 'sub_reports_matrix', label: 'Matrix & Ledger', href: '/reports/matrix', icon: 'FileSpreadsheet', order: 2, enabled: true },
+          { id: 'sub_reports_epi', label: 'Epi Weeks (MMWR)', href: '/epi-calendar', icon: 'CalendarDays', order: 3, enabled: true },
         ]
       },
       { id: 'mod_matrix', label: 'Matrix & ledger', labelKey: 'sidebar.items.eventMatrix', icon: 'FileSpreadsheet', href: '/reports/matrix', order: 11, enabled: true },
+      { id: 'mod_epi_calendar', label: 'Epi Weeks (MMWR)', icon: 'CalendarDays', href: '/epi-calendar', order: 12, enabled: true },
     ],
   },
   {

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -13,7 +14,7 @@ import {
   ChevronDown,
   AlertCircle
 } from 'lucide-react';
-import { getEpiWeekDateRange, getCurrentEpiWeek, formatEpiRangeDescription } from '@/lib/epi-week';
+import { getEpiWeekDateRange, getCurrentEpiWeek, formatEpiRangeDescription, getWeeksInYear } from '@/lib/epi-week';
 import { useTranslation } from '@/lib/i18n/LanguageContext';
 import {
   ASEAN11_DISPLAY,
@@ -41,7 +42,7 @@ interface EpiFilterBarProps {
   isLoading?: boolean;
 }
 
-const WEEKS_LIST = Array.from({ length: 52 }, (_, i) => i + 1);
+// WEEKS_LIST dynamically resolved per year via getWeeksInYear
 
 export default function EpiFilterBar({
   availableDiseases = [],
@@ -55,6 +56,16 @@ export default function EpiFilterBar({
 }: EpiFilterBarProps) {
   const { t, locale } = useTranslation();
   const dateLocale = locale === 'en' ? 'en' : 'id';
+
+  const startWeeksList = useMemo(() => {
+    const total = getWeeksInYear(draft.startYear || 2026);
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }, [draft.startYear]);
+
+  const endWeeksList = useMemo(() => {
+    const total = getWeeksInYear(draft.endYear || 2026);
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }, [draft.endYear]);
 
   // Local draft state for smooth user selection before clicking 'Terapkan'
   const [draft, setDraft] = useState<EpiFilterState>(value);
@@ -263,7 +274,7 @@ export default function EpiFilterBar({
                   onChange={(e) => setDraft({ ...draft, startWeek: Number(e.target.value) })}
                   className="w-full bg-transparent px-2 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer"
                 >
-                  {WEEKS_LIST.map((w) => (
+                  {startWeeksList.map((w) => (
                     <option key={w} value={w}>
                       W{w}
                     </option>
@@ -307,7 +318,7 @@ export default function EpiFilterBar({
                   onChange={(e) => setDraft({ ...draft, endWeek: Number(e.target.value) })}
                   className="w-full bg-transparent px-2 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer"
                 >
-                  {WEEKS_LIST.map((w) => (
+                  {endWeeksList.map((w) => (
                     <option key={w} value={w}>
                       W{w}
                     </option>

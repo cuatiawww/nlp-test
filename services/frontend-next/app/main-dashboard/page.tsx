@@ -231,6 +231,26 @@ function CrawlingInfoModal({
 
   useEffect(() => {
     setMounted(true);
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const sY = sp.get("startYear");
+      const sW = sp.get("startWeek");
+      const eY = sp.get("endYear");
+      const eW = sp.get("endWeek");
+      const dis = sp.get("disease");
+      const ctry = sp.get("country");
+      if (sY || sW || eY || eW || dis || ctry) {
+        setFilters((prev) => ({
+          ...prev,
+          startYear: sY ? Number(sY) : prev.startYear,
+          startWeek: sW ? Number(sW) : prev.startWeek,
+          endYear: eY ? Number(eY) : prev.endYear,
+          endWeek: eW ? Number(eW) : prev.endWeek,
+          disease: dis || prev.disease,
+          country: ctry || prev.country,
+        }));
+      }
+    }
   }, []);
   const { t } = useTranslation();
   if (!crawlingStats) return null;

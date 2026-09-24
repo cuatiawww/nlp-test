@@ -10,6 +10,7 @@ export function usePaginatedFetch<T>(apiPath: string) {
   const [search, setSearch] = useState('')
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
+  const [error, setError] = useState<string | null>(null)
   const pathRef = useRef(apiPath)
 
   // Reset page when path changes
@@ -21,6 +22,7 @@ export function usePaginatedFetch<T>(apiPath: string) {
 
   const load = useCallback(async (p: number, q: string) => {
     setLoading(true)
+    setError(null)
     try {
       const params = new URLSearchParams()
       params.set('page', String(p))
@@ -36,6 +38,7 @@ export function usePaginatedFetch<T>(apiPath: string) {
       setData([])
       setTotal(0)
       setTotalPages(1)
+      setError('request_failed')
     }
     setLoading(false)
   }, [])
@@ -45,7 +48,7 @@ export function usePaginatedFetch<T>(apiPath: string) {
   }, [page, search, load, apiPath])
 
   return {
-    data, loading, page, total, totalPages, search,
+    data, loading, error, page, total, totalPages, search,
     setSearch: (v: string) => { setSearch(v); setPage(1) },
     setPage, nextPage: () => setPage(p => Math.min(p + 1, totalPages)),
     prevPage: () => setPage(p => Math.max(p - 1, 1)),

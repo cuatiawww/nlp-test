@@ -70,14 +70,14 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colName')}</label>
+        <label className="text-sm font-medium text-slate-700">Source name</label>
         <input value={name} onChange={e => setName(e.target.value)} required
-          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+          className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-blue-100" />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colType')}</label>
+        <label className="text-sm font-medium text-slate-700">Type</label>
         <select value={sourceType} onChange={e => setSourceType(e.target.value)}
-          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+          className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-blue-100">
           <option value="rss">RSS</option>
           <option value="web">Web</option>
           <option value="csv">CSV</option>
@@ -86,37 +86,36 @@ export default function SourceForm({ source, onSaved, onCancel }: Props) {
         </select>
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">
-          URL / Config
+        <label className="text-sm font-medium text-slate-700">
+          Source URL
         </label>
         <input value={url} onChange={e => setUrl(e.target.value)}
-          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono text-xs"
-          placeholder={sourceType === 'web' ? 'URL or {"url":"...","title_selector":"h1","body_selector":"article"}' : 'https://...'} />
+          className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-blue-100"
+          placeholder={sourceType === 'web' ? 'URL or JSON config' : 'https://...'} />
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">Source country (outlet)</label>
+        <label className="text-sm font-medium text-slate-700">Outlet country</label>
         <select value={country} onChange={e => setCountry(e.target.value)} required
-          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
-          <option value="">ASEAN-11 member or GLOBAL aggregator</option>
+          className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-blue-100">
+          <option value="">Select outlet country</option>
           {SOURCE_COUNTRY_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
         </select>
-        <p className="mt-1 text-[11px] text-slate-400">Outlet country is not the article event country. Use GLOBAL for Google News / WHO / international media that still cover ASEAN stories.</p>
       </div>
       <div>
-        <label className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-500">{t('pages.sources.colFrequency')}</label>
+        <label className="text-sm font-medium text-slate-700">Schedule</label>
         <input value={schedule} onChange={e => setSchedule(e.target.value)} placeholder="interval:60"
-          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+          className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#0060A9] focus:outline-none focus:ring-2 focus:ring-blue-100" />
       </div>
       <div className="flex items-center gap-2">
         <input type="checkbox" id="enabled" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="h-4 w-4" />
-        <label htmlFor="enabled" className="text-xs font-semibold uppercase text-slate-500">{t('common.active')}</label>
-        {!isEdit && <span className="text-xs text-slate-400">Source baru disimpan nonaktif</span>}
+        <label htmlFor="enabled" className="text-sm font-medium text-slate-700">Enable automatic crawling</label>
+        {!isEdit && <span className="text-xs text-slate-400">New sources start paused.</span>}
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" onClick={onCancel}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600">{t('common.cancel')}</button>
+          className="min-h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060A9]">{t('common.cancel')}</button>
         <button type="submit" disabled={saving || !name}
-          className="rounded-xl bg-[#0060A9] px-4 py-2 text-xs font-bold uppercase text-white hover:bg-[#004b85] disabled:opacity-50">
+          className="min-h-10 rounded-lg bg-[#0060A9] px-4 text-sm font-medium text-white hover:bg-[#004b85] disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060A9]">
           {saving ? t('common.saving') : isEdit ? t('common.save') : t('common.add')}
         </button>
       </div>

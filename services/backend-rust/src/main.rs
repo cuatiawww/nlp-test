@@ -13,7 +13,7 @@ use axum::{
     http::{Method, StatusCode},
     middleware::{self, Next},
     response::Response,
-    routing::{get, patch, post, put},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 use chrono::{Datelike, Duration as ChronoDuration, NaiveDate};
@@ -333,6 +333,12 @@ fn mmwr_week_start(year: i32, week: u32) -> NaiveDate {
     mmwr_week_one_start(year) + ChronoDuration::days((week.saturating_sub(1) * 7) as i64)
 }
 
+fn mmwr_total_weeks(year: i32) -> u32 {
+    let w1_this = mmwr_week_one_start(year);
+    let w1_next = mmwr_week_one_start(year + 1);
+    ((w1_next - w1_this).num_days() / 7) as u32
+}
+
 fn default_kpi_dates(
     year: Option<i32>,
     start_year: Option<i32>,
@@ -421,7 +427,12 @@ fn dashboard_valid_cte() -> String {
              LEFT JOIN raw_reports rr ON rr.id = e.raw_report_id
              WHERE {pred}
                AND e.published_at::date >= $1 AND e.published_at::date <= $2
-               AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%')
+               AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%' OR EXISTS (
+                 SELECT 1 FROM disease_aliases da
+                 JOIN disease_concepts dc ON dc.id = da.concept_id
+                 WHERE LOWER(dc.canonical_name) = LOWER($4)
+                   AND (LOWER(e.disease_classification) = da.normalized_alias OR LOWER(e.disease_classification) = LOWER(da.alias))
+               ))
                AND ($5::text IS NULL OR (EXISTS (
                  SELECT 1 FROM skdr_reports sr
                  WHERE sr.raw_report_id = e.raw_report_id
@@ -2493,6 +2504,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/disease-concepts", get(list_disease_concepts).post(create_disease_concept))
         .route("/api/v1/disease-concepts/:id", put(update_disease_concept).delete(delete_disease_concept))
         .route("/api/v1/disease-concepts/:id/aliases", get(get_disease_aliases).post(save_disease_aliases))
+        .route("/api/v1/epiweeks", get(get_epiweeks).post(save_epiweek_config))
+        .route("/api/v1/epiweeks/current", get(get_current_epiweek))
+        .route("/api/v1/epiweeks/calculate", get(calculate_epiweek))
+        .route("/api/v1/epiweeks/config/:id", delete(delete_epiweek_config))
         .route("/api/v1/source-credibility", get(list_source_credibility).post(create_source_credibility))
         .route("/api/v1/source-credibility/recompute", post(recompute_source_credibility))
         .route("/api/v1/source-credibility/:id", put(update_source_credibility).delete(delete_source_credibility))
@@ -5276,24 +5291,15 @@ async fn disease_trend_overview(
          ), valid AS (
            SELECT ranked.*,
                   {trend_resolved} AS resolved_country,
-                  CASE
-                    WHEN LOWER(ranked.disease_classification) LIKE '%dengue%' OR UPPER(ranked.disease_classification) = 'DBD' THEN 'Demam Berdarah (DBD)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%hand foot%' OR LOWER(ranked.disease_classification) LIKE '%hfmd%' THEN 'HFMD (Flu Singapura)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%covid%' OR LOWER(ranked.disease_classification) LIKE '%corona%' THEN 'COVID-19'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%measles%' OR LOWER(ranked.disease_classification) LIKE '%campak%' THEN 'Campak (Measles)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%rabies%' THEN 'Rabies'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%chikungunya%' THEN 'Chikungunya'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%avian%' OR LOWER(ranked.disease_classification) LIKE '%h5n1%' THEN 'Flu Burung (H5N1)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%flu%' OR LOWER(ranked.disease_classification) LIKE '%influenza%' THEN 'Influenza'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%filariasis%' THEN 'Filariasis'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%leptospirosis%' THEN 'Leptospirosis'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%tbc%' OR LOWER(ranked.disease_classification) LIKE '%tuberkulosis%' OR LOWER(ranked.disease_classification) LIKE '%tuberculosis%' THEN 'Tuberkulosis (TBC)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%cholera%' OR LOWER(ranked.disease_classification) LIKE '%kolera%' THEN 'Kolera (Cholera)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%mpox%' OR LOWER(ranked.disease_classification) LIKE '%cacar monyet%' THEN 'Mpox'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%zika%' THEN 'Zika'
-                    ELSE INITCAP(ranked.disease_classification)
-                  END AS standard_disease
+                  COALESCE(dc.canonical_name, dca.canonical_name, INITCAP(ranked.disease_classification)) AS standard_disease
            FROM ranked
+           LEFT JOIN disease_concepts dc ON dc.id = ranked.primary_disease_concept_id
+           LEFT JOIN LATERAL (
+             SELECT da.concept_id FROM disease_aliases da
+             WHERE da.normalized_alias = LOWER(BTRIM(ranked.disease_classification)) AND da.is_active = TRUE
+             ORDER BY da.confidence DESC LIMIT 1
+           ) da ON TRUE
+           LEFT JOIN disease_concepts dca ON dca.id = da.concept_id AND dca.is_active = TRUE
            LEFT JOIN LATERAL (
              SELECT l0.* FROM locations l0
              WHERE LOWER(l0.name) = LOWER(ranked.location_name) AND l0.is_active = TRUE
@@ -5646,24 +5652,15 @@ async fn morbidity_mortality_handler(
          ), valid AS (
            SELECT ranked.*,
                   {disease_resolved} AS resolved_country,
-                  CASE
-                    WHEN LOWER(ranked.disease_classification) LIKE '%dengue%' OR UPPER(ranked.disease_classification) = 'DBD' THEN 'Demam Berdarah (DBD)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%hand foot%' OR LOWER(ranked.disease_classification) LIKE '%hfmd%' THEN 'HFMD (Flu Singapura)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%covid%' OR LOWER(ranked.disease_classification) LIKE '%corona%' THEN 'COVID-19'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%measles%' OR LOWER(ranked.disease_classification) LIKE '%campak%' THEN 'Campak (Measles)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%rabies%' THEN 'Rabies'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%chikungunya%' THEN 'Chikungunya'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%avian%' OR LOWER(ranked.disease_classification) LIKE '%h5n1%' THEN 'Flu Burung (H5N1)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%flu%' OR LOWER(ranked.disease_classification) LIKE '%influenza%' THEN 'Influenza'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%filariasis%' THEN 'Filariasis'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%leptospirosis%' THEN 'Leptospirosis'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%tbc%' OR LOWER(ranked.disease_classification) LIKE '%tuberkulosis%' OR LOWER(ranked.disease_classification) LIKE '%tuberculosis%' THEN 'Tuberkulosis (TBC)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%cholera%' OR LOWER(ranked.disease_classification) LIKE '%kolera%' THEN 'Kolera (Cholera)'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%mpox%' OR LOWER(ranked.disease_classification) LIKE '%cacar monyet%' THEN 'Mpox'
-                    WHEN LOWER(ranked.disease_classification) LIKE '%zika%' THEN 'Zika'
-                    ELSE INITCAP(ranked.disease_classification)
-                  END AS standard_disease
+                  COALESCE(dc.canonical_name, dca.canonical_name, INITCAP(ranked.disease_classification)) AS standard_disease
            FROM ranked
+           LEFT JOIN disease_concepts dc ON dc.id = ranked.primary_disease_concept_id
+           LEFT JOIN LATERAL (
+             SELECT da.concept_id FROM disease_aliases da
+             WHERE da.normalized_alias = LOWER(BTRIM(ranked.disease_classification)) AND da.is_active = TRUE
+             ORDER BY da.confidence DESC LIMIT 1
+           ) da ON TRUE
+           LEFT JOIN disease_concepts dca ON dca.id = da.concept_id AND dca.is_active = TRUE
            LEFT JOIN LATERAL (
              SELECT l0.* FROM locations l0
              WHERE LOWER(l0.name) = LOWER(ranked.location_name) AND l0.is_active = TRUE
@@ -6251,16 +6248,12 @@ async fn public_dashboard(
 
     let raw_available_diseases = client
         .query(
-            "SELECT DISTINCT disease_classification
-             FROM disease_events
-             WHERE published_at IS NOT NULL
-               AND (is_health_related = TRUE AND LOWER(COALESCE(source_type, '')) NOT IN ('skdr', 'skdr_api'))
-               AND disease_classification IS NOT NULL
-               AND UPPER(disease_classification) <> 'UNKNOWN'
-               AND UPPER(disease_classification) NOT LIKE 'NEGATIVE%'
-               AND (COALESCE(confidence, 0) >= 0.15)
-               AND LOWER(COALESCE(source_type, '')) <> 'test'
-             ORDER BY disease_classification ASC",
+            "SELECT canonical_name
+             FROM disease_concepts
+             WHERE is_active = TRUE
+               AND NULLIF(BTRIM(canonical_name), '') IS NOT NULL
+               AND LOWER(canonical_name) <> 'unknown disease'
+             ORDER BY canonical_name ASC",
             &[],
         )
         .await
@@ -6434,7 +6427,12 @@ async fn public_dashboard(
              AND LOWER(COALESCE(e.source_type, '')) <> 'test'
              AND e.published_at::date >= $1
              AND e.published_at::date <= $2
-             AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%')
+             AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%' OR EXISTS (
+                 SELECT 1 FROM disease_aliases da
+                 JOIN disease_concepts dc ON dc.id = da.concept_id
+                 WHERE LOWER(dc.canonical_name) = LOWER($4)
+                   AND (LOWER(e.disease_classification) = da.normalized_alias OR LOWER(e.disease_classification) = LOWER(da.alias))
+               ))
              AND ($5::text IS NULL OR (EXISTS (
                 SELECT 1 FROM skdr_reports sr
                 WHERE sr.raw_report_id = e.raw_report_id
@@ -6528,7 +6526,12 @@ async fn public_dashboard(
          ) l ON TRUE
          WHERE e.dedup_rank = 1
            AND {weekly_scope}
-           AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%')
+           AND ($4::text IS NULL OR $4::text = 'all' OR LOWER(e.disease_classification) = LOWER($4) OR LOWER(e.disease_classification) LIKE '%' || LOWER($4) || '%' OR EXISTS (
+                 SELECT 1 FROM disease_aliases da
+                 JOIN disease_concepts dc ON dc.id = da.concept_id
+                 WHERE LOWER(dc.canonical_name) = LOWER($4)
+                   AND (LOWER(e.disease_classification) = da.normalized_alias OR LOWER(e.disease_classification) = LOWER(da.alias))
+               ))
            AND ($5::text IS NULL OR ($5::text = 'skdr' AND (sr.id IS NOT NULL OR LOWER(COALESCE(e.source_type, '')) IN ('skdr', 'skdr_api')))
                 OR ($5::text IN ('ibs', 'ebs') AND LOWER(COALESCE(sr.endpoint_name, '')) = $5::text))
          GROUP BY TO_CHAR(e.published_at, 'IYYY-\"W\"IW'), EXTRACT(WEEK FROM e.published_at)
@@ -9335,6 +9338,264 @@ async fn update_disease_concept(
         total_pages: None,
     }))
 }
+
+
+#[derive(Debug, Deserialize)]
+struct EpiWeeksQuery {
+    year: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EpiWeekCalcQuery {
+    date: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SaveEpiWeekConfigPayload {
+    epi_year: i32,
+    epi_week: i32,
+    title: Option<String>,
+    alert_level: Option<String>,
+    primary_disease: Option<String>,
+    notes: Option<String>,
+    surveillance_status: Option<String>,
+}
+
+async fn get_epiweeks(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<EpiWeeksQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let now = chrono::Utc::now();
+    let (cur_y, cur_w) = mmwr_week_for_date(now.date_naive());
+    let year = query.year.unwrap_or(cur_y);
+    let total_weeks = mmwr_total_weeks(year);
+    let w1_start = mmwr_week_one_start(year);
+
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let report_counts: HashMap<i32, i64> = client
+        .query(
+            "SELECT epi_week, COUNT(*) FROM report_issues WHERE epi_year = $1 GROUP BY epi_week",
+            &[&year],
+        )
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| (r.get::<_, i32>(0), r.get::<_, i64>(1)))
+        .collect();
+
+    let mut configs: HashMap<i32, Value> = HashMap::new();
+    if let Ok(rows) = client
+        .query(
+            "SELECT id, epi_week, title, alert_level, primary_disease, notes, surveillance_status, updated_at::text
+             FROM epi_week_configs WHERE epi_year = $1",
+            &[&year],
+        )
+        .await
+    {
+        for r in rows {
+            let w: i32 = r.get(1);
+            configs.insert(
+                w,
+                json!({
+                    "id": r.get::<_, i32>(0),
+                    "epi_week": w,
+                    "title": r.get::<_, Option<String>>(2),
+                    "alert_level": r.get::<_, Option<String>>(3).unwrap_or_else(|| "normal".to_string()),
+                    "primary_disease": r.get::<_, Option<String>>(4),
+                    "notes": r.get::<_, Option<String>>(5),
+                    "surveillance_status": r.get::<_, Option<String>>(6).unwrap_or_else(|| "active".to_string()),
+                    "updated_at": r.get::<_, Option<String>>(7),
+                }),
+            );
+        }
+    }
+
+    let today = now.date_naive();
+    let mut weeks_list = Vec::with_capacity(total_weeks as usize);
+
+    for w in 1..=total_weeks {
+        let start_date = w1_start + ChronoDuration::days(((w - 1) * 7) as i64);
+        let end_date = start_date + ChronoDuration::days(6);
+        let is_current = today >= start_date && today <= end_date;
+        let is_past = today > end_date;
+        let is_future = today < start_date;
+
+        let month_num = start_date.month();
+        let month_name = match month_num {
+            1 => "Januari",
+            2 => "Februari",
+            3 => "Maret",
+            4 => "April",
+            5 => "Mei",
+            6 => "Juni",
+            7 => "Juli",
+            8 => "Agustus",
+            9 => "September",
+            10 => "Oktober",
+            11 => "November",
+            12 => "Desember",
+            _ => "",
+        };
+
+        let formatted_range = format!(
+            "{:02} {} {} — {:02} {} {}",
+            start_date.day(),
+            &month_name[..3.min(month_name.len())],
+            start_date.year(),
+            end_date.day(),
+            match end_date.month() {
+                1 => "Jan", 2 => "Feb", 3 => "Mar", 4 => "Apr", 5 => "Mei", 6 => "Jun",
+                7 => "Jul", 8 => "Agu", 9 => "Sep", 10 => "Okt", 11 => "Nov", 12 => "Des",
+                _ => "",
+            },
+            end_date.year()
+        );
+
+        let rep_cnt = report_counts.get(&(w as i32)).copied().unwrap_or(0);
+        let cfg = configs.get(&(w as i32)).cloned();
+
+        weeks_list.push(json!({
+            "week": w,
+            "year": year,
+            "start_date": start_date.to_string(),
+            "end_date": end_date.to_string(),
+            "formatted_range": formatted_range,
+            "month": month_num,
+            "month_name": month_name,
+            "is_current": is_current,
+            "is_past": is_past,
+            "is_future": is_future,
+            "report_count": rep_cnt,
+            "config": cfg,
+        }));
+    }
+
+    Ok(Json(json!({
+        "success": true,
+        "year": year,
+        "total_weeks": total_weeks,
+        "current_week": cur_w,
+        "current_year": cur_y,
+        "weeks": weeks_list,
+    })))
+}
+
+async fn get_current_epiweek() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let now = chrono::Utc::now();
+    let today = now.date_naive();
+    let (year, week) = mmwr_week_for_date(today);
+    let start_date = mmwr_week_start(year, week);
+    let end_date = start_date + ChronoDuration::days(6);
+    let total_weeks = mmwr_total_weeks(year);
+    let days_remaining = (end_date - today).num_days();
+
+    Ok(Json(json!({
+        "success": true,
+        "date": today.to_string(),
+        "year": year,
+        "week": week,
+        "start_date": start_date.to_string(),
+        "end_date": end_date.to_string(),
+        "total_weeks": total_weeks,
+        "days_remaining_in_week": days_remaining.max(0),
+        "label": format!("EW {:02} / {}", week, year),
+        "range_label": format!("{} s.d. {}", start_date, end_date),
+    })))
+}
+
+async fn calculate_epiweek(
+    Query(query): Query<EpiWeekCalcQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let date_str = query.date.unwrap_or_else(|| chrono::Utc::now().date_naive().to_string());
+    let parsed_date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"success": false, "error": format!("Invalid date format YYYY-MM-DD: {e}")}))))?;
+
+    let (year, week) = mmwr_week_for_date(parsed_date);
+    let start_date = mmwr_week_start(year, week);
+    let end_date = start_date + ChronoDuration::days(6);
+    let total_weeks = mmwr_total_weeks(year);
+    let day_name = match parsed_date.weekday() {
+        chrono::Weekday::Sun => "Minggu / Sunday",
+        chrono::Weekday::Mon => "Senin / Monday",
+        chrono::Weekday::Tue => "Selasa / Tuesday",
+        chrono::Weekday::Wed => "Rabu / Wednesday",
+        chrono::Weekday::Thu => "Kamis / Thursday",
+        chrono::Weekday::Fri => "Jumat / Friday",
+        chrono::Weekday::Sat => "Sabtu / Saturday",
+    };
+
+    Ok(Json(json!({
+        "success": true,
+        "input_date": parsed_date.to_string(),
+        "day_of_week": day_name,
+        "epi_year": year,
+        "epi_week": week,
+        "week_start": start_date.to_string(),
+        "week_end": end_date.to_string(),
+        "total_weeks_in_year": total_weeks,
+        "label": format!("EW {:02} / {}", week, year),
+    })))
+}
+
+async fn save_epiweek_config(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<SaveEpiWeekConfigPayload>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if !(1..=53).contains(&payload.epi_week) {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"success": false, "error": "epi_week must be 1..=53"}))));
+    }
+
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client.query_one(
+        "INSERT INTO epi_week_configs (epi_year, epi_week, title, alert_level, primary_disease, notes, surveillance_status, updated_at)
+         VALUES ($1, $2, $3, COALESCE($4, 'normal'), $5, $6, COALESCE($7, 'active'), NOW())
+         ON CONFLICT (epi_year, epi_week) DO UPDATE SET
+           title = EXCLUDED.title,
+           alert_level = EXCLUDED.alert_level,
+           primary_disease = EXCLUDED.primary_disease,
+           notes = EXCLUDED.notes,
+           surveillance_status = EXCLUDED.surveillance_status,
+           updated_at = NOW()
+         RETURNING id, epi_year, epi_week, title, alert_level, primary_disease, notes, surveillance_status, updated_at::text",
+        &[
+            &payload.epi_year,
+            &payload.epi_week,
+            &payload.title,
+            &payload.alert_level,
+            &payload.primary_disease,
+            &payload.notes,
+            &payload.surveillance_status,
+        ],
+    ).await.map_err(internal_error)?;
+
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "id": row.get::<_, i32>(0),
+            "epi_year": row.get::<_, i32>(1),
+            "epi_week": row.get::<_, i32>(2),
+            "title": row.get::<_, Option<String>>(3),
+            "alert_level": row.get::<_, Option<String>>(4),
+            "primary_disease": row.get::<_, Option<String>>(5),
+            "notes": row.get::<_, Option<String>>(6),
+            "surveillance_status": row.get::<_, Option<String>>(7),
+            "updated_at": row.get::<_, Option<String>>(8),
+        }
+    })))
+}
+
+async fn delete_epiweek_config(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let client = state.db.get().await.map_err(internal_error)?;
+    client.execute("DELETE FROM epi_week_configs WHERE id = $1", &[&id])
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(json!({"success": true, "message": "Config deleted"})))
+}
+
 
 async fn delete_disease_concept(
     State(state): State<Arc<AppState>>,

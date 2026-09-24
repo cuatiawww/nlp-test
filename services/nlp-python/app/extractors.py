@@ -849,10 +849,17 @@ def geocode_place(
     if not raw or not is_usable_place_name(raw, surrounding_text):
         return None, None, 0.0, True
     mapped = normalize_country(country) or config.LOCATION_COUNTRIES.get(raw)
-    if raw in config.ASEAN_COUNTRIES or (mapped and raw.casefold() == mapped.casefold()):
-        centroid = ASEAN_COUNTRY_CENTROIDS.get(raw) or ASEAN_COUNTRY_CENTROIDS.get(mapped or "")
-        if centroid:
-            return centroid[0], centroid[1], 0.95, False
+    is_country_match = raw in config.ASEAN_COUNTRIES or (mapped and raw.casefold() == mapped.casefold())
+    if is_country_match:
+        # Check database-loaded country centroid first (supports all 78 countries), fallback to ASEAN dict
+        centroid = (
+            config.LOCATION_COORDS.get(mapped or "")
+            or config.LOCATION_COORDS.get(raw)
+            or ASEAN_COUNTRY_CENTROIDS.get(raw)
+            or ASEAN_COUNTRY_CENTROIDS.get(mapped or "")
+        )
+        if centroid and centroid[0] is not None and centroid[1] is not None:
+            return float(centroid[0]), float(centroid[1]), 0.95, False
         return None, None, 0.0, True
     lat, lon = config.LOCATION_COORDS.get(raw, (None, None))
     loc_country = config.LOCATION_COUNTRIES.get(raw) or mapped
