@@ -2464,6 +2464,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/sources/summary", get(source_summary))
         .route("/api/v1/sources", get(list_sources).post(create_source))
         .route("/api/v1/sources/collect-all", post(trigger_collect_all))
+        .route("/api/v1/sources/stop-all", post(stop_collect_all))
         .route(
             "/api/v1/sources/:id",
             get(get_source).put(update_source).delete(delete_source),
@@ -7622,6 +7623,26 @@ async fn trigger_collect_all(
     }))
 }
 
+async fn stop_collect_all(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let url = format!("{}/collect/stop-all", state.collector_url.trim_end_matches('/'));
+    let resp = state.http.post(&url).send().await.map_err(internal_error)?;
+    let status = resp.status();
+    let body: Value = resp.json().await.map_err(internal_error)?;
+    if !status.is_success() {
+        return Err((
+            StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
+            Json(body),
+        ));
+    }
+    Ok(Json(ApiResponse {
+        success: body.get("success").and_then(|v| v.as_bool()).unwrap_or(false),
+        data: body,
+        total: None, page: None, per_page: None, total_pages: None,
+    }))
+}
+
 async fn trigger_collect(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -8727,6 +8748,28 @@ async fn get_cleanup_stats(
         .map(|r| r.get(0))
         .unwrap_or(0);
 
+    let collector_runs: i64 = client
+        .query_one("SELECT COUNT(*) FROM collector_runs WHERE status <> 'RUNNING'", &[])
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    let active_collector_runs: i64 = client
+        .query_one("SELECT COUNT(*) FROM collector_runs WHERE status = 'RUNNING'", &[])
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
+    let historical_records_found: i64 = client
+        .query_one(
+            "SELECT COALESCE(SUM(records_found), 0)::BIGINT
+             FROM collector_runs WHERE status <> 'RUNNING'",
+            &[],
+        )
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+
     Ok(Json(json!({
         "success": true,
         "data": {
@@ -8737,7 +8780,10 @@ async fn get_cleanup_stats(
             "failed_reports": failed_reports,
             "new_reports": new_reports,
             "reanalyzable_reports": processed_reports + non_health_reports + failed_reports,
-            "cached_nlp": cached_nlp
+            "cached_nlp": cached_nlp,
+            "collector_runs": collector_runs,
+            "active_collector_runs": active_collector_runs,
+            "historical_records_found": historical_records_found
         }
     })))
 }
@@ -8788,6 +8834,7 @@ async fn cleanup_events(
     let mut reports_reset: u64 = 0;
     let mut reports_deleted: u64 = 0;
     let mut cache_deleted: u64 = 0;
+    let mut runs_deleted: u64 = 0;
 
     match scope {
         "events_only" => {
@@ -8806,6 +8853,12 @@ async fn cleanup_events(
             let _ = client.execute("DELETE FROM kpi_snapshots", &[]).await;
             let _ = client.execute("DELETE FROM report_narrative_cache", &[]).await;
         }
+        "crawler_history" => {
+            runs_deleted = client
+                .execute("DELETE FROM collector_runs WHERE status <> 'RUNNING'", &[])
+                .await
+                .unwrap_or(0);
+        }
         "full_crawl_and_analysis" => {
             events_deleted = client.execute("DELETE FROM disease_events", &[]).await.unwrap_or(0);
             cache_deleted = client.execute("DELETE FROM crawler_nlp_cache", &[]).await.unwrap_or(0);
@@ -8813,7 +8866,10 @@ async fn cleanup_events(
             let _ = client.execute("DELETE FROM crawl_matrix_jobs", &[]).await;
             let _ = client.execute("DELETE FROM raw_report_outbox", &[]).await;
             reports_deleted = client.execute("DELETE FROM raw_reports", &[]).await.unwrap_or(0);
-            let _ = client.execute("UPDATE collector_runs SET total_records = 0, new_records = 0", &[]).await;
+            runs_deleted = client
+                .execute("DELETE FROM collector_runs WHERE status <> 'RUNNING'", &[])
+                .await
+                .unwrap_or(0);
             let _ = client.execute("DELETE FROM kpi_snapshots", &[]).await;
             let _ = client.execute("DELETE FROM report_narrative_cache", &[]).await;
         }
@@ -8822,7 +8878,7 @@ async fn cleanup_events(
                 StatusCode::BAD_REQUEST,
                 Json(json!({
                     "success": false,
-                    "error": format!("Invalid scope: '{}'. Valid scopes are 'events_only', 'analysis_and_events', or 'full_crawl_and_analysis'.", scope)
+                    "error": format!("Invalid scope: '{}'. Valid scopes are 'events_only', 'analysis_and_events', 'crawler_history', or 'full_crawl_and_analysis'.", scope)
                 })),
             ));
         }
@@ -8834,6 +8890,7 @@ async fn cleanup_events(
         "reports_reset": reports_reset,
         "reports_deleted": reports_deleted,
         "cache_deleted": cache_deleted,
+        "runs_deleted": runs_deleted,
         "reason": req.reason.unwrap_or_else(|| "User initiated cleanup".to_string())
     });
 
@@ -8853,7 +8910,8 @@ async fn cleanup_events(
             "message": match scope {
                 "events_only" => format!("Berhasil menghapus {} data kejadian (events).", events_deleted),
                 "analysis_and_events" => format!("Berhasil menghapus {} kejadian dan me-reset {} artikel ke status NEW untuk analisa ulang.", events_deleted, reports_reset),
-                "full_crawl_and_analysis" => format!("Berhasil mereset total: {} kejadian dan {} artikel dibersihkan.", events_deleted, reports_deleted),
+                "crawler_history" => format!("Berhasil menghapus {} riwayat crawl yang sudah selesai.", runs_deleted),
+                "full_crawl_and_analysis" => format!("Berhasil mereset total: {} kejadian, {} artikel, dan {} riwayat crawl dibersihkan.", events_deleted, reports_deleted, runs_deleted),
                 _ => "Pembersihan selesai.".to_string(),
             }
         }

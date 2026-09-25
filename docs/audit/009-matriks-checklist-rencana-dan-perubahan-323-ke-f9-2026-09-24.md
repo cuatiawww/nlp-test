@@ -23,29 +23,34 @@ Status: Audit berbasis Git, verifikasi schema database, dan pengujian endpoint l
 |---:|---|---|:---:|---|
 | 1 | Reset + inisiasi ulang data penyakit berdasarkan PPT | `database/init/120_clean_and_inject_asean_master_diseases.sql` menghapus konsep dan alias lama lalu menginjeksi master penyakit ASEAN. Runtime sinkron dengan `services/nlp-python/app/disease_master.py`. | ✅ | **Selesai**. Master penyakit lokal ASEAN telah terinjeksi di database dan runtime. Dropdown dan referensi UI tidak lagi bergantung pada hardcode usang atau WHO external API. |
 | 2 | Reset + inisiasi ulang data source, hanya menyisakan Google News dan source Phase 1 | `database/init/125_reset_sources_to_phase1_and_google_news.sql` (commit `b950b86`) menghapus source di luar whitelist Phase 1 (`ABVC Master Source`) dan Google News (`^https?://(www\.)?news\.google\.com`). | ✅ | **Selesai**. Pembersihan selektif telah diimplementasikan dalam bentuk migrasi SQL otomatis. Source di luar Phase 1 dihapus dari tabel `collector_sources`. |
-| 3 | Rapikan rule confidence `0.75` | `services/nlp-python/app/config.py` menetapkan `DEEPSEEK_TRIGGER_CONFIDENCE=0.75`; `services/nlp-python/app/llm_gate.py` memicu review saat confidence di bawah threshold. | ◐ | **Sebagian**. Threshold `0.75` sudah aktif sebagai trigger DeepSeek. Namun operator meminta `<=` sementara kode saat ini memakai `<` (`confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE`). |
+| 3 | Rapikan rule confidence `0.75` | `services/nlp-python/app/config.py` menetapkan `DEEPSEEK_TRIGGER_CONFIDENCE=0.75`; `services/nlp-python/app/llm_gate.py` memicu review dengan operator inklusif `confidence <= config.DEEPSEEK_TRIGGER_CONFIDENCE`. | ✅ | **Selesai**. Operator ambang telah disesuaikan menjadi `<=` sehingga confidence `0.75` (misal hasil kandidat paragraf tunggal) konsisten memicu review. Boundary test `0.74`, `0.75`, `0.76`, `0.92` teruji 100%. |
 | 4 | Lepas semua kode API selain Review | `services/nlp-python/app/icd11.py` dihapus, konfigurasi WHO ICD-11 dihapus, provider OpenAI dilepas dari agent, dan resolusi penyakit diarahkan ke local disease master. DeepSeek dipertahankan sebagai review rear-gate. | ✅ | **Selesai**. Ketergantungan API ontology penyakit eksternal sudah dilepas sepenuhnya. Resolusi penyakit berjalan lokal secara otonom. |
 | 5 | Perbaiki penetapan Health / Outbreak | Migrasi seluruh filter eksklusi/negatif ke tabel PostgreSQL `extraction_rules` (42 rules aktif mencakup `academic_study`, `non_health_topic`, `agricultural_disease`, `metaphorical_phrase`, `metric_exclusion`, dll). Engine NLP runtime memuat rule dinamis dari DB via endpoint reload real-time tanpa restart container. Modul UI `/extraction-rules` (`ExtractionRuleForm.tsx`) 100% dinamis terhubung ke DB. | ✅ | **Selesai Penuh**. False-positive skripsi mahasiswa, penyakit tanaman (ubi kayu/wereng), kiasan (judi online/pinjol), dan berita militer/politik tersaring otomatis (`is_health_related=False`, `case_count=0`). Lolos 100% pada 6 pengujian verifikasi kritis. |
-| 6 | Cek hasil implementasi DeepSeek Review | `deepseek.py` memiliki schema prompt, guardrail zero-hallucination, validasi disease master, evidence, lokasi, dan sub-events. | ◐ ⚠️ | **Tersedia (Opt-in)**. Implementasi review terstruktur tersedia di codebase. Secara default `AGENT_ENABLED=false` sampai API key dan lingkungan produksi dikonfigurasi. |
+| 6 | Cek hasil implementasi DeepSeek Review | `deepseek.py` terintegrasi inspeksi langsung target URL (`source_url`), prompt surveilans epidemiologi, guardrail anti-halusinasi Python (verbatim quote verification & strict numeric grounding), dan terhubung ke `pipeline.py` & `llm_gate.py`. | ✅ | **Selesai Penuh**. Review terstruktur DeepSeek menerima URL, Title, Text, memvalidasi artikel aktif vs rapat koordinasi/edukasi, dan memverifikasi angka kasus & kutipan verbatim sebelum disimpan ke database. |
 | 7 | Hapus semua data analisa/reset event dan buat tombol reset | Backend Rust (`services/backend-rust/src/main.rs`) menyediakan `GET /api/v1/data/cleanup-stats` (metrik live database) dan `POST /api/v1/data/cleanup-events` dengan 3 opsi cakupan (`analysis_and_events`, `events_only`, `full_crawl_and_analysis`), guardrail admin, konfirmasi teks `RESET`, dan audit log. Frontend menyediakan `ResetDataModal.tsx` anti-slop, tombol di `/events`, dan tab di `/console/settings` (commit `bcd0402`). | ✅ | **Selesai Penuh**. Backend dan UI telah terintegrasi end-to-end. Memiliki kontrol scope terukur, konfirmasi proteksi ketat, live counter, dan pencatatan audit log permanen. |
 | 8 | Buat trigger On/Off collector source | `collector_sources.enabled` didukung oleh scheduler, endpoint update source, dan kontrol sakelar UI di modul sumber data. | ✅ | **Selesai**. Kontrol per-source aktif/pause berfungsi, memungkinkan operator mengendalikan jadwal crawling tiap sumber data secara independen. |
-| 9 | Implementasikan DeepSeek Review untuk confidence `<= 0.75` | `llm_gate.py` memicu eskalasi saat `confidence < DEEPSEEK_TRIGGER_CONFIDENCE`, `needs_review`, lokasi hilang, atau penyakit ambigu yang memiliki kandidat. | ◐ ⚠️ | **Sebagian**. Alur eskalasi gate sudah aktif. Operator perlu memastikan apakah batas threshold memerlukan operator `<=` atau cukup `<`. |
+| 9 | Implementasikan DeepSeek Review untuk confidence `<= 0.75` | `llm_gate.py` mengeskalasi artikel ke rear-gate review saat `confidence <= config.DEEPSEEK_TRIGGER_CONFIDENCE` (`<= 0.75`), `needs_review`, lokasi hilang, atau penyakit ambigu. `deepseek.py` dan `pipeline.py` diamankan dengan fallback confidence tanpa `KeyError`. | ✅ | **Selesai Penuh**. Gate eskalasi aktif dan inklusif pada `<= 0.75`. Guardrail zero-token untuk non-health topic dan kill-switch `AGENT_ENABLED` teruji penuh di container runtime. |
 
 ---
 
-## 2. Catatan Penting Mengenai Threshold `0.75`
+## 2. Standardisasi Threshold Confidence `0.75` & Operator Inklusif
 
-Kode pada `services/nlp-python/app/llm_gate.py` saat ini menggunakan kondisi:
+Kode pada `services/nlp-python/app/llm_gate.py` telah distandardisasi menggunakan operator inklusif:
 
 ```python
-# 1. Disease is UNKNOWN or confidence < threshold
-if unknown or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE:
+# 1. Disease is UNKNOWN or confidence <= threshold (operator rule: confidence <= 0.75 triggers review)
+if unknown or confidence <= config.DEEPSEEK_TRIGGER_CONFIDENCE:
     return True
 ```
 
-- Jika confidence bernilai `0.749`, sistem akan mengeskalasikan ke review DeepSeek.
-- Jika confidence bernilai tepat `0.750`, sistem menganggap confidence mencukupi (tidak dieskalasikan hanya karena skor confidence).
-- Jika kebutuhan spesifikasi mewajibkan nilai tepat `0.75` ikut dieskalasikan, operator cukup menyesuaikan operator menjadi `<=` (`confidence <= config.DEEPSEEK_TRIGGER_CONFIDENCE`).
+- **Perilaku Runtime**:
+  - Skor confidence tepat `0.750` (misalnya hasil deteksi kandidat paragraf tunggal pada `intelligence.py`) sekarang secara konsisten dieskalasikan ke review DeepSeek.
+  - Skor confidence di bawah `0.750` (misalnya `0.740`, `0.680`) ikut dieskalasikan ke review DeepSeek.
+  - Skor confidence di atas `0.750` (misalnya `0.760`, `0.920` hasil pencocokan judul eksplisit) tidak dieskalasikan, menghemat 100% token LLM.
+- **Guardrail Efisiensi Token**:
+  - Artikel bertopik non-kesehatan (`non_health_topic=True`), noisy/terlalu pendek, atau mode `interactive/historical_fast` secara ketat tidak dieskalasikan (`return False`).
+  - Jika penyakit tidak teridentifikasi dan tidak ada kandidat terdeteksi sama sekali (`unknown and not extracted`), LLM tidak dipanggil demi mencegah pembengkakan biaya.
+  - Kill-switch global `AGENT_ENABLED=false` berfungsi mematikan panggilan LLM secara instan jika diperlukan.
 
 ---
 

@@ -15,6 +15,8 @@ from .collectors.social_csv_ingest import SocialCSVIngestCollector
 logger = logging.getLogger(__name__)
 _source_run_semaphore = None
 _source_job_signatures = {}
+_manual_run_all_task = None
+_manual_run_all_stop = None
 
 CSV_WATCHER_INTERVAL_MINUTES = 5
 CRAWLER_MAX_INTERVAL_MINUTES = 180
@@ -267,9 +269,77 @@ async def run_due_sources():
     logger.info("Due-source dispatcher running %d source(s)", len(due_ids))
     for source_id in due_ids:
         try:
+            source = await asyncio.to_thread(db.fetch_source, source_id)
+            if not source or not source.get("enabled"):
+                continue
             await run_source_async(source_id)
         except Exception:
             logger.exception("Due-source dispatcher failed for %s", source_id)
+
+
+async def _run_all_sources(source_ids, stop_event):
+    for source_id in source_ids:
+        if stop_event.is_set():
+            break
+        try:
+            await run_source_async(source_id)
+        except Exception:
+            logger.exception("Run All failed for %s", source_id)
+
+
+async def start_run_all_sources():
+    """Start one bounded manual run for every catalog source, including paused ones."""
+    global _manual_run_all_task, _manual_run_all_stop
+
+    if _manual_run_all_task is not None and not _manual_run_all_task.done():
+        return {
+            "success": True,
+            "status": "already_running",
+            "source_count": 0,
+        }
+
+    sources = await asyncio.to_thread(db.fetch_sources, None, False)
+    source_ids = [
+        str(source["id"])
+        for source in sources
+        if source.get("source_type") != "skdr_api"
+    ]
+    _manual_run_all_stop = asyncio.Event()
+    _manual_run_all_task = asyncio.create_task(
+        _run_all_sources(source_ids, _manual_run_all_stop)
+    )
+    return {
+        "success": True,
+        "status": "started",
+        "source_count": len(source_ids),
+        "includes_paused": True,
+    }
+
+
+def stop_scheduled_source_jobs(scheduler):
+    """Remove per-source scheduled jobs; the dispatcher remains healthy."""
+    for job_id in list(_source_job_signatures):
+        if not job_id.startswith("source_"):
+            continue
+        if scheduler.get_job(job_id) is not None:
+            scheduler.remove_job(job_id)
+        _source_job_signatures.pop(job_id, None)
+
+
+async def stop_all_sources(scheduler):
+    """Pause all schedules and stop queued manual work without killing active threads."""
+    global _manual_run_all_stop
+
+    if _manual_run_all_stop is not None:
+        _manual_run_all_stop.set()
+    stop_scheduled_source_jobs(scheduler)
+    paused_count = await asyncio.to_thread(db.pause_all_sources)
+    return {
+        "success": True,
+        "status": "stopping",
+        "paused_sources": paused_count,
+        "active_runs_finish": True,
+    }
 
 
 def _parse_interval(schedule: str) -> int:

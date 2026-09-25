@@ -1,15 +1,17 @@
 'use client'
 
-import { Suspense } from 'react'
+import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import CrawlHistoryPanel from '@/components/CrawlHistoryPanel'
+import CrawlerHistoryCleanupPanel from '@/components/CrawlerHistoryCleanupPanel'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 
 function CrawlHistoryBody() {
   const { t } = useTranslation()
   const params = useSearchParams()
   const jobId = params.get('job_id') || undefined
+  const [historyVersion, setHistoryVersion] = useState(0)
 
   return (
     <div className="px-4 md:px-6">
@@ -29,7 +31,8 @@ function CrawlHistoryBody() {
           {t('pages.crawlHistory.openManual')}
         </Link>
       </div>
-      <CrawlHistoryPanel initialJobId={jobId} />
+      <CrawlerHistoryCleanupPanel onCleaned={() => setHistoryVersion((version) => version + 1)} />
+      <CrawlHistoryPanel key={historyVersion} initialJobId={jobId} />
     </div>
   )
 }

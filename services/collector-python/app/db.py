@@ -215,6 +215,15 @@ def fetch_source(source_id: str):
     return cur.fetchone()
 
 
+def pause_all_sources() -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        "UPDATE collector_sources SET enabled = FALSE, updated_at = NOW() WHERE enabled = TRUE"
+    )
+    conn.commit()
+    return cur.rowcount
+
+
 def create_run(source_id: str) -> str:
     conn = get_conn()
     cur = conn.execute(

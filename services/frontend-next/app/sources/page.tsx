@@ -10,6 +10,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Square,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
@@ -22,7 +23,7 @@ import Pagination from '@/components/Pagination'
 import Modal from '@/components/Modal'
 import SourceForm from '@/components/SourceForm'
 import CountryFlag from '@/components/CountryFlag'
-import { fetchSourceSummary, triggerCollect, deleteSource, updateSource } from '@/lib/api'
+import { fetchSourceSummary, triggerCollect, triggerCollectAll, stopCollectAll, deleteSource, updateSource } from '@/lib/api'
 import { resolveSourceCountry } from '@/lib/source-country'
 import { sourceCatalogType } from '@/lib/source-catalog.mjs'
 
@@ -110,6 +111,7 @@ export default function SourcesPage() {
   const [summary, setSummary] = useState<SourceSummary | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [updatingSourceId, setUpdatingSourceId] = useState<string | null>(null)
+  const [bulkAction, setBulkAction] = useState<'run' | 'stop' | null>(null)
 
   const path = useMemo(() => sourcePath(filters), [filters])
   const {
@@ -158,6 +160,37 @@ export default function SourcesPage() {
     })
   }
 
+  const handleRunAll = async () => {
+    setBulkAction('run')
+    try {
+      const result = await triggerCollectAll() as { status?: string; source_count?: number; includes_paused?: boolean }
+      if (result.status === 'already_running') {
+        toast.info('Run All is already running')
+      } else {
+        toast.success(`Run All started for ${result.source_count ?? 0} source(s)`)
+      }
+      window.setTimeout(refresh, 500)
+    } catch (error: any) {
+      toast.error(error?.message || t('common.error'))
+    } finally {
+      setBulkAction(null)
+    }
+  }
+
+  const handleStopAll = async () => {
+    if (!window.confirm('Stop scheduled collection for all sources? Active runs will finish.')) return
+    setBulkAction('stop')
+    try {
+      const result = await stopCollectAll() as { paused_sources?: number; active_runs_finish?: boolean }
+      toast.success(`Stop All requested; ${result.paused_sources ?? 0} source(s) paused`)
+      refresh()
+    } catch (error: any) {
+      toast.error(error?.message || t('common.error'))
+    } finally {
+      setBulkAction(null)
+    }
+  }
+
   const handleToggle = async (source: Source) => {
     setUpdatingSourceId(source.id)
     try {
@@ -198,6 +231,12 @@ export default function SourcesPage() {
           <p className="mt-1 max-w-xl text-sm text-slate-500">Manage the sources used by the collector and run them when needed.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => void handleRunAll()} disabled={bulkAction !== null} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#0060A9] px-3 text-sm font-medium text-white transition hover:bg-[#004b85] disabled:cursor-wait disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060A9]">
+            <Play className="h-4 w-4" /> {bulkAction === 'run' ? 'Starting…' : 'Run All'}
+          </button>
+          <button type="button" onClick={() => void handleStopAll()} disabled={bulkAction !== null} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
+            <Square className="h-3.5 w-3.5 fill-current" /> {bulkAction === 'stop' ? 'Stopping…' : 'Stop All'}
+          </button>
           <button type="button" onClick={refresh} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060A9]">
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>

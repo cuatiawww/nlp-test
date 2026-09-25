@@ -187,16 +187,16 @@ async def discover_article_urls(payload: DiscoverUrlsRequest):
 
 @app.post("/collect/all")
 async def collect_all():
-    import asyncio
-    from .scheduler import DISPATCHER_BATCH_SIZE, run_due_sources
+    from .scheduler import start_run_all_sources
 
-    asyncio.create_task(run_due_sources())
-    return {
-        "success": True,
-        "status": "dispatcher_batch",
-        "batch_size": DISPATCHER_BATCH_SIZE,
-        "note": "Enabled sources keep running via the due-source dispatcher; this trigger runs one rate-limited batch instead of every source at once.",
-    }
+    return await start_run_all_sources()
+
+
+@app.post("/collect/stop-all")
+async def stop_all():
+    from .scheduler import stop_all_sources
+
+    return await stop_all_sources(_scheduler)
 
 
 @app.post("/collect/social-media-csv")

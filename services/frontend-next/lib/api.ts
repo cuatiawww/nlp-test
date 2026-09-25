@@ -259,6 +259,7 @@ export const deleteInteroperabilityIntegration = (id: string) =>
 export const triggerCollect = (id: string) =>
   postTo(`/api/v1/sources/${id}/collect`);
 export const triggerCollectAll = () => postTo("/api/v1/sources/collect-all");
+export const stopCollectAll = () => postTo("/api/v1/sources/stop-all");
 export const fetchRuns = (sourceId?: string, status?: string) => {
   const params = new URLSearchParams();
   if (sourceId) params.set("source_id", sourceId);

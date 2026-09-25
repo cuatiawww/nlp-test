@@ -475,8 +475,44 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         is_health_related = False
         disease = "UNKNOWN"
 
+    is_explicit_outbreak = extractors.is_explicit_outbreak_report(
+        text
+    ) or extractors.is_explicit_outbreak_report(analysis_text)
+    is_policy_content = extractors.is_policy_or_statistical_health_content(
+        analysis_text
+    )
+    ncd_only = extractors.is_ncd_only_non_outbreak(
+        text, extracted
+    ) or extractors.is_ncd_only_non_outbreak(analysis_text, extracted)
+    is_official_bulletin = bool(
+        (
+            payload.source_url
+            and (
+                "disease-outbreak-news" in payload.source_url.lower()
+                or "who.int/emergencies" in payload.source_url.lower()
+            )
+        )
+        or (
+            payload.source_name
+            and any(
+                token in str(payload.source_name).lower()
+                for token in ("who don", "disease outbreak news", "sitrep")
+            )
+        )
+        or re.search(
+            r"\b(?:disease outbreak news|situational report|sitrep|laporan situasi klb)\b",
+            text[:400],
+            re.IGNORECASE,
+        )
+    )
+
+    # Preliminary metric counts for gate evaluation
+    prelim_cases = extractors.extract_case_count(text, disease=disease if disease != "UNKNOWN" else None) or 0
+    prelim_deaths = extractors.extract_death_count(text) or 0
+    has_location_conflict = bool(geocode_needs_review)
+
     # Cheap local/rules NLP first. DeepSeek only on UNKNOWN / low confidence /
-    # needs_review — never because an article listed more than one disease.
+    # needs_review / zero metrics on outbreak — never because an article listed more than one disease.
     should_use_deepseek = should_escalate_to_llm(
         historical_fast=payload.historical_fast,
         interactive=payload.interactive,
@@ -488,24 +524,53 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         needs_review=geocode_needs_review,
         location_missing=not location,
         non_health_topic=non_health_topic,
+        ncd_only=ncd_only,
+        is_policy_content=is_policy_content,
+        is_explicit_outbreak=is_explicit_outbreak,
+        is_official_bulletin=is_official_bulletin,
+        case_count=prelim_cases,
+        death_count=prelim_deaths,
+        has_location_conflict=has_location_conflict,
     )
+    llm_verified_sub_events = []
     if should_use_deepseek:
         try:
-            from .deepseek import detect_disease
-            resolved = detect_disease(analysis_text)
-            if resolved and extractors.disease_has_textual_evidence(
-                resolved.get("canonical_name") or "", text + " " + analysis_text
-            ):
-                disease = resolved["canonical_name"]
-                confidence = resolved["confidence"]
-                extracted = [
-                    disease,
-                    *[item for item in extracted if item.lower() != disease.lower()],
-                ]
-                has_keywords = True
-                is_health_related = True
+            from .deepseek import validate_and_correct_events
+            resolved = validate_and_correct_events(
+                text=analysis_text,
+                title=payload.title or "",
+                source_url=payload.source_url or "",
+                draft_disease=disease,
+                draft_location=location,
+                draft_country=country,
+                draft_case_count=prelim_cases,
+                draft_death_count=prelim_deaths,
+                candidate_diseases=extracted,
+            )
+            if resolved:
+                verified_disease = resolved.get("disease_classification")
+                if verified_disease and verified_disease != "UNKNOWN":
+                    disease = verified_disease
+                    confidence = config.DEEPSEEK_MIN_CONFIDENCE
+                    if disease not in extracted:
+                        extracted = [disease, *extracted]
+                    has_keywords = True
+                    is_health_related = True
+
+                llm_evts = resolved.get("sub_events") or []
+                if llm_evts:
+                    llm_verified_sub_events = llm_evts
+                    first_evt = llm_evts[0]
+                    if first_evt.get("location_name"):
+                        location = first_evt["location_name"]
+                    if first_evt.get("country"):
+                        country = first_evt["country"]
+                    if first_evt.get("case_count") is not None:
+                        prelim_cases = int(first_evt["case_count"])
+                    if first_evt.get("death_count") is not None:
+                        prelim_deaths = int(first_evt["death_count"])
         except Exception as e:
-            logger.info("DeepSeek local disease-master fallback unavailable: %s", e)
+            logger.info("DeepSeek local rear-gate fallback unavailable: %s", e)
 
     extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
     if translated_text and extracted:
@@ -757,7 +822,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 ]
                 if disease == candidate:
                     disease = canonical
-                    confidence = max(confidence, resolved_term.get("confidence", 0.90))
+                    # Do not artificially inflate overall article confidence to 0.99
+                    # if the article has pending location review or missing location.
+                    term_conf = float(resolved_term.get("confidence") or 0.90)
+                    if not geocode_needs_review and location:
+                        confidence = max(confidence, min(0.90, term_conf))
+                    else:
+                        confidence = max(confidence, 0.70)
         extracted = list(dict.fromkeys(extracted))
     except Exception as exc:
         logger.info("Local disease-master resolution unavailable: %s", exc)
@@ -1775,6 +1846,22 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     item["admin1"] = None
                     item["admin2"] = None
                     item["geocode_needs_review"] = True
+
+    if not sub_events and llm_verified_sub_events:
+        for levt in llm_verified_sub_events:
+            sub_events.append(
+                SubEvent(
+                    disease=levt.get("disease") or disease,
+                    location_name=levt.get("location_name") or location,
+                    country=levt.get("country") or country,
+                    admin1=levt.get("admin1"),
+                    admin2=levt.get("admin2"),
+                    case_count=int(levt.get("case_count") or 0),
+                    death_count=int(levt.get("death_count") or 0),
+                    evidence=levt.get("evidence") or "",
+                    needs_review=False,
+                )
+            )
 
     for evt in sub_events:
         evt.evidence_offset_space = evidence_offset_space
