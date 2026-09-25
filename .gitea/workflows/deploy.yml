@@ -50,6 +50,7 @@ jobs:
           echo "Checkout Gitea gagal setelah 5 percobaan"
           exit 1
 
+      # Generated Python bytecode is disposable and must never block deploy sync.
       - name: Remove generated Python caches before sync
         run: |
           sudo -n find /home/nlpdev/docker/nlp-penyakit-git \
