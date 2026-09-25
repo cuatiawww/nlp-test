@@ -50,6 +50,13 @@ jobs:
           echo "Checkout Gitea gagal setelah 5 percobaan"
           exit 1
 
+      - name: Remove generated Python caches before sync
+        run: |
+          sudo -n find /home/nlpdev/docker/nlp-penyakit-git \
+            -type d -name '__pycache__' -prune -exec rm -rf -- {} +
+          sudo -n find /home/nlpdev/docker/nlp-penyakit-git \
+            -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '*.pyd' \) -delete
+
       - name: Sync source ke folder deploy (tanpa config lokal & models)
         run: |
           rsync -a --delete \
