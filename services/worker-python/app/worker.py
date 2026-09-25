@@ -29,6 +29,8 @@ NLP_REQUEST_TIMEOUT_SECONDS = max(
     120, int(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "270"))
 )
 RABBITMQ_SOCIAL_QUEUE = os.getenv("RABBITMQ_SOCIAL_QUEUE", "disease.social")
+RABBITMQ_CONSUME_RAW = os.getenv("RABBITMQ_CONSUME_RAW", "true").lower() in {"1", "true", "yes", "on"}
+RABBITMQ_CONSUME_SOCIAL = os.getenv("RABBITMQ_CONSUME_SOCIAL", "true").lower() in {"1", "true", "yes", "on"}
 RABBITMQ_SKDR_QUEUE = os.getenv("RABBITMQ_SKDR_QUEUE", "disease.skdr")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
@@ -997,21 +999,28 @@ def main():
             conn = pika.BlockingConnection(params)
             channel = conn.channel()
             channel.confirm_delivery()
-            queues = tuple(dict.fromkeys((RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE)))
+            configured_queues = []
+            if RABBITMQ_CONSUME_RAW:
+                configured_queues.append(RABBITMQ_QUEUE)
+            if RABBITMQ_CONSUME_SOCIAL and RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
+                configured_queues.append(RABBITMQ_SOCIAL_QUEUE)
+            queues = tuple(dict.fromkeys(configured_queues))
+            if not queues:
+                raise RuntimeError("at least one RabbitMQ consumer queue must be enabled")
             declare_queue_topology(channel, queues)
             # SKDR queue disabled
-            # if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
+            # if RABBITMQ_SKDR_QUEUE not in queues:
             #     channel.queue_declare(queue=RABBITMQ_SKDR_QUEUE, durable=True)
             channel.basic_qos(prefetch_count=1)
-            channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
-            if RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
+            if RABBITMQ_CONSUME_RAW:
+                channel.basic_consume(queue=RABBITMQ_QUEUE, on_message_callback=callback)
+            if RABBITMQ_CONSUME_SOCIAL and RABBITMQ_SOCIAL_QUEUE != RABBITMQ_QUEUE:
                 channel.basic_consume(queue=RABBITMQ_SOCIAL_QUEUE, on_message_callback=callback)
-            # if RABBITMQ_SKDR_QUEUE not in {RABBITMQ_QUEUE, RABBITMQ_SOCIAL_QUEUE}:
+            # if RABBITMQ_SKDR_QUEUE not in queues:
             #     channel.basic_consume(queue=RABBITMQ_SKDR_QUEUE, on_message_callback=callback)
-            if len(queues) > 1:
-                logger.info("Worker listening on %s", ", ".join(queues))
-            else:
-                logger.info("Worker listening on %s", RABBITMQ_QUEUE)
+            logger.info(
+                "Worker listening on %s (prefetch=1)", ", ".join(queues)
+            )
             channel.start_consuming()
         except Exception as e:
             logger.error("Connection error: %s — retrying in 5s", e)
