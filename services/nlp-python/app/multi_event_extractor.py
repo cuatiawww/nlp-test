@@ -882,6 +882,11 @@ def compose_structured_events(
     )
 
     doc_period = extract_event_period(text)
+    epistemic_cache = {}
+    metric_cache = {}
+    period_cache = {}
+    offset_cache = {}
+    validation_cache = {}
     for evt in events:
         loc = evt.get("location_name")
         hier = ext.resolve_event_location_hierarchy(loc, country_hint=evt.get("country")) if loc else {}
@@ -918,43 +923,51 @@ def compose_structured_events(
 
         # Epistemic status qualification per sub-event
         evt_evidence = evt.get("evidence") or ""
-        evt_epistemic = classify_epistemic_status(text, disease=evt.get("disease"), evidence=evt_evidence)
+        epistemic_key = (text, str(evt.get("disease") or ""), evt_evidence)
+        evt_epistemic = epistemic_cache.get(epistemic_key)
+        if evt_epistemic is None:
+            evt_epistemic = classify_epistemic_status(text, disease=evt.get("disease"), evidence=evt_evidence)
+            epistemic_cache[epistemic_key] = evt_epistemic
         evt["epistemic_status"] = evt_epistemic
 
         # Metric qualification per sub-event
         if evt_epistemic == "negative_surveillance":
             m_type, m_unit = "negative_surveillance", "status"
         else:
-            m_type, m_unit = qualify_metric_type(
-                evt_evidence or text,
-                default_period=doc_period.get("period_type", "unknown"),
-                has_cases=bool((evt.get("case_count") or 0) > 0),
-                has_deaths=bool((evt.get("death_count") or 0) > 0),
-            )
+            metric_key = (evt_evidence or text, doc_period.get("period_type", "unknown"), bool((evt.get("case_count") or 0) > 0), bool((evt.get("death_count") or 0) > 0), evt_epistemic)
+            cached_metric = metric_cache.get(metric_key)
+            if cached_metric is None:
+                cached_metric = qualify_metric_type(evt_evidence or text, default_period=doc_period.get("period_type", "unknown"), has_cases=bool((evt.get("case_count") or 0) > 0), has_deaths=bool((evt.get("death_count") or 0) > 0))
+                metric_cache[metric_key] = cached_metric
+            m_type, m_unit = cached_metric
         evt["metric_type"] = m_type
         evt["unit"] = m_unit
 
         # Temporal interval per sub-event
-        evt_period = extract_event_period(evt_evidence) if evt_evidence else {}
+        evt_period = period_cache.get(evt_evidence)
+        if evt_period is None:
+            evt_period = extract_event_period(evt_evidence) if evt_evidence else {}
+            period_cache[evt_evidence] = evt_period
         evt["event_date_start"] = evt_period.get("event_date_start") or doc_period.get("event_date_start")
         evt["event_date_end"] = evt_period.get("event_date_end") or doc_period.get("event_date_end")
 
         # Evidence offsets
-        s_off, e_off = find_evidence_offsets(text, evt_evidence)
+        cached_offsets = offset_cache.get(evt_evidence)
+        if cached_offsets is None:
+            cached_offsets = find_evidence_offsets(text, evt_evidence)
+            offset_cache[evt_evidence] = cached_offsets
+        s_off, e_off = cached_offsets
         evt["evidence_offset_start"] = s_off
         evt["evidence_offset_end"] = e_off
 
         # Plausibility validation per sub-event
-        _, sub_flags = validate_surveillance_facts(
-            text=text,
-            disease=evt.get("disease", ""),
-            location=evt.get("location_name"),
-            case_count=evt.get("case_count", 0),
-            death_count=evt.get("death_count", 0),
-            epistemic_status=evt_epistemic,
-            count_period_type=doc_period.get("period_type", "unknown"),
-        )
-        evt["validation_flags"] = sub_flags
+        validation_key = (text, str(evt.get("disease", "")), str(evt.get("location_name") or ""), int(evt.get("case_count", 0) or 0), int(evt.get("death_count", 0) or 0), evt_epistemic, doc_period.get("period_type", "unknown"))
+        cached_validation = validation_cache.get(validation_key)
+        if cached_validation is None:
+            cached_validation = validate_surveillance_facts(text=text, disease=evt.get("disease", ""), location=evt.get("location_name"), case_count=evt.get("case_count", 0), death_count=evt.get("death_count", 0), epistemic_status=evt_epistemic, count_period_type=doc_period.get("period_type", "unknown"))
+            validation_cache[validation_key] = cached_validation
+        _, sub_flags = cached_validation
+        evt["validation_flags"] = list(sub_flags)
         evt.setdefault("confidence", 0.90)
 
     if events:
