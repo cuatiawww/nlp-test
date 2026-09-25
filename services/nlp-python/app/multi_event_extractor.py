@@ -760,6 +760,7 @@ def compose_structured_events(
     primary label alone. NCD-only articles must not reach this helper.
     """
     atomic_events: Optional[list[dict[str, Any]]] = None
+    atomic_started = time.perf_counter()
     try:
         from .intelligence import build_atomic_events
 
@@ -773,6 +774,11 @@ def compose_structured_events(
     except Exception as exc:
         logger.warning("Atomic event extraction unavailable before multi-event path: %s", exc)
 
+    logger.info(
+        "multi_event_function_timings build_atomic_events_seconds=%.3f events=%s",
+        time.perf_counter() - atomic_started,
+        len(atomic_events or []),
+    )
     extract_started = time.perf_counter()
     events = extract_multi_events(
         text=text,

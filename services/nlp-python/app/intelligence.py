@@ -251,7 +251,7 @@ def _same_metric_observation(left: dict[str, Any], right: dict[str, Any]) -> boo
     return bool(left.get("evidence") and left.get("evidence") == right.get("evidence"))
 
 
-def _collapse_hierarchical_parser_duplicates(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _collapse_hierarchical_parser_duplicates(events: list[dict[str, Any]], hierarchy_cache: Optional[dict[tuple[str, str], dict[str, Any]]] = None) -> list[dict[str, Any]]:
     """Drop a parent-location duplicate when one metric has one child relation.
 
     A national total and a provincial breakdown remain separate when their
@@ -260,18 +260,24 @@ def _collapse_hierarchical_parser_duplicates(events: list[dict[str, Any]]) -> li
     """
 
     kept: list[dict[str, Any]] = []
+    hierarchy_cache = hierarchy_cache if hierarchy_cache is not None else {}
+
+    def cached_hierarchy(event: dict[str, Any]) -> dict[str, Any]:
+        key = (str(event.get("location_name") or ""), str(event.get("country") or ""))
+        if key not in hierarchy_cache:
+            hierarchy_cache[key] = extractors.resolve_location_hierarchy(
+                event.get("location_name"), country_hint=event.get("country")
+            )
+        return hierarchy_cache[key]
+
     for candidate in events:
-        candidate_hierarchy = extractors.resolve_location_hierarchy(
-            candidate.get("location_name"), country_hint=candidate.get("country")
-        )
+        candidate_hierarchy = cached_hierarchy(candidate)
         remove_existing: list[int] = []
         discard_candidate = False
         for index, existing in enumerate(kept):
             if not _same_metric_observation(candidate, existing):
                 continue
-            existing_hierarchy = extractors.resolve_location_hierarchy(
-                existing.get("location_name"), country_hint=existing.get("country")
-            )
+            existing_hierarchy = cached_hierarchy(existing)
             if _is_parent_location(existing_hierarchy, candidate_hierarchy):
                 remove_existing.append(index)
             elif _is_parent_location(candidate_hierarchy, existing_hierarchy):
@@ -411,6 +417,7 @@ def build_atomic_events(
     labels = _canonical_labels([*(disease_labels or []), *( [primary_disease] if primary_disease else [])])
     spans = sentence_spans(source)
     events: "OrderedDict[tuple[str, str, str], dict[str, Any]]" = OrderedDict()
+    hierarchy_cache: dict[tuple[str, str], dict[str, Any]] = {}
     # Resolve metric-location relations once per document. Calling this inside
     # every sentence repeatedly scans the full gazetteer and makes long
     # articles degrade quadratically.
@@ -545,7 +552,11 @@ def build_atomic_events(
 
         def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None, relation_time_frame=None):
             location = _most_specific_event_location(sentence, evidence, location, linker)
-            hierarchy = extractors.resolve_location_hierarchy(location.name)
+            hierarchy_key = (str(location.name or ""), str(location.country or ""))
+            hierarchy = hierarchy_cache.get(hierarchy_key)
+            if hierarchy is None:
+                hierarchy = extractors.resolve_location_hierarchy(location.name, country_hint=location.country)
+                hierarchy_cache[hierarchy_key] = hierarchy
             frame = extract_event_period(sentence, published_at=None)
             metric_frame = extract_event_period(relation_time_frame or "", published_at=None) if relation_time_frame else {}
             if relation_time_frame and (" to " in relation_time_frame or metric_frame.get("event_date_start")):
@@ -700,4 +711,4 @@ def build_atomic_events(
                 source_sentence_id=None,
             )
 
-    return _collapse_hierarchical_parser_duplicates(list(events.values()))
+    return _collapse_hierarchical_parser_duplicates(list(events.values()), hierarchy_cache=hierarchy_cache)
