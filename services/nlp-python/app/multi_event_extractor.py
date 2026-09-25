@@ -887,9 +887,17 @@ def compose_structured_events(
     period_cache = {}
     offset_cache = {}
     validation_cache = {}
+    hierarchy_cache = {}
     for evt in events:
         loc = evt.get("location_name")
-        hier = ext.resolve_event_location_hierarchy(loc, country_hint=evt.get("country")) if loc else {}
+        hierarchy_key = (str(loc or ""), str(evt.get("country") or ""))
+        if loc:
+            hier = hierarchy_cache.get(hierarchy_key)
+            if hier is None:
+                hier = ext.resolve_event_location_hierarchy(loc, country_hint=evt.get("country"))
+                hierarchy_cache[hierarchy_key] = hier
+        else:
+            hier = {}
         if hier.get("canonical_name"):
             evt["location_name"] = hier["canonical_name"]
         evt["admin1"] = evt.get("admin1") or hier.get("admin1_name")
