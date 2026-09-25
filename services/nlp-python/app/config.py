@@ -105,13 +105,6 @@ INTERACTIVE_ANALYSIS_MAX_CHARS = max(
 INTERACTIVE_LOCATION_SCAN_MAX_CHARS = max(
     800, int(os.getenv("INTERACTIVE_LOCATION_SCAN_MAX_CHARS", "4000"))
 )
-# Relation extraction uses many location/metric regexes. Keep very long raw
-# pages from multiplying CPU cost while preserving the title/lede evidence that
-# normally carries the article's primary metrics. Interactive requests already
-# have their own smaller cap in pipeline._interactive_analysis_text().
-RELATION_EXTRACTION_MAX_CHARS = max(
-    6000, int(os.getenv("RELATION_EXTRACTION_MAX_CHARS", "24000"))
-)
 INTERACTIVE_SKIP_STRICT_SURVEILLANCE = os.getenv(
     "INTERACTIVE_SKIP_STRICT_SURVEILLANCE", "true"
 ).lower() in {"1", "true", "yes", "on"}

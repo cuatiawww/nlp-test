@@ -915,19 +915,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         from .surveillance_extraction import GazetteerLinker, extract_metric_relations
 
         shared_linker = GazetteerLinker()
-        relation_source = text
-        relation_cap = int(getattr(config, "RELATION_EXTRACTION_MAX_CHARS", 24000) or 24000)
-        if len(relation_source) > relation_cap:
-            # Keep offsets valid by retaining only the source prefix. The
-            # article lead/title is the authoritative place for primary
-            # metrics; the broad source extractors still process `text`.
-            relation_source = relation_source[:relation_cap]
-            logger.info(
-                "metric_relation_text_cap chars_before=%s chars_after=%s limit=%s",
-                len(text), len(relation_source), relation_cap,
-            )
         relational_events = extract_metric_relations(
-            relation_source,
+            text,
             linker=shared_linker,
             published_date=published_at,
             source_country=source_country,
