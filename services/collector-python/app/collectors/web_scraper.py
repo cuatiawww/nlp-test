@@ -562,6 +562,45 @@ def _extract_published_at(html: str, url: str = "", text: str = "") -> str:
     return ""
 
 
+def _article_http_client():
+    """Return a session, retry exceptions, and extra headers for article fetches.
+
+    python-requests keeps an OpenSSL fingerprint that CloudFront answers with
+    403 from some networks, while a browser-shaped client receives the article.
+    Changing the User-Agent does not fix that: an allowed edge still returns
+    200 with an empty User-Agent. curl_cffi already comes with
+    scrapling[fetchers]; its Chrome profile keeps the TLS and HTTP/2
+    fingerprint consistent with the headers it sends.
+    """
+    try:
+        from curl_cffi import requests as cffi_requests
+        from curl_cffi.requests.exceptions import ConnectionError as CffiConnectionError
+        from curl_cffi.requests.exceptions import Timeout as CffiTimeout
+
+        session = cffi_requests.Session(impersonate="chrome")
+        session.trust_env = False
+        # Impersonation supplies a coherent User-Agent, Accept, Accept-Language,
+        # and Accept-Encoding. Overriding them makes the fingerprint inconsistent.
+        return session, (CffiTimeout, CffiConnectionError), {}
+    except ImportError:
+        import requests
+
+        session = requests.Session()
+        session.trust_env = False
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/150.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate",
+            "Upgrade-Insecure-Requests": "1",
+        }
+        return session, (requests.Timeout, requests.ConnectionError), headers
+
+
 class WebScraperCollector(BaseCollector):
     @staticmethod
     def _verify_tls(url: str) -> bool:
@@ -581,23 +620,11 @@ class WebScraperCollector(BaseCollector):
 
     async def _fetch_direct_http(self, url: str, timeout_seconds: int = 12) -> FetchOutcome:
         """Fast bounded HTTP fetch with redirect SSRF checks and finite retries."""
-        import requests
         from scrapling.parser import Adaptor
 
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0.0.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
-            "Accept-Encoding": "gzip, deflate",
-        }
+        session, retry_errors, headers = _article_http_client()
 
         def _get():
-            session = requests.Session()
-            session.trust_env = False
             current_url = validate_public_url(url)
             max_retries = max(0, min(5, int(self.config.get("max_retries", app_config.CRAWLER_MAX_RETRIES))))
             max_bytes = app_config.CRAWLER_MAX_HTML_MB * 1024 * 1024
@@ -606,15 +633,16 @@ class WebScraperCollector(BaseCollector):
             while True:
                 wait_for_domain(current_url, app_config.CRAWLER_DOMAIN_MIN_INTERVAL_SECONDS)
                 try:
-                    response = session.get(
-                        current_url,
-                        headers=headers,
-                        timeout=(min(10, timeout_seconds), timeout_seconds),
-                        allow_redirects=False,
-                        verify=self._verify_tls(current_url),
-                        stream=True,
-                    )
-                except (requests.Timeout, requests.ConnectionError):
+                    request_kwargs = {
+                        "timeout": (min(10, timeout_seconds), timeout_seconds),
+                        "allow_redirects": False,
+                        "verify": self._verify_tls(current_url),
+                        "stream": True,
+                    }
+                    if headers:
+                        request_kwargs["headers"] = headers
+                    response = session.get(current_url, **request_kwargs)
+                except retry_errors:
                     if attempt >= max_retries:
                         raise
                     time.sleep(retry_delay(
@@ -625,7 +653,7 @@ class WebScraperCollector(BaseCollector):
                     attempt += 1
                     continue
 
-                if response.is_redirect or response.is_permanent_redirect:
+                if response.status_code in {301, 302, 303, 307, 308}:
                     location = response.headers.get("Location")
                     response.close()
                     if not location or redirects >= app_config.CRAWLER_MAX_REDIRECTS:

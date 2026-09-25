@@ -78,6 +78,21 @@ class WebScraperHelpersTest(unittest.TestCase):
             "Malaysia",
         )
 
+    def test_article_http_client_prefers_chrome_impersonation(self):
+        from app.collectors.web_scraper import _article_http_client
+
+        session, errors, headers = _article_http_client()
+        self.assertFalse(session.trust_env)
+        self.assertTrue(errors)
+        try:
+            import curl_cffi  # noqa: F401
+        except ImportError:
+            self.assertIn("User-Agent", headers)
+            self.assertIn("Chrome/", headers["User-Agent"])
+            return
+        self.assertEqual(session.impersonate, "chrome")
+        self.assertEqual(headers, {})
+
     def test_detects_blocked_statuses(self):
         for status in (403, 429, 503):
             self.assertTrue(_is_challenge(status, ""))
