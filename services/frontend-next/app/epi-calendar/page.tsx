@@ -268,10 +268,9 @@ export default function EpiCalendarPage() {
   const isLeapEpiYear = totalYearWeeks === 53;
 
   return (
-    <div className="min-h-screen bg-slate-50/60 pb-16">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
       {/* 1. Header & Surveillance Context */}
-      <header className="border-b border-slate-200/80 bg-white shadow-2xs">
-        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+      <div>
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="flex items-center gap-2">
@@ -286,7 +285,7 @@ export default function EpiCalendarPage() {
                 Kalender Epidemiologi MMWR (Epi Weeks)
               </h1>
               <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-                Sistem rujukan baku pekan epidemiologi, kalender surveilans, mitigasi wabah, dan registri operasional tanpa hardcoded dummy.
+                Sistem rujukan baku pekan epidemiologi, kalender surveilans, mitigasi wabah, dan registri operasional surveilans.
               </p>
             </div>
 
@@ -306,7 +305,7 @@ export default function EpiCalendarPage() {
 
               <button
                 onClick={handleExportCsv}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition shadow-2xs cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition shadow-xs cursor-pointer"
                 title="Ekspor kalender MMWR ke CSV"
               >
                 <Download className="h-3.5 w-3.5 text-slate-500" />
@@ -316,19 +315,18 @@ export default function EpiCalendarPage() {
               <button
                 onClick={() => loadWeeks(selectedYear)}
                 disabled={loading}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-50 transition shadow-2xs cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-50 transition shadow-xs cursor-pointer"
                 title="Segarkan data"
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-[#0060A9]' : 'text-slate-500'}`} />
               </button>
             </div>
           </div>
-        </div>
-      </header>
+      </div>
 
       {/* 2. Interactive Date-to-Week Calculator Widget */}
-      <section className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-2xs">
+      <section>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="max-w-xl">
               <div className="flex items-center gap-2">
@@ -391,7 +389,7 @@ export default function EpiCalendarPage() {
       </section>
 
       {/* 3. Year Selector & Filters Bar */}
-      <section className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
+      <section>
         <div className="flex flex-col gap-4">
           {/* Year Buttons Bar */}
           <div className="flex items-center justify-between overflow-x-auto pb-1">
@@ -414,7 +412,7 @@ export default function EpiCalendarPage() {
                     <span>{yr}</span>
                     {has53 && (
                       <span
-                        className={`rounded-full px-1 py-0.2 text-[9px] font-black ${
+                        className={`rounded-full px-1 py-0.2 text-[9px] font-bold ${
                           isSelected ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'
                         }`}
                         title="Tahun Panjang MMWR: Memiliki 53 Pekan Epidemiologi"
@@ -444,7 +442,7 @@ export default function EpiCalendarPage() {
           </div>
 
           {/* Search, Status Filter & View Mode */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xs">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
             <div className="flex flex-1 items-center gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -478,7 +476,7 @@ export default function EpiCalendarPage() {
               <button
                 onClick={() => setViewMode('month_grid')}
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
-                  viewMode === 'month_grid' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                  viewMode === 'month_grid' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 <Layers className="h-3.5 w-3.5" />
@@ -487,7 +485,7 @@ export default function EpiCalendarPage() {
               <button
                 onClick={() => setViewMode('table_list')}
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
-                  viewMode === 'table_list' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                  viewMode === 'table_list' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 <FileText className="h-3.5 w-3.5" />
@@ -501,12 +499,12 @@ export default function EpiCalendarPage() {
       {/* 4. Main Calendar Content */}
       <main className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 rounded-2xl border border-slate-200 bg-white">
+          <div className="flex flex-col items-center justify-center py-20 rounded-xl border border-slate-200 bg-white">
             <RefreshCw className="h-8 w-8 animate-spin text-[#0060A9]" />
             <p className="mt-3 text-xs font-semibold text-slate-500">Memuat data pekan epidemiologi {selectedYear}...</p>
           </div>
         ) : filteredWeeks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 rounded-2xl border border-dashed border-slate-200 bg-white text-center">
+          <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-dashed border-slate-200 bg-white text-center">
             <AlertCircle className="h-8 w-8 text-slate-300" />
             <h3 className="mt-2 text-sm font-bold text-slate-800">Tidak ada minggu yang cocok</h3>
             <p className="mt-1 text-xs text-slate-500">
@@ -548,13 +546,13 @@ export default function EpiCalendarPage() {
                       return (
                         <div
                           key={w.week}
-                          className={`relative flex flex-col justify-between rounded-2xl border ${alert.border} ${alert.bg} p-4 transition hover:shadow-sm`}
+                          className={`relative flex flex-col justify-between rounded-xl border ${alert.border} ${alert.bg} p-4 transition hover:shadow-sm`}
                         >
                           <div>
                             {/* Card Top: EW Badge & Current Indicator */}
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-center gap-1.5">
-                                <span className="font-mono text-base font-black text-slate-900 tracking-tight">
+                                <span className="font-mono text-base font-bold text-slate-900 tracking-tight">
                                   EW {String(w.week).padStart(2, '0')}
                                 </span>
                                 {w.is_current && (
@@ -612,7 +610,7 @@ export default function EpiCalendarPage() {
                             <div className="flex items-center gap-1.5">
                               <button
                                 onClick={() => handleOpenEdit(w)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-xs"
                                 title="Ubah fokus & status pekan ini"
                               >
                                 <Edit3 className="h-3 w-3 text-slate-500" />
@@ -620,7 +618,7 @@ export default function EpiCalendarPage() {
                               </button>
                               <Link
                                 href={`/main-dashboard?startYear=${w.year}&startWeek=${w.week}&endYear=${w.year}&endWeek=${w.week}`}
-                                className="inline-flex items-center gap-1 rounded-lg bg-[#0060A9] px-2 py-1 text-[11px] font-bold text-white hover:bg-blue-700 transition cursor-pointer shadow-2xs"
+                                className="inline-flex items-center gap-1 rounded-lg bg-[#0060A9] px-2 py-1 text-[11px] font-bold text-white hover:bg-blue-700 transition cursor-pointer shadow-xs"
                                 title="Buka data wabah minggu ini di Dashboard"
                               >
                                 <ExternalLink className="h-3 w-3" />
@@ -638,7 +636,7 @@ export default function EpiCalendarPage() {
           </div>
         ) : (
           /* Table List View */
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xs">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-slate-200 bg-slate-50/80 font-bold uppercase tracking-wider text-slate-500">
@@ -660,7 +658,7 @@ export default function EpiCalendarPage() {
                         key={w.week}
                         className={`transition hover:bg-slate-50/80 ${w.is_current ? 'bg-blue-50/30' : ''}`}
                       >
-                        <td className="px-4 py-3 font-mono font-black text-slate-900">
+                        <td className="px-4 py-3 font-mono font-bold text-slate-900">
                           <div className="flex items-center gap-1.5">
                             <span>EW {String(w.week).padStart(2, '0')}</span>
                             {w.is_current && (
@@ -721,12 +719,12 @@ export default function EpiCalendarPage() {
 
       {/* 5. CRUD Modal: Configure Epi Week */}
       {modalOpen && editingWeek && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl transition-all">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 ">
+          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl transition-all">
             <div className="flex items-start justify-between border-b border-slate-100 pb-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-base font-black text-[#0060A9]">
+                  <span className="font-mono text-base font-bold text-[#0060A9]">
                     EW {String(editingWeek.week).padStart(2, '0')} / {editingWeek.year}
                   </span>
                   <span className="text-xs text-slate-400">|</span>

@@ -1,7 +1,7 @@
 # Arsitektur & Alur Sistem Terkini serta Roadmap Peningkatan
 
 **Tanggal Penyusunan:** 25 September 2026 WIB  
-**Dokumen Referensi:** Audit 001–016, Matriks 009, Runtime Test Log 2026-09-25, dan Kode Sumber Aktif.
+**Dokumen Referensi:** Audit 001–018, Matriks 009, Runtime Test Log 2026-09-25, dan Kode Sumber Aktif.
 
 ---
 
@@ -40,7 +40,11 @@ flowchart TD
     end
 
     subgraph NLP_ENGINE ["3. Pipeline NLP Bersama (services/nlp-python)"]
-        W1 -->|POST /nlp/analyze/raw| P1["pipeline.py: run()"]
+        W1 -->|POST /nlp/analyze/raw| P_ROUTER["Nginx Load Balancer Router\n(disease-nlp-router:8000)"]
+        P_ROUTER --> P_NLP_A["Container A: disease-nlp-python-a"]
+        P_ROUTER --> P_NLP_B["Container B: disease-nlp-python-b"]
+        P_NLP_A --> P1["pipeline.py: run()"]
+        P_NLP_B --> P1
         
         P1 --> G1{"Front-Gate Rejection\n(Zero Token Cost)"}
         G1 -->|Non-Health / Skripsi / NCD-Only| D1["DROP / Health=False\n(Tanpa Panggil LLM)"]
@@ -52,9 +56,9 @@ flowchart TD
         P2 --> P2D["Ekstraksi Metrik Kasus & Kematian"]
         
         P2 --> G2{"Multi-Signal LLM Gate\n(llm_gate.py)"}
-        G2 -->|Confidence > 0.75 & Data Valid| P3["Rakit Output Langsung"]
+        G2 -->|Confidence > 0.85 & Data Valid| P3["Rakit Output Langsung"]
         
-        G2 -->|Trigger Eskalasi:\n- Confidence <= 0.75\n- Status needs_review=True\n- Outbreak tapi Kasus=0\n- Konflik Lokasi / Missing Loc\n- Buletin Resmi WHO DON| L1["deepseek.py:\nvalidate_and_correct_events()"]
+        G2 -->|Trigger Eskalasi:\n- Confidence <= 0.85\n- Status needs_review=True\n- Outbreak tapi Kasus=0\n- Konflik Lokasi / Missing Loc\n- Buletin Resmi WHO DON| L1["deepseek.py:\nvalidate_and_correct_events()"]
         
         L1 -->|Kirimkan ke LLM:\n- Source URL\n- Title\n- Clean Full Text 16.000 chars\n- Draft Facts| LLM["LLM (DeepSeek / Local LLM)"]
         
@@ -102,7 +106,7 @@ flowchart TD
    - Ekstraksi angka metrik kasus dan kematian.
 3. **Multi-Signal LLM Gate (`llm_gate.py`)**:
    - LLM tidak hanya dipicu oleh skor angka, melainkan oleh indikator anomali surveilans:
-     - Skor `confidence <= 0.75` (inklusif).
+     - Skor `confidence <= 0.85` (inklusif).
      - Status `needs_review == True` (terjadi konflik geocode, relasi metrik ambigu, atau status epistemic meragukan).
      - Artikel diklasifikasikan sebagai wabah aktif (`is_explicit_outbreak`), tetapi angka kasus dan kematian masih 0 (seperti kasus Vietnam HFMD).
      - Terdeteksi konflik lokasi (seperti judul menyebut Mimika tetapi resolver mencocokkan ke Blitar).
@@ -148,3 +152,83 @@ Untuk menyempurnakan performa dan ketahanan sistem, berikut 5 rekomendasi pemasa
 | 3 | **Pengayaan Regex Kasus untuk Frasa Demografis Terjemahan** | `services/nlp-python/app/extractors.py` | Pola `[angka] anak/balita/warga didiagnosis...` langsung ditangkap oleh regex lokal dalam < 1 ms (seperti kasus Vietnam 6.573 anak). |
 | 4 | **Penyempurnaan Heartbeat / Progress Stage di URL Analyzer** | `services/collector-python/app/analysis_jobs.py` & Next.js UI | UI menampilkan indikator progres bertahap (*Fetching -> Processing NLP -> Verifying LLM -> Finished*) sehingga tidak tampak freeze. |
 | 5 | **Optimasi Concurrency / Timeout Worker untuk Artikel Panjang** | `services/worker-python` & `docker-compose.yml` | Menaikkan timeout worker dari 270s ke 420s untuk buletin raksasa atau mengaktifkan multi-worker inference bila kapasitas CPU memungkinkan. |
+
+---
+
+## 6. Perubahan Rekan dari Gitea yang Masuk ke `main`
+
+Pada 25 September 2026, branch `main` menerima tiga commit dari `azizar.mci`:
+
+### 6.1 `0ccf3b9` — Improve multilingual surveillance review pipeline
+
+Perubahan utama berada di `services/nlp-python`:
+
+- Menambahkan batas artikel utama agar footer atau artikel sindikasi yang ikut ter-fetch tidak menggantikan fakta artikel utama.
+- Memperketat source-grounding lokasi: lokasi harus muncul di teks sumber atau berasal dari country yang eksplisit.
+- Memperluas penanganan multilingual, native-script outbreak term, alias lokasi, dan relasi metric berdasarkan konteks lokasi.
+- Mengubah perlakuan artikel NCD/policy agar tetap dapat dicatat sebagai `health update`, tetapi tidak otomatis menjadi event outbreak infeksius.
+- Menambahkan `review_focus` untuk disease, location, counts, outbreak status, dan multi-country.
+- Memperkuat DeepSeek rear-gate dan guardrail:
+  - evidence harus ditemukan pada teks asli;
+  - angka kasus/kematian harus grounded pada source;
+  - disease harus dinormalisasi ke Disease Master;
+  - metric tidak boleh tercampur antar-country atau antar-location;
+  - kegagalan/quota provider menggunakan cooldown.
+- Menambahkan timeout dan process isolation untuk stage multi-event.
+- Menambahkan test untuk LLM gate, metric scoping, multi-event, native-script outbreak, dan guardrail non-event.
+
+Seed lokasi multilingual juga ditambahkan melalui:
+
+`database/init/127_seed_multilingual_surveillance_localities.sql`
+
+Seed tersebut mencakup Dong Thap/Đồng Tháp dan alias bahasa terkait untuk kebutuhan surveillance Vietnam.
+
+### 6.2 `36ce622` — Add safe reanalysis maintenance workflow
+
+Commit ini menambahkan workflow re-analysis dengan maintenance hold:
+
+- Pipeline mode baru: `RUNNING`, `DRAINING`, `REANALYZING`, dan `RESUMING`.
+- Queue di-drain sebelum re-analysis.
+- Pesan baru selama re-analysis ditahan secara durable, bukan dibuang.
+- Data yang ditahan dipublish kembali setelah proses selesai.
+- Re-analysis memakai snapshot dan `run_id` agar data baru tidak tercampur.
+- Worker menyimpan progress processed/failed dan status run.
+- Watchdog dapat melakukan recovery jika proses re-analysis mati tanpa cleanup.
+- Collector, worker, RabbitMQ publisher, dan backend menghormati maintenance mode.
+
+Perubahan ini membutuhkan migration baru:
+
+`database/init/129_pipeline_maintenance.sql`
+
+Tabel yang ditambahkan:
+
+- `pipeline_control`
+- `reanalysis_runs`
+- `pipeline_maintenance_messages`
+
+Script operasionalnya adalah:
+
+`scripts/reanalysis_maintenance.sh`
+
+Command yang tersedia: `start`, `run`, `finish`, `run-all`, `status`, dan `recover`.
+
+### 6.3 `ca75caf` — Add one-command reanalysis execution
+
+Commit terakhir menambahkan dokumentasi dan command satu langkah:
+
+```bash
+scripts/reanalysis_maintenance.sh run-all \
+  --skip-who-sync --batch-size 50 --stop-on-error
+```
+
+Command tersebut menjalankan start, drain, snapshot, re-analysis, finish, dan recovery otomatis ketika proses gagal.
+
+### 6.4 Dampak dan status verifikasi
+
+- Perubahan NLP di atas bersifat material karena menyentuh `pipeline.py`, `deepseek.py`, `agent.py`, `llm_gate.py`, dan `multi_event_extractor.py`.
+- DeepSeek tetap gate-based; `AGENT_ENABLED=true` tidak berarti setiap artikel memanggil LLM.
+- Migration `129_pipeline_maintenance.sql` harus diterapkan sebelum maintenance workflow digunakan.
+- Status penerapan migration pada database staging/production belum diverifikasi dalam audit ini.
+- Setelah fast-forward, `main`, `origin/main`, dan `gitea/main` berada pada commit `ca75caf`.
+- Perubahan lokal `.env.example` digabung manual: parameter lokal `DEEPSEEK_PROMPT_CHARS=16000` dipertahankan, sedangkan key maintenance/reanalysis dari Gitea ikut masuk.
+- Full regression setelah tiga commit ini masuk masih perlu dijalankan sebelum menyatakan perubahan aman untuk production.
