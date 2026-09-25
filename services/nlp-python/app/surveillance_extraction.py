@@ -831,8 +831,24 @@ def _is_comparative_location(text: str, loc_start: int) -> bool:
 _NUMBER = r"(?:\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)"
 
 
+_RELATION_PATTERN_CACHE: dict[tuple, dict[str, tuple[re.Pattern[str], ...]]] = {}
+_METRIC_PATTERN_CACHE: dict[tuple, dict[str, Any]] = {}
+
+
+def _pattern_signature(*lexicon_names: str) -> tuple:
+    """Return a stable key that invalidates caches after lexicon reloads."""
+    return tuple(
+        (name, tuple(config.get_lexicon_terms(name)))
+        for name in lexicon_names
+    ) + ("number_words", extractors._runtime_number_word_pattern())
+
+
 def _runtime_relation_patterns() -> dict[str, tuple[re.Pattern[str], ...]]:
     """Build legacy location relations from the active DB lexicon."""
+    signature = _pattern_signature("metric_case", "metric_death", "metric_magnitude")
+    cached = _RELATION_PATTERN_CACHE.get(signature)
+    if cached is not None:
+        return cached
 
     case_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_case")))
     death_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_death")))
@@ -845,7 +861,7 @@ def _runtime_relation_patterns() -> dict[str, tuple[re.Pattern[str], ...]]:
     # reported`` and cannot be linked to the country.
     location = r"(?P<location>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’-]*){0,5})"
     location_dotted = r"(?P<location>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){0,5})"
-    return {
+    patterns = {
         "cases": (
             re.compile(
                 rf"(?<![\w.,])(?P<count>{number})(?![\w])\s*{magnitude_group}\s*"
@@ -886,6 +902,9 @@ def _runtime_relation_patterns() -> dict[str, tuple[re.Pattern[str], ...]]:
             ),
         ),
     }
+    _RELATION_PATTERN_CACHE.clear()
+    _RELATION_PATTERN_CACHE[signature] = patterns
+    return patterns
 
 
 def _number(raw: str, multiplier: str = "") -> int:
@@ -1269,12 +1288,11 @@ def _mentioned_locations(text: str, linker: GazetteerLinker) -> list[LinkedLocat
 
 
 def _runtime_metric_patterns() -> dict[str, Any]:
-    """Build metric grammars from the shared DB lexicon at call time.
-
-    The surrounding grammar stays algorithmic, while language-specific words
-    are data. Rebuilding these small patterns per extraction keeps admin
-    lexicon reloads effective without restarting the NLP process.
-    """
+    """Build metric grammars from the shared DB lexicon at call time."""
+    signature = _pattern_signature("metric_case", "metric_death", "count_unit")
+    cached = _METRIC_PATTERN_CACHE.get(signature)
+    if cached is not None:
+        return cached
 
     case_terms = config.get_lexicon_terms("metric_case")
     death_terms = config.get_lexicon_terms("metric_death")
@@ -1338,7 +1356,7 @@ def _runtime_metric_patterns() -> dict[str, Any]:
         rf"รวม|ថាំងអស់|ເສຍຊີວິດ|အသစ်))?\s*(?P<count>{_NUMBER})\s*(?:{unit_term})?",
         re.IGNORECASE | re.UNICODE,
     )
-    return {
+    patterns = {
         "case_term": case_term,
         "death_term": death_term,
         "range_case": range_case,
@@ -1348,6 +1366,9 @@ def _runtime_metric_patterns() -> dict[str, Any]:
         "postfix_case": postfix_case,
         "postfix_death": postfix_death,
     }
+    _METRIC_PATTERN_CACHE.clear()
+    _METRIC_PATTERN_CACHE[signature] = patterns
+    return patterns
 _NON_CASE_NUMBER_CONTEXT = re.compile(
     r"(?:%|persen|percent|per\s+100|population|populasi|tempat\s+tidur|"
     r"bed(?:s)?|spesimen|specimen|swab|sampel|sample|dosis|dose|vaksin|vaccine)",
