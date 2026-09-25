@@ -595,7 +595,7 @@ class GazetteerLinker:
         all_names.update(getattr(extractors, "COUNTRY_ALIASES", {}).keys())
         for alias, canonical in getattr(extractors, "COUNTRY_ALIASES", {}).items():
             folded_alias = extractors._fold_location_text(alias)
-            if folded_alias and folded_alias not in self._folded_coords and (canonical in self.coords or canonical in self.countries):
+            if folded_alias and folded_alias not in self._folded_coords:
                 self._folded_coords[folded_alias] = canonical
         for name in self.countries:
             folded_name = extractors._fold_location_text(name)
