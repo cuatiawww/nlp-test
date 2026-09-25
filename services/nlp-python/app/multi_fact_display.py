@@ -137,30 +137,11 @@ def collapse_facts(facts: Iterable[dict[str, Any]]) -> dict[str, Any]:
             deaths_by_disease[disease] = deaths_by_disease.get(disease, 0) + deaths
 
     if locations_vary and diseases_vary:
-        # Both location and disease vary (e.g. 5-8 countries and 3 diseases)
-        # Format as: Location: Disease(count)
-        by_loc_cases: dict[str, list[tuple[str, int]]] = {}
-        by_loc_deaths: dict[str, list[tuple[str, int]]] = {}
-        for item, loc in zip(rows, location_labels):
-            dis = short_disease_label(item.get("disease") or item.get("disease_classification"))
-            c = _int_or_none(item.get("case_count", item.get("cases")))
-            d = _int_or_none(item.get("death_count", item.get("deaths")))
-            loc_key = loc or "Unknown"
-            if dis and c is not None:
-                by_loc_cases.setdefault(loc_key, []).append((dis, c))
-            if dis and d is not None and d > 0:
-                by_loc_deaths.setdefault(loc_key, []).append((dis, d))
-        cases_parts = []
-        for loc_k, pairs in by_loc_cases.items():
-            pairs.sort(key=lambda x: -x[1])
-            cases_parts.append(f"{loc_k}: " + ", ".join(f"{d}({cnt})" for d, cnt in pairs))
-        cases_display = SEPARATOR.join(cases_parts)
-
-        deaths_parts = []
-        for loc_k, pairs in by_loc_deaths.items():
-            pairs.sort(key=lambda x: -x[1])
-            deaths_parts.append(f"{loc_k}: " + ", ".join(f"{d}({cnt})" for d, cnt in pairs))
-        deaths_display = SEPARATOR.join(deaths_parts)
+        # Keep the legacy location-keyed parent display. Atomic sub_events
+        # retain the disease relation; parent display fields must not invent a
+        # new location:disease composite format for older consumers.
+        cases_display = format_label_counts(cases_by_location.items())
+        deaths_display = format_label_counts(deaths_by_location.items(), omit_zero=True)
     elif locations_vary:
         # Same labels as the location column. Keep explicit 0 (no cases detected).
         cases_display = format_label_counts(cases_by_location.items())

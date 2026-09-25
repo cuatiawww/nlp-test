@@ -258,20 +258,23 @@ def fetch_article(url, fallback=False):
                 },
                 timeout=(connect_timeout, read_timeout),
             )
-            if response.status_code in {408, 502, 503, 504} and attempt + 1 < attempts:
+            status_code = getattr(response, "status_code", 200)
+            if not isinstance(status_code, int):
+                status_code = 200
+            if status_code in {408, 502, 503, 504} and attempt + 1 < attempts:
                 last_error = requests.HTTPError(
-                    f"{response.status_code} {response.text[:180]}",
+                    f"{status_code} {response.text[:180]}",
                     response=response,
                 )
                 continue
-            if response.status_code >= 400:
+            if status_code >= 400:
                 detail = "Article source returned an HTTP error."
                 try:
                     payload = response.json()
                     detail = str(payload.get("detail") or payload.get("error") or detail)
                 except (ValueError, TypeError, AttributeError):
                     pass
-                status = response.status_code
+                status = status_code
                 if status in {408, 504}:
                     code = "fetch_timeout"
                 elif status in {403, 429, 451}:

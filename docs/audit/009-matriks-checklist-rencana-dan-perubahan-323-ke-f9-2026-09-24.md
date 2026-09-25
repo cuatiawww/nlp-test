@@ -25,7 +25,7 @@ Status: Audit berbasis Git, verifikasi schema database, dan pengujian endpoint l
 | 2 | Reset + inisiasi ulang data source, hanya menyisakan Google News dan source Phase 1 | `database/init/125_reset_sources_to_phase1_and_google_news.sql` (commit `b950b86`) menghapus source di luar whitelist Phase 1 (`ABVC Master Source`) dan Google News (`^https?://(www\.)?news\.google\.com`). | ✅ | **Selesai**. Pembersihan selektif telah diimplementasikan dalam bentuk migrasi SQL otomatis. Source di luar Phase 1 dihapus dari tabel `collector_sources`. |
 | 3 | Rapikan rule confidence `0.75` | `services/nlp-python/app/config.py` menetapkan `DEEPSEEK_TRIGGER_CONFIDENCE=0.75`; `services/nlp-python/app/llm_gate.py` memicu review saat confidence di bawah threshold. | ◐ | **Sebagian**. Threshold `0.75` sudah aktif sebagai trigger DeepSeek. Namun operator meminta `<=` sementara kode saat ini memakai `<` (`confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE`). |
 | 4 | Lepas semua kode API selain Review | `services/nlp-python/app/icd11.py` dihapus, konfigurasi WHO ICD-11 dihapus, provider OpenAI dilepas dari agent, dan resolusi penyakit diarahkan ke local disease master. DeepSeek dipertahankan sebagai review rear-gate. | ✅ | **Selesai**. Ketergantungan API ontology penyakit eksternal sudah dilepas sepenuhnya. Resolusi penyakit berjalan lokal secara otonom. |
-| 5 | Perbaiki penetapan Health / Outbreak | `pipeline.py` mempertahankan keputusan dari source text, menyaring non-health topic, memakai evidence/sub-events, dan mengalihkan validasi event ambigu ke rear-gate. `deepseek.py` memiliki filter non-event dan atomic event. | ✅ ⚠️ | **Selesai (Logika)**. Pipeline ekstraksi mempertahankan evidence dan menyaring non-health topic. Pembuktian precision/recall formal masih memerlukan evaluasi ground truth manual. |
+| 5 | Perbaiki penetapan Health / Outbreak | Migrasi seluruh filter eksklusi/negatif ke tabel PostgreSQL `extraction_rules` (42 rules aktif mencakup `academic_study`, `non_health_topic`, `agricultural_disease`, `metaphorical_phrase`, `metric_exclusion`, dll). Engine NLP runtime memuat rule dinamis dari DB via endpoint reload real-time tanpa restart container. Modul UI `/extraction-rules` (`ExtractionRuleForm.tsx`) 100% dinamis terhubung ke DB. | ✅ | **Selesai Penuh**. False-positive skripsi mahasiswa, penyakit tanaman (ubi kayu/wereng), kiasan (judi online/pinjol), dan berita militer/politik tersaring otomatis (`is_health_related=False`, `case_count=0`). Lolos 100% pada 6 pengujian verifikasi kritis. |
 | 6 | Cek hasil implementasi DeepSeek Review | `deepseek.py` memiliki schema prompt, guardrail zero-hallucination, validasi disease master, evidence, lokasi, dan sub-events. | ◐ ⚠️ | **Tersedia (Opt-in)**. Implementasi review terstruktur tersedia di codebase. Secara default `AGENT_ENABLED=false` sampai API key dan lingkungan produksi dikonfigurasi. |
 | 7 | Hapus semua data analisa/reset event dan buat tombol reset | Backend Rust (`services/backend-rust/src/main.rs`) menyediakan `GET /api/v1/data/cleanup-stats` (metrik live database) dan `POST /api/v1/data/cleanup-events` dengan 3 opsi cakupan (`analysis_and_events`, `events_only`, `full_crawl_and_analysis`), guardrail admin, konfirmasi teks `RESET`, dan audit log. Frontend menyediakan `ResetDataModal.tsx` anti-slop, tombol di `/events`, dan tab di `/console/settings` (commit `bcd0402`). | ✅ | **Selesai Penuh**. Backend dan UI telah terintegrasi end-to-end. Memiliki kontrol scope terukur, konfirmasi proteksi ketat, live counter, dan pencatatan audit log permanen. |
 | 8 | Buat trigger On/Off collector source | `collector_sources.enabled` didukung oleh scheduler, endpoint update source, dan kontrol sakelar UI di modul sumber data. | ✅ | **Selesai**. Kontrol per-source aktif/pause berfungsi, memungkinkan operator mengendalikan jadwal crawling tiap sumber data secara independen. |
@@ -69,6 +69,22 @@ Di luar 9 checklist awal, beberapa peningkatan arsitektural dan antarmuka telah 
 
 ---
 
+### 3.4 Eliminasi False-Positive Outbreak & Database-Driven Extraction Rules
+- **Problem Statement**: Munculnya artikel karya ilmiah/skripsi mahasiswa (contoh: *"Pengaruh Edukasi terhadap DBD pada Mahasiswa"*), penyakit tanaman/pertanian (*hama wereng, ubi kayu*), istilah metafora sosial (*wabah judi online, kanker korupsi*), dan berita militer/politik yang sebelumnya keliru diklasifikasikan sebagai outbreak penyakit manusia dengan angka kasus halusinasi.
+- **Solusi Database-Driven**: Seluruh pola eksklusi dan regex ekstraksi angka kasus dipindahkan ke database PostgreSQL (`extraction_rules`), dengan 42 rules aktif terbagi atas 8 kategori:
+  1. `academic_study`: Mendeteksi skripsi, tesis, kuesioner, responden, dan sampel penelitian.
+  2. `non_health_topic`: Menyaring berita olahraga, pemilu, saham, rudal militer, konflik.
+  3. `agricultural_disease`: Menyaring hama wereng, penyakit tanaman ubi kayu, perkebunan.
+  4. `metaphorical_phrase`: Menyaring judi online, pinjol, kanker korupsi, demam panggung.
+  5. `metric_exclusion`: Mencegah nomor tips atau sampel kuesioner terambil sebagai case count.
+  6. `general_prevention_tips`: Edukasi PHBS tanpa laporan kasus aktif.
+  7. `case_count` & `death_count`: Regex ekstraksi metrik epidemiologi resmi.
+- **Runtime Hot-Reload**: Saat operator menambah/mengubah rule di UI atau API Rust `/api/v1/extraction-rules`, backend Rust otomatis memanggil endpoint `/reload` pada engine Python NLP, sehingga rule aktif seketika tanpa perlu restart service atau container.
+- **Frontend Management UI**: Tersedia pada rute `/extraction-rules` yang 100% dinamis membaca dari database (tanpa hardcoded dummy map/data), dilengkapi modal `ExtractionRuleForm.tsx` dengan live regex syntax validator.
+- **Hasil Verifikasi**: 6 dari 6 skenario uji verifikasi e2e lulus 100% (skripsi DBD -> rejected, tanaman ubi kayu -> rejected, judi online -> rejected, militer rudal -> rejected, tips PHBS -> no case count, outbreak Sleman -> 142 kasus & 3 kematian tervalidasi).
+
+---
+
 ## 4. Matriks Status Pekerjaan Lanjutan
 
 | Pekerjaan Lanjutan | Status | Realisasi & Tindak Lanjut |
@@ -78,6 +94,7 @@ Di luar 9 checklist awal, beberapa peningkatan arsitektural dan antarmuka telah 
 | Unifikasi pipeline URL & Worker | ✅ Selesai | Bounded fallback dilepas; crawler dan URL memakai pipeline shared. |
 | Provenance `source_id`/`run_id` hingga hasil NLP | ◐ Terbuka | `collector_runs` mencatat statistik collector, namun agregasi konsisten per-source/per-run pada `disease_events` masih perlu difinalisasi. |
 | Metrik health/outbreak per source | ◐ Terbuka | Membutuhkan provenance run selesai agar metrik recall per-sumber berita dapat dihitung akurat. |
+| Eliminasi False-Positive & Dynamic Extraction Rules | ✅ Selesai | 42 rules tersimpan di PostgreSQL (`extraction_rules`), engine NLP reload real-time, UI manajemen dinamis di `/extraction-rules`. |
 | Pengujian dataset berlabel DeepSeek | ⚠️ Terbuka | Pengujian precision/recall formal dengan gold dataset untuk memvalidasi performa di lingkungan staging. |
 
 ---

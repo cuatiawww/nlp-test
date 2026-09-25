@@ -30,6 +30,9 @@ def project_disease_master_output(
 ) -> dict[str, Any]:
     """Keep only disease labels resolved by the local disease master."""
     resolved: list[str] = []
+    # Candidate extraction and master resolution are separate concerns. A
+    # surface form with no current master row is still useful evidence and
+    # must remain visible for review instead of disappearing from the article.
     seen_identity: set[str] = set()
     unresolved_indexes: list[int] = []
     primary_resolved: str | None = None
@@ -37,7 +40,13 @@ def project_disease_master_output(
     for index, mention in enumerate(mentions):
         name = str(_mention_value(mention, "canonical_name", "") or "").strip()
         master_id = str(_mention_value(mention, "disease_id", "") or "").strip()
-        if not name or name.upper() == "UNKNOWN" or not master_id:
+        if not name or name.upper() == "UNKNOWN":
+            unresolved_indexes.append(index)
+            continue
+
+        if not master_id:
+            if name not in resolved:
+                resolved.append(name)
             unresolved_indexes.append(index)
             continue
 
@@ -49,11 +58,20 @@ def project_disease_master_output(
         if role == "primary" and primary_resolved is None:
             primary_resolved = name
 
+    all_candidate_names = [
+        str(_mention_value(mention, "canonical_name", "") or "").strip()
+        for mention in mentions
+    ]
     if primary_resolved is None and resolved:
         primary_norm = (primary or "").strip().casefold()
         primary_resolved = next(
             (name for name in resolved if name.casefold() == primary_norm),
             resolved[0] if not primary_norm or primary_norm == "unknown" else None,
+        )
+    if primary_resolved is None and primary:
+        primary_resolved = next(
+            (name for name in all_candidate_names if name.casefold() == primary.casefold()),
+            None,
         )
 
     return {

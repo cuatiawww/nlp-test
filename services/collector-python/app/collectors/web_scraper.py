@@ -789,7 +789,13 @@ class WebScraperCollector(BaseCollector):
         combined_check = f"{title}\n{content}".lower()
         if any(marker in combined_check for marker in ("just a moment", "checking your browser", "cloudflare ray id", "enable javascript and cookies", "un instant...", "attention required", "turnstile")):
             raise RuntimeError(f"source returned a browser challenge: {title or 'Cloudflare'}")
-        if len(content.split()) < 15 and not shell_content:
+        short_article = len(content.split()) < 15 and not shell_content
+        has_health_signal = bool(re.search(
+            r"\b(?:dengue|malaria|measles|mpox|outbreak|cases?|wabah|penyakit|health)\b",
+            combined_check,
+            re.IGNORECASE,
+        ))
+        if short_article and not (len(content.split()) >= 8 and has_health_signal):
             raise RuntimeError("source returned an empty or unextractable article shell")
 
         return {

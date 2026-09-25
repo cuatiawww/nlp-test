@@ -2,7 +2,9 @@ import functools
 import logging
 import os
 import re
+import time
 import unicodedata
+from contextvars import ContextVar
 
 
 def strip_diacritics(s: str) -> str:
@@ -275,6 +277,9 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
     "brazil": "Brazil",
     "brasil": "Brazil",
     "burundi": "Burundi",
+    "drc": "Democratic Republic of the Congo",
+    "democratic republic of the congo": "Democratic Republic of the Congo",
+    "dr congo": "Democratic Republic of the Congo",
     "ethiopia": "Ethiopia",
     "etiopia": "Ethiopia",
     "kenya": "Kenya",
@@ -386,17 +391,69 @@ _ACTIVE_LOCATION_ALIASES_CACHE: dict[str, str] | None = None
 _ACTIVE_LOCATION_ALIASES_SOURCE_ID: int | None = None
 _FOLDED_LOCATION_INDEX: dict[str, str] | None = None
 _FOLDED_LOCATION_INDEX_SOURCE_ID: tuple | None = None
+_LOCATION_HIERARCHY_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+_LOCATION_HIERARCHY_CACHE_SOURCE_ID: tuple | None = None
+_LOCATION_RESOLUTION_STATS: ContextVar[dict[str, Any] | None] = ContextVar(
+    "location_resolution_stats",
+    default=None,
+)
 
 
 def invalidate_location_alias_cache() -> None:
     """Drop the repaired alias view after a location registry reload."""
     global _ACTIVE_LOCATION_ALIASES_CACHE, _ACTIVE_LOCATION_ALIASES_SOURCE_ID
     global _FOLDED_LOCATION_INDEX, _FOLDED_LOCATION_INDEX_SOURCE_ID
+    global _LOCATION_HIERARCHY_CACHE, _LOCATION_HIERARCHY_CACHE_SOURCE_ID
     _ACTIVE_LOCATION_ALIASES_CACHE = None
     _ACTIVE_LOCATION_ALIASES_SOURCE_ID = None
     _FOLDED_LOCATION_INDEX = None
     _FOLDED_LOCATION_INDEX_SOURCE_ID = None
+    _LOCATION_HIERARCHY_CACHE = {}
+    _LOCATION_HIERARCHY_CACHE_SOURCE_ID = None
     _fold_location_text.cache_clear()
+
+
+def begin_location_resolution_stats() -> object:
+    """Start request-local resolver counters for runtime diagnostics."""
+
+    return _LOCATION_RESOLUTION_STATS.set({
+        "calls": 0,
+        "cache_hits": 0,
+        "duration_seconds": 0.0,
+    })
+
+
+def get_location_resolution_stats() -> dict[str, Any]:
+    """Return a snapshot of the current request-local resolver counters."""
+
+    stats = _LOCATION_RESOLUTION_STATS.get()
+    return dict(stats or {
+        "calls": 0,
+        "cache_hits": 0,
+        "duration_seconds": 0.0,
+    })
+
+
+def reset_location_resolution_stats(token: object) -> None:
+    _LOCATION_RESOLUTION_STATS.reset(token)
+
+
+def _location_hierarchy_source_id() -> tuple:
+    """Identify the loaded registry maps used to build a hierarchy result."""
+
+    return tuple(
+        id(getattr(config, name, None))
+        for name in (
+            "LOCATION_COORDS",
+            "LOCATION_ALIASES",
+            "LOCATION_COUNTRIES",
+            "LOCATION_ISO3",
+            "LOCATION_ADMIN_LEVEL",
+            "LOCATION_ADMIN1",
+            "LOCATION_ADMIN2",
+            "COUNTRY_TO_ISO3",
+        )
+    ) + (id(COUNTRY_ALIASES),)
 
 
 def active_location_aliases() -> dict[str, str]:
@@ -666,11 +723,29 @@ def resolve_location_hierarchy(
     """Resolve a location name into its canonical administrative hierarchy:
     locality -> admin2 (city/regency) -> admin1 (province/state) -> country (iso3).
     """
+    started = time.perf_counter()
+    stats = _LOCATION_RESOLUTION_STATS.get()
+    if stats is not None:
+        stats["calls"] += 1
+
+    def finish(result: dict[str, Any], *, cache_hit: bool = False) -> dict[str, Any]:
+        if stats is not None:
+            stats["duration_seconds"] += time.perf_counter() - started
+            if cache_hit:
+                stats["cache_hits"] += 1
+        return result
+
     config.ensure_location_registry_loaded()
+    global _LOCATION_HIERARCHY_CACHE, _LOCATION_HIERARCHY_CACHE_SOURCE_ID
+    hierarchy_source_id = _location_hierarchy_source_id()
+    if _LOCATION_HIERARCHY_CACHE_SOURCE_ID != hierarchy_source_id:
+        _LOCATION_HIERARCHY_CACHE = {}
+        _LOCATION_HIERARCHY_CACHE_SOURCE_ID = hierarchy_source_id
+
     if not location_name or not str(location_name).strip():
         norm_c = normalize_country(country_hint) if country_hint else None
         iso3 = config.COUNTRY_TO_ISO3.get((norm_c or "").lower()) if norm_c else None
-        return {
+        return finish({
             "canonical_name": "",
             "country": norm_c,
             "country_iso3": iso3,
@@ -679,10 +754,15 @@ def resolve_location_hierarchy(
             "admin_level": 3,
             "latitude": None,
             "longitude": None,
-        }
+        })
 
     raw = str(location_name).strip()
     folded = _fold_location_text(raw)
+    cache_key = (folded, _fold_location_text(str(country_hint or "")))
+    cached = _LOCATION_HIERARCHY_CACHE.get(cache_key)
+    if cached is not None:
+        return finish(dict(cached), cache_hit=True)
+
     aliases = active_location_aliases()
 
     canonical = None
@@ -698,11 +778,9 @@ def resolve_location_hierarchy(
     elif raw in config.LOCATION_COORDS:
         canonical = raw
     else:
-        # Match folded against LOCATION_COORDS
-        for c_name in config.LOCATION_COORDS:
-            if _fold_location_text(c_name) == folded:
-                canonical = c_name
-                break
+        # Match folded names and aliases through the already-built immutable
+        # index. The previous fallback scanned every gazetteer row here.
+        canonical = folded_location_index().get(folded)
 
     if not canonical:
         canonical = raw
@@ -744,7 +822,7 @@ def resolve_location_hierarchy(
     if lat is None and lon is None and country:
         lat, lon, _, _ = geocode_place(canonical, country)
 
-    return {
+    result = {
         "canonical_name": canonical,
         "country": country,
         "country_iso3": country_iso3,
@@ -756,6 +834,10 @@ def resolve_location_hierarchy(
         "country_conflict": country_conflict,
         "needs_review": country_conflict or not bool(country),
     }
+    if len(_LOCATION_HIERARCHY_CACHE) >= 8192:
+        _LOCATION_HIERARCHY_CACHE.clear()
+    _LOCATION_HIERARCHY_CACHE[cache_key] = dict(result)
+    return finish(result)
 
 
 def resolve_event_location_hierarchy(
@@ -897,6 +979,10 @@ def extract_country_hint(text: str) -> Optional[str]:
     country_scores: dict[str, float] = {}
     for alias, standard_country in _country_alias_view().items():
         folded_alias = _fold_location_text(alias)
+        # A short database alias such as ``AS`` is a normal English
+        # preposition, not reliable country evidence ("as of ...").
+        if folded_alias in {"as"}:
+            continue
         pattern = re.compile(
             re.escape(folded_alias)
             if _is_native_script(alias)
@@ -1095,6 +1181,50 @@ DISEASE_STOPWORDS = {
 }
 
 
+# The disease master is loaded as an immutable snapshot for the lifetime of a
+# request. Matching it by scanning every concept and alias for every call made
+# long articles needlessly quadratic. Keep the cache keyed by the snapshot
+# identity so a DB reload naturally builds a new index.
+_DISEASE_TERM_INDEX_SOURCE: list[dict] | None = None
+_DISEASE_TERM_INDEX_CACHE: dict[str, tuple[str, ...]] = {}
+
+
+def _disease_term_index(concepts: list[dict]) -> dict[str, tuple[str, ...]]:
+    global _DISEASE_TERM_INDEX_SOURCE, _DISEASE_TERM_INDEX_CACHE
+    if _DISEASE_TERM_INDEX_SOURCE is concepts:
+        return _DISEASE_TERM_INDEX_CACHE
+
+    index: dict[str, list[str]] = {}
+    for concept in concepts or []:
+        canonical = str(concept.get("canonical_name") or "").strip()
+        if not canonical:
+            continue
+        names = [concept.get("canonical_name"), concept.get("english_name")]
+        names.extend(
+            item.get("alias") if isinstance(item, dict) else item
+            for item in (concept.get("aliases") or [])
+        )
+        for raw_name in names:
+            name = str(raw_name or "")
+            candidates = [name, *re.split(r"[/,()]", name)]
+            for candidate in candidates:
+                term = _normalize_entity_text(candidate)
+                if len(term) < 4 or term in DISEASE_STOPWORDS:
+                    continue
+                if canonical not in index.setdefault(term, []):
+                    index[term].append(canonical)
+            full_term = _normalize_entity_text(name)
+            for token in full_term.split():
+                if len(token) >= 4 and any(char.isdigit() for char in token):
+                    if canonical not in index.setdefault(token, []):
+                        index[token].append(canonical)
+
+    frozen = {term: tuple(names) for term, names in index.items()}
+    _DISEASE_TERM_INDEX_SOURCE = concepts
+    _DISEASE_TERM_INDEX_CACHE = frozen
+    return frozen
+
+
 def _normalize_entity_text(value: str) -> str:
     """Normalize entity text while retaining Unicode scripts (Thai/Lao/Khmer)."""
     folded = strip_diacritics((value or "").casefold())
@@ -1106,41 +1236,32 @@ def extract_disease_mentions(text: str, concepts: list[dict], max_chars: int | N
     if max_chars is not None and max_chars > 0 and text and len(text) > max_chars:
         text = text[:max_chars]
     value = _normalize_entity_text(text)
-    mentions: list[str] = []
-    for concept in concepts:
-        canonical = str(concept.get("canonical_name") or "").strip()
-        english = str(concept.get("english_name") or "").strip()
-        terms = set()
-        for name in (canonical, english):
-            full_folded = _normalize_entity_text(name)
-            if full_folded and full_folded not in DISEASE_STOPWORDS and len(full_folded) >= 4:
-                terms.add(full_folded)
-            for sub in re.split(r"[/,()]", name):
-                t = _normalize_entity_text(sub)
-                if len(t) >= 4 and t not in DISEASE_STOPWORDS:
-                    terms.add(t)
-            for token in full_folded.split():
-                if len(token) >= 4 and token not in DISEASE_STOPWORDS and any(c.isdigit() for c in token):
-                    terms.add(token)
-        for alias_item in concept.get("aliases") or []:
-            alias = alias_item.get("alias") if isinstance(alias_item, dict) else alias_item
-            alias_clean = _normalize_entity_text(str(alias or ""))
-            if len(alias_clean) >= 4 and alias_clean not in DISEASE_STOPWORDS:
-                terms.add(alias_clean)
-
-        for term in sorted(terms, key=len, reverse=True):
-            if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", value):
-                mentions.append(canonical)
-                break
-    return sorted(set(mentions))
+    term_index = _disease_term_index(concepts)
+    if not term_index:
+        return []
+    matcher = re.compile(
+        r"(?<![a-z0-9])(?:" + "|".join(
+            re.escape(term) for term in sorted(term_index, key=len, reverse=True)
+        ) + r")(?![a-z0-9])",
+        re.UNICODE,
+    )
+    mentions: set[str] = set()
+    for match in matcher.finditer(value):
+        mentions.update(term_index.get(match.group(0), ()))
+    return sorted(mentions)
 
 
 def canonicalize_disease_labels(labels: list[str], concepts: list[dict]) -> list[str]:
     """Map local keyword labels (e.g. KOLERA/MEASLES/AVIAN_INFLUENZA) to WHO canonicals."""
     matched = []
+    term_index = _disease_term_index(concepts)
     for label in labels:
         lbl_clean = _normalize_entity_text(label)
         if not lbl_clean:
+            continue
+        exact = term_index.get(lbl_clean)
+        if exact:
+            matched.extend(exact)
             continue
         # Pass 1: Strict exact match on canonical, english, or alias
         found_canonical = None
@@ -1252,15 +1373,16 @@ def extract_location(
                     continue
                 hits.append((canonical, match.start()))
 
-    folded_names = {
-        _fold_location_text(name): name
-        for name in config.LOCATION_COORDS
-        if name in allowed_names
-    }
-    for alias, canon in active_location_aliases().items():
-        if canon in allowed_names:
-            folded_names[_fold_location_text(alias)] = canon
-            folded_names[alias.casefold()] = canon
+    location_index = folded_location_index()
+    folded_names = (
+        location_index
+        if not allowed_set
+        else {
+            folded: canonical
+            for folded, canonical in location_index.items()
+            if canonical in allowed_names
+        }
+    )
     if config.LOCATION_PATTERNS:
         pattern = config.LOCATION_PATTERNS[0][1]
         for match in pattern.finditer(lower_text):
@@ -1406,20 +1528,21 @@ def extract_all_locations(
                     continue
                 hits.append((canonical, match.start()))
 
-    folded_names = {
-        _fold_location_text(name): name
-        for name in config.LOCATION_COORDS
-        if name in allowed_names
-    }
-    for alias, canon in active_location_aliases().items():
-        if canon in allowed_names:
-            folded_names[_fold_location_text(alias)] = canon
-            folded_names[alias.casefold()] = canon
+    location_index = folded_location_index()
+    folded_names = (
+        location_index
+        if not allowed_set
+        else {
+            folded: canonical
+            for folded, canonical in location_index.items()
+            if canonical in allowed_names
+        }
+    )
     if config.LOCATION_PATTERNS:
         pattern = config.LOCATION_PATTERNS[0][1]
         for match in pattern.finditer(lower_text):
             m_lower = match.group(0).lower()
-            if country and m_lower not in folded_names:
+            if (country or allowed_countries) and m_lower not in folded_names:
                 continue
             loc = folded_names.get(m_lower, match.group(0))
             raw_position = folded_positions[match.start()]
@@ -1535,29 +1658,164 @@ def is_outbreak_content(text: str) -> bool:
     return is_explicit_outbreak_report(text)
 
 
-_NON_HEALTH_TOPIC = re.compile(
+# Fallback built-ins when database extraction_rules are empty or DB is offline
+_ACADEMIC_STUDY_FALLBACK = re.compile(
+    r"\b("
+    r"skripsi|tesis|disertasi|tugas\s+akhir|karya\s+tulis\s+ilmiah|\bkti\b|"
+    r"abstrak\s+penelitian|latar\s+belakang\s+masalah|rumusan\s+masalah|tujuan\s+penelitian|"
+    r"tinjauan\s+pustaka|metode\s+penelitian|populasi\s+dan\s+sampel|teknik\s+sampling|"
+    r"kuesioner|kuisioner|koefisien\s+korelasi|uji\s+validitas|uji\s+reliabilitas|"
+    r"total\s+sampling|purposive\s+sampling|cross[- ]sectional|case[- ]control|"
+    r"cohort\s+study|descriptive\s+study|uji\s+chi[- ]square|regresi\s+logistik|"
+    r"fakultas\s+kedokteran|program\s+studi|prodi\s+kesehatan|dosen\s+pembimbing|"
+    r"penguji\s+skripsi|sidang\s+skripsi|wisuda|yudisium|"
+    r"jurnal\s+kesehatan|journal\s+of|volume\s+\d+\s+nomor\s+\d+|\bissn\b|prosiding\s+seminar|"
+    r"call\s+for\s+papers|best\s+paper|mahasiswa\s+kkn|kuliah\s+kerja\s+nyata|"
+    r"pengabdian\s+masyarakat|pengabdian\s+kepada\s+masyarakat"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_AGRICULTURAL_DISEASE_FALLBACK = re.compile(
+    r"\b("
+    r"tanaman|tumbuhan|ubi\s+kayu|singkong|padi|kelapa\s+sawit|jagung|kakao|karet|hortikultura|"
+    r"hama\s+tanaman|wereng|fusarium|daun\s+menguning|perkebunan|gagal\s+panen\s+tanaman|"
+    r"aquaculture|akuakultur|perikanan\s+budidaya|tambak\s+udang|budidaya\s+ikan"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_METAPHORICAL_PHRASE_FALLBACK = re.compile(
+    r"\b("
+    r"judi\s+online|judol|pinjaman\s+online|pinjol|"
+    r"demam\s+panggung|demam\s+piala\s+dunia|demam\s+pilkada|demam\s+pesta\s+demokrasi|"
+    r"kanker\s+korupsi|virus\s+hoax|wabah\s+kemiskinan|wabah\s+kejahatan"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_NON_HEALTH_TOPIC_FALLBACK = re.compile(
     r"\b("
     r"asian games|sea games|premier league|world cup|grand slam|"
     r"olympic|olympics|surfing|surfer|cricket|football|soccer|"
     r"basketball|volleyball|sepak bola|badminton|"
     r"spectrum auctions?|money laundering|stock market|oil price|"
     r"harga minyak|parlemen|pemilu|election|elections|far[- ]right|"
-    r"voting under way|korupsi|corruption|"
+    r"voting under way|korupsi|corruption|gratifikasi|pungli|politik uang|dinasti politik|"
     r"ambang batas parlemen|ruu pemilu|budget approaches|"
     r"super-luxe condos|properties seized|"
     r"violence|violent|conflict|war|unrest|political unrest|"
     r"refugees?|displaced people|idps?|humanitarian crisis|"
-    r"casualt(?:y|ies)|airstrike|military operation|"
+    r"casualt(?:y|ies)|airstrike|military operation|rudal balistik|rudal|kapal perang|"
     r"messi|ronaldo|fifa|uefa|liga champions|champions league|"
     r"transfer window|hat-?trick|soccer match|football match|"
     r"food security|ketahanan pangan|drought|kekeringan|"
     r"crop failure|gagal panen|famine|kelaparan|"
     r"armed conflict|konflik bersenjata|border tension|"
-    r"ketegangan|ceasefire|gencatan senjata|"
-    r"aquaculture|akuakultur|perikanan budidaya"
+    r"ketegangan|ceasefire|gencatan senjata"
     r")\b",
     re.IGNORECASE,
 )
+
+_METRIC_EXCLUSION_FALLBACK = re.compile(
+    r"\b(?:"
+    r"responden|sampel|subjek|kuesioner|kuisioner|mahasiswa|siswa|murid|"
+    r"peserta\s+penyuluhan|peserta\s+seminar"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_NON_HEALTH_TOPIC = _NON_HEALTH_TOPIC_FALLBACK
+
+
+def _get_dynamic_rule_patterns(field_name: str, fallback_regex: re.Pattern) -> list[re.Pattern]:
+    """Retrieve database-driven extraction rules for field_name, with fallback to built-in."""
+    patterns = getattr(config, "EXTRACTION_RULES", {}).get(field_name, [])
+    if patterns:
+        compiled = []
+        for p in patterns:
+            try:
+                compiled.append(re.compile(p, re.IGNORECASE))
+            except re.error:
+                continue
+        if compiled:
+            return compiled
+    return [fallback_regex]
+
+
+def is_academic_or_scholarly_research(text: str) -> bool:
+    """Return True if article is academic research, student thesis, or scholarly abstract."""
+    sample = text or ""
+    patterns = _get_dynamic_rule_patterns("academic_study", _ACADEMIC_STUDY_FALLBACK)
+    if not any(p.search(sample[:6000]) for p in patterns):
+        return False
+    # If the article explicitly reports an active outbreak / declared emergency, do not drop
+    if is_explicit_outbreak_report(sample):
+        return False
+    if re.search(r"\b(?:status\s+waspada\s+klb|ditetapkan\s+(?:sebagai\s+)?klb|darurat\s+kesehatan)\b", sample, re.I):
+        return False
+    return True
+
+
+def is_agricultural_or_plant_disease(text: str) -> bool:
+    """Return True if disease context is agricultural, plant, crop, or non-human pest."""
+    sample = text or ""
+    patterns = _get_dynamic_rule_patterns("agricultural_disease", _AGRICULTURAL_DISEASE_FALLBACK)
+    if not any(p.search(sample[:4000]) for p in patterns):
+        return False
+    # A generic word like 'wabah' or 'kasus' in a crop/plant article is NOT a human health signal.
+    # Only override if explicit human disease master concepts AND human medical terms exist.
+    human_diseases = [
+        d for d in (extract_alias_diseases(sample[:2000]) or extract_diseases(sample[:2000]))
+        if d and d.upper() != "UNKNOWN"
+    ]
+    if human_diseases and re.search(r"\b(?:pasien|korban\s+jiwa|rumah\s+sakit|kemenkes|menkes|penderita|warga\s+terinfeksi)\b", sample, re.I):
+        return False
+    return True
+
+
+def is_metaphorical_or_social_topic(text: str) -> bool:
+    """Return True if disease terms are used metaphorically in politics/crime/social news."""
+    sample = text or ""
+    patterns = _get_dynamic_rule_patterns("metaphorical_phrase", _METAPHORICAL_PHRASE_FALLBACK)
+    if not any(p.search(sample[:4000]) for p in patterns):
+        return False
+    # Only override if there is an actual medical context and verified human disease
+    human_diseases = [
+        d for d in (extract_alias_diseases(sample[:2000]) or extract_diseases(sample[:2000]))
+        if d and d.upper() != "UNKNOWN"
+    ]
+    if human_diseases and re.search(r"\b(?:rawat\s+inap|puskesmas|rumah\s+sakit|kemenkes|dinas\s+kesehatan)\b", sample, re.I):
+        return False
+    return True
+
+
+
+_PREVENTION_TIPS_FALLBACK = re.compile(
+    r"\b("
+    r"tips\s+mencegah|cara\s+mencegah|langkah\s+pencegahan|kenali\s+gejala|"
+    r"pola\s+hidup\s+bersih\s+dan\s+sehat|\bphbs\b|jangan\s+panik|mitos\s+dan\s+fakta"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_general_prevention_tips(text: str) -> bool:
+    """Return True if article is generic prevention tips or PHBS without active outbreak."""
+    sample = text or ""
+    patterns = _get_dynamic_rule_patterns("general_prevention_tips", _PREVENTION_TIPS_FALLBACK)
+    if not any(p.search(sample[:4000]) for p in patterns):
+        return False
+    if has_surveillance_signal(sample) or is_explicit_outbreak_report(sample):
+        return False
+    return True
+
+
+def is_metric_excluded_number(window: str, before: str, after: str) -> bool:
+    """Return True if number in context refers to respondents, sample size, or participants."""
+    patterns = _get_dynamic_rule_patterns("metric_exclusion", _METRIC_EXCLUSION_FALLBACK)
+    check_text = f"{before} {after}"
+    return any(p.search(check_text) or p.search(after[:60]) for p in patterns)
 
 _NON_INCIDENT_CONTEXT_FALLBACK = re.compile(
     r"\b(?:refugees?|displaced|internally displaced|idps?|"
@@ -1608,10 +1866,28 @@ def has_surveillance_signal(text: str, diseases: Optional[list[str]] = None) -> 
 
 
 def is_clearly_non_health_topic(text: str, diseases: Optional[list[str]] = None) -> bool:
-    """Reject sports/politics/business unless a real outbreak signal is present."""
+    """Reject non-health topics, academic research, plant diseases, and metaphors."""
     sample = text or ""
-    if not _NON_HEALTH_TOPIC.search(sample[:4000]):
+
+    # 1. Academic & Student Research Filter (Skripsi, Tesis, Disertasi, Jurnal, KTI)
+    if is_academic_or_scholarly_research(sample):
+        return True
+
+    # 2. Agricultural & Plant Disease Filter (Penyakit Tanaman, Hama, Pertanian)
+    if is_agricultural_or_plant_disease(sample):
+        return True
+
+    # 3. Metaphorical Disease Mentions (Kiasan Politik, Judi Online, Korupsi)
+    if is_metaphorical_or_social_topic(sample):
+        return True
+
+    # 4. General Non-Health Topics (Olahraga, Pemilu, Militer, dll.)
+    nh_patterns = _get_dynamic_rule_patterns("non_health_topic", _NON_HEALTH_TOPIC_FALLBACK)
+    sample_lead = sample[:4000]
+    matched_nh = any(p.search(sample_lead) for p in nh_patterns)
+    if not matched_nh:
         return False
+
     # A social/conflict article may mention health terms only to say that no
     # disease or surveillance event is present. That negation is not a health
     # signal and must not be reversed by the model/translation projection.
@@ -2262,9 +2538,19 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     article_country = extract_country_hint(search_text[:1500])
     disease_terms: list[str] = []
     if disease:
+        disease_norm = disease.strip().lower()
+        matched_aliases = []
+        for concept in getattr(config, "DISEASE_MASTER_CONCEPTS", []):
+            if concept.get("canonical_name", "").lower() == disease_norm:
+                for a in concept.get("aliases", []):
+                    alias_str = (a.get("alias") if isinstance(a, dict) else str(a)).lower().strip()
+                    if len(alias_str) > 2:
+                        matched_aliases.append(alias_str)
+                        matched_aliases.extend(alias_str.split())
         disease_terms = [t for t in {
-            disease.strip().lower(),
-            *(disease.strip().lower().split()),
+            disease_norm,
+            *(disease_norm.split()),
+            *matched_aliases,
             *({
                 "h5n1", "avian", "flu",
             } if "avian" in disease.lower() or "h5n1" in disease.lower() else set()),
@@ -2403,6 +2689,16 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             window_l,
             re.IGNORECASE,
         ):
+            return
+        if field == "case_count" and is_metric_excluded_number(window, before, after):
+            # A survey/thesis respondent sample is not an incident case count.
+            return
+        if field == "case_count" and re.search(
+            r"^\s*(?:meninggal(?:\s+dunia)?|died|tewas|kematian|maut|korban\s+jiwa|fatal(?:ities|ity)?|passed\s+away|tử\s+vong|เสียชีวิต)\b",
+            search_text[match.end(0): match.end(0) + 40],
+            re.IGNORECASE,
+        ):
+            # E.g. '3 Pasien Meninggal Dunia' or '3 orang meninggal' is a death count, not a disease case count.
             return
         if field == "case_count" and re.search(
             r"\b(?:of\s+the|among\s+the|of)\s+(?:patients?|people|children|persons?)\s+"
@@ -3960,8 +4256,14 @@ def active_disease_aliases() -> dict[str, str]:
     return {**db_aliases, **DISEASE_ALIASES}
 
 _ALIAS_WORD_REGEX_CACHE: dict[str, re.Pattern] = {}
+_ALIAS_FOLDED_REGEX_CACHE: dict[str, re.Pattern] = {}
 
-def _match_disease_alias(key: str, text: str, lower_text: str) -> bool:
+def _match_disease_alias(
+    key: str,
+    text: str,
+    lower_text: str,
+    folded_text: Optional[str] = None,
+) -> bool:
     """Check if alias exists in text.
     For keys containing ASCII letters/numbers, word boundaries \b are strictly enforced
     to avoid false positives (e.g. 'ari' matching 'dari' or 'sementara').
@@ -3974,8 +4276,16 @@ def _match_disease_alias(key: str, text: str, lower_text: str) -> bool:
         # ``hand foot``). Compare a whitespace-folded view as well so a
         # reviewed alias is not lost because of editorial commas.
         folded_key = re.sub(r"[^\w]+", " ", key.casefold()).strip()
-        folded_text = re.sub(r"[^\w]+", " ", text.casefold()).strip()
-        if folded_key and re.search(rf"(?<!\w){re.escape(folded_key)}(?!\w)", folded_text):
+        folded_text = (
+            folded_text
+            if folded_text is not None
+            else re.sub(r"[^\w]+", " ", text.casefold()).strip()
+        )
+        folded_pattern = _ALIAS_FOLDED_REGEX_CACHE.get(folded_key)
+        if folded_pattern is None and folded_key:
+            folded_pattern = re.compile(rf"(?<!\w){re.escape(folded_key)}(?!\w)")
+            _ALIAS_FOLDED_REGEX_CACHE[folded_key] = folded_pattern
+        if folded_pattern is not None and folded_pattern.search(folded_text):
             return True
         pat = _ALIAS_WORD_REGEX_CACHE.get(key)
         if pat is None:
@@ -3985,14 +4295,23 @@ def _match_disease_alias(key: str, text: str, lower_text: str) -> bool:
     return key in lower_text
 
 
-def _matched_disease_aliases(text: str) -> list[tuple[str, str]]:
+def _matched_disease_aliases(
+    text: str,
+    aliases: Optional[dict[str, str]] = None,
+    folded_text: Optional[str] = None,
+) -> list[tuple[str, str]]:
     """Return explicit aliases while suppressing shorter conflicting aliases."""
-    aliases = active_disease_aliases()
+    aliases = aliases or active_disease_aliases()
     lower_text = text.lower()
+    folded_text = (
+        folded_text
+        if folded_text is not None
+        else re.sub(r"[^\w]+", " ", text.casefold()).strip()
+    )
     matched = [
         (key, value)
         for key, value in aliases.items()
-        if _match_disease_alias(key, text, lower_text)
+        if _match_disease_alias(key, text, lower_text, folded_text)
     ]
     normalized = [
         (
@@ -4019,14 +4338,9 @@ def extract_diseases(text: str) -> list[str]:
     aliases = active_disease_aliases()
     diseases = set(extract_terms(text, config.DISEASE_DICT))
     lower_text = text.lower()
-    matched = _matched_disease_aliases(text)
+    folded_text = re.sub(r"[^\w]+", " ", text.casefold()).strip()
+    matched = _matched_disease_aliases(text, aliases=aliases, folded_text=folded_text)
     diseases.update(value for _, value in matched)
-    shadowed = {
-        value
-        for key, value in aliases.items()
-        if (key, value) not in matched and _match_disease_alias(key, text, lower_text)
-    }
-    diseases.difference_update(shadowed)
     
     def disease_score(d: str) -> tuple[int, int]:
         d_lower = d.lower()

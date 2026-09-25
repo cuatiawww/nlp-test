@@ -1671,9 +1671,8 @@ def _relation_disease(text: str, start: int, end: int) -> Optional[str]:
     """Use only disease terms found in the same metric evidence window."""
 
     context = _metric_context(text, start, end)
-    candidates = list(dict.fromkeys(
-        extractors.extract_diseases(context) + extractors.extract_alias_diseases(context)
-    ))
+    # ``extract_diseases`` already returns DB terms plus explicit aliases.
+    candidates = extractors.extract_diseases(context)
     candidates = [item for item in candidates if extractors.disease_has_textual_evidence(item, context)]
     return candidates[0] if len(candidates) == 1 else None
 
@@ -2115,7 +2114,31 @@ def extract_metric_relations(
         for match in pattern.finditer(working):
             if not _metric_is_valid(source, match.start("count"), match.end()):
                 continue
-            linked = _nearest_location(match.start(), match.end(), locations, text=source)
+            # ``cases and N deaths`` is clause-local. Nearest-document
+            # matching can attach North Kivu's death count to the next
+            # sentence's South Kivu when both names are close together.
+            sentence_start = max(
+                source.rfind(".", 0, match.start()),
+                source.rfind("!", 0, match.start()),
+                source.rfind("?", 0, match.start()),
+                source.rfind("\n", 0, match.start()),
+            ) + 1
+            sentence_end_candidates = [
+                index for index in (
+                    source.find(".", match.end()),
+                    source.find("!", match.end()),
+                    source.find("?", match.end()),
+                    source.find("\n", match.end()),
+                ) if index >= 0
+            ]
+            sentence_end = min(sentence_end_candidates) if sentence_end_candidates else len(source)
+            local_locations = [
+                item for item in locations
+                if item[0] >= sentence_start and item[1] <= sentence_end
+            ]
+            linked = _nearest_location(
+                match.start(), match.end(), local_locations or locations, text=source
+            )
             if not linked:
                 linked = fallback_location
             if not linked:

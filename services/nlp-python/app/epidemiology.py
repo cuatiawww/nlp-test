@@ -512,7 +512,7 @@ def evidence_sentences(text: str, limit: int = 10) -> list[str]:
     # Do not split on the first dot in an editorial ellipsis (``...``). The
     # full source span often carries the period/location qualifier needed to
     # interpret the metric.
-    for sentence in re.split(r"(?<!\.)[.!?。！？](?!\.)\s+|\n+", text or ""):
+    for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text or ""):
         clean = " ".join(sentence.split()).strip()
         has_number = bool(re.search(r"\d", clean)) or any(
             re.search(rf"(?<!\w){re.escape(word)}(?!\w)", clean, re.IGNORECASE)

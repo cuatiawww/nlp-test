@@ -152,8 +152,10 @@ def _build_article_summary(
 
 def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     import time as _time
-    _stage_t0 = _time.monotonic()
+    _run_started = _time.monotonic()
+    _stage_t0 = _run_started
     _stages: dict[str, float] = {}
+    _location_resolution_token = extractors.begin_location_resolution_stats()
     original_text = payload.text or ""
     text = extractors.repair_mojibake(original_text)
     if payload.interactive or payload.rules_only:
@@ -268,6 +270,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # ensure all downstream hierarchy/geocoding uses the country-level
         # event location.
         raw_country = extractors.normalize_country(raw_country)
+    explicit_country = extractors.extract_country_hint(text[:1500])
+    if (
+        not location
+        and explicit_country
+        and raw_country
+        and raw_country.casefold() == explicit_country.casefold()
+        and raw_country not in config.ASEAN_COUNTRIES
+    ):
+        # An explicitly named non-ASEAN country is still a valid country-level
+        # event location. Keep the surveillance scope scalar as OUTSIDE ASEAN,
+        # but do not erase the actual place from location_name.
+        location = raw_country
     if asean_hits and (raw_country not in config.ASEAN_COUNTRIES or not location):
         location = asean_hits[0]["name"]
         raw_country = asean_hits[0].get("country") or raw_country
@@ -515,24 +529,30 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         disease = "UNKNOWN"
         extracted = []
         is_health_related = False
+        source_extracted_cases = 0
+        source_extracted_deaths = 0
+        facts_case_count = 0
+        facts_death_count = 0
         case_count = 0
-
-    # The original article is the metric authority.  ``predict_surveillance_facts``
-    # may select a nearby regional candidate while building its broad fact
-    # bundle (for example Bangkok 1,785 before the Thailand total 21,620).
-    # Always run the source metric selectors first, and use the broad bundle
-    # only when the source selector found no value at all.
-    source_extracted_cases = extractors.extract_case_count(
-        text, disease=disease if disease != "UNKNOWN" else None
-    )
-    source_extracted_deaths = extractors.extract_death_count(text)
-    facts_case_count = facts.get("case_count") if facts.get("disease") else 0
-    facts_death_count = facts.get("death_count") if facts.get("disease") else 0
-    case_count = source_extracted_cases or facts_case_count or 0
-    death_count = source_extracted_deaths or facts_death_count or 0
-    explicit_case_count = not facts.get("case_count_unknown", True) if facts.get("disease") else extractors.has_explicit_case_count(
-        text, disease=disease if disease != "UNKNOWN" else None
-    )
+        death_count = 0
+        explicit_case_count = False
+    else:
+        # The original article is the metric authority.  ``predict_surveillance_facts``
+        # may select a nearby regional candidate while building its broad fact
+        # bundle (for example Bangkok 1,785 before the Thailand total 21,620).
+        # Always run the source metric selectors first, and use the broad bundle
+        # only when the source selector found no value at all.
+        source_extracted_cases = extractors.extract_case_count(
+            text, disease=disease if disease != "UNKNOWN" else None
+        )
+        source_extracted_deaths = extractors.extract_death_count(text)
+        facts_case_count = facts.get("case_count") if facts.get("disease") else 0
+        facts_death_count = facts.get("death_count") if facts.get("disease") else 0
+        case_count = source_extracted_cases or facts_case_count or 0
+        death_count = source_extracted_deaths or facts_death_count or 0
+        explicit_case_count = not facts.get("case_count_unknown", True) if facts.get("disease") else extractors.has_explicit_case_count(
+            text, disease=disease if disease != "UNKNOWN" else None
+        )
     if not explicit_case_count:
         case_count = 0
         explicit_case_count = False
@@ -809,6 +829,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         concept = _concept_for(candidate)
         canonical = concept.get("canonical_name") if concept else candidate
         surface, evidence = _mention_evidence(candidate, concept)
+        surface_offset = text.casefold().find(surface.casefold()) if surface else -1
         disease_mentions.append(
             DiseaseMention(
                 surface_form=surface,
@@ -820,6 +841,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 evidence=evidence,
                 confidence=max(confidence if canonical == disease else 0.70, 0.0),
                 resolution_source=("local_disease_master" if concept and concept.get("disease_id") else "keyword/agent"),
+                evidence_offset_start=surface_offset if surface_offset >= 0 else None,
+                evidence_offset_end=(surface_offset + len(surface)) if surface_offset >= 0 else None,
             )
         )
 
@@ -832,10 +855,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             mentions=disease_mentions,
         )
         for index in public_projection["unresolved_indexes"]:
-            # Keep the surface form/evidence for review, but prevent an
-            # unvalidated classifier or agent label from becoming a public
-            # disease name or dashboard aggregation key.
-            disease_mentions[index].canonical_name = "UNKNOWN"
+            # Keep the candidate and evidence for review. Resolution status is
+            # explicit; candidate extraction must not erase a valid secondary
+            # disease merely because the current master snapshot lacks an ID.
             disease_mentions[index].role = "mentioned"
             disease_mentions[index].resolution_source = "pending_local_master"
         disease = public_projection["primary"]
@@ -882,6 +904,28 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if count_period == "unknown":
             count_period = "incident"
 
+    # --- Shared relation context for multi-event and strict projection ---
+    # Both consumers need the same evidence-bound metric relations. Building
+    # them independently made one article scan the full text up to three
+    # times, and could let the two projections disagree at cold start.
+    shared_linker = None
+    relational_events = []
+    relation_context_ready = False
+    try:
+        from .surveillance_extraction import GazetteerLinker, extract_metric_relations
+
+        shared_linker = GazetteerLinker()
+        relational_events = extract_metric_relations(
+            text,
+            linker=shared_linker,
+            published_date=published_at,
+            source_country=source_country,
+        )
+        relation_context_ready = True
+    except Exception as exc:
+        logger.warning("Shared metric relation extraction failed: %s", exc)
+    _stage_t0 = _stage_mark(_stages, "metric_relations", _stage_t0)
+
     # --- Multi-event extraction (locations AND diseases) ---
     try:
         from .multi_event_extractor import compose_structured_events, _collapse_same_country_events
@@ -894,10 +938,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             case_count=case_count,
             death_count=death_count,
             primary_country=country,
+            linker=shared_linker,
+            relations=relational_events if relation_context_ready else None,
         )
-        # The persisted/API event view is country-scoped.  Keep the lower
-        # level composer location-specific for evidence and hierarchy tests,
-        # then collapse only the public surveillance event projection.
+        # Preserve evidence-backed regional events as the source of truth.
+        # Country-level aggregation belongs in compatibility adapters, not in
+        # the shared event list.
         multi_events = _collapse_same_country_events(multi_events)
         _stage_t0 = _stage_mark(_stages, "multi_event", _stage_t0)
         sub_events = [
@@ -980,7 +1026,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # already has its own bounded agent stages; the dedicated structured
     # endpoint may opt into it.
     strict_projection_locations = []
-    relational_events = []
     relation_diseases = []
     article_disease_candidates = []
     source_case_count = case_count
@@ -990,8 +1035,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     )
     try:
         from .surveillance_extraction import (
-            GazetteerLinker, build_surveillance_output,
-            extract_metric_relations,
+            build_surveillance_output,
         )
         # Interactive URL analysis already ran compose_structured_events /
         # atomic relations. A second full gazetteer+relation pass routinely
@@ -1010,6 +1054,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             source_url=payload.source_url,
             source_country=source_country,
             include_llm=False,
+            linker=shared_linker,
+            relations=relational_events if relation_context_ready else None,
         )
         article_disease_candidates = list(dict.fromkeys(
             extractors.canonical_disease_name(value)
@@ -1017,12 +1063,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             if value and extractors.canonical_disease_name(value).upper() != "UNKNOWN"
             and extractors.disease_has_textual_evidence(value, text)
         ))
-        relational_events = extract_metric_relations(
-            text,
-            linker=GazetteerLinker(),
-            published_date=published_at,
-            source_country=source_country,
-        )
         # The composer may start from the classifier's primary location. Add
         # any additional country-level relation that is explicitly backed by
         # the strict projection, otherwise a multi-country article can lose a
@@ -1778,7 +1818,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     from .multi_fact_display import collapse_facts
 
-    loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=country)
+    hierarchy_country = (
+        raw_country
+        if explicit_country
+        and raw_country
+        and raw_country.casefold() == explicit_country.casefold()
+        else country
+    )
+    loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=hierarchy_country)
     admin_place = extractors.split_admin_place(location, country)
     final_province = loc_hier.get("admin1_name") or admin_place[0]
     final_city = loc_hier.get("admin2_name") or admin_place[1]
@@ -2133,8 +2180,22 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     response_cumulative_cases = sum(int(evt.cumulative_cases or 0) for evt in sub_events)
     response_historical_cases = sum(int(evt.historical_cases or 0) for evt in sub_events)
 
-    if payload.interactive or payload.rules_only:
-        logger.info("interactive_stage_timings %s", _stages)
+    _stages["total"] = round(_time.monotonic() - _run_started, 3)
+    logger.info(
+        "pipeline_stage_timings stages=%s chars=%s interactive=%s rules_only=%s",
+        _stages,
+        len(text),
+        payload.interactive,
+        payload.rules_only,
+    )
+    _location_stats = extractors.get_location_resolution_stats()
+    logger.info(
+        "location_resolution_stats calls=%s cache_hits=%s duration_seconds=%.3f",
+        _location_stats["calls"],
+        _location_stats["cache_hits"],
+        _location_stats["duration_seconds"],
+    )
+    extractors.reset_location_resolution_stats(_location_resolution_token)
 
     return AnalyzeResponse(
         language=language,

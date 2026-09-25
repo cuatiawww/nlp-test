@@ -55,6 +55,8 @@ class DiseaseMention(BaseModel):
     evidence: str = ""
     confidence: float = 0.0
     resolution_source: str = "local"
+    evidence_offset_start: Optional[int] = None
+    evidence_offset_end: Optional[int] = None
 
 
 

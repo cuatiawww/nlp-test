@@ -79,9 +79,10 @@ def _canonical_labels(labels: list[str] | None) -> list[str]:
 def _disease_candidates(context: str, labels: list[str]) -> list[str]:
     """Resolve only diseases with textual evidence in the local context."""
 
-    observed = _canonical_labels(
-        extractors.extract_diseases(context) + extractors.extract_alias_diseases(context)
-    )
+    # ``extract_diseases`` already includes the explicit alias vocabulary.
+    # Calling ``extract_alias_diseases`` here rescans every alias for the same
+    # sentence/paragraph and dominates long-article multi-event attribution.
+    observed = _canonical_labels(extractors.extract_diseases(context))
     known = _canonical_labels(labels)
     candidates: list[str] = []
     for label in [*observed, *known]:

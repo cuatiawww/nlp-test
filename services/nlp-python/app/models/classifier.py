@@ -306,11 +306,21 @@ def get_labels(category: str) -> list[str]:
 def classify(text: str, labels: list[str], model_key: Optional[str] = None) -> tuple[str, float]:
     key = model_key or _choose_model(text)
     pipe = _get_pipe(key)
+    started = time.monotonic()
     if key == "fine-tuned":
         result = pipe(text)[0]
-        return result["label"], result["score"]
-    result = pipe(text, labels)
-    return result["labels"][0], result["scores"][0]
+        output = (result["label"], result["score"])
+    else:
+        result = pipe(text, labels)
+        output = (result["labels"][0], result["scores"][0])
+    logger.info(
+        "classifier_inference model=%s seconds=%.3f chars=%s labels=%s",
+        key,
+        time.monotonic() - started,
+        len(text or ""),
+        len(labels or []),
+    )
+    return output
 
 
 def classify_disease(text: str) -> tuple[str, float]:

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Optional
 
 from . import config, extractors
@@ -151,14 +152,9 @@ def _validate_location(name: str) -> Optional[str]:
         is_usable_place_name,
         _fold_location_text,
         folded_location_index,
-        resolve_location_hierarchy,
     )
     if not is_usable_place_name(name):
         return None
-    hier = resolve_location_hierarchy(name)
-    if hier.get("canonical_name") and (hier.get("country") or hier.get("latitude") is not None):
-        return hier["canonical_name"]
-
     index = folded_location_index()
     folded = _fold_location_text(name)
     hit = index.get(folded)
@@ -539,6 +535,7 @@ def extract_multi_events(
     primary_country: Optional[str] = None,
     linker: Any = None,
     relations: Optional[list[Any]] = None,
+    atomic_events: Optional[list[dict[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
     """Decompose one document into N structured events.
 
@@ -561,28 +558,28 @@ def extract_multi_events(
     # relation layer cannot yet parse, but they are never allowed to split a
     # document that the canonical layer already judged to be one event.
     atomic_evidence_found = False
-    try:
-        from .intelligence import build_atomic_events
+    if atomic_events is None:
+        try:
+            from .intelligence import build_atomic_events
 
-        atomic_events = build_atomic_events(
-            text,
-            disease_labels=diseases_extracted,
-            primary_disease=primary_disease,
-            linker=linker,
-            relations=relations,
-        )
+            atomic_events = build_atomic_events(
+                text,
+                disease_labels=diseases_extracted,
+                primary_disease=primary_disease,
+                linker=linker,
+                relations=relations,
+            )
+        except Exception as exc:
+            logger.warning("Atomic event extraction unavailable; using legacy parser: %s", exc)
+            atomic_events = []
+
+    if atomic_events:
         if len(atomic_events) >= MULTI_EVENT_MIN_PAIRS:
             return _deduplicate_events(atomic_events)
-        if atomic_events:
-            # A deterministic relation exists, but it is not enough to prove
-            # multiple events. Legacy deterministic parsers may still recover
-            # a second explicit location, but the LLM must not split it.
-            atomic_evidence_found = True
-        # A single atomic relation does not prove that the article is
-        # multi-event, but the legacy parser may still recover a second
-        # explicit location/metric pair from a format it understands.
-    except Exception as exc:
-        logger.warning("Atomic event extraction unavailable; using legacy parser: %s", exc)
+        # A deterministic relation exists, but it is not enough to prove
+        # multiple events. Legacy deterministic parsers may still recover
+        # a second explicit location, but the LLM must not split it.
+        atomic_evidence_found = True
 
     # Check for explicit breakdown sentences (e.g. 68 ca ..., trong đó có 46 ca sốt xuất huyết và 18 ca tay chân miệng)
     breakdown_events = _extract_breakdown_events(text, default_location=primary_location)
@@ -762,6 +759,21 @@ def compose_structured_events(
     collapsed Disease column can show ``Influenza; RSV`` instead of the
     primary label alone. NCD-only articles must not reach this helper.
     """
+    atomic_events: Optional[list[dict[str, Any]]] = None
+    try:
+        from .intelligence import build_atomic_events
+
+        atomic_events = build_atomic_events(
+            text,
+            disease_labels=diseases_extracted,
+            primary_disease=primary_disease,
+            linker=linker,
+            relations=relations,
+        )
+    except Exception as exc:
+        logger.warning("Atomic event extraction unavailable before multi-event path: %s", exc)
+
+    extract_started = time.perf_counter()
     events = extract_multi_events(
         text=text,
         primary_disease=primary_disease,
@@ -773,25 +785,18 @@ def compose_structured_events(
         primary_country=primary_country,
         linker=linker,
         relations=relations,
+        atomic_events=atomic_events,
+    )
+    logger.info(
+        "multi_event_function_timings extract_multi_events_seconds=%.3f events=%s",
+        time.perf_counter() - extract_started,
+        len(events),
     )
 
     # Keep one evidence-backed atomic event as the canonical representation;
     # the old extractor intentionally returned [] for single-event documents.
-    if not events:
-        try:
-            from .intelligence import build_atomic_events
-
-            atomic_events = build_atomic_events(
-                text,
-                disease_labels=diseases_extracted,
-                primary_disease=primary_disease,
-                linker=linker,
-                relations=relations,
-            )
-            if len(atomic_events) == 1:
-                events = atomic_events
-        except Exception as exc:
-            logger.warning("Atomic single-event projection unavailable: %s", exc)
+    if not events and atomic_events is not None and len(atomic_events) == 1:
+        events = atomic_events
     # A disease mention without an attributed metric is context, not a new
     # epidemiological event.  Additional events must come from the evidence
     # first relation layer above, never from the length of `diseases_extracted`.
@@ -1058,7 +1063,12 @@ def compose_structured_events(
             "needs_review": False if doc_epistemic == "negative_surveillance" else True,
             "confidence": 0.90,
         }]
-    return []
+    logger.info(
+        "multi_event_function_timings compose_structured_events_seconds=%.3f events=%s",
+        time.perf_counter() - extract_started,
+        len(events),
+    )
+    return events
 
 
 def _event_country_context(event: dict[str, Any]) -> tuple[Optional[str], dict[str, Any]]:
@@ -1132,9 +1142,11 @@ def _collapse_same_country_events(events: list[dict[str, Any]]) -> list[dict[str
             if str(item.get("location_name") or "").casefold() == country.casefold()
         ]
 
-        # Preserve a single specific locality.  Country-level projection is
-        # needed when the article has multiple regions or an explicit total.
-        if len(group) == 1 and not country_level:
+        # Regional rows are already atomic evidence-backed events. Keep them
+        # separate when no explicit country total exists; summing them into a
+        # synthetic country event loses the disease-location-metric relation
+        # that downstream multi-event consumers need.
+        if not country_level:
             collapsed.extend(group)
             continue
 
