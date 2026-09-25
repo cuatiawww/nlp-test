@@ -8,6 +8,7 @@ and temporal evidence can be attributed to the same local context.
 from __future__ import annotations
 
 import re
+import logging
 from collections import OrderedDict
 from dataclasses import replace
 from typing import Any, Optional
@@ -22,6 +23,8 @@ from .surveillance_extraction import (
 )
 from .multilingual import normalize_local_digits
 
+
+logger = logging.getLogger(__name__)
 
 _SENTENCE_RE = re.compile(r".*?(?:[.!?。！？]+|$)", re.S)
 _GENERIC_METRIC_RE = re.compile(
@@ -159,16 +162,27 @@ def _generic_observations(sentence: str, linker: GazetteerLinker) -> list[dict[s
 
     source = sentence or ""
     working = normalize_local_digits(source)
+    metric_matches = list(_GENERIC_METRIC_RE.finditer(working))
+    # Most sentences do not contain a non-case metric. Avoid scanning the
+    # full location gazetteer for those sentences; long WHO reports otherwise
+    # spend minutes repeatedly resolving locations that cannot produce an
+    # observation.
+    if not metric_matches:
+        return []
     locations = list(linker.local_mentions(source))
     observations: list[dict[str, Any]] = []
-    for match in _GENERIC_METRIC_RE.finditer(working):
+    for match in metric_matches:
         metric_type, unit = _generic_metric_type(match.group("metric"))
         raw = match.group("value").replace(" ", "")
         try:
             value = float(raw.replace(",", ".")) if "." in raw and raw.count(".") == 1 else int(re.sub(r"[.,]", "", raw))
         except ValueError:
             continue
-        nearby = [item for item in locations if abs(item[0] - match.start()) <= 180 or abs(item[1] - match.end()) <= 180]
+        nearby = [
+            item for item in locations
+            if item[2] is not None
+            and (abs(item[0] - match.start()) <= 180 or abs(item[1] - match.end()) <= 180)
+        ]
         if len({item[2].name.casefold() for item in nearby}) != 1:
             continue
         location = nearby[0][2]
@@ -427,6 +441,29 @@ def build_atomic_events(
         if relations is not None
         else extract_metric_relations(source, linker=linker, published_date=None)
     )
+    if document_relations:
+        # The relation extractor already identified the only sentences that
+        # contain case/death evidence. Restrict attribution work to those
+        # spans while retaining original offsets and the complete source for
+        # validation. This avoids rescanning long WHO crawl documents without
+        # discarding metrics that occur late in the article.
+        relevant_spans = []
+        for span in spans:
+            start, end, sentence = span
+            if any(
+                (
+                    relation.evidence_offset_start is not None
+                    and start <= relation.evidence_offset_start < end
+                )
+                or (
+                    relation.evidence
+                    and relation.evidence.casefold() in sentence.casefold()
+                )
+                for relation in document_relations
+            ):
+                relevant_spans.append(span)
+        if relevant_spans:
+            spans = relevant_spans
 
     for start, end, sentence in spans:
         local_relations = [
@@ -552,6 +589,9 @@ def build_atomic_events(
             return resolved, confidence
 
         def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None, relation_time_frame=None):
+            if location is None:
+                logger.debug("Skipping metric event without a resolved location: %s", evidence or sentence[:160])
+                return
             location_key = (
                 sentence,
                 str(evidence or ""),
@@ -561,6 +601,9 @@ def build_atomic_events(
             location = specific_location_cache.get(location_key)
             if location is None:
                 location = _most_specific_event_location(sentence, evidence, location, linker)
+                if location is None:
+                    logger.debug("Skipping metric event after location refinement failed: %s", evidence or sentence[:160])
+                    return
                 specific_location_cache[location_key] = location
             hierarchy_key = (str(location.name or ""), str(location.country or ""))
             hierarchy = hierarchy_cache.get(hierarchy_key)

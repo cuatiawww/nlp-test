@@ -7,6 +7,7 @@ sys.path.insert(0, "/app")
 
 from app.schemas import SubEvent, AnalyzeResponse
 from app.multi_event_extractor import compose_structured_events, extract_multi_events
+from app.intelligence import _generic_observations
 from app import config
 
 TEST_LOCATIONS = {
@@ -124,6 +125,17 @@ class MultiEventFoundationTest(unittest.TestCase):
             death_count=0,
         )
         self.assertEqual(len(events), 0)
+
+    def test_generic_observation_ignores_unresolved_location(self):
+        class UnresolvedLocationLinker:
+            def local_mentions(self, _text):
+                return [(0, 7, None)]
+
+        observations = _generic_observations(
+            "Geneva reported 12 hospitalized patients.",
+            UnresolvedLocationLinker(),
+        )
+        self.assertEqual(observations, [])
 
 
 if __name__ == "__main__":

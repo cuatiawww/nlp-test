@@ -1,5 +1,6 @@
 ﻿import logging
 import re
+from functools import partial
 from typing import Optional, Any
 
 from . import config, extractors
@@ -22,6 +23,41 @@ from .epidemiology import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _primary_article_boundary(text: str) -> int | None:
+    """Return the first obvious syndicated-footer boundary, if present.
+
+    Feeds sometimes concatenate a second article after the primary report
+    (for example a ``Vietnam+`` attribution).  Keeping that tail as context
+    is useful, but its metrics must not replace the primary article's event.
+    """
+    matches = [
+        match.start()
+        for match in re.finditer(
+            r"(?:\(\s*(?:vietnam\+|source:)\s*\)|\b(?:vietnam\+|source:)\s*|\bBộ\s+Y\s+tế\s*:)",
+            text or "",
+            re.IGNORECASE,
+        )
+    ]
+    return min(matches) if matches else None
+
+
+def _location_is_source_grounded(name: str | None, text: str) -> bool:
+    """Require an LLM locality to be present in the original source text."""
+    candidate = " ".join(str(name or "").split()).strip()
+    if not candidate:
+        return False
+    names = [candidate]
+    for alias, canonical in config.LOCATION_ALIASES.items():
+        if str(canonical).casefold() == candidate.casefold():
+            if str(alias).casefold() not in config.LOCATION_STOPWORDS:
+                names.append(str(alias))
+    return any(
+        re.search(rf"(?<!\w){re.escape(value)}(?!\w)", text or "", re.IGNORECASE)
+        for value in names
+        if value
+    )
 
 
 def _interactive_analysis_text(text: str) -> str:
@@ -168,6 +204,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 len(text),
                 getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000),
             )
+    primary_boundary = _primary_article_boundary(text)
+    if primary_boundary is not None and primary_boundary >= 500:
+        logger.info("primary_article_boundary chars=%s total=%s", primary_boundary, len(text))
+        text = text[:primary_boundary].rstrip()
     evidence_offset_space = "original" if text == original_text else "repaired_original"
     language_profile = detect_language_profile(
         text,
@@ -202,7 +242,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         text
     ) or extractors.is_clearly_non_health_topic(semantic_text)
     source_country = extractors.normalize_country(payload.source_country)
-    location_country = facts.get("country") or extractors.extract_country_hint(text[:1500])
+    location_country = source_country or facts.get("country") or extractors.extract_country_hint(text[:1500])
     if location_country and location_country not in config.ASEAN_COUNTRIES:
         # Keep ASEAN countries; do not promote a source/publisher country into
         # the article's event geography.
@@ -228,6 +268,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     location = facts.get("location") or extractors.extract_location(text, allowed_countries=allowed_countries)
     all_locations = facts.get("locations") or extractors.extract_all_locations(text, allowed_countries=allowed_countries)
+    all_locations = [
+        item for item in all_locations
+        if isinstance(item, dict)
+        and (_location_is_source_grounded(item.get("name"), text)
+        or str(item.get("name") or "").casefold() == str(source_country or "").casefold()
+        )
+    ]
     all_locations = _attach_location_provenance(all_locations, text)
     original_location = location
     is_challenge_page = extractors.is_challenge_or_blocked_content(text)
@@ -242,7 +289,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             from .deepseek import detect_location
             resolved_location = detect_location(
                 semantic_text,
-                source_language=payload.source_language or language,
                 source_country=location_country,
             )
             if resolved_location:
@@ -252,8 +298,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     # Missing city/province remains missing. A country-level location is only
     # retained when the article explicitly names that country.
-    if location and not extractors.is_usable_place_name(location, text):
-        location = extractors.extract_country_hint(text) or None
+    if location and not _location_is_source_grounded(location, text):
+        location = (
+            source_country
+            if source_country
+            else extractors.extract_country_hint(text)
+            if extractors.extract_country_hint(text)
+            else None
+        )
     asean_hits = [
         loc for loc in all_locations
         if isinstance(loc, dict)
@@ -510,15 +562,36 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     prelim_cases = extractors.extract_case_count(text, disease=disease if disease != "UNKNOWN" else None) or 0
     prelim_deaths = extractors.extract_death_count(text) or 0
     has_location_conflict = bool(geocode_needs_review)
+    review_focus = []
+    if disease.strip().upper() == "UNKNOWN" or confidence < config.DEEPSEEK_TRIGGER_CONFIDENCE:
+        review_focus.append("disease")
+    if not location or has_location_conflict:
+        review_focus.append("location")
+    if prelim_cases == 0 or prelim_deaths == 0 or "death_exceeds_cases" in doc_validation_flags:
+        review_focus.append("counts")
+    if is_explicit_outbreak or is_official_bulletin:
+        review_focus.append("outbreak status")
+    if len(mentioned_countries) > 1 or is_official_bulletin:
+        review_focus.append("multi-country")
 
     # Cheap local/rules NLP first. DeepSeek only on UNKNOWN / low confidence /
     # needs_review / zero metrics on outbreak — never because an article listed more than one disease.
+    gate_confidence = confidence
+    if is_policy_content and (prelim_cases > 0 or prelim_deaths > 0):
+        # Entity extraction promotes a source-grounded disease to 0.85 before
+        # the gate, but that is a heuristic confidence, not a calibrated
+        # classifier score. Statistical articles with explicit metrics still
+        # need the rear-gate to catch swapped case/death totals and periods.
+        gate_confidence = min(
+            gate_confidence,
+            max(0.0, config.DEEPSEEK_TRIGGER_CONFIDENCE - 0.01),
+        )
     should_use_deepseek = should_escalate_to_llm(
         historical_fast=payload.historical_fast,
         interactive=payload.interactive,
         is_noisy=is_noisy,
         disease=disease,
-        confidence=confidence,
+        confidence=gate_confidence,
         extracted=extracted,
         language=language,
         needs_review=geocode_needs_review,
@@ -531,14 +604,21 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         case_count=prelim_cases,
         death_count=prelim_deaths,
         has_location_conflict=has_location_conflict,
+        is_health_related=is_health_related,
     )
     llm_verified_sub_events = []
+    llm_review_applied = False
+    llm_review_cleared_events = False
+    llm_review_non_health = False
+    llm_review_outbreak: bool | None = None
+    llm_review_disease: str | None = None
     if should_use_deepseek:
         try:
             from .deepseek import validate_and_correct_events
+            from .disease_master import resolve_local_disease_term
             resolved = validate_and_correct_events(
                 text=analysis_text,
-                title=payload.title or "",
+                title=getattr(payload, "title", "") or "",
                 source_url=payload.source_url or "",
                 draft_disease=disease,
                 draft_location=location,
@@ -546,11 +626,20 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 draft_case_count=prelim_cases,
                 draft_death_count=prelim_deaths,
                 candidate_diseases=extracted,
+                review_focus=review_focus,
+                mentioned_countries=mentioned_countries,
             )
-            if resolved:
+            if resolved is not None:
+                llm_review_applied = True
                 verified_disease = resolved.get("disease_classification")
                 if verified_disease and verified_disease != "UNKNOWN":
-                    disease = verified_disease
+                    local_verified = resolve_local_disease_term(verified_disease)
+                    llm_review_disease = (
+                        local_verified.get("canonical_name")
+                        if local_verified
+                        else verified_disease
+                    )
+                    disease = llm_review_disease
                     confidence = config.DEEPSEEK_MIN_CONFIDENCE
                     if disease not in extracted:
                         extracted = [disease, *extracted]
@@ -562,13 +651,47 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     llm_verified_sub_events = llm_evts
                     first_evt = llm_evts[0]
                     if first_evt.get("location_name"):
-                        location = first_evt["location_name"]
+                        reviewed_location = first_evt["location_name"]
+                        local_specific = next(
+                            (
+                                item.get("name")
+                                for item in all_locations
+                                if item.get("name")
+                                and item.get("country") == (first_evt.get("country") or country)
+                                and str(item.get("name")).casefold()
+                                != str(first_evt.get("country") or country).casefold()
+                                and _location_is_source_grounded(item.get("name"), text)
+                            ),
+                            None,
+                        )
+                        # A country-only LLM answer must not erase a
+                        # source-grounded province/city already linked by the
+                        # local gazetteer.
+                        location = local_specific or (
+                            reviewed_location
+                            if _location_is_source_grounded(reviewed_location, text)
+                            else (payload.source_country or country)
+                        )
                     if first_evt.get("country"):
-                        country = first_evt["country"]
+                        if not payload.source_country or _location_is_source_grounded(
+                            first_evt.get("location_name"), text
+                        ):
+                            country = first_evt["country"]
                     if first_evt.get("case_count") is not None:
                         prelim_cases = int(first_evt["case_count"])
                     if first_evt.get("death_count") is not None:
                         prelim_deaths = int(first_evt["death_count"])
+                else:
+                    # An empty review is an override only when DeepSeek
+                    # explicitly says there is no active outbreak. If it
+                    # confirms an outbreak but its atomic events fail local
+                    # guardrails, preserve the source-first local metrics
+                    # instead of turning a valid outbreak into zero cases.
+                    llm_review_cleared_events = resolved.get("outbreak_alert") is False
+                if resolved.get("is_health_related") is False:
+                    llm_review_non_health = True
+                if isinstance(resolved.get("outbreak_alert"), bool):
+                    llm_review_outbreak = resolved["outbreak_alert"]
         except Exception as e:
             logger.info("DeepSeek local rear-gate fallback unavailable: %s", e)
 
@@ -743,13 +866,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         analysis_text, extracted
     )
     if ncd_only:
-        is_health_related = False
+        # NCD/policy articles are health information, but not infectious
+        # surveillance events. Keep them visible as health updates without
+        # turning them into outbreaks or assigning a stray body location.
+        is_health_related = True
         disease = "UNKNOWN"
         extracted = []
         case_count = 0
         death_count = 0
         outbreak_alert = False
-        event_type = "unknown"
+        event_type = "health update"
         location = extractors.extract_country_hint(text) if extractors.extract_country_hint(text) in config.ASEAN_COUNTRIES else None
         needs_review = True
 
@@ -770,7 +896,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if not explicit_case_count:
             case_count = 0
     if ncd_only:
-        is_health_related = False
+        is_health_related = True
+        location = None
+        raw_country = None
+        country = None
+        all_locations = []
     needs_review = True if ncd_only else (confidence < config.LOW_CONFIDENCE_THRESHOLD)
     if not explicit_case_count:
         needs_review = True
@@ -1000,17 +1130,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # --- Multi-event extraction (locations AND diseases) ---
     try:
         from .multi_event_extractor import compose_structured_events, _collapse_same_country_events
-        multi_events = compose_structured_events(
-            text=text,
-            primary_disease=disease,
-            primary_location=location,
-            diseases_extracted=extracted,
-            locations=[loc.model_dump() if hasattr(loc, 'model_dump') else loc for loc in all_locations],
-            case_count=case_count,
-            death_count=death_count,
-            primary_country=country,
-            linker=shared_linker,
-            relations=relational_events if relation_context_ready else None,
+        from .stage_budget import bounded_call
+        multi_events = bounded_call(
+            partial(
+                compose_structured_events,
+                text=text,
+                primary_disease=disease,
+                primary_location=location,
+                diseases_extracted=extracted,
+                locations=[loc.model_dump() if hasattr(loc, 'model_dump') else loc for loc in all_locations],
+                case_count=case_count,
+                death_count=death_count,
+                primary_country=country,
+                linker=shared_linker,
+                relations=relational_events if relation_context_ready else None,
+            ),
+            (),
+            config.MULTI_EVENT_STAGE_TIMEOUT_SECONDS,
+            isolation="process",
         )
         # Preserve evidence-backed regional events as the source of truth.
         # Country-level aggregation belongs in compatibility adapters, not in
@@ -1847,13 +1984,57 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     item["admin2"] = None
                     item["geocode_needs_review"] = True
 
-    if not sub_events and llm_verified_sub_events:
+    if llm_verified_sub_events:
+        # The rear-gate is allowed to repair low-confidence local relations,
+        # but only with guardrail-verified source evidence. Keeping the noisy
+        # local rows here would preserve false country/count associations even
+        # after a successful DeepSeek review.
+        reviewed_events = []
         for levt in llm_verified_sub_events:
-            sub_events.append(
+            if not levt.get("evidence"):
+                continue
+            # A country-level event is valid even when the model has no
+            # province/city. Keep the country as the canonical location so
+            # the reviewed event is not discarded and the local noisy bundle
+            # cannot be restored later in the pipeline.
+            reviewed_location = levt.get("location_name") or levt.get("country")
+            if not reviewed_location:
+                continue
+            reviewed_location = config.upsert_reviewed_location(
+                reviewed_location if _location_is_source_grounded(reviewed_location, text) else None,
+                levt.get("country") or country,
+                alias=levt.get("location_name"),
+                language=language,
+            ) or reviewed_location
+            local_specific = next(
+                (
+                    item.get("name")
+                    for item in all_locations
+                    if item.get("name")
+                    and item.get("country") == (levt.get("country") or country)
+                    and str(item.get("name")).casefold()
+                    != str(levt.get("country") or country).casefold()
+                ),
+                None,
+            )
+            if local_specific and str(reviewed_location).casefold() == str(
+                levt.get("country") or country
+            ).casefold():
+                reviewed_location = local_specific
+            if not _location_is_source_grounded(reviewed_location, text):
+                reviewed_location = payload.source_country or country or levt.get("country")
+            reviewed_country = (
+                payload.source_country
+                if payload.source_country and not _location_is_source_grounded(
+                    levt.get("location_name"), text
+                )
+                else levt.get("country") or country
+            )
+            reviewed_events.append(
                 SubEvent(
                     disease=levt.get("disease") or disease,
-                    location_name=levt.get("location_name") or location,
-                    country=levt.get("country") or country,
+                    location_name=reviewed_location,
+                    country=reviewed_country,
                     admin1=levt.get("admin1"),
                     admin2=levt.get("admin2"),
                     case_count=int(levt.get("case_count") or 0),
@@ -1862,6 +2043,78 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     needs_review=False,
                 )
             )
+        boundary = _primary_article_boundary(text)
+        if boundary is not None and source_case_count:
+            # Do not let a verified quote from a concatenated second article
+            # replace the primary source metric. If the review contains no
+            # primary event after this filter, the deterministic local event
+            # remains authoritative.
+            primary_events = [
+                event for event in reviewed_events
+                if 0 <= (text or "").lower().find((event.evidence or "").lower()) < boundary
+            ]
+            if primary_events:
+                reviewed_events = primary_events
+            else:
+                reviewed_events = []
+        if reviewed_events:
+            # A review can quote a current total and an older comparison for
+            # the same place. Keep one authoritative period per
+            # (disease, country, location) so the parent scalar cannot sum
+            # historical context into the live surveillance figure.
+            def _review_period_rank(event: SubEvent) -> tuple[int, int, int]:
+                years = [int(value) for value in re.findall(r"\b20\d{2}\b", event.evidence or "")]
+                evidence_lower = (event.evidence or "").casefold()
+                cumulative = int(bool(re.search(
+                    r"\b(?:cumulative|kumulatif|l[uù]y\s+k[eế]|so\s+far|hingga|sampai|"
+                    r"year\s+to\s+date|ytd)\b",
+                    evidence_lower,
+                    re.IGNORECASE,
+                )))
+                return (max(years, default=-1), cumulative, int(event.case_count or 0))
+
+            grouped_review: dict[tuple[str, str, str], list[SubEvent]] = {}
+            for event in reviewed_events:
+                key = (
+                    str(event.disease or "").casefold(),
+                    str(event.country or "").casefold(),
+                    str(event.location_name or "").casefold(),
+                )
+                grouped_review.setdefault(key, []).append(event)
+            sub_events = [
+                max(group, key=_review_period_rank)
+                for group in grouped_review.values()
+            ]
+            reviewed_cases = sum(int(event.case_count or 0) for event in sub_events)
+            reviewed_deaths = sum(int(event.death_count or 0) for event in sub_events)
+            source_case_count = reviewed_cases
+            source_death_count = reviewed_deaths
+            source_death_explicit = reviewed_deaths > 0
+            explicit_case_count = reviewed_cases > 0
+            case_count = reviewed_cases
+            death_count = reviewed_deaths
+
+    if llm_verified_sub_events and sub_events:
+        # Parent totals must use country-level events only when a country total
+        # exists. Province/city rows are valid detail but are subsets, not
+        # additional cases to add to the parent aggregate.
+        country_level = [
+            evt for evt in sub_events
+            if evt.country and str(evt.location_name or "").casefold()
+            == str(evt.country or "").casefold()
+        ]
+        aggregate_events = country_level or sub_events
+        if multi_country_article and source_case_count:
+            # The source article's explicit cross-country total is authoritative
+            # for the parent. Child rows are country facts and must not be
+            # summed when one of them is a country total/subset pair.
+            case_count = source_case_count
+            death_count = source_death_count if source_death_explicit else sum(
+                int(evt.death_count or 0) for evt in aggregate_events
+            )
+        else:
+            case_count = sum(int(evt.case_count or 0) for evt in aggregate_events)
+            death_count = sum(int(evt.death_count or 0) for evt in aggregate_events)
 
     for evt in sub_events:
         evt.evidence_offset_space = evidence_offset_space
@@ -1891,6 +2144,82 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         resolved_primary = resolve_local_disease_term(disease)
         if resolved_primary and resolved_primary.get("disease_id"):
             disease = resolved_primary["canonical_name"]
+
+    if llm_review_cleared_events:
+        # DeepSeek returned a valid, evidence-checked review with no active
+        # event. Its empty event decision overrides local false positives.
+        sub_events = []
+        case_count = 0
+        death_count = 0
+        explicit_case_count = False
+        outbreak_alert = False
+        location = None
+        country = None
+        lat = None
+        lon = None
+        all_locations = []
+        event_type = "health update"
+
+    if llm_review_non_health:
+        disease = "UNKNOWN"
+        extracted = []
+        is_health_related = False
+
+    if llm_review_applied and llm_review_disease and not llm_review_non_health:
+        # Keep a valid DeepSeek disease correction authoritative through the
+        # later local projection steps. If no verified LLM events exist, the
+        # source-local metric event remains useful, but its disease identity
+        # must follow the reviewed concept rather than the stale classifier.
+        disease = llm_review_disease
+        extracted = list(dict.fromkeys([llm_review_disease, *extracted]))
+        is_health_related = True
+        for evt in sub_events:
+            if evt.disease and evt.disease.strip().upper() != "UNKNOWN":
+                evt.disease = llm_review_disease
+
+    # Final locality preference: a source-grounded city/province wins over a
+    # country-only LLM answer. This is especially important for short RSS
+    # titles where the model sees the country but the gazetteer sees Hanoi,
+    # Dong Thap, or Da Nang in the original script.
+    relation_location_names = list(dict.fromkeys(
+        str(relation.location.name)
+        for relation in relational_events
+        if getattr(relation, "location", None)
+        and getattr(relation.location, "name", None)
+        and (int(getattr(relation, "cases", 0) or 0) > 0 or int(getattr(relation, "deaths", 0) or 0) > 0)
+        and _location_is_source_grounded(relation.location.name, text)
+    ))
+    local_source_location = (
+        relation_location_names[0]
+        if len(relation_location_names) == 1
+        else next(
+            (
+                item.get("name")
+                for item in all_locations
+                if item.get("name")
+                and _location_is_source_grounded(item.get("name"), text)
+                and str(item.get("name")).casefold() != str(country or "").casefold()
+            ),
+            None,
+        )
+    )
+    if local_source_location and (
+        len(relation_location_names) == 1
+        or not location
+        or str(location).casefold() == str(country or "").casefold()
+        or not _location_is_source_grounded(location, text)
+    ):
+        location = local_source_location
+        if source_country:
+            country = source_country
+        if len(sub_events) == 1:
+            sub_events[0].location_name = local_source_location
+            sub_events[0].country = country
+        elif len(relation_location_names) == 1:
+            for event in sub_events:
+                if str(event.country or country).casefold() == str(country or "").casefold():
+                    event.location_name = local_source_location
+                    event.country = country
 
     summary = _build_article_summary(
         text,
@@ -2243,6 +2572,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if "location_country_conflict" not in doc_validation_flags:
             doc_validation_flags.append("location_country_conflict")
 
+    # Final scalar invariant for a single source event. Relation composition
+    # may temporarily promote a historical/comparator metric (for example
+    # last year's 19 cases) while the source-first extractor selected the
+    # current focal case (1 case). Keep the parent scalar aligned with the
+    # authoritative source projection and the only child event.
+    if len(sub_events) == 1 and source_case_count and explicit_case_count:
+        if int(case_count or 0) != int(source_case_count):
+            case_count = int(source_case_count)
+    if len(sub_events) == 1 and source_death_explicit:
+        if int(death_count or 0) != int(source_death_count):
+            death_count = int(source_death_count)
+
     if is_challenge_page:
         disease = "NEGATIVE_NON_HEALTH"
         case_count = 0
@@ -2261,7 +2602,34 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         is_health_related=is_health_related,
         validation_flags=doc_validation_flags,
         base_alert=outbreak_alert,
+        source_type=payload.source_type or "web",
     )
+    if llm_review_applied and llm_review_outbreak is not None and is_health_related:
+        # The rear-gate may override a false local outbreak classification,
+        # but only after its evidence/location guardrails have passed.
+        if (payload.source_type or "web").strip().casefold() == "social_media" and doc_epistemic not in {
+            "confirmed", "official_report"
+        }:
+            outbreak_alert = False
+        else:
+            outbreak_alert = llm_review_outbreak
+
+    # Social posts are retained as leads, never promoted to an alert without
+    # source-level confirmation. This is deliberately after the LLM override
+    # so a reviewer cannot accidentally bypass the source guardrail.
+    if (payload.source_type or "web").strip().casefold() == "social_media" and doc_epistemic not in {
+        "confirmed", "official_report"
+    }:
+        outbreak_alert = False
+        needs_review = True
+        event_type = "health update"
+
+    # A statistical/prevention article can contain large numbers without
+    # reporting an incident. DeepSeek may be over-conservative when the
+    # source is official, so the local policy gate remains the final veto.
+    if is_policy_content and not explicit_outbreak:
+        outbreak_alert = False
+        event_type = "health update"
 
     response_new_cases = sum(int(evt.new_cases or 0) for evt in sub_events)
     response_cumulative_cases = sum(int(evt.cumulative_cases or 0) for evt in sub_events)

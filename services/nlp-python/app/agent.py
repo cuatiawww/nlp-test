@@ -68,12 +68,26 @@ def _consume_daily_budget() -> bool:
 
 
 def _json_response(value: str) -> dict[str, Any]:
+    if isinstance(value, list):
+        value = "".join(
+            str(item.get("text") or item.get("content") or "")
+            if isinstance(item, dict) else str(item)
+            for item in value
+        )
     text = (value or "").strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
     try:
         result = json.loads(text)
     except (TypeError, ValueError, json.JSONDecodeError):
-        return {}
+        # Some compatible OpenAI endpoints wrap JSON in a short preamble.
+        # Recover only a complete outer object; never attempt free-form repair.
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            return {}
+        try:
+            result = json.loads(text[start:end + 1])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
     return result if isinstance(result, dict) else {}
 
 
@@ -137,6 +151,20 @@ def _send_bounded(send):
         return send()
 
 
+def _is_quota_failure(error: Exception, response_body: str = "") -> bool:
+    """Identify provider failures that should be skipped for the rest of the day."""
+    status = getattr(error, "code", None)
+    if status in {401, 402, 403}:
+        return True
+    if status != 429:
+        return False
+    message = f"{error} {response_body}".casefold()
+    return any(
+        marker in message
+        for marker in ("quota", "billing", "balance", "payment", "credit", "insufficient")
+    )
+
+
 def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> dict[str, Any]:
     """Ask configured agents in order and return the first valid JSON object."""
     if not config.AGENT_ENABLED:
@@ -178,6 +206,7 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> di
             with urllib.request.urlopen(req, timeout=config.AGENT_TIMEOUT_SECONDS) as response:
                 return json.loads(response.read())
 
+        quota_failure = False
         try:
             if not _consume_daily_budget():
                 return {}
@@ -189,6 +218,7 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> di
                     err_body = http_err.read().decode("utf-8")
                 except Exception:
                     pass
+                quota_failure = _is_quota_failure(http_err, err_body)
                 # Handle parameter incompatibility gracefully
                 retried = False
                 if http_err.code == 400:
@@ -196,8 +226,9 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> di
                         body.pop("temperature", None)
                         retried = True
                     if "max_tokens" in err_body or "max_completion_tokens" in err_body:
-                        alt_key = "max_completion_tokens" if tok_key == "max_tokens" else "max_tokens"
-                        body.pop(tok_key, None)
+                        current_key = "max_tokens" if "max_tokens" in body else "max_completion_tokens"
+                        alt_key = "max_completion_tokens" if current_key == "max_tokens" else "max_tokens"
+                        body.pop(current_key, None)
                         body[alt_key] = max_tokens
                         retried = True
                     if retried:
@@ -207,14 +238,39 @@ def chat_json(system_prompt: str, user_prompt: str, max_tokens: int = 400) -> di
                 else:
                     raise
 
-            content = payload["choices"][0]["message"].get("content") or ""
+            message = payload["choices"][0].get("message") or {}
+            content = message.get("content") or ""
+            if not content and isinstance(message.get("content"), list):
+                content = message.get("content")
+            if not content:
+                content = message.get("reasoning_content") or payload.get("output_text") or ""
+            usage = payload.get("usage") or {}
+            logger.info(
+                "DeepSeek usage provider=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+                provider,
+                usage.get("prompt_tokens"),
+                usage.get("completion_tokens"),
+                usage.get("total_tokens"),
+            )
             result = _json_response(content)
             if result:
                 result["_provider"] = provider
                 _store_response(cache_key, result)
                 return result
-            logger.warning("Agent %s returned invalid/empty JSON", provider)
+            logger.warning("Agent %s returned invalid/empty JSON preview=%s", provider, str(content)[:240])
         except Exception as exc:
-            _PROVIDER_FAILURES[provider] = time.time() + 120
-            logger.warning("Agent %s failed; pausing for 120s: %s", provider, exc)
+            cooldown = (
+                config.DEEPSEEK_QUOTA_COOLDOWN_SECONDS
+                if quota_failure
+                else config.DEEPSEEK_FAILURE_COOLDOWN_SECONDS
+            )
+            _PROVIDER_FAILURES[provider] = time.time() + cooldown
+            reason = "quota/billing unavailable" if quota_failure else "transient failure"
+            logger.warning(
+                "Agent %s unavailable (%s); skipping provider for %ss: %s",
+                provider,
+                reason,
+                cooldown,
+                exc,
+            )
     return {}

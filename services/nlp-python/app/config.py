@@ -37,10 +37,16 @@ DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "1500"))
 DEEPSEEK_TIMEOUT_SECONDS = int(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "20"))
 DEEPSEEK_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_MIN_CONFIDENCE", "0.85"))
-DEEPSEEK_TRIGGER_CONFIDENCE = float(os.getenv("DEEPSEEK_TRIGGER_CONFIDENCE", "0.75"))
+DEEPSEEK_TRIGGER_CONFIDENCE = float(os.getenv("DEEPSEEK_TRIGGER_CONFIDENCE", "0.85"))
 DEEPSEEK_LOCATION_MIN_CONFIDENCE = float(os.getenv("DEEPSEEK_LOCATION_MIN_CONFIDENCE", "0.80"))
-DEEPSEEK_PROMPT_CHARS = max(200, int(os.getenv("DEEPSEEK_PROMPT_CHARS", "1800")))
+DEEPSEEK_PROMPT_CHARS = max(200, int(os.getenv("DEEPSEEK_PROMPT_CHARS", "4500")))
+DEEPSEEK_RESPONSE_MAX_TOKENS = max(256, int(os.getenv("DEEPSEEK_RESPONSE_MAX_TOKENS", "800")))
 DEEPSEEK_DAILY_BUDGET = int(os.getenv("DEEPSEEK_DAILY_BUDGET", "200"))
+DEEPSEEK_FAILURE_COOLDOWN_SECONDS = max(30, int(os.getenv("DEEPSEEK_FAILURE_COOLDOWN_SECONDS", "120")))
+DEEPSEEK_QUOTA_COOLDOWN_SECONDS = max(
+    DEEPSEEK_FAILURE_COOLDOWN_SECONDS,
+    int(os.getenv("DEEPSEEK_QUOTA_COOLDOWN_SECONDS", "86400")),
+)
 DEEPSEEK_LOCATION_MAX_CANDIDATES = int(os.getenv("DEEPSEEK_LOCATION_MAX_CANDIDATES", "80"))
 # External LLM review is opt-in. It must never be an implicit dependency of
 # high-volume crawling or a synchronous source extraction request.
@@ -110,6 +116,7 @@ INTERACTIVE_SKIP_STRICT_SURVEILLANCE = os.getenv(
 ).lower() in {"1", "true", "yes", "on"}
 
 INFERENCE_STAGE_TIMEOUT_SECONDS = env_seconds_at_least("INFERENCE_STAGE_TIMEOUT_SECONDS", 180)
+MULTI_EVENT_STAGE_TIMEOUT_SECONDS = env_seconds_at_least("MULTI_EVENT_STAGE_TIMEOUT_SECONDS", 20)
 NLP_REQUEST_TIMEOUT_SECONDS = env_seconds_at_least("NLP_REQUEST_TIMEOUT_SECONDS", 270)
 NLP_STAGE_OVERHEAD_SECONDS = env_seconds_at_least("NLP_STAGE_OVERHEAD_SECONDS", 15)
 NLP_STAGE_ISOLATION = os.getenv("NLP_STAGE_ISOLATION", "inprocess").strip().lower() or "inprocess"
@@ -637,6 +644,63 @@ def load_locations_from_db():
         logging.getLogger(__name__).warning(
             "Location registry unavailable; location alias matching is disabled: %s", e
         )
+
+
+def upsert_reviewed_location(
+    location_name: str | None,
+    country: str | None,
+    *,
+    alias: str | None = None,
+    language: str = "und",
+) -> str | None:
+    """Persist an evidence-backed DeepSeek location and refresh the cache."""
+    name = " ".join(str(location_name or "").split()).strip()
+    nation = " ".join(str(country or "").split()).strip()
+    if not name or not nation or len(name) > 180 or len(nation) > 120:
+        return None
+    if name.casefold() in {"unknown", "multi_country", "multiple countries"}:
+        return None
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+            row = conn.execute(
+                """
+                SELECT id, name FROM locations
+                WHERE lower(name) = lower(%s) AND lower(country) = lower(%s)
+                LIMIT 1
+                """,
+                (name, nation),
+            ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    """
+                    INSERT INTO locations
+                        (id, name, country, is_active, country_iso3, admin_level)
+                    VALUES
+                        (gen_random_uuid(), %s, %s, true, %s, 3)
+                    RETURNING id, name
+                    """,
+                    (name, nation, COUNTRY_TO_ISO3.get(nation.casefold())),
+                ).fetchone()
+            alias_value = " ".join(str(alias or "").split()).strip()
+            if alias_value and alias_value.casefold() != str(row["name"]).casefold():
+                conn.execute(
+                    """
+                    INSERT INTO location_aliases
+                        (location_id, alias_name, language, is_preferred)
+                    VALUES (%s, %s, %s, false)
+                    ON CONFLICT (location_id, alias_name, language) DO NOTHING
+                    """,
+                    (row["id"], alias_value, language[:12] or "und"),
+                )
+            conn.commit()
+            load_locations_from_db()
+            return str(row["name"])
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Reviewed location upsert skipped: %s", exc)
+        return name
 
 
 def ensure_location_registry_loaded() -> None:

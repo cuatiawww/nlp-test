@@ -13,7 +13,7 @@ use axum::{
     http::{Method, StatusCode},
     middleware::{self, Next},
     response::Response,
-    routing::{delete, get, patch, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use chrono::{Datelike, Duration as ChronoDuration, NaiveDate};
@@ -2786,7 +2786,7 @@ async fn ingest(
         content_hash.as_deref(),
         None,
     );
-    let mut client = state.db.get().await.map_err(internal_error)?;
+    let client = state.db.get().await.map_err(internal_error)?;
     client.batch_execute("BEGIN").await.map_err(internal_error)?;
     for key in &identity_keys {
         client
@@ -3867,7 +3867,7 @@ async fn analyze_url(
         content_hash.as_deref(),
         None,
     );
-    let mut client = state.db.get().await.map_err(internal_error)?;
+    let client = state.db.get().await.map_err(internal_error)?;
     client.batch_execute("BEGIN").await.map_err(internal_error)?;
     for key in &identity_keys {
         client

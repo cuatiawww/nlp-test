@@ -680,6 +680,7 @@ def calibrate_outbreak_alert(
     is_health_related: bool = True,
     validation_flags: Optional[list[str]] = None,
     base_alert: bool = False,
+    source_type: str = "web",
 ) -> bool:
     """Calibrate outbreak_alert to prevent false alarms on rumors, hoaxes, and cumulative totals."""
     if not is_health_related:
@@ -697,6 +698,15 @@ def calibrate_outbreak_alert(
 
     # Unverified social media rumors should not trigger alert
     if epistemic_status == "rumor" or "unverified_rumor" in flags:
+        return False
+
+    # A social post can carry useful signals, but it is not evidence of an
+    # outbreak by itself.  Require an explicit confirmation/official report
+    # before it can enter the alert stream; the case/death metrics remain
+    # available for review and corroboration.
+    if (source_type or "web").strip().casefold() == "social_media" and epistemic_status not in {
+        "confirmed", "official_report"
+    }:
         return False
 
     # Severe data contradictions suppress alert until reviewed

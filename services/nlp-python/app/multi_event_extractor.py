@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 MULTI_EVENT_ENABLED = os.getenv("MULTI_EVENT_ENABLED", "true").lower() in (
     "true", "1", "yes", "on",
 )
-MULTI_EVENT_LLM_FALLBACK = os.getenv("MULTI_EVENT_LLM_FALLBACK", "true").lower() in (
+MULTI_EVENT_LLM_FALLBACK = os.getenv("MULTI_EVENT_LLM_FALLBACK", "false").lower() in (
     "true", "1", "yes", "on",
 )
 MULTI_EVENT_MIN_PAIRS = int(os.getenv("MULTI_EVENT_MIN_PAIRS", "2"))

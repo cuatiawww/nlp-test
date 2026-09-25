@@ -1,150 +1,217 @@
-# Audit Terminal URL Article Pipeline - WHO
+# Audit 011 — Pipeline URL WHO dengan LLM Aktif
 
-Tanggal pengujian: 24 September 2026  
-Mode: terminal, backend URL Analyzer, `async=true`, `force_refresh=true`  
-Tujuan: mencatat keluaran aktual sistem tanpa membetulkan, menebak, atau mengisi hasil yang tidak dikembalikan sistem.
+Tanggal run: 25 September 2026
+Mode: `analysis-jobs` → collector → worker → `pipeline.run` → database
+Konfigurasi: `AGENT_ENABLED=true`, `NLP_MODEL=fine-tuned`, `DEEPSEEK_MODEL=deepseek-chat`
+Tujuan: menguji hasil aktual pipeline ketika DeepSeek rear-gate aktif, termasuk penggunaan token dan validasi hasil yang tersimpan.
 
-## URL yang diuji
-
-1. `https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON617?utm_source=chatgpt.com`
-2. `https://www.who.int/news/item/15-09-2026-new-strategy-to-build-a-healthier-market-for-childhood-cancer-medicines?utm_source=chatgpt.com`
-
-## Jalur pengujian
+## Konfigurasi pengujian
 
 ```text
-POST /api/v1/analyze-url
+AGENT_ENABLED=true
+DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_PROMPT_CHARS=4500
+DEEPSEEK_RESPONSE_MAX_TOKENS=800
+DEEPSEEK_MAX_TOKENS=800
+```
+
+Worker `raw` dan `social` dihentikan sementara agar tidak ada artikel lain yang memicu DeepSeek. `analysis-job-worker` tetap aktif untuk menjalankan dua URL audit melalui jalur normal.
+
+## URL dan job
+
+| No. | URL | Job ID | Status |
+|---:|---|---|---|
+| 1 | WHO Disease Outbreak News — Bundibugyo virus | `58496273-dea7-460f-bd0d-235cdf7882c8` | `completed` |
+| 2 | WHO childhood cancer medicines strategy | `7177141b-f70a-49df-9440-458195b216ba` | `completed` |
+
+Jalur aktual:
+
+```text
+POST /analysis-jobs
   -> analysis_jobs
   -> worker fetch article
-  -> worker POST /nlp/analyze/raw
+  -> POST /nlp/analyze/raw
   -> pipeline.run
-  -> simpan result
-  -> GET /api/v1/analysis-jobs/{job_id}
+  -> optional DeepSeek rear-gate
+  -> save_completed
+  -> disease_events + child events
 ```
 
-Rujukan kode:
+## Penggunaan DeepSeek
 
-- `services/backend-rust/src/main.rs`: submit URL dan polling `analysis-jobs`.
-- `services/worker-python/app/analysis_jobs.py`: urutan `fetch` lalu `nlp`, penyimpanan result, dan aturan fallback.
-- `services/nlp-python/app/main.py`: endpoint `/nlp/analyze/raw` yang memanggil `pipeline.run`.
-- `services/nlp-python/app/pipeline.py`: pipeline NLP bersama.
-
-## Status infrastruktur saat pengujian
-
-| Komponen | Hasil terminal |
-|---|---|
-| Backend `localhost:8081/health` | OK |
-| NLP `localhost:8000/health` | OK; model dilaporkan `fine-tuned` |
-| Collector `localhost:8002/health` dari host | Tidak terbuka dari host |
-| Direct import `WebScraperCollector` dari WSL | Tidak berjalan; dependency `scrapling` tidak tersedia |
-
-Catatan: collector internal tetap berhasil mengambil URL pertama melalui worker. Jadi kegagalan direct import di WSL bukan bukti bahwa WHO memblokir crawler.
-
----
-
-## Artikel 1 - WHO Disease Outbreak News
-
-### Status job aktual
-
-- Job ID: `728de5a2-5338-4b54-af4c-00f51fb76425`
-- Submit backend: `HTTP 200`, status `queued`
-- Job sempat berstatus `processing`, stage `fetch`, lalu stage `nlp`
-- Fetch selesai dan artikel tersimpan
-- Status akhir: `failed`, stage `finished`
-- Error: `Full NLP failed (HTTPConnectionPool(host='disease-nlp-python', port=8000): Read timed out. (read timeout=270.0))`
-- Warning: `article text retained. Retry Full NLP (do not silently use rules-only)`
-
-### Data yang benar-benar diambil crawler
-
-| Field | Nilai aktual |
-|---|---|
-| `http_status` | `200` |
-| `fetch_mode` | `direct_http` |
-| `title` | `Ebola disease caused by Bundibugyo virus - Democratic Republic of the Congo` |
-| `published_at` | `2026-09-10` |
-| `final_url` | `https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON617` |
-| `canonical_url` | `https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON617` |
-| `source_country` | kosong |
-| panjang `content` | `17.857` karakter |
-| `content_hash` | `3582af7dab84af42088078fc6466dd2c676626b2111eb7466cdc20eae9b5b219` |
-| `url_hash` | `8a0335701ea5c5932a8dc0c5d5c8a77782aeca965824bbe7978741ea4d614c0c` |
-
-Awal content yang dikembalikan crawler:
+Hanya URL pertama yang memanggil DeepSeek. Log service NLP:
 
 ```text
-See all DONs related to this event Read more about Ebola disease Situation at a glance Since the last Disease Outbreak News was published on 28 August 2026, the Bundibugyo virus outbreak in the Democratic Republic of the Congo has expanded to one additional health zone, Kayna, in North Kivu. This increase brings the total number of affected health zones to 61 across six out of 26 provinces of the country: Bas-Uélé, Haut-Uélé, Ituri, North Kivu, South Kivu, and Tshopo. As of 7 September 2026, the Democratic Republic of the Congo has reported 6757 confirmed cases, including 3267 deaths...
+DeepSeek usage provider=deepseek prompt_tokens=1652 completion_tokens=410 total_tokens=2062
 ```
 
-Angka di atas hanya terlihat di `content` mentah. Angka tersebut belum menjadi `case_count` atau `death_count` sistem karena NLP tidak mengembalikan result.
+URL kedua tidak memanggil DeepSeek karena gate lokal mengenalinya sebagai artikel kebijakan/informasi tanpa outbreak aktif. Ini sesuai desain hemat token.
 
-### 10 pemeriksaan pipeline
+Artikel pertama memiliki content hasil collector sepanjang 17.857 karakter. Review packet yang dikirim ke DeepSeek dibatasi sekitar 4.500 karakter berisi kalimat evidence, draft NLP, daftar penyakit, dan lokasi yang ditemukan lokal. Estimasi prompt jika full article dikirim sekitar 5.328 token, sedangkan run aktual menggunakan 1.652 prompt token.
 
-| No. | Pertanyaan | Hasil aktual |
-|---:|---|---|
-| 1 | Apa yang crawler ambil? | Artikel berhasil diambil HTTP 200; title, tanggal, canonical URL, hash, dan content 17.857 karakter tersedia. |
-| 2 | Apa payload yang dikirim ke NLP? | Worker mencoba kontrak `/nlp/analyze/raw` dengan `text`, `source_type=web`, `source_name=URL Analyzer`, `source_country`, `published_at`, `rules_only=false`, dan `source_url`. Respons NLP tidak pernah kembali. Fungsi membentuk text dari `title + dua newline + content`; content 17.857 karakter berada di bawah batas 35.000 karakter. |
-| 3 | Language / script terdeteksi apa? | Tidak tersedia. Tidak ada field `language` atau `script` pada result crawler. |
-| 4 | Rules menemukan disease apa? | Tidak ada output rules yang tersimpan. Fallback rules-only tidak dijalankan karena konfigurasi fallback bersifat opt-in. |
-| 5 | XLM-R menghasilkan apa? | Tidak ada output model. Health endpoint hanya melaporkan runtime model `fine-tuned`; itu bukan hasil inferensi artikel ini. |
-| 6 | Location resolver menemukan lokasi apa? | Tidak ada hasil resolver yang dikembalikan. Lokasi yang tampak di teks mentah tidak boleh dianggap sebagai output resolver. |
-| 7 | Angka mana yang dianggap cases/deaths? | Tidak ada `case_count`, `death_count`, atau field metric dari NLP. Angka 6757/3267 dan angka lain masih hanya teks artikel. |
-| 8 | Disease, Location, Metric terhubung bagaimana? | Tidak terbentuk pada output akhir karena tahap NLP gagal sebelum result analysis tersedia. |
-| 9 | `sub_events` terbentuk bagaimana? | Tidak terbentuk; field `sub_events` tidak ada pada result crawler. |
-| 10 | Output akhir salah mulai dari mana? | Bukan salah ekstraksi crawler pada pengujian ini. Titik gagal terobservasi mulai dari request worker ke host internal `disease-nlp-python:8000`, yang timeout 270 detik. |
+## Hasil URL 1 — WHO Disease Outbreak News
 
-### Bentuk result akhir yang tersimpan
+### Ground truth dari artikel
 
-Result hanya berisi metadata/content hasil fetch dan `needs_review=true`. Field NLP berikut tidak ada: `language`, `disease_classification`, `disease_mentions`, `locations`, `case_count`, `death_count`, `sub_events`, dan `confidence`.
+Artikel menyatakan:
 
----
+- Bundibugyo virus disease / Ebola disease.
+- Republik Demokratik Kongo: `6757` kasus terkonfirmasi dan `3267` kematian.
+- Total lintas lokasi: `6778` kasus dan `3269` kematian.
+- Uganda: `20` kasus dan `2` kematian.
+- Prancis: `1` kasus.
+- Dua kasus didiagnosis di Republik Demokratik Kongo dan kemudian dirawat di Jerman; ini bukan berarti Jerman memiliki 20 kasus.
 
-## Artikel 2 - WHO Childhood Cancer Medicines
+### Output pipeline aktual
 
-### Status job aktual
+| Field | Output |
+|---|---|
+| `disease_classification` | `Ebola` |
+| `location_name` | `MULTI_COUNTRY` |
+| `is_health_related` | `true` |
+| `event_type` | `disease outbreak wabah` |
+| `outbreak_alert` | `false` — salah, seharusnya `true` |
+| `needs_review` | `true` |
+| API result `case_count` | `13897` — double count |
+| API result `death_count` | `9803` — salah association |
+| pipeline total time | `116.97` detik |
 
-- Job ID: `d563524a-92dd-460c-bc51-309cd7411926`
-- Submit backend: `HTTP 200`, status `queued`
-- Job sempat terpantau `processing`, stage `fetch`, lalu `processing`, stage `nlp`
-- Status pengecekan terakhir: `processing`, stage `nlp`
-- `result`: `null`
-- `error`: `null`
-- `warnings`: `[]`
-- Tidak ada final result pada waktu audit ditutup.
+### Child event yang tersimpan di database
 
-### 10 pemeriksaan pipeline
+| Lokasi | Cases | Deaths | Penilaian |
+|---|---:|---:|---|
+| Democratic Republic of the Congo | 6778 | 3267 | Total kasus tercampur dengan total lintas lokasi; perlu dipisahkan dari nilai country-specific 6757. |
+| Uganda | 20 | 3269 | Salah; `3269` adalah total kematian lintas lokasi, bukan kematian Uganda. |
+| France | 1 | 0 | Sesuai sumber. |
+| Germany | 20 | 0 | Salah; sumber hanya menyebut dua kasus DRC yang dirawat di Jerman. |
+| Indonesia | 300 | 0 | Salah; berasal dari konteks clinical trial, bukan kasus Indonesia. |
 
-| No. | Pertanyaan | Hasil aktual |
-|---:|---|---|
-| 1 | Apa yang crawler ambil? | Job sudah melewati stage `fetch` dan masuk stage `nlp`, tetapi payload hasil fetch tidak tersedia pada endpoint status saat audit ditutup. |
-| 2 | Apa payload yang dikirim ke NLP? | Belum dapat dibuktikan dari result; job masih `processing`. Kontrak kode yang dipakai worker sama seperti Artikel 1. |
-| 3 | Language / script terdeteksi apa? | Belum tersedia. |
-| 4 | Rules menemukan disease apa? | Belum tersedia. |
-| 5 | XLM-R menghasilkan apa? | Belum tersedia. |
-| 6 | Location resolver menemukan lokasi apa? | Belum tersedia. |
-| 7 | Angka mana yang dianggap cases/deaths? | Belum tersedia. |
-| 8 | Disease, Location, Metric terhubung bagaimana? | Belum terbentuk atau belum dikembalikan. |
-| 9 | `sub_events` terbentuk bagaimana? | Belum tersedia; `result=null`. |
-| 10 | Output akhir salah mulai dari mana? | Belum bisa ditentukan. Observasi terakhir berhenti pada stage `nlp`, bukan pada hasil model atau validasi akhir. |
+### Penilaian
 
-Pengecekan status tambahan sempat mengalami timeout HTTP 15 detik, lalu endpoint kembali menunjukkan job masih `processing` pada stage `nlp`.
+DeepSeek berhasil dipanggil dan mengembalikan JSON, tetapi hasil akhir belum akurat. Evidence validator hanya memastikan kutipan ada di artikel; validator belum cukup kuat untuk memastikan setiap angka benar-benar terikat ke lokasi yang sama. Selain itu, angka provinsi/total dan angka lintas negara masih dapat terjumlah ulang.
 
----
+Status: **FAIL — jangan deploy hasil URL 1 ke production sebagai event final.**
 
-## Kesimpulan audit tanpa koreksi hasil
+## Hasil URL 2 — WHO Childhood Cancer Medicines
 
-1. Artikel pertama **berhasil di-fetch** oleh collector dan content mentahnya tersimpan.
-2. Artikel pertama **belum menghasilkan output NLP**, karena koneksi worker ke `disease-nlp-python:8000` timeout.
-3. Artikel kedua **sudah masuk pipeline dan mencapai stage NLP**, tetapi belum mengembalikan result ketika audit ditutup.
-4. Tidak ada dasar valid dari pengujian ini untuk menyatakan disease, bahasa, lokasi, cases, deaths, confidence, atau `sub_events` sebagai output NLP untuk kedua artikel.
-5. Masalah yang terbukti dari terminal adalah konektivitas/availability jalur worker ke service NLP internal, bukan kesalahan klasifikasi artikel.
-6. Rules-only tidak boleh disimpulkan berjalan; warning sistem menyatakan fallback tersebut opt-in dan tidak digunakan.
+### Expected
 
-## Validasi yang dijalankan
+Artikel membahas strategi/kebijakan pasar obat kanker anak. Ini artikel kesehatan, tetapi bukan laporan outbreak dan tidak memberikan event epidemiologis aktif.
+
+### Output pipeline aktual
+
+| Field | Output |
+|---|---|
+| `disease_classification` | `UNKNOWN` |
+| `location_name` | kosong |
+| `case_count` | `0` |
+| `death_count` | `0` |
+| `outbreak_alert` | `false` |
+| `is_health_related` | `true` |
+| `event_type` | `health update` |
+| `sub_events` | `[]` |
+| pipeline total time | `7.877` detik |
+
+Penilaian: **PASS untuk pemisahan artikel informasi kesehatan dari outbreak**. DeepSeek tidak dipanggil dan tidak ada token yang digunakan.
+
+## Database verification
+
+### URL 1
 
 ```text
-GET  http://localhost:8081/health                         -> 200
-GET  http://localhost:8000/health                         -> 200
-POST http://localhost:8081/api/v1/analyze-url             -> 200 untuk kedua URL
-GET  http://localhost:8081/api/v1/analysis-jobs/{job_id}  -> status job aktual
+analysis_job: 58496273-dea7-460f-bd0d-235cdf7882c8
+event_id: dedf2501-1c8c-4842-9096-47a2ec7a32bc
+parent location: MULTI_COUNTRY
+child events: 5
+needs_review: true
 ```
 
-Direct import `WebScraperCollector` dari WSL tidak menjadi hasil utama karena environment tersebut tidak memiliki dependency `scrapling`. Tidak ada perubahan pipeline atau pembetulan hasil dilakukan selama audit ini.
+### URL 2
+
+```text
+analysis_job: 7177141b-f70a-49df-9440-458195b216ba
+event_id: 60810769-2202-433b-ab06-e59ea0f65645
+parent location: NULL
+child events: 0
+is_health_related: true
+outbreak_alert: false
+needs_review: true
+```
+
+## Temuan teknis
+
+1. Shared pipeline benar-benar berjalan dengan LLM aktif; tidak ada fallback rules-only pada kedua job.
+2. Gate token sudah efektif: artikel kebijakan tidak memanggil DeepSeek.
+3. Pengiriman evidence ringkas menghemat prompt secara signifikan dibanding full article.
+4. Guardrail verbatim evidence belum cukup untuk menguji relasi `lokasi ↔ angka`; satu kalimat dapat memuat banyak negara dan beberapa angka.
+5. Post-processing masih perlu aturan source-first:
+   - country total harus dipisahkan dari total lintas negara;
+   - angka kematian tidak boleh diwariskan ke negara lain;
+   - angka clinical trial tidak boleh menjadi event negara;
+   - total induk tidak boleh menjumlahkan child event yang merupakan subset provinsi.
+6. `outbreak_alert` harus dipertahankan `true` bila artikel WHO DON secara eksplisit melaporkan outbreak dan event memiliki kasus/kematian tervalidasi.
+
+## Kesimpulan
+
+Pipeline LLM aktif sudah teruji end-to-end dan penghematan token berjalan. URL kedua sudah diklasifikasikan dengan benar sebagai health update non-outbreak. URL pertama masih gagal pada korelasi multi-event dan agregasi metrik, sehingga hasilnya harus tetap berstatus review dan belum layak menjadi data final/training.
+
+Setelah audit, `AGENT_ENABLED` dikembalikan ke `false` agar tidak ada pemanggilan DeepSeek otomatis. Worker raw/social juga tetap dihentikan sementara.
+
+## Retest setelah perbaikan rear-gate — 25 September 2026
+
+Retest ini dijalankan pada source code terbaru melalui jalur:
+
+```text
+collector /extract-url -> pipeline.run
+```
+
+Hasil retest tidak ditulis ke database produksi. Tujuannya memeriksa ulang ekstraksi dan koreksi LLM tanpa membuat event duplikat.
+
+### URL 1 — WHO Disease Outbreak News
+
+Dengan konfigurasi produksi yang ketat (`DEEPSEEK_TRIGGER_CONFIDENCE=0.85`), confidence lokal tepat `0.85`, sehingga DeepSeek **tidak dipanggil** sesuai aturan “hanya di bawah 0.85”. Hasil rules-only masih membawa masalah lama: parent `13897` kasus, `0` kematian, dan relasi child yang salah. Ini bukan hasil yang layak disimpan sebagai event final.
+
+Untuk menguji jalur koreksi secara diagnostik, ambang dinaikkan sementara menjadi `0.86` hanya di proses test. DeepSeek kemudian mengembalikan dan pipeline mempertahankan:
+
+| Lokasi | Cases | Deaths | Status |
+|---|---:|---:|---|
+| Democratic Republic of the Congo | 6757 | 3267 | benar |
+| Uganda | 20 | 2 | benar |
+| France | 1 | 0 | benar |
+
+Parent lintas negara menjadi `6778` kasus dan `3269` kematian, `outbreak_alert=true`, serta tidak lagi menghasilkan child Germany/Indonesia. Waktu pipeline sekitar `8.84` detik dengan hasil collector sepanjang `17.934` karakter.
+
+Perbaikan yang diuji adalah mempertahankan nama negara sebagai `location_name` ketika DeepSeek mengembalikan event level negara tanpa provinsi/kota. Sebelumnya event yang valid tersebut dibuang karena `location_name=null`, lalu bundle lokal yang salah kembali dipakai.
+
+### URL 2 — WHO Childhood Cancer Medicines
+
+Hasil tetap benar sebagai artikel informasi kesehatan non-outbreak:
+
+| Field | Output |
+|---|---|
+| `disease_classification` | `UNKNOWN` |
+| `is_health_related` | `true` |
+| `event_type` | `health update` |
+| `case_count` / `death_count` | `0` / `0` |
+| `outbreak_alert` | `false` |
+| `sub_events` | `[]` |
+| DeepSeek | tidak dipanggil |
+
+Waktu pipeline sekitar `4.21` detik dengan hasil collector sepanjang `6.916` karakter.
+
+### Status retest
+
+- Jalur DeepSeek dan korelasi multi-country sudah benar ketika artikel berada di bawah ambang review.
+- Filter artikel kebijakan/informasi tetap hemat token dan tidak menghasilkan outbreak palsu.
+- Dengan ambang persis `0.85`, URL 1 masih dapat lolos tanpa review karena confidence lokal dibulatkan tepat ke batas. Jika URL WHO resmi harus selalu melewati rear-gate saat memiliki multi-country evidence atau korelasi metrik kompleks, aturan gate perlu diubah khusus untuk bulletin resmi; konfigurasi strict `<0.85` saat ini memang tidak akan memanggil DeepSeek pada kasus tersebut.
+- Retest ini tidak mengubah row database lama dan tidak mengaktifkan DeepSeek permanen.
+
+### Regression check setelah retest
+
+```text
+28 passed in 0.51s
+```
+
+Yang lulus: gate confidence, guardrail metric/location, multi-event foundation, dan stage budget. `py_compile` untuk `pipeline.py`, `deepseek.py`, dan `llm_gate.py` serta `git diff --check` juga lulus.
+
+Satu test legacy di `test_interactive_pipeline.py::test_bulk_path_still_calls_auxiliary_heads_when_not_interactive` masih gagal karena auxiliary heads tidak dipanggil pada jalur bulk saat ini. Test tersebut tidak terkait perubahan rear-gate country-level dan tidak mengubah hasil retest WHO.

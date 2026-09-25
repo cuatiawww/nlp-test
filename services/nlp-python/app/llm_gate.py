@@ -27,15 +27,30 @@ def should_escalate_to_llm(
     case_count: int = 0,
     death_count: int = 0,
     has_location_conflict: bool = False,
+    is_health_related: bool = False,
 ) -> bool:
     """Return True ONLY for valid outbreak candidates requiring rear-gate validation/correction."""
     # 1. Front-Gate Hard Rejections (Zero Token Waste):
     # - Non-health topics (skripsi, pertanian, judi online, militer, politik)
     # - NCD-only articles (kanker, diabetes, stroke) without infectious outbreak
     # - Pure policy/market/administrative articles without an active outbreak
-    if historical_fast or interactive or is_noisy or non_health_topic or ncd_only:
+    if historical_fast or is_noisy or non_health_topic or ncd_only:
         return False
-    if is_policy_content and not (is_explicit_outbreak or is_official_bulletin):
+    # DeepSeek is a bounded review/override layer, never the primary
+    # classifier. Do not spend tokens on non-health or already high-confidence
+    # rows, even when they are official bulletins or contain many locations.
+    if not is_health_related or confidence >= config.DEEPSEEK_TRIGGER_CONFIDENCE:
+        return False
+    # Informational/policy articles without incident metrics remain a
+    # zero-token path. A health article that contains cases or deaths must
+    # still be reviewable: statistical wording can hide swapped metrics,
+    # historical totals, or a wrong disease/location classifier.
+    if (
+        is_policy_content
+        and not (is_explicit_outbreak or is_official_bulletin)
+        and case_count <= 0
+        and death_count <= 0
+    ):
         return False
     if not config.AGENT_ENABLED:
         return False
@@ -52,7 +67,7 @@ def should_escalate_to_llm(
     # ensure LLM verifies and structures the event whenever local confidence is not absolute,
     # or location hierarchy/sub-events require ground-truth verification.
     if is_official_bulletin or is_explicit_outbreak:
-        if unknown or confidence <= config.DEEPSEEK_MIN_CONFIDENCE or location_missing or needs_review:
+        if unknown or confidence < config.DEEPSEEK_MIN_CONFIDENCE or location_missing or needs_review:
             return True
 
     # 3. Standard Escalation criteria:

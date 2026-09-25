@@ -125,6 +125,7 @@ def call_nlp(row: dict, max_recovery_attempts: int = 2) -> dict:
                     "source_name": row["source_name"] or "",
                     "published_at": iso_date(row["published_at"]),
                     "source_language": row["language"] or "",
+                    "source_country": row.get("source_country") or "",
                     # Full re-analysis is intentional, including historical rows.
                     "historical_fast": False,
                 },
@@ -180,7 +181,17 @@ def update_event(conn: psycopg.Connection, row: dict, result: dict) -> None:
             relevance_confidence = %s,
             source_credibility = %s,
             source_credibility_label = %s,
-            is_health_related = %s
+            is_health_related = %s,
+            source_country = %s,
+            country_iso3 = %s,
+            admin1_name = %s,
+            admin2_name = %s,
+            nlp_pipeline_version = %s,
+            count_period_type = %s,
+            event_date_start = %s,
+            event_date_end = %s,
+            epistemic_status = %s,
+            validation_flags = %s::jsonb
         WHERE id = %s
         """,
         (
@@ -207,6 +218,16 @@ def update_event(conn: psycopg.Connection, row: dict, result: dict) -> None:
             result.get("source_credibility", 0.50),
             result.get("source_credibility_label") or row["source_type"] or "web",
             result.get("is_health_related", False),
+            result.get("country") or row.get("source_country"),
+            result.get("country_iso3"),
+            result.get("admin1_name") or result.get("province"),
+            result.get("admin2_name") or result.get("city"),
+            result.get("nlp_pipeline_version"),
+            result.get("count_period_type"),
+            result.get("event_date_start"),
+            result.get("event_date_end"),
+            result.get("epistemic_status"),
+            json.dumps(result.get("validation_flags", []), ensure_ascii=False),
             row["id"],
         ),
     )

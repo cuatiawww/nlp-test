@@ -15,6 +15,7 @@ from app.extractors import (
     is_explicit_outbreak_report,
     is_policy_or_statistical_health_content,
 )
+from app.epidemiology import calibrate_outbreak_alert
 
 
 class ClassificationRulesTest(unittest.TestCase):
@@ -39,6 +40,31 @@ class ClassificationRulesTest(unittest.TestCase):
 
     def test_explicit_outbreak_is_detected(self):
         self.assertTrue(is_explicit_outbreak_report("An outbreak was declared after local transmission and 40 new cases."))
+
+    def test_native_script_outbreak_terms_are_detected(self):
+        self.assertTrue(is_explicit_outbreak_report("Đồng Tháp: ổ dịch sốt xuất huyết, 172 ca mắc trong tuần."))
+        self.assertTrue(is_explicit_outbreak_report("เมืองดานังมีการระบาดของไข้เลือดออก 238 ครั้ง"))
+
+    def test_unverified_social_post_cannot_trigger_alert(self):
+        self.assertFalse(calibrate_outbreak_alert(
+            disease="Dengue",
+            case_count=120,
+            explicit_outbreak=True,
+            is_health_related=True,
+            base_alert=True,
+            source_type="social_media",
+        ))
+
+    def test_confirmed_social_post_can_be_alert_candidate(self):
+        self.assertTrue(calibrate_outbreak_alert(
+            disease="Dengue",
+            case_count=120,
+            explicit_outbreak=True,
+            epistemic_status="confirmed",
+            is_health_related=True,
+            base_alert=True,
+            source_type="social_media",
+        ))
 
     def test_historical_or_negative_outbreak_reference_is_not_incident(self):
         text = "Artikel kebijakan membahas pengalaman wabah DBD tahun-tahun sebelumnya; tidak ada kejadian baru atau klaster lokal."

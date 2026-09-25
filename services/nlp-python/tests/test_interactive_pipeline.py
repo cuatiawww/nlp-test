@@ -49,6 +49,24 @@ class InteractivePipelineTests(unittest.TestCase):
         event_type.assert_called()
         relevance.assert_called()
 
+    def test_single_event_parent_keeps_source_current_metric(self):
+        payload = AnalyzeRequest(
+            text=(
+                "Cambodia confirms human H5N1 avian flu case as H5N1 hits more Utah egg farms. "
+                "Earlier this week Cambodian officials announced the country's fifth human H5N1 avian flu case this year, "
+                "this one involving a 9-month-old girl. "
+                "Cambodia reported 19 human cases of H5N1 in 2025, eight of which were fatal."
+            ),
+            source_type="local_fixture",
+            source_name="CIDRAP",
+        )
+        with patch.object(pipeline.config, "NLP_MODEL", "fine-tuned"), \
+             patch.object(pipeline.config, "AGENT_ENABLED", False):
+            result = pipeline.run(payload)
+        self.assertEqual(result.case_count, 1)
+        self.assertEqual(len(result.sub_events), 1)
+        self.assertEqual(result.sub_events[0].case_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

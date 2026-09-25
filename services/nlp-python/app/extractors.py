@@ -1619,6 +1619,8 @@ def is_policy_or_statistical_health_content(text: str) -> bool:
         "secara nasional", "nasional", "regional", "global", "world",
         "cumulative", "kumulatif", "as of", "per mei", "since january",
         "sejak januari", "menyumbang", "terbesar di dunia",
+        "dịch bệnh", "phòng chống dịch", "giám sát dịch", "โรคระบาด",
+        "ป้องกันโรค", "เฝ้าระวังโรค",
     )
     return any(marker in value for marker in markers)
 
@@ -1636,7 +1638,8 @@ def is_explicit_outbreak_report(text: str) -> bool:
         return False
     explicit_incident = re.search(
         r"(?:\b(?:outbreaks?|epidemics?|wabah|klb|kejadian luar biasa|clusters?|klasters?|local transmission|community transmission|penularan lokal|transmisi lokal)\b|"
-        r"\b(?:surge|spike|melonjak|lonjakan|meningkat tajam|increase in|peningkatan)\b.{0,80}\b(?:cases?|kasus|infections?)\b)",
+        r"\b(?:surge|spike|melonjak|lonjakan|meningkat tajam|increase in|peningkatan)\b.{0,80}\b(?:cases?|kasus|infections?)\b|"
+        r"\b(?:bùng phát|ổ dịch)\b|(?:โรคระบาด|การระบาด|แพร่ระบาด))",
         value,
         re.IGNORECASE,
     )
@@ -1644,9 +1647,12 @@ def is_explicit_outbreak_report(text: str) -> bool:
         return False
     policy_only = is_policy_or_statistical_health_content(value)
     incident_qualifier = re.search(
-        r"\b(?:outbreaks?|epidemics?|wabah|klb|kejadian luar biasa|clusters?|klasters?|spikes?|surges?|lonjakan|peningkatan tajam)\b"
+        r"(?:\b(?:outbreaks?|epidemics?|wabah|klb|kejadian luar biasa|clusters?|klasters?|spikes?|surges?|lonjakan|peningkatan tajam)\b"
         r".{0,80}\b(?:detected|declared|reported|occurred|confirmed|terjadi|dilaporkan|ditetapkan|"
-        r"reported cases|kasus baru|new cases|transmission|penularan|cases?|kasus|infections?)\b",
+        r"reported cases|kasus baru|new cases|transmission|penularan|cases?|kasus|infections?|"
+        r"bùng phát|ổ dịch|โรคระบาด|การระบาด|แพร่ระบาด)\b|"
+        r"(?:bùng phát|ổ dịch|โรคระบาด|การระบาด|แพร่ระบาด)"
+        r".{0,80}(?:\b(?:ca|ca mắc|trường hợp|người bệnh|cases?|kasus|patients?)\b|ผู้ป่วย|ราย))",
         value,
         re.IGNORECASE,
     )
