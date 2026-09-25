@@ -418,6 +418,7 @@ def build_atomic_events(
     spans = sentence_spans(source)
     events: "OrderedDict[tuple[str, str, str], dict[str, Any]]" = OrderedDict()
     hierarchy_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    specific_location_cache: dict[tuple[str, str, str, str], Any] = {}
     # Resolve metric-location relations once per document. Calling this inside
     # every sentence repeatedly scans the full gazetteer and makes long
     # articles degrade quadratically.
@@ -551,7 +552,16 @@ def build_atomic_events(
             return resolved, confidence
 
         def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None, relation_time_frame=None):
-            location = _most_specific_event_location(sentence, evidence, location, linker)
+            location_key = (
+                sentence,
+                str(evidence or ""),
+                str(getattr(location, "name", "") or ""),
+                str(getattr(location, "country", "") or ""),
+            )
+            location = specific_location_cache.get(location_key)
+            if location is None:
+                location = _most_specific_event_location(sentence, evidence, location, linker)
+                specific_location_cache[location_key] = location
             hierarchy_key = (str(location.name or ""), str(location.country or ""))
             hierarchy = hierarchy_cache.get(hierarchy_key)
             if hierarchy is None:
