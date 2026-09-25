@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import feedparser
 from .. import db
 from .base import BaseCollector, CollectResult
@@ -47,6 +48,35 @@ def _is_current_year(published: str) -> bool:
         target_year = datetime.date.today().year
     return int(published[:4]) == target_year
 
+
+
+def _plain_teaser(summary: str) -> str:
+    raw = summary or ""
+    if re.search(r"<[a-zA-Z][^>]*>", raw):
+        try:
+            from bs4 import BeautifulSoup
+            return BeautifulSoup(raw, "lxml").get_text(" ", strip=True)
+        except Exception:
+            return re.sub(r"<[^>]+>", " ", raw)
+    return raw
+
+
+def _teaser_needs_full_article(title: str, summary: str) -> bool:
+    """Auto-fetch full article when the feed only carries a short / HTML teaser."""
+    plain = _plain_teaser(summary).strip()
+    title = (title or "").strip()
+    if re.search(r"<[a-zA-Z][^>]*>", summary or ""):
+        # HTML snippet teasers are almost never full articles.
+        if len(plain) < 800:
+            return True
+    if len(plain) < 280:
+        return True
+    if len(plain) < 450 and plain.count(".") + plain.count("!") + plain.count("?") < 2:
+        return True
+    # Title-only / near-empty body
+    if title and len(plain) <= max(40, len(title) + 20):
+        return True
+    return False
 
 class RSSNewsCollector(BaseCollector):
     async def collect(self) -> CollectResult:
@@ -109,7 +139,8 @@ class RSSNewsCollector(BaseCollector):
                 continue
 
             extracted = None
-            if fetch_full_article and normalized_link and full_article_attempts < full_article_limit:
+            needs_full = fetch_full_article or _teaser_needs_full_article(title, summary)
+            if needs_full and normalized_link and full_article_attempts < full_article_limit:
                 full_article_attempts += 1
                 try:
                     extracted = await article_collector.extract_url(normalized_link)

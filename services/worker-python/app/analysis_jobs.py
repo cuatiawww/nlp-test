@@ -53,10 +53,12 @@ class UnknownAnalysisJob(ValueError):
 class ArticleFetchError(RuntimeError):
     """A typed article retrieval failure that is safe to expose to operators."""
 
-    def __init__(self, code, detail, status_code=None):
+    def __init__(self, code, detail, status_code=None, fetch_mode=None, timeout_reason=None):
         self.code = code
         self.detail = detail
         self.status_code = status_code
+        self.fetch_mode = fetch_mode
+        self.timeout_reason = timeout_reason
         super().__init__(detail)
 
 
@@ -152,13 +154,18 @@ def analyze_stages(
                 first_code, first_detail = _fetch_error_diagnostic(first_error)
                 if first_code != "fetch_error":
                     error_code, detail = first_code, first_detail
-            return {
+            payload = {
                 "status": "failed",
                 "error": detail,
                 "error_code": error_code,
                 "fetch_stage": "article_fetch",
                 "warnings": warnings,
             }
+            for attr in ("fetch_mode", "timeout_reason"):
+                value = getattr(second_error, attr, None) or getattr(first_error, attr, None)
+                if value:
+                    payload[attr] = value
+            return payload
     if not extracted.get("content", "").strip():
         return {"status": "failed", "error": "No extractable article content", "warnings": warnings}
     if before_nlp is not None:
@@ -246,15 +253,30 @@ def fetch_article(url, fallback=False):
     read_timeout = 140 if is_pdf else (55 if fallback else 40)
     attempts = 2
     last_error = None
+    # Async analysis jobs: prefer auto escalate and do NOT skip stealth
+    # (INTERACTIVE_SKIP_STEALTH remains the default for browser/interactive).
+    escalate_on = {
+        "source_challenge",
+        "empty_article",
+        "fetch_timeout",
+        "source_blocked",
+        "collector_http_error",
+    }
+    used_modes = []
     for attempt in range(attempts):
+        # First pass: auto. On challenge/empty/timeout, escalate to stealth.
+        fetch_mode = "stealth" if attempt > 0 else "auto"
+        used_modes.append(fetch_mode)
         try:
             response = requests.post(
                 endpoint + "/extract-url",
                 json={
                     "url": url,
-                    "fetch_mode": "http",
+                    "fetch_mode": fetch_mode,
                     "timeout_ms": timeout_ms,
                     "max_retries": 0 if is_pdf else 1,
+                    # Async jobs: never skip stealth so Cloudflare/SPA can escalate.
+                    "skip_stealth": False,
                 },
                 timeout=(connect_timeout, read_timeout),
             )
@@ -262,23 +284,38 @@ def fetch_article(url, fallback=False):
             if not isinstance(status_code, int):
                 status_code = 200
             if status_code in {408, 502, 503, 504} and attempt + 1 < attempts:
-                last_error = requests.HTTPError(
-                    f"{status_code} {response.text[:180]}",
-                    response=response,
+                detail = "URL extraction timed out"
+                try:
+                    body = response.json()
+                    detail = str(body.get("detail") or body.get("error") or detail)
+                except (ValueError, TypeError, AttributeError):
+                    pass
+                last_error = ArticleFetchError(
+                    "fetch_timeout",
+                    detail[:240],
+                    status_code,
+                    fetch_mode=fetch_mode,
+                    timeout_reason=detail[:240],
                 )
                 continue
             if status_code >= 400:
                 detail = "Article source returned an HTTP error."
                 try:
-                    payload = response.json()
-                    detail = str(payload.get("detail") or payload.get("error") or detail)
+                    body = response.json()
+                    detail = str(body.get("detail") or body.get("error") or detail)
                 except (ValueError, TypeError, AttributeError):
                     pass
                 status = status_code
+                timeout_reason = None
                 if status in {408, 504}:
                     code = "fetch_timeout"
+                    timeout_reason = detail[:240]
                 elif status in {403, 429, 451}:
-                    code = "source_challenge" if "challenge" in detail.lower() or "cloudflare" in detail.lower() else "source_blocked"
+                    code = (
+                        "source_challenge"
+                        if "challenge" in detail.lower() or "cloudflare" in detail.lower()
+                        else "source_blocked"
+                    )
                 elif status == 404:
                     code = "source_not_found"
                 elif status in {422}:
@@ -288,22 +325,56 @@ def fetch_article(url, fallback=False):
                         code = "empty_article"
                 else:
                     code = "collector_http_error"
-                raise ArticleFetchError(code, detail[:240], status)
-            response.raise_for_status()
-            return response.json()["data"]
-        except (requests.Timeout, requests.ConnectionError) as exc:
-            last_error = exc
-            if attempt + 1 >= attempts:
-                code = "fetch_timeout" if isinstance(exc, requests.Timeout) else "collector_unavailable"
-                raise ArticleFetchError(
+                err = ArticleFetchError(
                     code,
+                    detail[:240],
+                    status,
+                    fetch_mode=fetch_mode,
+                    timeout_reason=timeout_reason,
+                )
+                if code in escalate_on and attempt + 1 < attempts and fetch_mode != "stealth":
+                    last_error = err
+                    continue
+                raise err
+            response.raise_for_status()
+            data = response.json()["data"]
+            if isinstance(data, dict):
+                data.setdefault("requested_fetch_mode", fetch_mode)
+                data.setdefault("fetch_attempts", list(used_modes))
+                flags = data.get("quality_flags") or []
+                if data.get("quality_ok") is False or any(
+                    flag in {"nav_only", "challenge_residual", "too_short", "empty"}
+                    for flag in flags
+                ):
+                    raise ArticleFetchError(
+                        "empty_article",
+                        "Extracted content failed quality gate: "
+                        + ",".join(flags or ["quality_ok=false"]),
+                        422,
+                        fetch_mode=data.get("fetch_mode") or fetch_mode,
+                    )
+            return data
+        except ArticleFetchError:
+            raise
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_error = ArticleFetchError(
+                "fetch_timeout" if isinstance(exc, requests.Timeout) else "collector_unavailable",
+                (
                     "The article collector did not respond before the fetch deadline."
-                    if code == "fetch_timeout"
-                    else "The article collector is unavailable.",
-                ) from exc
+                    if isinstance(exc, requests.Timeout)
+                    else "The article collector is unavailable."
+                ),
+                fetch_mode=fetch_mode,
+                timeout_reason=str(exc)[:240] if isinstance(exc, requests.Timeout) else None,
+            )
+            if attempt + 1 >= attempts:
+                raise last_error from exc
+    if isinstance(last_error, ArticleFetchError):
+        raise last_error
     if last_error:
         raise last_error
     raise RuntimeError("Article fetch failed")
+
 
 def _prepare_text_for_nlp(extracted, max_chars=None):
     max_chars = NLP_INPUT_MAX_CHARS if max_chars is None else max_chars
