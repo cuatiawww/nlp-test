@@ -308,6 +308,13 @@ def _collapse_hierarchical_parser_duplicates(events: list[dict[str, Any]], hiera
 def _most_specific_event_location(sentence: str, evidence: str, base_location, linker: GazetteerLinker):
     """Prefer a supported child place when a relation initially links its parent."""
 
+    base_name = str(getattr(base_location, "name", "") or "")
+    base_country = str(getattr(base_location, "country", "") or "")
+    # A count already tied to a subnational place in this sentence keeps that
+    # place. Do not replace it with another city that merely shares the sentence.
+    if base_name and base_name.casefold() != base_country.casefold() and base_name.casefold() in (sentence or "").casefold():
+        return base_location
+
     try:
         candidates = extractors.extract_all_locations(
             sentence,
@@ -588,19 +595,22 @@ def build_atomic_events(
             confidence = 0.92 if explicit and len(candidates) == 1 else (0.75 if len(paragraph_candidates) == 1 else (0.68 if candidates else 0.40))
             return resolved, confidence
 
-        def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None, relation_time_frame=None):
+        def add_event(location, cases=0, deaths=0, evidence="", start_offset=0, end_offset=0, metric_type="cases", unit="persons", qualifier=None, value=None, value_min=None, value_max=None, event_disease="UNKNOWN", event_confidence=0.30, source_sentence_id=None, relation_time_frame=None, source_scope="article_local"):
+            if source_scope != "article_local":
+                return
             if location is None:
                 logger.debug("Skipping metric event without a resolved location: %s", evidence or sentence[:160])
                 return
+            incoming_location = location
             location_key = (
                 sentence,
                 str(evidence or ""),
-                str(getattr(location, "name", "") or ""),
-                str(getattr(location, "country", "") or ""),
+                str(getattr(incoming_location, "name", "") or ""),
+                str(getattr(incoming_location, "country", "") or ""),
             )
             location = specific_location_cache.get(location_key)
             if location is None:
-                location = _most_specific_event_location(sentence, evidence, location, linker)
+                location = _most_specific_event_location(sentence, evidence, incoming_location, linker)
                 if location is None:
                     logger.debug("Skipping metric event after location refinement failed: %s", evidence or sentence[:160])
                     return
@@ -665,6 +675,7 @@ def build_atomic_events(
                 "provenance": {
                     "method": "evidence_relation",
                     "source": "surveillance_extraction",
+                    "source_scope": source_scope,
                     "offset_start": start + max(0, start_offset),
                     "offset_end": start + max(0, end_offset),
                     "source_sentence_id": source_sentence_id,
@@ -712,6 +723,8 @@ def build_atomic_events(
                 events[key] = event
 
         for relation in local_relations:
+            if getattr(relation, "source_scope", "article_local") != "article_local":
+                continue
             evidence_start = sentence.find(relation.evidence) if relation.evidence else 0
             event_disease = relation.disease
             event_confidence = 0.94 if (event_disease and str(event_disease).upper() != "UNKNOWN") else 0.30
@@ -746,6 +759,7 @@ def build_atomic_events(
                 event_confidence=event_confidence,
                 source_sentence_id=relation.source_sentence_id,
                 relation_time_frame=relation.time_frame,
+                source_scope=getattr(relation, "source_scope", "article_local"),
             )
 
         for item in generic:

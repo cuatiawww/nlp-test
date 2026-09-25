@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
 from functools import lru_cache
@@ -781,6 +782,9 @@ class MetricRelation:
     evidence_offset_end: Optional[int] = None
     source_sentence_id: Optional[str] = None
     country_scope: Optional[str] = None
+    # article_local | global_average | other_url. Global and other-URL figures
+    # stay labeled and are not local case totals.
+    source_scope: str = "article_local"
 
 
 def aggregate_relation_totals(
@@ -791,6 +795,8 @@ def aggregate_relation_totals(
 
     by_country: dict[str, list[MetricRelation]] = {}
     for relation in relations:
+        if getattr(relation, "source_scope", "article_local") != "article_local":
+            continue
         by_country.setdefault(relation.location.country.casefold(), []).append(relation)
 
     total_cases = 0
@@ -1776,6 +1782,8 @@ def _extract_narrative_relations(
                 continue
             if _looks_like_case_breakdown(source, match.start("count")):
                 continue
+            if extractors.metric_source_scope(source, match.start(), match.end()) != "article_local":
+                continue
             linked = _nearest_location(match.start(), match.end(), locations, text=source)
             sentence_start = max(
                 source.rfind(".", 0, match.start()),
@@ -1910,6 +1918,370 @@ def _extract_range_relations(
             source_sentence_id=_source_sentence_id(source, match.start()),
         ))
     return relations
+
+
+_CLAUSE_CASE_WORDS = (
+    "cases", "case", "infections", "infection", "patients", "patient",
+    "kasus", "kes", "kaso", "ca mắc", "ca nhiễm",
+    "ราย", "ករណី", "ກໍລະນີ", "လူနာ",
+)
+_PLACE_FUNCTION_WORDS = frozenset({
+    "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for", "from",
+    "with", "by", "as", "this", "that", "these", "those", "it", "its", "who",
+    "there", "worldwide", "globally", "world", "health", "organization",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december",
+    "januari", "februari", "maret", "mei", "juni", "juli", "agustus",
+    "oktober", "desember",
+    "cases", "case", "kasus", "kes", "deaths", "death", "kematian",
+    "virus", "disease", "penyakit", "organisasi", "kesehatan", "dunia",
+})
+_ADMIN_PLACE = re.compile(
+    r"(?P<admin>"
+    r"kabupaten|kota|kecamatan|provinsi|kelurahan|"
+    r"city|county|district|province|municipality|regency|prefecture|"
+    r"daerah|negeri|tỉnh|huyện|thành phố|quận|"
+    r"จังหวัด|อำเภอ|ខេត្ត|ស្រុក|ແຂວງ|ເມືອງ|ပြည်နယ်|မြို့နယ်"
+    r")\s+"
+    r"(?P<name>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+){0,3})",
+    re.IGNORECASE | re.UNICODE,
+)
+_CAP_PLACE = re.compile(
+    r"(?P<name>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+){0,2})",
+    re.UNICODE,
+)
+
+
+def _clause_case_pattern() -> re.Pattern[str]:
+    terms = {word.casefold() for word in _CLAUSE_CASE_WORDS if word}
+    terms.update(term.strip().casefold() for term in config.get_lexicon_terms("metric_case") if term and term.strip())
+    ordered = sorted(terms, key=len, reverse=True)
+    word = "(?:" + "|".join(re.escape(term) for term in ordered) + ")"
+    return re.compile(
+        # The count must be its own token. A digit inside a disease code such
+        # as H5N1 is not a case total.
+        rf"(?<![\w])(?P<count>{_NUMBER})(?![\w])(?:\s+(?P<multiplier>ribu|juta|million|thousand))?\s+"
+        rf"(?:[\wÀ-ÿ'’.-]+\s+){{0,4}}?(?:{word})(?!\w)",
+        re.IGNORECASE | re.UNICODE,
+    )
+
+
+def _offsets_overlap(left_start: Optional[int], left_end: Optional[int], right_start: int, right_end: int) -> bool:
+    if left_start is None or left_end is None:
+        return False
+    return left_start < right_end and right_start < left_end
+
+
+def _sentence_country(source: str, sentence_start: int, sentence_end: int, locations: list[tuple[int, int, LinkedLocation]]) -> str:
+    countries = [
+        linked.country
+        for start, end, linked in locations
+        if start >= sentence_start and end <= sentence_end and linked.country
+        and linked.name.casefold() != linked.country.casefold()
+    ]
+    if not countries:
+        countries = [
+            linked.country
+            for start, end, linked in locations
+            if start >= sentence_start and end <= sentence_end and linked.country
+        ]
+    if countries:
+        return Counter(countries).most_common(1)[0][0]
+    mentioned = extractors.extract_all_mentioned_countries(source[sentence_start:sentence_end])
+    return mentioned[0] if len(mentioned) == 1 else ""
+
+
+def _place_is_usable(name: str) -> bool:
+    folded = name.casefold().strip()
+    if not folded or folded in _PLACE_FUNCTION_WORDS or folded in NON_GEOGRAPHIC_TERMS:
+        return False
+    try:
+        aliases = extractors.active_disease_aliases()
+    except Exception:
+        aliases = {}
+    if folded in {key.casefold() for key in aliases}:
+        return False
+    return True
+
+
+def _link_surface_place(
+    name: str,
+    linker: GazetteerLinker,
+    country_hint: str,
+    context: str,
+) -> LinkedLocation:
+    linked = linker.link(name, context=context, evidence=context)
+    if linked:
+        return linked
+    return LinkedLocation(
+        name=name.strip(),
+        country=country_hint or "",
+        is_city=True,
+        evidence=context,
+    )
+
+
+def _clause_place_candidates(
+    source: str,
+    sentence_start: int,
+    sentence_end: int,
+    locations: list[tuple[int, int, LinkedLocation]],
+    linker: GazetteerLinker,
+    country_hint: str,
+) -> list[tuple[int, int, LinkedLocation]]:
+    sentence = source[sentence_start:sentence_end]
+    chosen: list[tuple[int, int, LinkedLocation]] = []
+    for start, end, linked in locations:
+        if start < sentence_start or end > sentence_end:
+            continue
+        if linked.name.casefold() == (linked.country or "").casefold():
+            continue
+        if not _place_is_usable(linked.name):
+            continue
+        chosen.append((start, end, linked))
+
+    def overlaps_chosen(start: int, end: int) -> bool:
+        return any(start < other_end and end > other_start for other_start, other_end, _ in chosen)
+
+    for match in _ADMIN_PLACE.finditer(sentence):
+        start = sentence_start + match.start("name")
+        end = sentence_start + match.end("name")
+        name = match.group("name").strip()
+        if not _place_is_usable(name) or overlaps_chosen(start, end):
+            continue
+        chosen.append((start, end, _link_surface_place(name, linker, country_hint, sentence)))
+    for match in _CAP_PLACE.finditer(sentence):
+        start = sentence_start + match.start("name")
+        end = sentence_start + match.end("name")
+        name = match.group("name").strip()
+        if " " not in name and len(name) < 4:
+            continue
+        if not _place_is_usable(name) or overlaps_chosen(start, end):
+            continue
+        chosen.append((start, end, _link_surface_place(name, linker, country_hint, sentence)))
+    return chosen
+
+
+_LIST_CONJUNCTION = re.compile(
+    r"\b(?:and|dan|serta|atau|or|và|และ|និង|ແລະ|နှင့်)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _count_window(
+    source: str,
+    count_start: int,
+    count_end: int,
+    sentence_start: int,
+    sentence_end: int,
+    count_spans: list[tuple[int, int]],
+) -> tuple[int, int]:
+    """Clause around one count: comma-separated, then conjunctions that join two counts."""
+
+    left, right = sentence_start, sentence_end
+    for match in re.finditer(r"[,;]", source[sentence_start:sentence_end]):
+        idx = sentence_start + match.start()
+        if idx > 0 and idx + 1 < len(source) and source[idx - 1].isdigit() and source[idx + 1].isdigit():
+            continue
+        if idx < count_start:
+            left = idx + 1
+        elif idx >= count_end:
+            right = idx
+            break
+    window_spans = [(start, end) for start, end in count_spans if left <= start < right]
+    for match in _LIST_CONJUNCTION.finditer(source[left:right]):
+        idx = left + match.start()
+        if not any(start < idx for start, _ in window_spans) or not any(start > idx for start, _ in window_spans):
+            continue
+        if idx < count_start:
+            left = left + match.end()
+        elif idx > count_end:
+            right = min(right, idx)
+    return left, right
+
+
+def _place_for_count(
+    count_start: int,
+    count_end: int,
+    places: list[tuple[int, int, LinkedLocation]],
+    window: tuple[int, int],
+) -> Optional[LinkedLocation]:
+    left, right = window
+    best: Optional[tuple[int, int, LinkedLocation]] = None
+    for start, end, linked in places:
+        if start < left or start >= right:
+            continue
+        # A place after the count ("2,001 cases in Malang") outranks a place
+        # that only introduces the sentence ("spreading in East Java, with 2,001").
+        after = 0 if start >= count_end else 1
+        distance = min(abs(count_start - end), abs(start - count_end))
+        if distance > 120:
+            continue
+        if best is None or (after, distance) < (best[0], best[1]):
+            best = (after, distance, linked)
+    return best[2] if best else None
+
+
+def _clause_death_count(source: str, start: int, end: int) -> Optional[int]:
+    """Death total in the same clause as a case count, such as ``100 cases and 20 deaths``."""
+
+    terms = {
+        "deaths", "death", "fatalities", "fatality", "died", "killed",
+        "kematian", "meninggal", "tử vong", "เสียชีวิต", "ស្លាប់", "ເສຍຊີວິດ", "သေဆုံး",
+    }
+    terms.update(term.strip().casefold() for term in config.get_lexicon_terms("metric_death") if term and term.strip())
+    ordered = sorted(terms, key=len, reverse=True)
+    word = "(?:" + "|".join(re.escape(term) for term in ordered) + ")"
+    match = re.search(
+        rf"(?P<count>{_NUMBER})\s+(?:{word})(?!\w)",
+        source[start:end],
+        re.IGNORECASE | re.UNICODE,
+    )
+    if not match:
+        return None
+    return _number(match.group("count"), "")
+
+
+def _bind_counts_to_clause_places(
+    source: str,
+    relations: list[MetricRelation],
+    locations: list[tuple[int, int, LinkedLocation]],
+    linker: GazetteerLinker,
+    published_date: Optional[str],
+) -> list[MetricRelation]:
+    """Give each case count the place in its own clause.
+
+    A document-frequency city and a place in another sentence are not used.
+    Global averages and related-link figures stay labeled and carry no local case total.
+    """
+
+    pattern = _clause_case_pattern()
+    matches = []
+    for match in pattern.finditer(source or ""):
+        if not _metric_is_valid(source, match.start("count"), match.end()):
+            continue
+        if _looks_like_case_breakdown(source, match.start("count")):
+            continue
+        value = _number(match.group("count"), match.groupdict().get("multiplier") or "")
+        if value <= 0:
+            continue
+        matches.append((match.start(), match.end(), match.start("count"), match.end("count"), value))
+    # A list often names the case word once and then continues with bare
+    # numbers next to places: "907 cases in A and 1,596 in B".
+    case_sentences = {
+        extractors._metric_sentence_bounds(source, item[2], item[3])[:2]
+        for item in matches
+    }
+    bare_number = re.compile(rf"(?<!\w)(?P<count>{_NUMBER})(?!\w)")
+    for match in bare_number.finditer(source or ""):
+        count_start, count_end = match.start("count"), match.end("count")
+        if any(start <= count_start < end for _, _, start, end, _ in matches):
+            continue
+        raw = match.group("count")
+        if re.fullmatch(r"(?:19|20|25)\d{2}", re.sub(r"[\s.,]", "", raw)):
+            continue
+        if re.match(r"\s*(?:%|percent|persen)\b", source[count_end:count_end + 12], re.I):
+            continue
+        if re.match(
+            r"\s*(?:deaths?|died|killed|fatalit(?:y|ies)|kematian|meninggal|tử\s+vong|เสียชีวิต)\b",
+            source[count_end:count_end + 24],
+            re.IGNORECASE,
+        ):
+            continue
+        sentence_bounds = extractors._metric_sentence_bounds(source, count_start, count_end)
+        scope = extractors.metric_source_scope(source, count_start, count_end)
+        if scope == "article_local" and sentence_bounds not in case_sentences:
+            continue
+        value = _number(raw, "")
+        if value <= 0:
+            continue
+        matches.append((count_start, count_end, count_start, count_end, value))
+    count_spans = [(item[2], item[3]) for item in matches]
+    kept = list(relations)
+    labeled: list[MetricRelation] = []
+
+    for match_start, match_end, count_start, count_end, value in matches:
+        scope = extractors.metric_source_scope(source, count_start, count_end)
+        overlapping = [
+            relation for relation in kept
+            if _offsets_overlap(relation.evidence_offset_start, relation.evidence_offset_end, match_start, match_end)
+            or _offsets_overlap(relation.evidence_offset_start, relation.evidence_offset_end, count_start, count_end)
+        ]
+        if scope != "article_local":
+            kept = [relation for relation in kept if relation not in overlapping]
+            evidence = source[match_start:match_end].strip()
+            labeled.append(MetricRelation(
+                location=LinkedLocation(name=scope, country="", evidence=evidence),
+                cases=0,
+                value=value,
+                evidence=evidence,
+                metric_type="cases",
+                qualifier=scope,
+                source_scope=scope,
+                evidence_offset_start=match_start,
+                evidence_offset_end=match_end,
+                source_sentence_id=_source_sentence_id(source, match_start),
+            ))
+            continue
+        sentence_start, sentence_end = extractors._metric_sentence_bounds(source, count_start, count_end)
+        window = _count_window(source, count_start, count_end, sentence_start, sentence_end, count_spans)
+        country_hint = _sentence_country(source, sentence_start, sentence_end, locations)
+        places = _clause_place_candidates(
+            source, window[0], window[1], locations, linker, country_hint
+        )
+        place = _place_for_count(count_start, count_end, places, window)
+        if place is None:
+            kept = [
+                relation for relation in kept
+                if relation not in overlapping
+                or relation.location.name.casefold() in source[sentence_start:sentence_end].casefold()
+            ]
+            continue
+        aligned = [
+            relation for relation in overlapping
+            if relation.location.name.casefold() == place.name.casefold() and relation.cases == value
+        ]
+        already = [
+            relation for relation in kept
+            if relation.location.name.casefold() == place.name.casefold() and relation.cases == value
+        ]
+        kept = [relation for relation in kept if relation not in overlapping or relation in aligned or relation in already]
+        if aligned or already:
+            for relation in [*aligned, *already]:
+                relation.source_scope = "article_local"
+            continue
+        carried_deaths = next(
+            (
+                relation.deaths
+                for relation in overlapping
+                if relation.location.name.casefold() == place.name.casefold() and relation.deaths is not None
+            ),
+            None,
+        )
+        place_spans = [start for start, end, linked in places if linked.name.casefold() == place.name.casefold()]
+        place_ends = [end for start, end, linked in places if linked.name.casefold() == place.name.casefold()]
+        evidence_start = min([match_start, *place_spans]) if place_spans else match_start
+        evidence_end = max([match_end, *place_ends]) if place_ends else match_end
+        evidence = source[evidence_start:evidence_end].strip()
+        kept.append(MetricRelation(
+            location=place,
+            cases=value,
+            deaths=carried_deaths if carried_deaths is not None else _clause_death_count(source, count_end, window[1]),
+            time_frame=_relation_time_frame_for_span(
+                source, place, published_date, count_start, count_end
+            ),
+            evidence=evidence,
+            disease=_relation_disease(source, match_start, match_end),
+            metric_type="cases",
+            qualifier=_relation_qualifier(source, match_start, match_end),
+            value=value,
+            evidence_offset_start=match_start,
+            evidence_offset_end=match_end,
+            source_sentence_id=_source_sentence_id(source, match_start),
+            country_scope=place.country or None,
+            source_scope="article_local",
+        ))
+    return [*kept, *labeled]
 
 
 def extract_metric_relations(
@@ -2214,7 +2586,13 @@ def extract_metric_relations(
         linked = linker.link(raw, context=context)
         if linked and not any(r.location.name.casefold() == linked.name.casefold() for r in relations.values()):
             continue
-    return list(relations.values())
+    return _bind_counts_to_clause_places(
+        source,
+        list(relations.values()),
+        locations,
+        linker,
+        published_date,
+    )
 
 
 # ---------------------------------------------------------------------------

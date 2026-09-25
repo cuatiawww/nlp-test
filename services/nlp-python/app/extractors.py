@@ -85,6 +85,10 @@ def normalize_disease_display(disease: str, language: str = "unknown", text: str
         "campak": "Measles",
         "measles": "Measles",
         "measles campak": "Measles",
+        "mumps": "Mumps",
+        "gondongan": "Mumps",
+        "parotitis": "Mumps",
+        "beguk": "Mumps",
         "hantavirus": "Hantavirus infection",
         "hantavirus infection": "Hantavirus infection",
         "avian influenza": "Avian influenza",
@@ -2058,7 +2062,8 @@ def disease_has_textual_evidence(disease: str, text: str) -> bool:
     if any(part in token for part in ("avian", "h5n1", "bird flu", "flu burung")):
         return any(marker in folded for marker in _AVIAN_EVIDENCE)
     aliases = {
-        "measles": ("measles", "campak", "rubella", "sởi", "โรคหัด", "ဝက်သက်", "កញ្ជ្រឹល", "ໝາກແດງ"),
+        "measles": ("measles", "campak", "sởi", "โรคหัด", "ဝက်သက်", "កញ្ជ្រឹល", "ໝາກແດງ"),
+        "mumps": ("mumps", "gondongan", "beguk", "parotitis", "quai bị", "quai bi", "คางทูม", "beke"),
         "rabies": ("rabies", "anjing gila", "lyssavirus", "bệnh dại", "พิษสุนัขบ้า", "ခွေးရူးရောဂါ", "ជំងឺឆ្កែឆ្កួត", "ພະຍາດວໍ້"),
         "dengue": (
             "dengue", "dbd", "demam berdarah", "sot xuat huyet", "sốt xuất huyết",
@@ -2164,6 +2169,7 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         rank_lede_diseases(aliases + diseases, lede or opening),
         text,
     )
+    ranked = prefer_outbreak_diseases(ranked, text)
     disease = ranked[0] if ranked else None
     # The full article may mention neighbouring countries in background or
     # weather sections. Primary geography must start from the headline/lede;
@@ -2535,6 +2541,108 @@ def is_non_incident_metric_context(text: str, start: int, end: int) -> bool:
     )
 
 
+# World/annual signals in the languages this pipeline already reads.
+# A figure in one of these sentences is a global average, not a local outbreak count.
+_GLOBAL_AVERAGE_SCOPE = re.compile(
+    r"(?:"
+    r"\b(?:worldwide|world-wide|globally|annual average|each year|every year|per year)\b|"
+    r"\bglobal average\b|"
+    r"\bWHO\b|world health organization|organisasi kesehatan dunia|"
+    r"secara global|seluruh dunia|setiap tahun(?:nya)?|"
+    r"toàn cầu|mỗi năm|"
+    r"ทั่วโลก|ทุกปี|"
+    r"ទូទាំងពិភពលោក|"
+    r"ທົ່ວໂລກ|"
+    r"ကမ္ဘာတစ်ဝှမ်း|နှစ်စဉ်"
+    r")",
+    re.IGNORECASE | re.UNICODE,
+)
+_RELATED_LINK_HEADING = re.compile(
+    r"(?:^|\n)[ \t]*(?:"
+    r"related(?:[ \t]+(?:articles?|stories|links?))?|"
+    r"see also|read more|more on this story|"
+    r"baca juga|artikel terkait|berita terkait|lihat juga|"
+    r"xem thêm|đọc thêm|"
+    r"ข่าวที่เกี่ยวข้อง|អត្ថបទពាក់ព័ន្ធ|ບົດຄວາມທີ່ກ່ຽວຂ້ອງ"
+    r")\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_VACCINE_MENTION = re.compile(
+    r"(?:vaccin(?:e|es|ation)|immuni[sz]ation|\bmmr\b|"
+    r"vaksin(?:asi)?|imunisasi|"
+    r"วัคซีน|vắc[\s-]?xin|វ៉ាក់សាំង|ວັກຊີນ|ကာကွယ်ဆေး|bakuna)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def related_link_offset(text: str) -> int:
+    """Offset where a related-link block starts, or -1 when the article has none."""
+
+    match = _RELATED_LINK_HEADING.search(text or "")
+    return match.start() if match else -1
+
+
+def _metric_sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """Sentence bounds that do not split on thousands separators such as 2.001."""
+
+    source = text or ""
+    left = 0
+    pos = start
+    while pos > 0:
+        idx = max(source.rfind(mark, 0, pos) for mark in ".!?\n")
+        if idx < 0:
+            break
+        if (
+            source[idx] == "."
+            and idx > 0
+            and idx + 1 < len(source)
+            and source[idx - 1].isdigit()
+            and source[idx + 1].isdigit()
+        ):
+            pos = idx
+            continue
+        left = idx + 1
+        break
+    right = len(source)
+    pos = end
+    while pos < len(source):
+        candidates = [source.find(mark, pos) for mark in ".!?\n"]
+        candidates = [item for item in candidates if item >= 0]
+        if not candidates:
+            break
+        idx = min(candidates)
+        if (
+            source[idx] == "."
+            and idx > 0
+            and idx + 1 < len(source)
+            and source[idx - 1].isdigit()
+            and source[idx + 1].isdigit()
+        ):
+            pos = idx + 1
+            continue
+        right = idx
+        break
+    return left, right
+
+
+def metric_source_scope(text: str, start: int, end: int) -> str:
+    """Label a metric as article-local, a global average, or a figure from another URL.
+
+    The decision uses the sentence around the number. It does not look up a city
+    list and it does not treat a later country mention as the place of a global figure.
+    """
+
+    source = text or ""
+    link_at = related_link_offset(source)
+    if link_at >= 0 and start >= link_at:
+        return "other_url"
+    sentence_start, sentence_end = _metric_sentence_bounds(source, start, end)
+    sentence = source[sentence_start:sentence_end]
+    if _GLOBAL_AVERAGE_SCOPE.search(sentence):
+        return "global_average"
+    return "article_local"
+
+
 def _extract_count(text: str, field: str, default: int, disease: Optional[str] = None) -> int:
     raw = "".join(
         str(unicodedata.digit(char)) if unicodedata.category(char) == "Nd" else char
@@ -2805,6 +2913,12 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             score -= 12
         if re.search(r"\b(?:about|around|nearly|approximately|roughly)\b", window_l):
             score -= 14
+        scope = metric_source_scope(search_text, match.start(1), match.end(1)) if field == "case_count" else "article_local"
+        if scope in {"global_average", "other_url"}:
+            # A sole worldwide figure can still be the article total. When a
+            # local count is also present, this penalty keeps the global
+            # average from winning the scalar.
+            score -= 100
         if disease_terms and any(term in window_l for term in disease_terms):
             score += 12
         if re.search(r"\b(?:recorded|confirmed|reported|logged|mencatat|melaporkan)\b", window_l):
@@ -3613,6 +3727,20 @@ DISEASE_ALIASES: dict[str, str] = {
     "ໄຂ້ໝາກແດງ": "Measles",
     "rubeola": "Measles",
     "morbilli": "Measles",
+    "mumps": "Mumps",
+    "parotitis": "Mumps",
+    "infectious parotitis": "Mumps",
+    "epidemic parotitis": "Mumps",
+    "gondongan": "Mumps",
+    "penyakit gondongan": "Mumps",
+    "beguk": "Mumps",
+    "quai bị": "Mumps",
+    "bệnh quai bị": "Mumps",
+    "benh quai bi": "Mumps",
+    "คางทูม": "Mumps",
+    "โรคคางทูม": "Mumps",
+    "beke": "Mumps",
+    "ပါးချိတ်ရောင်": "Mumps",
     "rubella": "Rubella",
     "campak jerman": "Rubella",
     "campak 3 hari": "Rubella",
@@ -4362,6 +4490,85 @@ def extract_diseases(text: str) -> list[str]:
 def extract_alias_diseases(text: str) -> list[str]:
     """Return high-precision explicit aliases, primarily for title matching."""
     return sorted(set(value for _, value in _matched_disease_aliases(text)))
+
+
+def _alias_positions(alias: str, text: str) -> list[int]:
+    if not alias or not text:
+        return []
+    if re.search(r"[A-Za-z0-9]", alias):
+        pattern = rf"(?<!\w){re.escape(alias)}(?!\w)"
+    else:
+        pattern = re.escape(alias)
+    return [match.start() for match in re.finditer(pattern, text, re.IGNORECASE | re.UNICODE)]
+
+
+def disease_mention_positions(disease: str, text: str) -> list[int]:
+    """Character offsets where this disease, or one of its aliases, is named."""
+
+    label = canonical_disease_name(disease)
+    canon = label.casefold()
+    positions: list[int] = []
+    try:
+        aliases = active_disease_aliases()
+    except Exception:
+        aliases = DISEASE_ALIASES
+    for alias, target in aliases.items():
+        target_canon = canonical_disease_name(str(target)).casefold()
+        if target_canon != canon and str(target).casefold() != canon:
+            continue
+        positions.extend(_alias_positions(str(alias), text or ""))
+    positions.extend(_alias_positions(label, text or ""))
+    return sorted(set(positions))
+
+
+def _mention_is_non_outbreak_context(pos: int, text: str, link_at: int) -> bool:
+    if link_at >= 0 and pos >= link_at:
+        return True
+    window = (text or "")[max(0, pos - 90): pos + 90]
+    return bool(_VACCINE_MENTION.search(window))
+
+
+def prefer_outbreak_diseases(candidates: list[str], text: str) -> list[str]:
+    """Keep the disease named with the counts.
+
+    A vaccine phrase or a related-link headline must not replace that disease.
+    Alias coverage is multilingual; the rule itself only looks at where the
+    mention sits relative to the count, a vaccine word, or a related-link block.
+    """
+
+    unique = list(dict.fromkeys(
+        item for item in candidates
+        if item and str(item).strip().upper() != "UNKNOWN"
+    ))
+    if len(unique) <= 1:
+        return unique
+    source = text or ""
+    link_at = related_link_offset(source)
+
+    def context_only(name: str) -> bool:
+        positions = disease_mention_positions(name, source)
+        if not positions:
+            return False
+        return all(_mention_is_non_outbreak_context(pos, source, link_at) for pos in positions)
+
+    substantive = [item for item in unique if not context_only(item)]
+    pool = substantive or unique
+
+    def sort_key(name: str) -> tuple[int, int]:
+        positions = disease_mention_positions(name, source) or [10**9]
+        near_count = 0
+        for pos in positions:
+            if pos >= 10**9 or (link_at >= 0 and pos >= link_at):
+                continue
+            if _mention_is_non_outbreak_context(pos, source, link_at):
+                continue
+            window = source[max(0, pos - 120): pos + 120]
+            if re.search(r"\d", window):
+                near_count = 1
+                break
+        return (-near_count, min(positions))
+
+    return sorted(pool, key=sort_key)
 
 
 def extract_date_from_text(text: str) -> Optional[str]:
