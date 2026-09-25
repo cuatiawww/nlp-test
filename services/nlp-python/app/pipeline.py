@@ -424,10 +424,20 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     extras = _rank_diseases(extracted, text + " " + analysis_text)
     extracted = list(dict.fromkeys([*(facts.get("diseases") or []), *extracted, *extras]))
     extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
+    extracted = extractors.prefer_outbreak_diseases(extracted, text + " " + analysis_text)
     if facts.get("disease"):
-        extracted = [facts["disease"], *[item for item in extracted if item != facts["disease"]]]
-        disease = facts["disease"]
-        confidence = max(confidence, 0.85)
+        ordered = extractors.prefer_outbreak_diseases(
+            [facts["disease"], *extracted],
+            text + " " + analysis_text,
+        )
+        if ordered:
+            disease = ordered[0]
+            extracted = ordered
+            confidence = max(confidence, 0.85)
+        else:
+            extracted = [facts["disease"], *[item for item in extracted if item != facts["disease"]]]
+            disease = facts["disease"]
+            confidence = max(confidence, 0.85)
     has_keywords = bool(extracted or symptoms)
     is_health_related = has_keywords and not non_health_topic
 
@@ -2218,6 +2228,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         elif len(relation_location_names) == 1:
             for event in sub_events:
                 if str(event.country or country).casefold() == str(country or "").casefold():
+                    evidence_cf = str(event.evidence or "").casefold()
+                    current_name = str(event.location_name or "")
+                    # A count whose evidence already names its place keeps that
+                    # place. Do not stamp the document's single city onto it.
+                    if (
+                        current_name
+                        and current_name.casefold() != str(local_source_location).casefold()
+                        and current_name.casefold() in evidence_cf
+                    ):
+                        continue
                     event.location_name = local_source_location
                     event.country = country
 
@@ -2591,6 +2611,34 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         sub_events = []
         outbreak_alert = False
         is_health_related = False
+
+    local_rows = [
+        evt for evt in sub_events
+        if int(evt.case_count or 0) > 0
+        and str(evt.metric_qualifier or "") not in {"global_average", "other_url"}
+        and str((evt.provenance or {}).get("source_scope") or "article_local") == "article_local"
+    ]
+    if local_rows:
+        local_names = {str(evt.location_name or "").casefold() for evt in local_rows if evt.location_name}
+        local_counts = {int(evt.case_count or 0) for evt in local_rows}
+        if location and str(location).casefold() not in local_names:
+            # The most frequent narrative place is not where the counts were reported.
+            if len(local_names) == 1:
+                location = next(evt.location_name for evt in local_rows if evt.location_name)
+                loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=country)
+                admin_place = extractors.split_admin_place(location, country)
+                final_province = loc_hier.get("admin1_name") or admin_place[0]
+                final_city = loc_hier.get("admin2_name") or admin_place[1]
+            else:
+                final_province = None
+                final_city = None
+                loc_hier = {
+                    **loc_hier,
+                    "admin1_name": None,
+                    "admin2_name": None,
+                }
+        if case_count and int(case_count) not in local_counts and int(case_count) > max(local_counts):
+            case_count = sum(int(evt.case_count or 0) for evt in local_rows)
 
     outbreak_alert = calibrate_outbreak_alert(
         disease=disease,
