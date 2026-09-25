@@ -284,7 +284,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         doc_validation_flags.append("challenge_page_detected")
         needs_review = True
     is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text))) or is_challenge_page
-    if not location and not is_noisy_early and not payload.historical_fast and not payload.interactive and not non_health_topic:
+    if (
+        not location
+        and not is_noisy_early
+        and not payload.historical_fast
+        and not payload.interactive
+        and not non_health_topic
+        and config.AGENT_ENABLED
+    ):
         try:
             from .deepseek import detect_location
             resolved_location = detect_location(

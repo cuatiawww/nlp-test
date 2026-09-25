@@ -2517,13 +2517,29 @@ def _period_score(window: str, full_text: str) -> int:
 def _focal_human_case_override(text: str) -> Optional[int]:
     if article_states_zero_cases(text) or _OUTBREAK_CLOSED.search(text or ""):
         return None
-    headline_two = _HEADLINE_TWO.search(text or "")
-    if headline_two and not _is_embedded_number_word(text or "", headline_two.start()):
+    source = text or ""
+    # Photo-caption / vignette singular ("A child diagnosed...") must not
+    # override an explicit multi-case national total in the same article.
+    large_total = re.search(
+        r"(?i)(?:more\s+than|over|nearly|about|around|approximately|at\s+least|top|reached|recorded|logged|reported|"
+        r"sebanyak|lebih\s+dari|mencapai|ghi\s+nhận)\s*"
+        r"(\d{1,3}(?:[,.\s]\d{3})+|\d{2,})\s+"
+        r"(?:cases?|kasus|infections?|patients?|penderita|ca\s+mắc|trường\s+hợp)",
+        source,
+    )
+    if large_total:
+        try:
+            raw = re.sub(r"[,.\s]", "", large_total.group(1))
+            if int(raw) >= 10:
+                return None
+        except Exception:
+            pass
+    headline_two = _HEADLINE_TWO.search(source)
+    if headline_two and not _is_embedded_number_word(source, headline_two.start()):
         return 2
-    if _FOCAL_SINGULAR.search(text or ""):
+    if _FOCAL_SINGULAR.search(source):
         return 1
     return None
-
 
 def is_non_incident_metric_context(text: str, start: int, end: int) -> bool:
     """Detect DB-managed counts that are not disease incidence metrics."""
@@ -2977,6 +2993,20 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
                 candidates.append((40, adjacent.start("count"), parsed, _period_score(
                     _sentence_window(search_text, adjacent.start(), adjacent.end()), search_text
                 )))
+        # "Deaths due to dengue ... to 43 cases compared with 111"
+        # Some English wires reuse the word "cases" for fatality totals.
+        deaths_as_cases = re.search(
+            # Allow '.' inside percentages such as "61.3 per cent to 43 cases".
+            rf"(?i)(?:deaths?|fatalities|kematian|korban\s+jiwa)\s+due\s+to\b.{{0,160}}?"
+            rf"\bto\s+(?P<count>{num_token})\s+(?:cases?|deaths?|fatalities|kematian)\b",
+            search_text,
+        )
+        if deaths_as_cases:
+            parsed = _parse_count(deaths_as_cases.group("count"), deaths_as_cases.group(0))
+            if parsed is not None:
+                candidates.append((45, deaths_as_cases.start("count"), parsed, _period_score(
+                    _sentence_window(search_text, deaths_as_cases.start(), deaths_as_cases.end()), search_text
+                )))
 
     override = _focal_human_case_override(search_text)
     if field == "case_count" and _OUTBREAK_CLOSED.search(search_text):
@@ -3257,6 +3287,19 @@ def extract_case_count(text: str, disease: Optional[str] = None) -> int:
     default = max(0, default)
     try:
         source = _compact_spaced_thousands(str(text or ""))
+        # Prefer exact "sebanyak 161.752 kasus ... dengan 673 kematian" over "161 ribu".
+        exact_pair = re.search(
+            r"(?i)(?:sebanyak|tercatat|logged|recorded|reported)\s+"
+            r"(?P<cases>\d{1,3}(?:[.,]\d{3})+)\s+(?:kasus|cases)\b"
+            r"[^.!?]{0,80}?(?:dengan|with|and)\s+"
+            r"(?P<deaths>\d{1,3}(?:[.,]\d{3})*|\d+)\s+"
+            r"(?:kematian|deaths?|meninggal|fatalities)\b",
+            source[:2500],
+        )
+        if exact_pair:
+            parsed_cases = _parse_count(exact_pair.group("cases"), exact_pair.group(0))
+            if parsed_cases is not None and parsed_cases >= 10:
+                return max(0, int(parsed_cases))
         article_country = extract_country_hint(source[:1500])
         if article_country and _focal_human_case_override(source) != 1:
             number = _runtime_number_word_pattern()
@@ -3275,7 +3318,7 @@ def extract_case_count(text: str, disease: Optional[str] = None) -> int:
                 window = _sentence_window(source, match.start(), match.end())
                 window_l = window.casefold()
                 if re.search(
-                    r"\b(?:last year|previous year|same period|compared with|compared to|"
+                    r"\b(?:last year|previous year|year before|a year earlier|same period|compared with|compared to|"
                     r"tahun lalu|tahun lepas|berbanding|berbanding dengan)\b",
                     window_l,
                 ):
@@ -3326,6 +3369,34 @@ def has_explicit_death_count(text: str, disease: Optional[str] = None) -> bool:
 
 def extract_death_count(text: str, disease: Optional[str] = None) -> int:
     try:
+        source = _compact_spaced_thousands(str(text or ""))
+        # "20,115 total cases, including 11 deaths" — national inclusive death total
+        including_deaths = re.search(
+            r"(?i)(?:total\s+)?(?:cases?|kasus)\b[^.!?]{0,60}?\bincluding\s+"
+            r"(?P<deaths>\d{1,3}(?:[.,]\d{3})*|\d+)\s+"
+            r"(?:deaths?|fatalities|kematian|meninggal)\b",
+            source[:2500],
+        )
+        if including_deaths:
+            parsed_deaths = _parse_count(including_deaths.group("deaths"), including_deaths.group(0))
+            if parsed_deaths is not None:
+                max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
+                if 0 < parsed_deaths <= max_count:
+                    return max(0, int(parsed_deaths))
+        exact_pair = re.search(
+            r"(?i)(?:sebanyak|tercatat|logged|recorded|reported)\s+"
+            r"(?P<cases>\d{1,3}(?:[.,]\d{3})+)\s+(?:kasus|cases)\b"
+            r"[^.!?]{0,80}?(?:dengan|with|and)\s+"
+            r"(?P<deaths>\d{1,3}(?:[.,]\d{3})*|\d+)\s+"
+            r"(?:kematian|deaths?|meninggal|fatalities)\b",
+            source[:2500],
+        )
+        if exact_pair:
+            parsed_deaths = _parse_count(exact_pair.group("deaths"), exact_pair.group(0))
+            if parsed_deaths is not None:
+                max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
+                if parsed_deaths <= max_count:
+                    return max(0, int(parsed_deaths))
         parsed = _extract_count(text, "death_count", 0, disease=disease)
         max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
         if parsed is None or parsed > max_count:
@@ -3942,7 +4013,7 @@ DISEASE_ALIASES: dict[str, str] = {
     "กาลี": "Anthrax",
     "bệnh than": "Anthrax",
     "benh than": "Anthrax",
-    "than": "Anthrax",
+    # NOTE: bare "than" removed — collides with English "more than"/"rather than".
     "bệnh nhiệt thán": "Anthrax",
     "ဒေါင့်သန်း": "Anthrax",
     "ဒေါင့်သန်းရောဂါ": "Anthrax",
@@ -3973,6 +4044,11 @@ DISEASE_ALIASES: dict[str, str] = {
     "mpox": "Mpox",
     "monkeypox": "Mpox",
     "cacar monyet": "Mpox",
+    "gondongan": "Mumps",
+    "penyakit gondongan": "Mumps",
+    "mumps": "Mumps",
+    "parotitis": "Mumps",
+    "epidemic parotitis": "Mumps",
     "ฝีดาษลิง": "Mpox",
     "โรคฝีดาษวานร": "Mpox",
     "ฝีดาษวานร": "Mpox",
@@ -3989,7 +4065,11 @@ DISEASE_ALIASES: dict[str, str] = {
     "ໝາກສຸກລີງ": "Mpox",
     "monkeypox virus": "Mpox",
     "simian pox": "Mpox",
-    "cacar air": "Smallpox",
+    "cacar air": "Chickenpox",
+    "chickenpox": "Chickenpox",
+    "chicken pox": "Chickenpox",
+    "varicella": "Chickenpox",
+    "varicella zoster": "Chickenpox",
     "variola": "Smallpox",
     "cacar": "Smallpox",
     "smallpox": "Smallpox",
