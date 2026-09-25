@@ -96,6 +96,17 @@ recover_start_failure() {
   exit "$code"
 }
 
+recover_run_all_failure() {
+  local code=$?
+  if ((code != 0)) && [[ -n "${RUN_ID:-}" ]]; then
+    echo "Reanalysis failed (exit=$code); releasing held messages safely" >&2
+    run_worker finish "$RUN_ID" --force || true
+    start_consumers || true
+    service_exists "$COLLECTOR_SERVICE" && compose start "$COLLECTOR_SERVICE" || true
+  fi
+  exit "$code"
+}
+
 case "$ACTION" in
   start)
     run_worker set-mode DRAINING --reason "reanalysis drain"
@@ -117,6 +128,20 @@ case "$ACTION" in
       --run-id "$RUN_ID" --batch-size "${REANALYZE_BATCH_SIZE:-50}" "$@"
     trap - EXIT
     ;;
+  run-all)
+    shift
+    trap recover_run_all_failure EXIT
+    START_OUTPUT="$("$0" start)"
+    printf '%s\n' "$START_OUTPUT"
+    RUN_ID="$(printf '%s\n' "$START_OUTPUT" | sed -n 's/^REANALYSIS_RUN_ID=//p' | tail -n 1)"
+    [[ -n "$RUN_ID" ]] || {
+      echo "RUN_ID tidak ditemukan dari proses start" >&2
+      exit 1
+    }
+    "$0" run "$RUN_ID" "$@"
+    "$0" finish "$RUN_ID"
+    trap - EXIT
+    ;;
   finish)
     RUN_ID="${2:?finish membutuhkan RUN_ID}"
     run_worker finish "$RUN_ID"
@@ -135,6 +160,7 @@ Usage:
   scripts/reanalysis_maintenance.sh start
   scripts/reanalysis_maintenance.sh run <RUN_ID> [reanalyze options]
   scripts/reanalysis_maintenance.sh finish <RUN_ID>
+  scripts/reanalysis_maintenance.sh run-all [reanalyze options]
   scripts/reanalysis_maintenance.sh status
   scripts/reanalysis_maintenance.sh recover
 

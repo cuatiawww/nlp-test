@@ -381,6 +381,21 @@ scripts/reanalysis_maintenance.sh run <RUN_ID> --skip-who-sync --batch-size 50
 scripts/reanalysis_maintenance.sh finish <RUN_ID>
 ```
 
+Jika tidak ingin menyimpan atau memasukkan `RUN_ID` secara manual, gunakan
+mode satu-command berikut. Mode ini otomatis melakukan `start`, `run`, dan
+`finish` saat berhasil:
+
+```bash
+COMPOSE_FILE=docker-compose.yml \
+COMPOSE_OVERRIDE_FILE=docker-compose-prod.override.yml \
+WORKER_SERVICE=disease-worker-python \
+scripts/reanalysis_maintenance.sh run-all \
+  --skip-who-sync --batch-size 50 --stop-on-error
+```
+
+Jika proses gagal atau dihentikan, cleanup otomatis menjalankan forced recovery
+dan melepas data yang tertahan. `RUN_ID` hanya dicetak sebagai informasi log.
+
 `start` memindahkan pipeline ke `DRAINING`, menunggu queue kosong, lalu
 memindahkannya ke `REANALYZING`. Data baru selama proses disimpan durable dan
 akan dilepas saat `finish`. Tidak ada `--limit`, sehingga seluruh event health
