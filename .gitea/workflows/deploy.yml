@@ -58,6 +58,10 @@ jobs:
             --exclude 'docker-compose.yml' \
             --exclude 'docker-compose-prod.override.yml' \
             --exclude 'services/nlp-python/models' \
+            --exclude '__pycache__/' \
+            --exclude '*.pyc' \
+            --exclude '*.pyo' \
+            --exclude '*.pyd' \
             "$GITHUB_WORKSPACE/" /home/nlpdev/docker/nlp-penyakit-git/
 
       - name: Build image
