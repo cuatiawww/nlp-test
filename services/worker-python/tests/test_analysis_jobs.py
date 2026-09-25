@@ -191,7 +191,7 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(payload["content"], "hello")
         self.assertEqual(post.call_count, 2)
 
-    def test_fetch_article_uses_fail_fast_http(self):
+    def test_fetch_article_uses_auto_mode(self):
         response = Mock()
         response.json.return_value = {"data": {"content": "hello"}}
         response.raise_for_status.return_value = None
@@ -199,7 +199,8 @@ class AnalysisJobTests(unittest.TestCase):
             payload = fetch_article("https://example.org/news", fallback=False)
         self.assertEqual(payload["content"], "hello")
         sent = post.call_args.kwargs["json"]
-        self.assertEqual(sent["fetch_mode"], "http")
+        self.assertEqual(sent["fetch_mode"], "auto")
+        self.assertFalse(sent.get("skip_stealth", True))
         self.assertEqual(sent["max_retries"], 1)
         self.assertGreaterEqual(sent["timeout_ms"], 25000)
         self.assertLessEqual(sent["timeout_ms"], 45000)

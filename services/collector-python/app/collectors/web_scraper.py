@@ -22,6 +22,11 @@ from ..crawler_identity import (
 )
 
 from .base import BaseCollector, CollectResult
+from .publisher_selectors import (
+    is_slow_publisher,
+    resolve_body_selectors,
+    resolve_title_selectors,
+)
 
 logger = logging.getLogger(__name__)
 BLOCKED_STATUSES = {403, 429, 503}
@@ -313,7 +318,61 @@ def _selected_text(page: Any, selector: str) -> str:
     return str(element.get_all_text(separator=" ", strip=True)).strip()
 
 
-def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str]:
+MIN_ARTICLE_CHARS = 120
+CHALLENGE_RESIDUAL_MARKERS = (
+    "just a moment",
+    "checking your browser",
+    "enable javascript and cookies",
+    "cf-browser-verification",
+    "attention required",
+    "verifying you are human",
+)
+
+
+def _preserve_paragraphs(content: str) -> str:
+    """Collapse runs of spaces/tabs but keep paragraph/newline structure."""
+    content = content or ""
+    content = re.sub(r"[ \t]+", " ", content)
+    content = re.sub(r" ?\n ?", "\n", content)
+    content = re.sub(r"\n{3,}", "\n\n", content)
+    return content.strip()
+
+
+def _assess_extract_quality(content: str, html: str = "") -> dict:
+    """Return quality flags so callers do not silently send junk to Full NLP."""
+    flags: list[str] = []
+    text = (content or "").strip()
+    lower = text.lower()
+    if not text:
+        flags.append("empty")
+    elif len(text) < MIN_ARTICLE_CHARS:
+        flags.append("too_short")
+    compact = re.sub(r"\s+", " ", lower)
+    nav_hits = sum(
+        1
+        for marker in (
+            "home", "about", "contact", "privacy", "login", "subscribe", "beranda", "kontak",
+        )
+        if marker in compact
+    )
+    if text and len(text) < 280 and nav_hits >= 3 and len(text.split()) < 40:
+        flags.append("nav_only")
+    sample = (html or "")[:50_000].lower()
+    if any(marker in lower or marker in sample for marker in CHALLENGE_RESIDUAL_MARKERS):
+        flags.append("challenge_residual")
+    truncated = bool(text.endswith("...") or text.endswith("…"))
+    quality_ok = not any(
+        f in flags for f in ("empty", "too_short", "nav_only", "challenge_residual")
+    )
+    return {
+        "quality_ok": quality_ok,
+        "truncated": truncated,
+        "quality_flags": flags,
+        "content_chars": len(text),
+    }
+
+
+def _extract_main_content(html: str, title_selector: str = "", url: str = "") -> tuple[str, str]:
     """Return title and boilerplate-free main content; never fall back to full body."""
     from bs4 import BeautifulSoup
     from trafilatura import extract, extract_metadata
@@ -330,9 +389,21 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
     for node in soup_probe.select(media_noise_selectors):
         node.decompose()
 
-    primary_article_node = soup_probe.select_one(
-        "article.news-content, .news-content, .article__body, .cms-body, .article-body, .detail__content, .detail-content, .entry-content, .post-content, .article-content, #article-content, article"
+    domain_selectors = resolve_body_selectors(url) if url else ()
+    generic_selectors = (
+        "article.news-content, .news-content, .article__body, .cms-body, .article-body, "
+        ".detail__content, .detail-content, .entry-content, .post-content, .article-content, "
+        "#article-content, article"
     )
+    primary_article_node = None
+    for sel in domain_selectors:
+        primary_article_node = soup_probe.select_one(sel)
+        if primary_article_node and len(primary_article_node.get_text(" ", strip=True)) >= 120:
+            break
+        primary_article_node = None
+    if primary_article_node is None:
+        primary_article_node = soup_probe.select_one(generic_selectors)
+
     if primary_article_node and len(primary_article_node.get_text(" ", strip=True)) >= 120:
         for rel_node in primary_article_node.select(media_noise_selectors):
             rel_node.decompose()
@@ -342,7 +413,7 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
             html,
             output_format="txt",
             include_comments=False,
-            include_tables=False,
+            include_tables=True,
             favor_precision=True,
             deduplicate=True,
         )
@@ -373,8 +444,13 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
 
     for node in soup.select(media_noise_selectors):
         node.decompose()
-    if title_selector:
-        sel_node = soup.select_one(title_selector)
+    effective_title_selector = title_selector
+    if not effective_title_selector and url:
+        for sel in resolve_title_selectors(url):
+            effective_title_selector = sel
+            break
+    if effective_title_selector:
+        sel_node = soup.select_one(effective_title_selector)
         if sel_node:
             title = sel_node.get_text(" ", strip=True)
 
@@ -385,7 +461,7 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
             or soup.select_one('[role="main"]')
             or soup.select_one('.MuiCardContent-root, .MuiPaper-root, .post-content, .entry-content, .article-content, .content, .body, #content, #main-content')
         )
-        content = main_node.get_text(" ", strip=True) if main_node else ""
+        content = main_node.get_text("\n", strip=True) if main_node else ""
 
     if not content or len(content) < 80:
         p_texts = [
@@ -394,7 +470,7 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
             if len(p.get_text(" ", strip=True)) > 15
         ]
         if p_texts:
-            content = " ".join(p_texts)
+            content = "\n\n".join(p_texts)
 
     if not content or len(content) < 50:
         for node in soup.select("nav, footer, header, aside, script, style, noscript, svg"):
@@ -414,7 +490,7 @@ def _extract_main_content(html: str, title_selector: str = "") -> tuple[str, str
         if content_parts and len(content_parts[0].strip()) >= 200:
             content = content_parts[0].strip()
 
-    content = " ".join((content or "").split())
+    content = _preserve_paragraphs(content or "")
     lower_title = (title or "").lower()
     lower_content = (content or "").lower()
     if "error page" in lower_title or "page not found" in lower_title or lower_content.startswith("error page page not found"):
@@ -575,9 +651,13 @@ class WebScraperCollector(BaseCollector):
             return False
         return True
 
-    def _interactive_timeout_seconds(self) -> int:
+    def _interactive_timeout_seconds(self, url: str = "") -> int:
         configured_ms = int(self.config.get("timeout_ms", app_config.INTERACTIVE_HTML_TIMEOUT_SECONDS * 1000))
-        return max(1, min(configured_ms // 1000, 45))
+        seconds = max(1, min(configured_ms // 1000, 45))
+        # Slow ASEAN gov/CMS publishers need a longer bound than the default interactive floor.
+        if url and is_slow_publisher(url):
+            seconds = max(seconds, min(45, max(35, seconds)))
+        return seconds
 
     async def _fetch_direct_http(self, url: str, timeout_seconds: int = 12) -> FetchOutcome:
         """Fast bounded HTTP fetch with redirect SSRF checks and finite retries."""
@@ -698,7 +778,7 @@ class WebScraperCollector(BaseCollector):
             raise ValueError(f"Invalid fetch_mode: {fetch_mode}")
 
         outcome = None
-        timeout_seconds = self._interactive_timeout_seconds()
+        timeout_seconds = self._interactive_timeout_seconds(url)
         skip_stealth = fetch_mode != "stealth" and bool(self.config.get("skip_stealth", False))
 
         if fetch_mode == "http" or skip_stealth:
@@ -764,7 +844,7 @@ class WebScraperCollector(BaseCollector):
             title, content = shell_title, shell_content
         else:
             try:
-                title, content = _extract_main_content(outcome.html)
+                title, content = _extract_main_content(outcome.html, url=url)
             except Exception as exc:
                 logger.warning("Main content extraction failed for %s: %s, falling back to clean text", url, exc)
                 title, content = "", ""
@@ -798,6 +878,16 @@ class WebScraperCollector(BaseCollector):
         if short_article and not (len(content.split()) >= 8 and has_health_signal):
             raise RuntimeError("source returned an empty or unextractable article shell")
 
+        quality = _assess_extract_quality(content, outcome.html)
+        # Hard-fail only on junk that must never reach Full NLP. too_short alone
+        # can still be a valid outbreak blurb when the short_article health-signal
+        # check above already accepted it — surface the flag, do not raise.
+        hard = {"empty", "nav_only", "challenge_residual"} & set(quality["quality_flags"] or [])
+        if hard:
+            raise RuntimeError(
+                "source returned an empty or unextractable article shell: "
+                + ",".join(sorted(hard))
+            )
         return {
             "url": url,
             "title": title,
@@ -806,6 +896,10 @@ class WebScraperCollector(BaseCollector):
             "http_status": outcome.status,
             "source_country": _country_hint_from_url(url),
             "published_at": _extract_published_at(outcome.html, url=url, text=content),
+            "quality_ok": quality["quality_ok"],
+            "truncated": quality["truncated"],
+            "quality_flags": quality["quality_flags"],
+            "content_chars": quality["content_chars"],
             **_identity_payload(url, outcome, content),
         }
 
@@ -876,7 +970,7 @@ class WebScraperCollector(BaseCollector):
                         url, fetch_mode, body_selector, stealth_session, stack
                     )
                     title, body_text = _extract_main_content(
-                        outcome.html, title_selector=title_selector
+                        outcome.html, title_selector=title_selector, url=url
                     )
                     published_at = _extract_published_at(outcome.html, url=url, text=body_text)
                     text = f"{title}\n\n{body_text}" if title else body_text

@@ -22,6 +22,9 @@ class ExtractUrlRequest(BaseModel):
     fetch_mode: str = "auto"
     timeout_ms: int = config.INTERACTIVE_HTML_TIMEOUT_SECONDS * 1000
     max_retries: int = 1
+    # None => INTERACTIVE_SKIP_STEALTH (interactive/browser default).
+    # Async analysis jobs pass False so Cloudflare/SPA can escalate to stealth.
+    skip_stealth: bool | None = None
 
 
 class DiscoverUrlsRequest(BaseModel):
@@ -105,7 +108,10 @@ async def extract_url(payload: ExtractUrlRequest):
             "max_retries": max(0, min(payload.max_retries, config.CRAWLER_MAX_RETRIES if is_pdf_target else html_retries)),
             "solve_cloudflare": False,
             "max_pages": 1,
-            "skip_stealth": config.INTERACTIVE_SKIP_STEALTH and not is_pdf_target,
+            "skip_stealth": (
+                (config.INTERACTIVE_SKIP_STEALTH if payload.skip_stealth is None else bool(payload.skip_stealth))
+                and not is_pdf_target
+            ),
             "wait_ms": 1500,
         },
     })
