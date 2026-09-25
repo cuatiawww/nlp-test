@@ -795,7 +795,13 @@ fn event_select_sql(evidence_chars: i32) -> String {
             NULL::text AS icd11_code,
             de.created_at::text AS crawling_date,
             de.published_at::text AS article_date,
-            de.event_date::text AS date_case,
+            CASE
+                WHEN de.event_date_start IS NOT NULL
+                 AND de.event_date_end IS NOT NULL
+                 AND de.event_date_start <> de.event_date_end
+                    THEN de.event_date_start::text || ' to ' || de.event_date_end::text
+                ELSE COALESCE(de.event_date::text, de.event_date_start::text, de.event_date_end::text)
+            END AS date_case,
             de.case_count::bigint AS cases,
             de.death_count::bigint AS deaths,
             ST_Y(de.geom)::float8 AS latitude,
@@ -1911,6 +1917,14 @@ pub async fn summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_case_date_keeps_a_reporting_window() {
+        let sql = event_select_sql(200);
+        assert!(sql.contains("event_date_start::text || ' to ' || de.event_date_end::text"));
+        assert!(sql.contains("de.event_date_start <> de.event_date_end"));
+        assert!(sql.contains("COALESCE(de.event_date::text, de.event_date_start::text, de.event_date_end::text)"));
+    }
 
     #[test]
     fn channel_aliases_map_to_storage_tokens() {

@@ -12,6 +12,8 @@ from app.crawl_matrix_jobs import (
     build_news_query,
     disease_labels,
     extract_article,
+    format_case_date,
+    pipeline_analysis_to_matrix,
     LeaseLost,
     persist_dashboard_event_from_analysis,
     prepare_text_for_nlp,
@@ -154,6 +156,58 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         })
         self.assertEqual(adapted["locations"][0]["country"], "Malaysia")
         self.assertEqual(adapted["locations"][0]["reported_cases"], 19313)
+
+    def test_matrix_case_date_stores_year_span_not_publish_date(self):
+        published = "2026-04-15"
+        adapted = pipeline_analysis_to_matrix({
+            "country": "Timor-Leste",
+            "case_count": 26,
+            "case_count_unknown": False,
+            "death_count": 0,
+            "published_at": published,
+            "event_date": "2023-12-31",
+            "event_date_start": "2002-01-01",
+            "event_date_end": "2023-12-31",
+            "sub_events": [],
+            "locations": [],
+        })
+        row = adapted["locations"][0]
+        self.assertEqual(row["reported_cases"], 26)
+        self.assertEqual(row["time_frame"], "2002-01-01 to 2023-12-31")
+        self.assertEqual(adapted["time_frame"], "2002-01-01 to 2023-12-31")
+        self.assertNotIn(published, row["time_frame"])
+
+    def test_matrix_case_date_stores_named_month(self):
+        adapted = pipeline_analysis_to_matrix({
+            "country": "Timor-Leste",
+            "case_count": 195,
+            "case_count_unknown": False,
+            "death_count": 0,
+            "published_at": "2026-04-15",
+            "event_date": "2024-01-31",
+            "event_date_start": "2024-01-01",
+            "event_date_end": "2024-01-31",
+            "sub_events": [],
+        })
+        row = adapted["locations"][0]
+        self.assertEqual(row["reported_cases"], 195)
+        self.assertEqual(row["time_frame"], "2024-01-01 to 2024-01-31")
+        self.assertNotIn("2026-04-15", row["time_frame"])
+
+    def test_matrix_case_date_keeps_a_single_day(self):
+        self.assertEqual(format_case_date({
+            "event_date": "2026-10-14",
+            "event_date_start": "2026-10-14",
+            "event_date_end": "2026-10-14",
+        }), "2026-10-14")
+        adapted = pipeline_analysis_to_matrix({
+            "country": "Indonesia",
+            "case_count": 4,
+            "event_date": "2026-10-14",
+            "event_date_start": "2026-10-14",
+            "event_date_end": "2026-10-14",
+        })
+        self.assertEqual(adapted["locations"][0]["time_frame"], "2026-10-14")
 
     def test_analyze_article_passes_title_and_source_country(self):
         from unittest.mock import Mock, patch

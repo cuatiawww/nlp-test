@@ -265,6 +265,94 @@ def _ymd(year: Optional[int], month: Optional[int], day: Optional[int]) -> Optio
         return None
 
 
+# Closed year windows: "between 2002 and 2023", "from 2002 to 2023",
+# and the same shape in the cues already used for other ranges.
+_YEAR_SPAN = re.compile(
+    r"\b(?:between|from|antara|dari)\s+"
+    r"(?:the\s+years?\s+|tahun\s+|year\s+|năm\s+)?"
+    r"(?P<y1>(?:19|20)\d{2}|25\d{2})\s+"
+    r"(?:and|to|until|hingga|sampai|dan)\s+"
+    r"(?:tahun\s+|year\s+|năm\s+)?"
+    r"(?P<y2>(?:19|20)\d{2}|25\d{2})\b",
+    re.IGNORECASE,
+)
+
+
+def _apply_closed_window(result: dict, start: str, end: str, period_type: str) -> None:
+    """Store an inclusive calendar window. The point date remains the end."""
+    if start > end:
+        start, end = end, start
+    result["event_date_start"] = start
+    result["event_date_end"] = end
+    result["event_date"] = end
+    if period_type:
+        result["period_type"] = period_type
+    result["date_needs_review"] = True
+
+
+def _year_span_window(text: str) -> Optional[tuple[str, str]]:
+    """Return 1 Jan of the earlier year through 31 Dec of the later year."""
+    match = _YEAR_SPAN.search(text or "")
+    if not match:
+        return None
+    first = _calendar_year(match.group("y1"))
+    second = _calendar_year(match.group("y2"))
+    if not first or not second:
+        return None
+    if first > second:
+        first, second = second, first
+    return f"{first:04d}-01-01", f"{second:04d}-12-31"
+
+
+def _month_year_match(text: str) -> Optional[re.Match]:
+    """Match ``in/during/pada MONTH YEAR`` using the reviewed month registry."""
+    month_pattern = config.get_temporal_month_pattern()
+    if not month_pattern or month_pattern == "(?!)":
+        return None
+    return re.search(
+        rf"\b(?:in|during|pada)\s+(?P<month>{month_pattern})\s*,?\s+"
+        rf"(?P<year>(?:19|20)\d{{2}}|25\d{{2}})\b",
+        text or "",
+        re.IGNORECASE | re.UNICODE,
+    )
+
+
+def _month_year_window(match: re.Match) -> Optional[tuple[str, str]]:
+    """Return the calendar month for a ``_month_year_match`` hit."""
+    month_name = match.group("month").casefold().rstrip(".")
+    month = config.get_temporal_month_map().get(month_name)
+    year = _calendar_year(match.group("year"))
+    if not month or not year:
+        return None
+    from calendar import monthrange
+
+    last_day = monthrange(year, month)[1]
+    return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}"
+
+
+def _earliest_explicit_window(text: str, day_range: re.Pattern) -> str:
+    """Prefer the ranged phrase that occurs first in the article.
+
+    A day-and-month range stays ahead of a later year span, and a leading
+    ``between YEAR and YEAR`` or ``in MONTH YEAR`` is not dropped because a
+    day range appears further down.
+    """
+    ranked: list[tuple[int, str]] = []
+    span = _YEAR_SPAN.search(text or "")
+    if span and _year_span_window(span.group(0)):
+        ranked.append((span.start(), "year"))
+    month = _month_year_match(text or "")
+    if month and _month_year_window(month):
+        ranked.append((month.start(), "month"))
+    day = day_range.search(text or "")
+    if day:
+        ranked.append((day.start(), "day"))
+    if not ranked:
+        return ""
+    ranked.sort()
+    return ranked[0][1]
+
+
 def _single_event_date(text: str) -> Optional[str]:
     """Parse one explicitly event-marked date without using publication time."""
     patterns = _runtime_date_patterns()
@@ -286,9 +374,14 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
 
     Supports:
     - Explicit date ranges (e.g. 1 Jan–23 Aug 2026, sejak Januari hingga Maret 2026)
+    - Closed year windows (between YEAR and YEAR, from YEAR to YEAR)
+    - A named month (in MONTH YEAR) stored as that calendar month
     - Epidemiological weeks (e.g. pekan ke-12 tahun 2026, week 10)
     - Relative expressions (e.g. kemarin, pekan lalu, sepanjang tahun ini)
     - Cumulative markers and review flagging
+
+    An explicit window is kept even when ``published_at`` is present. Publication
+    metadata is not a case date.
     """
     from .extractors import count_period_type, extract_date_from_text
 
@@ -336,8 +429,26 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
         except (ValueError, OverflowError):
             pass
 
+    # Explicit article windows outrank publication-relative phrases. A
+    # sentence such as "between 2002 and 2023, there were 26 cases" must
+    # keep that window when the article was published later. A leading
+    # day-and-month range is left for the parser below.
+    excerpt = sample[:2500]
+    if not result["event_date_start"] and not result["event_date_end"]:
+        window_kind = _earliest_explicit_window(excerpt, date_patterns["range"])
+        if window_kind == "year":
+            span = _year_span_window(excerpt)
+            if span:
+                _apply_closed_window(result, span[0], span[1], "historical")
+        elif window_kind == "month":
+            month_hit = _month_year_match(excerpt)
+            month_window = _month_year_window(month_hit) if month_hit else None
+            if month_window:
+                period_type = result["period_type"] if result["period_type"] not in {None, "", "unknown"} else "historical"
+                _apply_closed_window(result, month_window[0], month_window[1], period_type)
+
     # 2. Relative time expressions against published_at
-    if pub_dt:
+    if pub_dt and not result["event_date_start"] and not result["event_date_end"]:
         # "kemarin" / "yesterday"
         if re.search(r"\b(?:kemarin|yesterday)\b", sample[:1500], re.I):
             y_date = pub_dt - timedelta(days=1)
@@ -368,8 +479,11 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
             result["date_needs_review"] = True
             return result
 
-    # 3. Explicit date range regex
-    match = date_patterns["range"].search(sample[:2500])
+    # 3. Explicit date range regex. Skip once a year or month window is set
+    # so a later single day cannot replace the case-date range.
+    match = None
+    if not result["event_date_start"] and not result["event_date_end"]:
+        match = date_patterns["range"].search(sample[:2500])
     if match:
         y2 = _calendar_year(match.group("y2")) or pub_year
         y1 = _calendar_year(match.group("y1")) or y2 or pub_year
@@ -386,7 +500,7 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
         result["event_date"] = end or start
         result["period_type"] = "cumulative"
         result["date_needs_review"] = True
-    else:
+    elif not result["event_date_start"] and not result["event_date_end"]:
         single_date = _single_event_date(sample[:2500])
         if single_date:
             result["event_date"] = single_date

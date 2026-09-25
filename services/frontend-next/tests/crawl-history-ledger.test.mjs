@@ -16,6 +16,14 @@ test('History ledger GET retries without a bearer token after 401', () => {
   assert.match(api, /export function isTimeoutFailureMessage/)
 })
 
+test('History case-date formatter keeps a ranged window intact', () => {
+  const panel = readFileSync(join(root, 'components/CrawlHistoryPanel.tsx'), 'utf8')
+  assert.match(panel, /\\d\{4\}-\\d\{2\}-\\d\{2\} to \\d\{4\}-\\d\{2\}-\\d\{2\}/)
+  const rangeCheck = panel.indexOf('YYYY-MM-DD to YYYY-MM-DD')
+  const slice = panel.indexOf('text.slice(0, 19)')
+  assert.ok(rangeCheck > 0 && slice > rangeCheck)
+})
+
 test('History panel does not blame every load failure on an expired session', () => {
   const panel = readFileSync(join(root, 'components/CrawlHistoryPanel.tsx'), 'utf8')
   const en = readFileSync(join(root, 'locales/en.json'), 'utf8')

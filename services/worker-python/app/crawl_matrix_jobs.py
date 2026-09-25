@@ -783,11 +783,52 @@ def analyze_article(article: dict) -> dict:
     return pipeline_analysis_to_matrix(payload.get("data") or payload)
 
 
+def _iso_day(value) -> str:
+    raw = str(value or "").strip()
+    if len(raw) >= 10 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw[:10]):
+        return raw[:10]
+    return ""
+
+
+def format_case_date(source: dict | None) -> str:
+    """Case date for the matrix column.
+
+    ``date_case`` is already text, so a closed window is stored as
+    ``YYYY-MM-DD to YYYY-MM-DD``. A single day stays a single day. An explicit
+    non-date frame (for example ``Weekly M7``) is left unchanged. Publication
+    dates are not read here.
+    """
+    record = source or {}
+    raw_frame = str(record.get("time_frame") or "").strip()
+    frame_match = re.fullmatch(
+        r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})",
+        raw_frame,
+    )
+    frame = raw_frame
+    if frame_match:
+        frame = frame_match.group(1) if frame_match.group(1) == frame_match.group(2) else raw_frame
+    start = _iso_day(record.get("event_date_start"))
+    end = _iso_day(record.get("event_date_end"))
+    point = _iso_day(record.get("event_date"))
+    window = ""
+    if start and end and start != end:
+        window = f"{start} to {end}"
+    elif start and end:
+        window = start
+    single_frame = bool(frame) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", frame))
+    if window and (not frame or single_frame or frame == point):
+        return window
+    if frame:
+        return frame
+    return window or point or str(record.get("event_date") or "").strip()
+
+
 def pipeline_analysis_to_matrix(analysis: dict) -> dict:
     """Adapt ingest NLP output into the crawl-matrix persist shape."""
     out = dict(analysis or {})
     locations = []
     seen: set[str] = set()
+    document_case_date = format_case_date(out)
 
     def add(country, provinces, cases, deaths, time_frame="", cities=None):
         name = str(country or "").strip()
@@ -807,7 +848,7 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             "provinces": list(dict.fromkeys(subplaces)),
             "reported_cases": int(cases or 0),
             "deaths": int(deaths or 0),
-            "time_frame": time_frame or out.get("event_date") or "",
+            "time_frame": time_frame or document_case_date,
         })
 
     primary_country = out.get("country")
@@ -819,6 +860,7 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
         [primary_place] if primary_place and str(primary_place).casefold() != str(primary_country or "").casefold() else [],
         0 if out.get("case_count_unknown") else out.get("case_count"),
         out.get("death_count"),
+        document_case_date,
     )
     for event in out.get("sub_events") or []:
         if not isinstance(event, dict):
@@ -828,10 +870,12 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             [event.get("location_name")],
             event.get("case_count"),
             event.get("death_count"),
-            event.get("time_frame")
-            or event.get("event_date_start")
-            or event.get("event_date_end")
-            or "",
+            format_case_date({
+                "time_frame": event.get("time_frame"),
+                "event_date_start": event.get("event_date_start") or out.get("event_date_start"),
+                "event_date_end": event.get("event_date_end") or out.get("event_date_end"),
+                "event_date": event.get("event_date") or out.get("event_date"),
+            }),
         )
     for item in out.get("locations") or []:
         if not isinstance(item, dict):
@@ -841,10 +885,16 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             [item.get("name")],
             item.get("reported_cases"),
             item.get("deaths"),
-            item.get("time_frame") or "",
+            format_case_date({
+                "time_frame": item.get("time_frame"),
+                "event_date_start": out.get("event_date_start"),
+                "event_date_end": out.get("event_date_end"),
+                "event_date": out.get("event_date"),
+            }),
             item.get("cities") or [],
         )
     out["locations"] = locations
+    out["time_frame"] = document_case_date or out.get("time_frame") or ""
     out["source_country"] = out.get("source_country") or ""
     out["surveillance_scope"] = out.get("surveillance_scope") or (
         "ASEAN" if any(item.get("country") in ASEAN_COUNTRIES for item in locations)

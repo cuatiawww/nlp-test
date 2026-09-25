@@ -136,7 +136,12 @@ function lonCell(row: CrawlHistoryRow) {
 
 function fmtDate(value?: string | null) {
   if (!value) return ''
-  return value.length > 19 ? value.slice(0, 19).replace('T', ' ') : value.replace('T', ' ')
+  const text = String(value).trim()
+  // Case-date windows are stored in the existing text column as
+  // "YYYY-MM-DD to YYYY-MM-DD". That string is longer than a timestamp
+  // prefix and must stay intact.
+  if (/^\d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}$/.test(text)) return text
+  return text.length > 19 ? text.slice(0, 19).replace('T', ' ') : text.replace('T', ' ')
 }
 
 function diseaseNames(value: CrawlHistoryJob['disease_names']) {
