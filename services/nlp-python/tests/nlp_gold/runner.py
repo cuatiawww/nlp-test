@@ -18,6 +18,13 @@ from .gazetteer import seed_gold_gazetteer
 FIXTURE_DIR = Path(__file__).resolve().parent
 OFFICIAL_PACK = FIXTURE_DIR / "nlp-gold-20.json"
 FIXTURES_PATH = FIXTURE_DIR / "fixtures.json"
+
+# Optional override: NLP_GOLD_PACK=/path/to/pack.json (additive packs e.g. nlp-gold-asean-urls-2026-09.json)
+import os as _os
+_PACK_ENV = (_os.environ.get("NLP_GOLD_PACK") or "").strip()
+ACTIVE_PACK = Path(_PACK_ENV) if _PACK_ENV else OFFICIAL_PACK
+if not ACTIVE_PACK.is_absolute():
+    ACTIVE_PACK = FIXTURE_DIR / ACTIVE_PACK
 PASS_BAR = 18
 GOLD_SIZE = 20
 
@@ -77,11 +84,12 @@ class FixtureScore:
 
 
 def load_fixtures() -> list[dict]:
-    if OFFICIAL_PACK.exists():
-        payload = json.loads(OFFICIAL_PACK.read_text(encoding="utf-8"))
+    pack_path = ACTIVE_PACK if ACTIVE_PACK.exists() else OFFICIAL_PACK
+    if pack_path.exists():
+        payload = json.loads(pack_path.read_text(encoding="utf-8"))
         if isinstance(payload, dict) and isinstance(payload.get("fixtures"), list):
             return payload["fixtures"]
-        raise ValueError("nlp-gold-20.json must contain a fixtures list")
+        raise ValueError(f"{pack_path.name} must contain a fixtures list")
     payload = json.loads(FIXTURES_PATH.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
         raise ValueError("nlp_gold/fixtures.json must be a list")

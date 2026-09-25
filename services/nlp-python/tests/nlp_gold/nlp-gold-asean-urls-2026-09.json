@@ -1,0 +1,622 @@
+{
+  "dataset": "nlp-gold-asean-urls-2026-09",
+  "purpose": "Additive ASEAN (+Timor-Leste) analyze-url gold fixtures from chat article URL list (2026-09). Companion to official nlp-gold-20; does not replace it. Scoring text = title + evidence_quote only (no live HTTP).",
+  "created": "2026-09-26",
+  "count": 27,
+  "scoring_rubric": {
+    "name": "ASEAN URL gold pack rubric (2026-09)",
+    "pass_criteria": [
+      "disease canonical match (aliases allowed per runner)",
+      "country correct for ASEAN primary focus (multi-country: primary in expected.country)",
+      "cases exact-match when expected.cases is a number",
+      "deaths exact-match when expected.deaths is a number; null means do not invent",
+      "no must_not_contain violations"
+    ],
+    "notes": [
+      "Official pack remains nlp-gold-20.json; this file is additive.",
+      "WHO dengue PDF deduped to one fixture (asean-url-009).",
+      "asean-url-027 is non-ASEAN (Australia HIV CDI 1996) retained for URL coverage.",
+      "Multi-disease articles document secondary disease in notes and must_not_contain."
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "asean-url-001",
+      "url": "https://www.cnnindonesia.com/gaya-hidup/20260204174440-255-1324619/sepanjang-2025-indonesia-catat-lebih-dari-161-ribu-kasus-dengue",
+      "title": "Sepanjang 2025, Indonesia Catat Lebih Dari 161 Ribu Kasus Dengue",
+      "source": "CNN Indonesia",
+      "published_or_accessed": "2026-02-04",
+      "evidence_quote": "Sepanjang tahun 2025, Indonesia kembali dihadapkan pada ancaman serius penyakit dengue. Data menunjukkan, tercatat sebanyak 161.752 kasus dengue dengan 673 kematian yang tersebar di hampir seluruh wilayah Tanah Air.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Indonesia",
+        "province_or_city": null,
+        "cases": 161752,
+        "deaths": 673,
+        "notes": "Use 2025 national total 161752/673. Do not use 2024 peak distractors 257271 cases / 1461 deaths mentioned later.",
+        "must_not_contain": [
+          "257271",
+          "257.271",
+          "1461",
+          "1.461",
+          "Measles",
+          "Campak"
+        ]
+      },
+      "difficulty": "Indonesian source; thousand-separator dots (161.752)."
+    },
+    {
+      "id": "asean-url-002",
+      "url": "https://www.kompas.id/artikel/campak-merebak-3282-kasus-telah-dilaporkan-sepanjang-2025",
+      "title": "Campak Merebak, 3.282 Kasus Telah Dilaporkan Sepanjang 2025",
+      "source": "Kompas.id",
+      "published_or_accessed": "2025-08 (week 32 MoH data)",
+      "evidence_quote": "Data Kementerian Kesehatan sampai minggu ke-32 atau sekitar awal Agustus 2025 mencatat, 40 kejadian luar biasa telah dilaporkan di 37 kabupaten/kota di Indonesia. Secara nasional, kasus suspek yang tercatat mencapai 22.074 kasus dengan kasus yang terkonfirmasi positif sebanyak 3.282 kasus.",
+      "expected": {
+        "disease": "Measles",
+        "country": "Indonesia",
+        "province_or_city": null,
+        "cases": 3282,
+        "deaths": null,
+        "notes": "Focal count is confirmed measles 3282, not suspect 22074. Province breakdowns (Jatim 842, Aceh 623, Sumut 450, Jabar 371) are subnational distractors.",
+        "must_not_contain": [
+          "22074",
+          "22.074",
+          "Dengue",
+          "842"
+        ]
+      },
+      "difficulty": "Confirmed vs suspect distractor; Indonesian campak alias."
+    },
+    {
+      "id": "asean-url-003",
+      "url": "https://www.cna.id/indonesia/sumenep-darurat-campak-penderita-tembus-2035-orang-17-meninggal-37051",
+      "title": "Sumenep darurat campak, penderita tembus 2035 orang, 17 meninggal",
+      "source": "CNA.id",
+      "published_or_accessed": "2025-08-25",
+      "evidence_quote": "Data terbaru periode 17–21 Agustus 2025 mencatat 2.035 kasus suspek campak dengan 17 orang meninggal dunia. Kasus ini tersebar di 26 kecamatan dan berpotensi meluas jika tidak segera ditangani.",
+      "expected": {
+        "disease": "Measles",
+        "country": "Indonesia",
+        "province_or_city": "Sumenep",
+        "cases": 2035,
+        "deaths": 17,
+        "notes": "Focal is Sumenep outbreak 2035 suspek / 17 deaths. Do not confuse R0-style '17–18 orang' transmission phrase with death count.",
+        "must_not_contain": [
+          "Dengue",
+          "9825",
+          "9.825"
+        ]
+      },
+      "difficulty": "Local outbreak; vaccine dose count 9825 is not cases."
+    },
+    {
+      "id": "asean-url-004",
+      "url": "https://www.bbc.com/indonesia/articles/cly2kemnggeo",
+      "title": "Penyakit mumps: Ribuan anak terinfeksi penyakit gondongan – Apa itu gondongan, bagaimana cara penularannya?",
+      "source": "BBC News Indonesia",
+      "published_or_accessed": "2024-11-01",
+      "evidence_quote": "Di Jakarta, tercatat 1.234 kasus gondongan dari Januari hingga Juni 2024. Kasus ini juga dilaporkan terjadi di beberapa sekolah di Bandung dan Cimahi, Jawa Barat. Virus ini juga menyebar di Jawa Timur, dengan 2.001 kasus di Kabupaten Malang, 215 kasus di Kota Kediri, 907 kasus di Banyuwangi dan 1.596 di Jombang.",
+      "expected": {
+        "disease": "Mumps",
+        "country": "Indonesia",
+        "province_or_city": null,
+        "cases": null,
+        "deaths": null,
+        "notes": "MULTI-CITY mumps (gondongan) explainer; no single national total. Do not invent a national sum. Adjacent campak/Papua 13 deaths and polio KLB mentions are distractors. Article states no deaths from mumps ('Tidak ada kematian karena penyakit ini').",
+        "must_not_contain": [
+          "Campak",
+          "Measles",
+          "Polio",
+          "Papua"
+        ]
+      },
+      "difficulty": "Multi-city; cases null by design. Alias gondongan↔mumps."
+    },
+    {
+      "id": "asean-url-005",
+      "url": "https://tribune.net.ph/2025/03/29/doh-logs-over-76000-dengue-cases-2",
+      "title": "DoH logs over 76,000 dengue cases",
+      "source": "Daily Tribune (Philippines)",
+      "published_or_accessed": "2025-03-30",
+      "evidence_quote": "The Department of Health (DoH) logged 76,425 dengue cases from 1 January to 15 March. This represents a 78 percent increase from the same period in 2024 (48,822).",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Philippines",
+        "province_or_city": null,
+        "cases": 76425,
+        "deaths": null,
+        "notes": "Use YTD dengue 76425. Deaths mentioned qualitatively but no dengue death total given — leave null. Later measles-rubella national 1185 / NCR 295 are distractors.",
+        "must_not_contain": [
+          "Measles",
+          "1185",
+          "295",
+          "48822"
+        ]
+      },
+      "difficulty": "Same-page MR distractor."
+    },
+    {
+      "id": "asean-url-006",
+      "url": "https://www.gmanetwork.com/news/topstories/nation/947931/doh-more-mpox-cases-in-april-2025-than-in-may-total-cases-911-since-2024/story/",
+      "title": "DOH: Mpox cases actually dipped in May 2025; total cases 911 since 2024",
+      "source": "GMA News Online",
+      "published_or_accessed": "2025-05-31",
+      "evidence_quote": "More cases of monkeypox (mpox) were detected in April 2025 as compared to May, and the total cases have so far reached 911 since 2024, the Department of Health (DOH) said Saturday. \"Simula 2024, nasa 911 na ang kaso...\"",
+      "expected": {
+        "disease": "Mpox",
+        "country": "Philippines",
+        "province_or_city": null,
+        "cases": 911,
+        "deaths": null,
+        "notes": "Cumulative mpox since 2024 is 911. Fatalities discussed are attributed to advanced HIV, not mpox — do not invent mpox deaths. Monthly April/May ~50 figures are secondary.",
+        "must_not_contain": [
+          "HIV",
+          "Dengue",
+          "Clade 1B",
+          "Clade Ib"
+        ]
+      },
+      "difficulty": "FETCH_FAILED from WSL IP (CloudFront 403); filled via alternate fetch. Clade II only."
+    },
+    {
+      "id": "asean-url-007",
+      "url": "https://www.malaymail.com/news/malaysia/2025/12/15/dengue-deaths-plunge-613pc-in-malaysia-cases-drop-by-more-than-half-says-health-minister/202011",
+      "title": "Dengue deaths plunge 61.3pc in Malaysia, cases drop by more than half, says health minister",
+      "source": "Malay Mail",
+      "published_or_accessed": "2025-12-15",
+      "evidence_quote": "Deaths due to dengue in the country have dropped by 61.3 per cent to 43 cases compared with 111 recorded last year, Health Minister Datuk Seri Dr Dzulkefly Ahmad said. He said dengue cases nationwide also declined by 56.5 per cent to 51,046 cases as of December 6, compared with 118,291 cases recorded throughout 2024.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Malaysia",
+        "province_or_city": null,
+        "cases": 51046,
+        "deaths": 43,
+        "notes": "Use 2025 YTD 51046 cases / 43 deaths (as of Dec 6). Prior-year 118291/111 are comparators only.",
+        "must_not_contain": [
+          "118291",
+          "111"
+        ]
+      },
+      "difficulty": "Prior-year comparator distractors."
+    },
+    {
+      "id": "asean-url-008",
+      "url": "https://www.astroawani.com/berita-malaysia/terkini-kluster-baharu-mpox-babit-empat-sekeluarga-dikesan-kkm-547830",
+      "title": "[TERKINI] Kluster baharu mpox babit empat sekeluarga dikesan - KKM",
+      "source": "Astro Awani (Bernama)",
+      "published_or_accessed": "2025-11-16",
+      "evidence_quote": "KKM dalam kenyataan hari ini memaklumkan pesakit mula bergejala pada 20 Okt lepas dan disahkan positif mpox (Clade II) pada 12 Nov. Susulan pengesanan kes indeks, menurut kenyataan itu tiga ahli keluarga serumah turut mula bergejala bermula 30 Okt dan disahkan positif mpox (Clade II) pada 13 Nov. KKM memaklumkan setakat minggu epidemiologi ke-46 (ME 46/2025), sebanyak 12 kes mpox telah dilaporkan, menjadikan jumlah kumulatif kes mpox di Malaysia adalah sebanyak 23 kes sejak kes pertama dikesan pada Julai 2023.",
+      "expected": {
+        "disease": "Mpox",
+        "country": "Malaysia",
+        "province_or_city": null,
+        "cases": 4,
+        "deaths": null,
+        "notes": "Focal new household cluster = 4 (index + 3 family). Cumulative Malaysia 23 since Jul 2023 and YTD 12 (ME46) are context; prefer 4 for this cluster story.",
+        "must_not_contain": [
+          "Dengue",
+          "23",
+          "COVID"
+        ]
+      },
+      "difficulty": "Cluster-vs-cumulative ambiguity; Malay source."
+    },
+    {
+      "id": "asean-url-009",
+      "url": "https://cdn.who.int/media/docs/default-source/wpro---documents/emergency/surveillance/dengue/dengue_20260723.pdf?sfvrsn=b98c1b75_1",
+      "title": "Dengue Situation Update 750 — 23 July 2026 (WHO WPRO)",
+      "source": "WHO Western Pacific Region",
+      "published_or_accessed": "2026-07-23",
+      "evidence_quote": "Cambodia. As of 12 July 2026, a total of 28 074 dengue cases, including 38 deaths (case fatality rate: 0.1%), have been reported through the National Dengue Surveillance System. This represents a 58.1% increase in the reported number of cases, compared to the same period in 2025, when 17 760 cases were reported.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Cambodia",
+        "province_or_city": null,
+        "cases": 28074,
+        "deaths": 38,
+        "notes": "MULTI-COUNTRY WPRO dengue sitrep. ASEAN primary for this fixture = Cambodia lead section (28074/38). Other ASEAN figures in same PDF (e.g. Indonesia 58357/150; Malaysia 33697/24; Viet Nam 41684/8; Singapore 1428) must not overwrite Cambodia focal.",
+        "must_not_contain": [
+          "58357",
+          "33697",
+          "41684",
+          "China",
+          "Australia"
+        ]
+      },
+      "difficulty": "MULTI-COUNTRY PDF; pick Cambodia as primary. Deduped (appeared 3× in chat)."
+    },
+    {
+      "id": "asean-url-010",
+      "url": "https://www.pattayamail.com/news/thailand-records-53362-hand-foot-and-mouth-disease-cases-this-year-564293",
+      "title": "Thailand records 53,362 hand, foot and mouth disease cases this year",
+      "source": "Pattaya Mail",
+      "published_or_accessed": "2026-09-08",
+      "evidence_quote": "The Department of Disease Control (DDC) has urged parents, guardians, schools, and childcare centers to watch for hand, foot, and mouth disease (HFMD) after 53,362 cases and one death were recorded nationwide this year.",
+      "expected": {
+        "disease": "Hand, foot and mouth disease",
+        "country": "Thailand",
+        "province_or_city": null,
+        "cases": 53362,
+        "deaths": 1,
+        "notes": "National HFMD YTD 53362 cases / 1 death.",
+        "must_not_contain": [
+          "Dengue",
+          "Measles"
+        ]
+      }
+    },
+    {
+      "id": "asean-url-011",
+      "url": "https://www.nationthailand.com/health-wellness/40069034",
+      "title": "Thailand DDC Issues Warning as Rainy Season Bacterial Infections Claim Over 100 Lives",
+      "source": "The Nation Thailand",
+      "published_or_accessed": "2026-07-25",
+      "evidence_quote": "Thailand's Department of Disease Control has issued a warning after over 100 deaths were recorded this year from two rainy season bacterial infections: leptospirosis and melioidosis. ... recorded 2,190 cases of leptospirosis between 1 January and 21 July 2026. The outbreak resulted in 30 deaths ... Concurrently, the country logged 1,654 cases of melioidosis commonly known as soil fever causing 77 deaths.",
+      "expected": {
+        "disease": "Leptospirosis",
+        "country": "Thailand",
+        "province_or_city": null,
+        "cases": 2190,
+        "deaths": 30,
+        "notes": "MULTI-DISEASE: leptospirosis 2190/30 and melioidosis 1654/77 (combined deaths >100). Primary for scoring = leptospirosis (first detailed). Do not sum diseases into one case count.",
+        "must_not_contain": [
+          "Dengue",
+          "HFMD",
+          "1654"
+        ]
+      },
+      "difficulty": "Multi-disease bacterial co-article."
+    },
+    {
+      "id": "asean-url-012",
+      "url": "https://vietnamnews.vn/society/1694618/heightened-awareness-required-as-viet-nam-s-measles-cases-top-42-000.html",
+      "title": "Heightened awareness required as Việt Nam's measles cases top 42,000",
+      "source": "Việt Nam News",
+      "published_or_accessed": "2025-03-27",
+      "evidence_quote": "HÀ NỘI — Việt Nam has recorded more than 42,000 cases of measles and five deaths related to the disease since the beginning of 2025.",
+      "expected": {
+        "disease": "Measles",
+        "country": "Vietnam",
+        "province_or_city": null,
+        "cases": 42000,
+        "deaths": 5,
+        "notes": "Article says 'more than 42,000'; gold asserts 42000 as the headline floor figure used in title/lede.",
+        "must_not_contain": [
+          "Dengue",
+          "HFMD"
+        ]
+      },
+      "difficulty": "'More than' wording; use 42000."
+    },
+    {
+      "id": "asean-url-013",
+      "url": "https://en.sggp.org.vn/ministry-urges-preventive-measures-as-dengue-and-hfmd-cases-surge-post124960.html",
+      "title": "Ministry urges preventive measures as dengue and HFMD cases surge",
+      "source": "SGGP English Edition",
+      "published_or_accessed": "2026-03-27",
+      "evidence_quote": "From the beginning of 2026 to the present, the country has recorded 31,927 cases of dengue fever and 4 fatalities. Compared to the same period in 2025, the number of dengue fever cases has increased by 2.2 times, with fatalities remaining the same. ... Regarding HFMD, in the first three months of 2026, the country has recorded over 25,094 cases and 4 deaths.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Vietnam",
+        "province_or_city": null,
+        "cases": 31927,
+        "deaths": 4,
+        "notes": "MULTI-DISEASE dengue+HFMD. Primary = dengue 31927/4. HFMD 25094/4 is secondary — list in must_not_contain numeric distractors for cases field.",
+        "must_not_contain": [
+          "25094",
+          "25,094",
+          "Measles"
+        ]
+      },
+      "difficulty": "Dengue+HFMD dual surge."
+    },
+    {
+      "id": "asean-url-014",
+      "url": "https://www.vietnam.vn/en/bo-y-te-thong-tin-ve-tinh-hinh-benh-sot-xuat-huyet-va-tay-chan-mieng",
+      "title": "The Ministry of Health provides information on the dengue fever and hand, foot, and mouth disease situation",
+      "source": "Vietnam.vn",
+      "published_or_accessed": "2025 year-end MoH stats (page accessed 2026)",
+      "evidence_quote": "According to statistics for the whole year of 2025, the whole country recorded 190,040 cases of dengue fever (an increase of 28.4% compared to 2024) and 107,249 cases of hand, foot and mouth disease (an increase of 28.9% compared to 2024).",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Vietnam",
+        "province_or_city": null,
+        "cases": 190040,
+        "deaths": null,
+        "notes": "Full-year 2025 dengue 190040 primary; HFMD 107249 secondary. Deaths not stated — null.",
+        "must_not_contain": [
+          "107249",
+          "107,249",
+          "Measles"
+        ]
+      },
+      "difficulty": "Dual dengue+HFMD annual totals."
+    },
+    {
+      "id": "asean-url-015",
+      "url": "https://www.channelnewsasia.com/singapore/measles-infectious-diseases-health-moh-6287746",
+      "title": "Singapore's measles cases reach six-year high, three vaccinated cases among 40 infections",
+      "source": "Channel NewsAsia",
+      "published_or_accessed": "2026 (CDA bulletin year)",
+      "evidence_quote": "Singapore has recorded 40 measles cases so far this year, the highest annual total since 2020, according to the Communicable Diseases Agency.",
+      "expected": {
+        "disease": "Measles",
+        "country": "Singapore",
+        "province_or_city": null,
+        "cases": 40,
+        "deaths": null,
+        "notes": "Focal YTD measles = 40. Distinct from other Singapore measles fixtures that cite 43.",
+        "must_not_contain": [
+          "Dengue",
+          "43",
+          "H5N1"
+        ]
+      },
+      "difficulty": "Near-duplicate topic vs asean-002 (different count)."
+    },
+    {
+      "id": "asean-url-016",
+      "url": "https://www.nea.gov.sg/media/news/news/index/singapore-enters-peak-dengue-season-public-urged-to-stay-vigilant-to-prevent-surge-in-cases",
+      "title": "Singapore Enters Peak Dengue Season; Public Urged To Stay Vigilant To Prevent Surge In Cases",
+      "source": "National Environment Agency (Singapore)",
+      "published_or_accessed": "2026-05-16",
+      "evidence_quote": "Over 600 dengue cases were reported as of 15 May 2026, a decrease of 66 per cent as compared to the same period last year. ... Over 4,000 dengue cases were reported in 2025, a decrease of 70 per cent compared with 2024's 13,651 cases.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Singapore",
+        "province_or_city": null,
+        "cases": 600,
+        "deaths": null,
+        "notes": "Focal is 2026 YTD 'over 600' as of 15 May 2026. Prior-year 4000+ (2025) and 13651 (2024) are comparators.",
+        "must_not_contain": [
+          "13651",
+          "13,651",
+          "565730",
+          "20469"
+        ]
+      },
+      "difficulty": "'Over 600' floor; inspection counts are not cases."
+    },
+    {
+      "id": "asean-url-017",
+      "url": "https://www.straitstimes.com/singapore/health/more-than-13600-local-dengue-cases-reported-in-2024-a-rise-of-over-36-from-2023",
+      "title": "More than 13,600 dengue cases reported in Singapore in 2024, up 36% from 2023",
+      "source": "The Straits Times",
+      "published_or_accessed": "2025-01-08",
+      "evidence_quote": "There were more than 13,600 cases of dengue locally in 2024, ... there were 9,949 cases in 2023.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Singapore",
+        "province_or_city": null,
+        "cases": 13600,
+        "deaths": null,
+        "notes": "ST gives 'more than 13,600' for 2024 (NEA elsewhere cites 13651). Gold asserts 13600 from this article's wording. Do not use 9949 (2023) or weekly 110.",
+        "must_not_contain": [
+          "9949",
+          "9,949",
+          "Measles"
+        ]
+      },
+      "difficulty": "'More than 13,600' vs exact 13651 elsewhere."
+    },
+    {
+      "id": "asean-url-018",
+      "url": "https://english.news.cn/20250112/8e6b76618b3548308130458b6b37f258/c.html",
+      "title": "Cambodia records significant drop in dengue fever cases, with 46 deaths in 2024",
+      "source": "Xinhua",
+      "published_or_accessed": "2025-01-12",
+      "evidence_quote": "Cambodia had reported 18,987 dengue fever cases in 2024, a sharp decline of 46 percent from 35,390 cases in the year before, said a Ministry of Health's report on Sunday. \"The disease killed 46 people last year, down 53.5 percent from 99 deaths in a year earlier,\" the report said.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Cambodia",
+        "province_or_city": null,
+        "cases": 18987,
+        "deaths": 46,
+        "notes": "Full-year 2024 Cambodia dengue 18987/46. Prior-year 35390/99 are comparators.",
+        "must_not_contain": [
+          "35390",
+          "99",
+          "H5N1"
+        ]
+      }
+    },
+    {
+      "id": "asean-url-019",
+      "url": "https://www.who.int/emergencies/disease-outbreak-news/item/2025-DON575",
+      "title": "Avian Influenza A(H5N1) - Cambodia",
+      "source": "WHO Disease Outbreak News",
+      "published_or_accessed": "2025-07-05",
+      "evidence_quote": "National Focal Point (NFP) of 11 laboratory-confirmed cases of human infection with avian influenza A(H5N1) virus. Seven of the 11 cases were reported in June, an unusual monthly increase. ... Since the re-emergence of human A(H5N1) infections in Cambodia in 2023, a total of 27 cases have been reported (six in 2023, 10 in 2024, and 11 to date in 2025), of which 12 were fatal (CFR 44%).",
+      "expected": {
+        "disease": "Avian influenza (H5N1)",
+        "country": "Cambodia",
+        "province_or_city": null,
+        "cases": 11,
+        "deaths": null,
+        "notes": "Focal DON event = 11 lab-confirmed cases in 2025 to date. Historical cumulative 83 cases/49 deaths since 2003 and post-2023 cumulative 27/12 are background — do not use as focal deaths for the 11.",
+        "must_not_contain": [
+          "Dengue",
+          "Measles",
+          "83",
+          "49"
+        ]
+      },
+      "difficulty": "Cumulative vs focal year count."
+    },
+    {
+      "id": "asean-url-020",
+      "url": "https://outbreaknewstoday.substack.com/p/laos-dengue-cases-top-20000-in-2024",
+      "title": "Laos: Dengue cases top 20,000 in 2024",
+      "source": "Outbreak News Today (Substack)",
+      "published_or_accessed": "2024-12-27",
+      "evidence_quote": "According to the data, Laos has seen 20,115 total cases, including 11 deaths year to date. The capital city of Vientiane leads all areas with 5,775 cases and three deaths.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Laos",
+        "province_or_city": null,
+        "cases": 20115,
+        "deaths": 11,
+        "notes": "National YTD 20115/11. Vientiane 5775/3 and Luang Prabang fatality lead are subnational.",
+        "must_not_contain": [
+          "5775",
+          "5,775"
+        ]
+      }
+    },
+    {
+      "id": "asean-url-021",
+      "url": "https://kpl.gov.la/EN/detail.aspx?id=86392",
+      "title": "Laos Reports 16,458 Dengue Fever Cases Amid Global Surge in 2024",
+      "source": "KPL (Lao News Agency)",
+      "published_or_accessed": "2024-10-07",
+      "evidence_quote": "Laos has recorded 16,458 cases of dengue fever so far in 2024, with 10 related deaths, according to the Centre of Information and Education for Health. These numbers reflect a significant decrease compared to the same period last year—when 29,032 cases and 17 deaths were reported.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Laos",
+        "province_or_city": null,
+        "cases": 16458,
+        "deaths": 10,
+        "notes": "Earlier 2024 snapshot than asean-url-020 (16458/10). Prior-year 29032/17 are comparators. Vientiane 4669 is subnational.",
+        "must_not_contain": [
+          "29032",
+          "17",
+          "4669"
+        ]
+      },
+      "difficulty": "Same country/disease as 020 with different YTD snapshot."
+    },
+    {
+      "id": "asean-url-022",
+      "url": "https://reliefweb.int/report/myanmar/myanmar-acute-watery-diarrhea-cholera-outbreak-external-situation-report-4th-edition-2024-published-25-september-2024",
+      "title": "Myanmar Acute Watery Diarrhea / Cholera Outbreak - External Situation Report 4th edition (2024)",
+      "source": "ReliefWeb / WHO",
+      "published_or_accessed": "2024-09-25",
+      "evidence_quote": "A total of 3 421 hospitalized cases of acute watery diarrhea (AWD) including 160 cases with severe dehydration were reported in Yangon Region from 24 June to 25 August 2024, by the ministerial authorities for health.",
+      "expected": {
+        "disease": "Cholera",
+        "country": "Myanmar",
+        "province_or_city": "Yangon",
+        "cases": 3421,
+        "deaths": null,
+        "notes": "Focal Yangon hospitalized AWD/cholera 3421 (24 Jun–25 Aug 2024). Deaths not clearly stated in public excerpt — null. Rakhine 235 hospitalized is secondary.",
+        "must_not_contain": [
+          "Dengue",
+          "235"
+        ]
+      },
+      "difficulty": "AWD/cholera alias; multi-region sitrep."
+    },
+    {
+      "id": "asean-url-023",
+      "url": "https://www.bnionline.net/en/news/dengue-outbreak-infects-over-30-myanmar-children-sittwe-relief-camps",
+      "title": "Dengue outbreak infects over 30 Myanmar children in Sittwe relief camps",
+      "source": "Burma News International / Mizzima",
+      "published_or_accessed": "2025-07-18",
+      "evidence_quote": "At least 30 children sheltering in monasteries and relief camps in Sittwe, Rakhine State, have contracted dengue. ... the number of infected children has reached over 30.",
+      "expected": {
+        "disease": "Dengue",
+        "country": "Myanmar",
+        "province_or_city": "Sittwe",
+        "cases": 30,
+        "deaths": null,
+        "notes": "'Over/at least 30' children — assert 30. Historical dengue deaths in 2023 mentioned without count — null.",
+        "must_not_contain": [
+          "Cholera",
+          "Malaria"
+        ]
+      },
+      "difficulty": "Small camp outbreak; 'over 30'."
+    },
+    {
+      "id": "asean-url-024",
+      "url": "https://www.thestar.com.my/aseanplus/aseanplus-news/2025/03/24/brunei-sees-decline-in-tuberculosis-cases-as-prevention-efforts-bolstered",
+      "title": "Brunei sees decline in tuberculosis cases as prevention efforts bolstered",
+      "source": "The Star (ASEAN+)",
+      "published_or_accessed": "2025-03-24",
+      "evidence_quote": "He revealed that in 2024, the country recorded 235 TB cases, a 9.62 per cent decrease from 2023, which saw 260 cases.",
+      "expected": {
+        "disease": "Tuberculosis",
+        "country": "Brunei",
+        "province_or_city": null,
+        "cases": 235,
+        "deaths": null,
+        "notes": "Brunei 2024 TB = 235. Global WHO 10.8 million / 1.25 million deaths are worldwide distractors — must not use.",
+        "must_not_contain": [
+          "10800000",
+          "10.8 million",
+          "1250000",
+          "1.25 million",
+          "Dengue"
+        ]
+      },
+      "difficulty": "Global TB stats distractors."
+    },
+    {
+      "id": "asean-url-025",
+      "url": "https://www.thestar.com.my/aseanplus/aseanplus-news/2025/10/22/no-increase-in-influenza-cases-in-brunei-in-2025-health-ministry",
+      "title": "No increase in influenza cases in Brunei in 2025: health ministry",
+      "source": "The Star (ASEAN+)",
+      "published_or_accessed": "2025-10-22",
+      "evidence_quote": "There has been no increase in influenza cases reported in Brunei in 2025, the Ministry of Health said on Tuesday (Oct 21). According to the ministry's press release, a total of 207 confirmed influenza cases were detected between January to October 15 in 2025, compared to 259 cases recorded during the same period in 2024. ... The ministry added that no clusters or deaths related to influenza have been reported.",
+      "expected": {
+        "disease": "Influenza",
+        "country": "Brunei",
+        "province_or_city": null,
+        "cases": 207,
+        "deaths": 0,
+        "notes": "2025 YTD confirmed influenza 207; explicit no deaths → 0. Prior-year same-period 259 is comparator.",
+        "must_not_contain": [
+          "259",
+          "Dengue",
+          "COVID"
+        ]
+      },
+      "difficulty": "Explicit zero deaths."
+    },
+    {
+      "id": "asean-url-026",
+      "url": "https://www.who.int/news/item/24-07-2025-timor-leste-certified-malaria-free-by-who",
+      "title": "Timor-Leste certified malaria-free by WHO",
+      "source": "WHO News",
+      "published_or_accessed": "2025-07-24",
+      "evidence_quote": "Since gaining independence in 2002, Timor-Leste has made remarkable strides in the fight against malaria reducing cases from a peak of more than 223 000 clinically diagnosed cases in 2006 to zero indigenous cases from 2021 onwards.",
+      "expected": {
+        "disease": "Malaria",
+        "country": "Timor-Leste",
+        "province_or_city": null,
+        "cases": 0,
+        "deaths": null,
+        "notes": "Certification story: zero indigenous malaria cases from 2021 onwards is the focal current status. Historical peak >223000 (2006) is background only.",
+        "must_not_contain": [
+          "223000",
+          "223 000",
+          "Dengue"
+        ]
+      },
+      "difficulty": "Elimination / zero-case certificate."
+    },
+    {
+      "id": "asean-url-027",
+      "url": "https://ojs.cdi.cdc.gov.au/index.php/cdi/article/view/119",
+      "title": "Validation of reported risk exposure in persons with newly diagnosed HIV infection",
+      "source": "Communicable Diseases Intelligence (Australia)",
+      "published_or_accessed": "1996 (CDI Vol.20)",
+      "evidence_quote": "Of the 116 notifications of HIV followed up for 1994, 63 cases were available for analysis. Twenty cases (32%) had risk exposure categories reassigned of which nine were revised to male homosexual contact.",
+      "expected": {
+        "disease": "HIV",
+        "country": "Australia",
+        "province_or_city": null,
+        "cases": 116,
+        "deaths": null,
+        "notes": "OUT_OF_SCOPE for ASEAN gold: historic NSW/Australia HIV methods paper (1994 notifications). Included because URL was in the chat list; not an ASEAN outbreak article. Prefer 116 followed-up notifications (63 analysed is subset).",
+        "must_not_contain": [
+          "Indonesia",
+          "Dengue",
+          "Measles"
+        ]
+      },
+      "difficulty": "NON_ASEAN / OUT_OF_SCOPE historic CDI paper — keep for URL coverage, expect ASEAN runners may flag country."
+    }
+  ]
+}
