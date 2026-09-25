@@ -1756,12 +1756,13 @@ def _extract_narrative_relations(
     linker: GazetteerLinker,
     published_date: Optional[str],
     fallback_location: Optional[LinkedLocation] = None,
+    locations: Optional[list[tuple[int, int, LinkedLocation]]] = None,
 ) -> list[MetricRelation]:
     """Recover implicit-location comparisons such as ``2025 ... 614,601``."""
 
     source = text or ""
     working = normalize_local_digits(source)
-    locations = _location_spans(source, linker)
+    locations = locations if locations is not None else _location_spans(source, linker)
     relations: dict[tuple[str, str, str], MetricRelation] = {}
     runtime_patterns = _runtime_metric_patterns()
     for pattern, metric_name in (
@@ -1878,12 +1879,13 @@ def _extract_range_relations(
     text: str,
     linker: GazetteerLinker,
     published_date: Optional[str],
+    locations: Optional[list[tuple[int, int, LinkedLocation]]] = None,
 ) -> list[MetricRelation]:
     """Keep a numeric range as a range instead of selecting one endpoint."""
 
     source = text or ""
     working = normalize_local_digits(source)
-    locations = _location_spans(source, linker)
+    locations = locations if locations is not None else _location_spans(source, linker)
     relations: list[MetricRelation] = []
     for match in _runtime_metric_patterns()["range_case"].finditer(working):
         linked = _nearest_location(match.start(), match.end(), locations, text=source)
@@ -1929,7 +1931,9 @@ def extract_metric_relations(
     fallback_location = _source_scope_location(source, linker, source_country)
     relations: dict[tuple[str, str, str], MetricRelation] = {}
 
-    for relation in _extract_range_relations(source, linker, published_date):
+    for relation in _extract_range_relations(
+        source, linker, published_date, locations=locations
+    ):
         _upsert_relation(relations, relation)
 
     relation_patterns = _runtime_relation_patterns()
@@ -2195,7 +2199,11 @@ def extract_metric_relations(
     # collapsed or skipped. _upsert_relation keeps equivalent candidates
     # deduplicated by scope, qualifier, and period.
     for relation in _extract_narrative_relations(
-        source, linker, published_date, fallback_location=fallback_location
+        source,
+        linker,
+        published_date,
+        fallback_location=fallback_location,
+        locations=locations,
     ):
         _upsert_relation(relations, relation)
 
