@@ -1896,7 +1896,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     event.validation_flags.append("disease_specific_metric_split")
                 split_events.append(event)
             sub_events = split_events
-            case_count = sum(event.case_count for event in sub_events)
+            # Keep each disease as its own child event; parent follows the
+            # article primary disease (or the largest single-disease total),
+            # never the cross-disease sum.
+            primary_label = extractors.canonical_disease_name(disease) if disease else ""
+            primary_split = [
+                event for event in split_events
+                if primary_label
+                and extractors.canonical_disease_name(event.disease or "").casefold()
+                == primary_label.casefold()
+            ]
+            focus = primary_split or split_events
+            case_count = max(int(event.case_count or 0) for event in focus)
             explicit_case_count = True
 
     # If the article identifies only a country, make that country the event
@@ -1935,6 +1946,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         str(evt.country or "").strip()
         for evt in sub_events
         if str(evt.country or "").strip()
+        and extractors.is_usable_place_name(str(evt.location_name or evt.country or ""))
     ))
     multi_country_article = len(event_country_values) > 1
     if multi_country_article:
@@ -1942,13 +1954,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         location = "MULTI_COUNTRY"
         lat = None
         lon = None
-        case_count = sum(int(evt.case_count or 0) for evt in sub_events)
-        death_count = sum(
-            int(metric.get("value") or 0)
-            for evt in sub_events
-            for metric in (evt.metrics or [])
-            if metric.get("metric_type") == "deaths"
-        )
+        # Prefer max national totals per country over summing every noisy row.
+        by_country: dict[str, list] = {}
+        for evt in sub_events:
+            key = str(evt.country or "").strip()
+            if not key:
+                continue
+            by_country.setdefault(key, []).append(evt)
+        case_count = 0
+        death_count = 0
+        for group in by_country.values():
+            country_level = [
+                evt for evt in group
+                if str(evt.location_name or "").casefold() == str(evt.country or "").casefold()
+            ]
+            pool = country_level or group
+            best = max(pool, key=lambda evt: (int(evt.case_count or 0), int(evt.death_count or 0)))
+            case_count += int(best.case_count or 0)
+            death_count += int(best.death_count or 0)
         explicit_case_count = bool(sub_events)
 
     # Regional events exist ONLY when metrics are truly bound to that region.
@@ -2619,17 +2642,128 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         outbreak_alert = False
         is_health_related = False
 
+    # Drop non-local / global-average background totals when local city or
+    # national counts exist (BBC mumps WHO ~500000 pattern).
+    local_metric_events = [
+        evt for evt in sub_events
+        if (
+            str(evt.metric_qualifier or "") not in {"global_average", "other_url"}
+            and str((evt.provenance or {}).get("source_scope") or "article_local") == "article_local"
+            and extractors.is_usable_place_name(str(evt.location_name or evt.country or ""))
+        )
+    ]
+    if local_metric_events and len(local_metric_events) < len(sub_events):
+        sub_events = [
+            evt for evt in sub_events
+            if (
+                str(evt.metric_qualifier or "") not in {"global_average", "other_url"}
+                and str((evt.provenance or {}).get("source_scope") or "article_local") == "article_local"
+            )
+        ]
+
+    # Reject chrome/metric fragments that slipped through as locations.
+    cleaned_events = []
+    for evt in sub_events:
+        loc_name = str(evt.location_name or "").strip()
+        if loc_name and not extractors.is_usable_place_name(loc_name):
+            if evt.country and loc_name.casefold() != str(evt.country).casefold():
+                continue
+            if not evt.country:
+                continue
+        cleaned_events.append(evt)
+    if cleaned_events:
+        sub_events = cleaned_events
+
+    # Disease-free / malaria-free: prefer zero current over historical peaks.
+    if extractors.article_states_disease_free(text):
+        for evt in sub_events:
+            hist = int(evt.case_count or 0) or int(evt.historical_cases or 0)
+            if hist > 0:
+                evt.historical_cases = max(int(evt.historical_cases or 0), hist)
+            evt.case_count = 0
+            if str(evt.metric_qualifier or "") not in {"explicit_zero", "global_average"}:
+                evt.metric_qualifier = "explicit_zero"
+            evt.temporal_context = "current"
+        case_count = 0
+        explicit_case_count = True
+
+    # Parent-fold: promote best national totals for the primary disease instead
+    # of summing regional junk or cross-disease rows (ID dengue / VN dengue+HFMD).
+    primary_disease = extractors.canonical_disease_name(disease) if disease else ""
+    primary_events = [
+        evt for evt in sub_events
+        if primary_disease
+        and extractors.canonical_disease_name(evt.disease or "").casefold() == primary_disease.casefold()
+        and (
+            int(evt.case_count or 0) > 0
+            or int(evt.death_count or 0) > 0
+            or str(evt.metric_qualifier or "") == "explicit_zero"
+        )
+    ] or [
+        evt for evt in sub_events
+        if int(evt.case_count or 0) > 0 or int(evt.death_count or 0) > 0
+        or str(evt.metric_qualifier or "") == "explicit_zero"
+    ]
+    if primary_events:
+        country_level = [
+            evt for evt in primary_events
+            if evt.country and str(evt.location_name or "").casefold() == str(evt.country).casefold()
+        ]
+        pool = country_level or primary_events
+        best = max(
+            pool,
+            key=lambda evt: (
+                int(evt.death_count or 0) > 0,
+                int(evt.case_count or 0),
+                int(evt.death_count or 0),
+            ),
+        )
+        primary_countries = list(dict.fromkeys(
+            str(evt.country or "").strip()
+            for evt in primary_events
+            if str(evt.country or "").strip()
+        ))
+        if len(primary_countries) == 1:
+            country = primary_countries[0]
+            if not location or str(location).casefold() in {"multi_country", ""}:
+                location = country
+        disease_labels = {
+            extractors.canonical_disease_name(evt.disease or "")
+            for evt in sub_events
+            if evt.disease and extractors.canonical_disease_name(evt.disease).upper() != "UNKNOWN"
+        }
+        if len(disease_labels) > 1 and primary_disease:
+            case_count = int(best.case_count or 0)
+            death_count = int(best.death_count or 0)
+            explicit_case_count = True
+        else:
+            best_cases = int(best.case_count or 0)
+            best_deaths = int(best.death_count or 0)
+            if best_cases > 0 and (
+                case_count <= 0
+                or best_deaths > int(death_count or 0)
+                or best_cases >= int(case_count or 0)
+            ):
+                case_count = best_cases
+                explicit_case_count = True
+            if best_deaths > int(death_count or 0):
+                death_count = best_deaths
+            if source_case_count and abs(int(source_case_count) - best_cases) <= max(5, int(source_case_count) * 0.01):
+                case_count = int(source_case_count)
+            if source_death_explicit and source_death_count:
+                death_count = max(int(death_count or 0), int(source_death_count))
+
     local_rows = [
         evt for evt in sub_events
         if int(evt.case_count or 0) > 0
         and str(evt.metric_qualifier or "") not in {"global_average", "other_url"}
         and str((evt.provenance or {}).get("source_scope") or "article_local") == "article_local"
+        and extractors.is_usable_place_name(str(evt.location_name or evt.country or ""))
     ]
     if local_rows:
         local_names = {str(evt.location_name or "").casefold() for evt in local_rows if evt.location_name}
         local_counts = {int(evt.case_count or 0) for evt in local_rows}
         if location and str(location).casefold() not in local_names:
-            # The most frequent narrative place is not where the counts were reported.
             if len(local_names) == 1:
                 location = next(evt.location_name for evt in local_rows if evt.location_name)
                 loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=country)
@@ -2644,8 +2778,60 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     "admin1_name": None,
                     "admin2_name": None,
                 }
-        if case_count and int(case_count) not in local_counts and int(case_count) > max(local_counts):
-            case_count = sum(int(evt.case_count or 0) for evt in local_rows)
+        country_local = [
+            evt for evt in local_rows
+            if evt.country and str(evt.location_name or "").casefold() == str(evt.country).casefold()
+        ]
+        if country_local:
+            best_local = max(country_local, key=lambda evt: (int(evt.case_count or 0), int(evt.death_count or 0)))
+            if int(best_local.case_count or 0) > 0:
+                case_count = int(best_local.case_count or 0)
+            if int(best_local.death_count or 0) > int(death_count or 0):
+                death_count = int(best_local.death_count or 0)
+        elif case_count and int(case_count) not in local_counts and int(case_count) > max(local_counts):
+            if int(case_count) > sum(int(evt.case_count or 0) for evt in local_rows) * 2:
+                case_count = max(int(evt.case_count or 0) for evt in local_rows)
+            else:
+                case_count = sum(int(evt.case_count or 0) for evt in local_rows)
+
+    # Final source-scalar authority for single-disease articles. Runs after
+    # local_rows so a noisy country-level composer total cannot override DoH /
+    # DON focal figures (PH dengue 76425, H5N1 11/6-12).
+    _final_labels = {
+        extractors.canonical_disease_name(evt.disease or "")
+        for evt in sub_events
+        if evt.disease and extractors.canonical_disease_name(evt.disease).upper() != "UNKNOWN"
+    }
+    _avian_family = {
+        "avian influenza (bird flu)", "h5n1 virus",
+        "influenza due to infection with influenza a", "influenza a",
+    }
+    _normalized = {label.casefold() for label in _final_labels}
+    _single_disease = (
+        len(_final_labels) <= 1
+        or (_normalized and _normalized <= _avian_family)
+    )
+    # Re-read deterministic source scalars when the early capture was zeroed
+    # by a gate that later event composition recovered from (PH dengue).
+    _auth_cases = int(source_case_count or 0)
+    _auth_deaths = int(source_death_count or 0) if source_death_explicit else None
+    if _auth_cases <= 0 and disease and str(disease).upper() != "UNKNOWN":
+        try:
+            _auth_cases = int(extractors.extract_case_count(text, disease=disease) or 0)
+        except Exception:
+            _auth_cases = 0
+    if _auth_deaths is None and disease and str(disease).upper() != "UNKNOWN":
+        try:
+            if extractors.has_explicit_death_count(text, disease=disease):
+                _auth_deaths = int(extractors.extract_death_count(text, disease=disease) or 0)
+        except Exception:
+            _auth_deaths = None
+    if _single_disease and _auth_cases > 0:
+        if int(case_count or 0) <= 0 or int(case_count or 0) > int(_auth_cases) * 1.15:
+            case_count = int(_auth_cases)
+            explicit_case_count = True
+    if _single_disease and _auth_deaths is not None:
+        death_count = int(_auth_deaths)
 
     outbreak_alert = calibrate_outbreak_alert(
         disease=disease,

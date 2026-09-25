@@ -286,6 +286,10 @@ LOCATION_STOPWORDS = {
     "opsi", "ambang", "batas", "parlemen", "pemilu", "ruu",
     "merebak", "khawatir", "perlukah",
     "long",
+    # Indonesian discourse / hedge words that collide with rare gazetteer rows
+    # (live: Tantangan->Philippines, Mungkin->Indonesia from prose).
+    "tantangan", "mungkin", "misalnya", "misal", "padahal", "justru",
+    "sekaligus", "bahkan", "adapun", "namun", "walaupun", "meskipun",
 }
 DEFAULT_LANGUAGE_MARKERS: dict[str, list[str]] = {
     "ms": [

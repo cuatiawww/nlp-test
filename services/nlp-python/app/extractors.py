@@ -251,6 +251,9 @@ def _fold_with_positions(value: str) -> tuple[str, list[int]]:
 # country names are retained as a small offline safety registry so a Lao/Thai/
 # Khmer/Burmese article remains attributable before DB bootstrap completes.
 DEFAULT_COUNTRY_ALIASES: dict[str, str] = {
+    # Idiomatic homeland label used in Indonesian national totals.
+    "tanah air": "Indonesia",
+    "seluruh tanah air": "Indonesia",
     "ລາວ": "Laos",
     "ສປປ ລາວ": "Laos",
     "ประเทศไทย": "Thailand",
@@ -604,12 +607,25 @@ def _mention_is_org_affiliation(text: str, start: int, end: int) -> bool:
     return bool(_ORG_HQ_AFFILIATION.search(window))
 
 
+_METRIC_OR_MEDIA_PLACE_NOISE = re.compile(
+    r"(?i)(?:"
+    r"\b(?:kasus|cases?|deaths?|kematian|meninggal|pasien|patients?|infections?)\b|"
+    r"\b(?:wib|wita|wit|bagikan|scroll|advertisement|vaksin|vaccine)\b|"
+    r"\b(?:ribu|juta|thousand|million)\b|"
+    r"\b(?:tahun\s+kini|kini\s+bisa|lebih\s+dari)\b"
+    r")"
+)
+
+
 def is_usable_place_name(name: str, surrounding_text: str = "", start: int = 0) -> bool:
     """Reject continents, function words, and publisher brands such as Asia News Network."""
     raw = (name or "").strip()
     if not raw:
         return False
     folded = _fold_location_text(raw)
+    # Title/chrome fragments bound as places ("Ribu Kasus Dengue", "WIB Bagikan").
+    if _METRIC_OR_MEDIA_PLACE_NOISE.search(raw):
+        return False
     location_stopwords = config.get_location_stopwords()
     if folded in CONTINENT_AND_REGION_LABELS or folded in location_stopwords:
         return False
@@ -1910,7 +1926,11 @@ def is_clearly_non_health_topic(text: str, diseases: Optional[list[str]] = None)
 
 def article_states_zero_cases(text: str) -> bool:
     """True when the article explicitly says no cases were detected/reported."""
-    return bool(_NO_CASES_REPORTED.search(text or ""))
+    sample = text or ""
+    if _NO_CASES_REPORTED.search(sample):
+        return True
+    # Malaria-free / elimination certifications are current-zero statements.
+    return article_states_disease_free(sample)
 
 
 def is_ncd_only_non_outbreak(text: str, diseases: Optional[list[str]] = None) -> bool:
@@ -2399,6 +2419,19 @@ _OUTBREAK_CLOSED = re.compile(
     re.I,
 )
 
+# Certification / elimination language: current burden is zero; historical peaks
+# belong in historical_cases, not the live case_count.
+_DISEASE_FREE_CERT = re.compile(
+    r"(?i)\b(?:"
+    r"malaria[- ]free|certified(?:\s+\w+){0,6}\s+(?:as\s+)?malaria[- ]free|"
+    r"(?:declared|certified)\s+(?:\w+\s+){0,4}(?:disease[- ]free|free\s+of\s+malaria)|"
+    r"zero\s+indigenous\s+cases|"
+    r"from\s+\d[\d\s,.]{0,12}\s+cases\s+to\s+zero|"
+    r"(?:to|at)\s+zero(?:\s+indigenous)?\s+cases|"
+    r"elimination\s+(?:of\s+)?malaria|interrupted\s+nationwide"
+    r")\b",
+)
+
 _NO_CASES_REPORTED = re.compile(
     r"\b("
     r"no(?:\s+new)?\s+cases?(?:\s+of\s+[\w][\w\s-]{0,40})?\s+"
@@ -2412,6 +2445,11 @@ _NO_CASES_REPORTED = re.compile(
     r")\b",
     re.I,
 )
+
+
+def article_states_disease_free(text: str) -> bool:
+    """True when the article certifies elimination / malaria-free / zero indigenous."""
+    return bool(_DISEASE_FREE_CERT.search(text or ""))
 
 _NCD_LABELS = {
     "stroke", "cancer", "heart attack", "heart disease", "diabetes",
@@ -2498,8 +2536,14 @@ def _period_score(window: str, full_text: str) -> int:
         latest_year = max(years_all) if years_all else None
         if latest_year is not None and max(years_w) <= latest_year:
             score -= 30
-    if re.search(r"\b(?:since 19\d{2}|since 200[0-4]|historical)\b", window_l):
-        score -= 12
+    if re.search(
+        r"\b(?:since\s+(?:then|19\d{2}|200[0-9]|201[0-9])|since\s+the\s+re-emergence|"
+        r"historical|all[- ]time|first\s+detected|initially\s+affecting)\b",
+        window_l,
+    ):
+        # All-time / since-first-detection CFR totals must not outrank the
+        # focal outbreak-year death clause (H5N1 DON pattern).
+        score -= 28
     if re.search(r"\b(?:this month|this week|district|previous week|the whole of)\b", window_l):
         score -= 12
     if re.search(r"\b(?:the whole of|all of)\s+(?:19|20)\d{2}\b", window_l):
@@ -2563,7 +2607,12 @@ _GLOBAL_AVERAGE_SCOPE = re.compile(
     r"(?:"
     r"\b(?:worldwide|world-wide|globally|annual average|each year|every year|per year)\b|"
     r"\bglobal average\b|"
-    r"\bWHO\b|world health organization|organisasi kesehatan dunia|"
+    # WHO alone is often the notifying agency for a national DON; only treat it
+    # as global when paired with worldwide/annual wording in the same sentence.
+    r"(?:\bWHO\b|world health organization|organisasi kesehatan dunia).{0,100}?"
+    r"(?:\b(?:worldwide|world-wide|globally|each year|every year|per year|annual)\b)|"
+    r"(?:\b(?:worldwide|world-wide|globally|each year|every year|per year|annual)\b).{0,100}?"
+    r"(?:\bWHO\b|world health organization|organisasi kesehatan dunia)|"
     r"secara global|seluruh dunia|setiap tahun(?:nya)?|"
     r"toàn cầu|mỗi năm|"
     r"ทั่วโลก|ทุกปี|"
@@ -3370,6 +3419,43 @@ def has_explicit_death_count(text: str, disease: Optional[str] = None) -> bool:
 def extract_death_count(text: str, disease: Optional[str] = None) -> int:
     try:
         source = _compact_spaced_thousands(str(text or ""))
+        # Prefer deaths bound to the latest outbreak year / same clause as the
+        # focal case count (e.g. "11 cases ... including six deaths" in 2025)
+        # over all-time CFR totals ("83 cases ... including 49 deaths").
+        latest_years = _years_in(source[:4000])
+        latest = max(latest_years) if latest_years else None
+        focal_including = list(re.finditer(
+            r"(?i)(?P<cases>\d{1,3}(?:[.,]\d{3})*|\d+)\s+"
+            r"(?:laboratory-confirmed\s+)?(?:cases?|kasus|infections?)\b"
+            r"[^.!?]{0,120}?\bincluding\s+(?P<deaths>\d{1,3}(?:[.,]\d{3})*|\d+|six|five|four|three|two|one)\s+"
+            r"(?:deaths?|fatalities|kematian|meninggal)\b",
+            source[:4000],
+        ))
+        if focal_including:
+            word_deaths = {
+                "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+            }
+            ranked = []
+            for match in focal_including:
+                window = _sentence_window(source, match.start(), match.end())
+                raw_d = match.group("deaths")
+                parsed_d = word_deaths.get(raw_d.casefold())
+                if parsed_d is None:
+                    parsed_d = _parse_count(raw_d, match.group(0))
+                if parsed_d is None:
+                    continue
+                years = _years_in(window)
+                period = _period_score(window, source)
+                if latest is not None and years and latest in years:
+                    period += 20
+                if re.search(r"\b(?:since\s+(?:then|19\d{2}|200)|first\s+detected|historical)\b", window, re.I):
+                    period -= 30
+                ranked.append((period, -match.start(), int(parsed_d)))
+            if ranked:
+                best = max(ranked)
+                max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
+                if 0 < best[2] <= max_count:
+                    return max(0, int(best[2]))
         # "20,115 total cases, including 11 deaths" — national inclusive death total
         including_deaths = re.search(
             r"(?i)(?:total\s+)?(?:cases?|kasus)\b[^.!?]{0,60}?\bincluding\s+"
@@ -3397,6 +3483,12 @@ def extract_death_count(text: str, disease: Optional[str] = None) -> int:
                 max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
                 if parsed_deaths <= max_count:
                     return max(0, int(parsed_deaths))
+        if re.search(
+            r"(?i)(?:^|[^A-Za-z0-9])(?:no\s+deaths?|tidak\s+ada\s+kematian|tanpa\s+kematian|"
+            r"zero\s+deaths?|belum\s+ada\s+kematian)(?:[^A-Za-z0-9]|$)",
+            source,
+        ):
+            return 0
         parsed = _extract_count(text, "death_count", 0, disease=disease)
         max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
         if parsed is None or parsed > max_count:
