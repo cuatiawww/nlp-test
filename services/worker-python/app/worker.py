@@ -612,6 +612,12 @@ def callback(ch, method, properties, body):
     identity_lock_conn = None
     identity_lock_keys_held: tuple[str, ...] = ()
     try:
+        from .maintenance import processing_held
+        if processing_held():
+            logger.info("Pipeline maintenance active; requeueing delivery=%s", method.delivery_tag)
+            time.sleep(1)
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+            return
         msg = json.loads(body)
         if isinstance(msg, dict) and msg.get("source_type", "") == "skdr_api":
             logger.info("SKDR processing is disabled. Dropping SKDR message %s", method.delivery_tag)

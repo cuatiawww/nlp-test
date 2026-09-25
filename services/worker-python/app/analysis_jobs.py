@@ -975,6 +975,9 @@ def process_job(job_id):
 
 def dispatch(channel):
     import pika
+    from .maintenance import processing_held
+    if processing_held():
+        return
     # Republish stale leases after a crash. process_job is idempotent and locked.
     with connect() as conn:
         rows = conn.execute("""SELECT id FROM analysis_jobs
@@ -1014,6 +1017,12 @@ def analysis_prefetch():
 
 
 def _handle_analysis_message(channel, method, _properties, body):
+    from .maintenance import processing_held
+    if processing_held():
+        logger.info("Pipeline maintenance active; requeueing analysis delivery=%s", method.delivery_tag)
+        time.sleep(1)
+        channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        return
     try:
         payload = json.loads(body)
         job_id = str(__import__("uuid").UUID(payload["job_id"]))
@@ -1080,6 +1089,10 @@ def _translation_task_for_job(row):
 def enqueue_translation_for_job(channel, job_id):
     """Publish one durable enrichment task after the primary job is complete."""
     import pika
+    from .maintenance import processing_held
+
+    if processing_held():
+        return False
 
     with connect() as conn:
         row = conn.execute(

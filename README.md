@@ -281,6 +281,16 @@ Jalankan simulasi terlebih dahulu tanpa mengubah database:
 sh scripts/reanalyze_health.sh --dry-run --limit 20
 ```
 
+Jika stack berjalan dengan Docker Compose production, uji satu event tanpa
+update database dengan service worker yang sama:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose-prod.override.yml \
+  run --rm --no-deps disease-worker-python \
+  python -m app.reanalyze_health \
+  --dry-run --limit 1 --batch-size 1 --skip-who-sync --stop-on-error
+```
+
 Secara default command ini hanya mengulang inferensi dari Disease Master lokal
 dan tidak melakukan sinkronisasi katalog eksternal.
 
@@ -303,32 +313,43 @@ sh scripts/reanalyze_health.sh --offset 1000 --batch-size 50
 sh scripts/reanalyze_health.sh --stop-on-error
 ```
 
-Untuk compose production, gunakan nama service worker production:
+Untuk production, gunakan maintenance workflow pada bagian berikut agar data
+baru ditahan dengan aman selama re-analysis. Command lama di bawah hanya cocok
+untuk maintenance terkontrol karena tidak memasang global hold. Jika container
+worker sudah berjalan dan memang ingin menjalankan mode legacy, cek nama
+container terlebih dahulu:
 
 ```bash
-COMPOSE_FILE=docker-compose-prod.yml \
-WORKER_SERVICE=worker-python \
-sh scripts/reanalyze_health.sh --dry-run --limit 20
+docker ps --filter name=worker-python --format 'table {{.Names}}\t{{.Status}}'
 ```
 
-Untuk STG/production yang menggunakan `docker-compose.yml` dengan service
-`worker-python`, jalankan re-analysis seluruh data tanpa batas jumlah event:
+Pada STG saat ini nama container biasanya `nlp-disease-worker-python-1`.
+Jalankan dry-run satu data:
 
 ```bash
-COMPOSE_FILE=docker-compose.yml   WORKER_SERVICE=worker-python sh scripts/reanalyze_health.sh --batch-size 50
+docker exec nlp-disease-worker-python-1 \
+  python -m app.reanalyze_health \
+  --dry-run \
+  --limit 1 \
+  --batch-size 1 \
+  --skip-who-sync \
+  --stop-on-error
 ```
 
-Jika container `disease-worker-python` sudah berjalan, gunakan command berikut
-agar tidak membuat container worker sementara. Sinkronisasi DeepSeek/WHO
-dilewati dan seluruh event health diproses:
+Jika hasil sudah benar, jalankan seluruh event health tanpa batas jumlah:
 
 ```bash
-docker exec disease-worker-python \
+docker exec nlp-disease-worker-python-1 \
   python -m app.reanalyze_health \
   --skip-who-sync \
   --batch-size 50 \
   --stop-on-error
 ```
+
+Jika nama container berbeda, ganti `nlp-disease-worker-python-1` dengan nama
+yang ditampilkan oleh `docker ps`. Command `docker exec` ini tidak memasang
+global maintenance hold; untuk production gunakan workflow
+`scripts/reanalysis_maintenance.sh` di bawah.
 
 Setiap event diperbarui dalam transaksi terpisah. Jika satu event gagal,
 event lainnya tetap diproses; gunakan `--stop-on-error` jika diperlukan.
@@ -337,6 +358,48 @@ Catatan: hasil dengan `disease_classification = UNKNOWN` tetap disimpan untuk
 audit, tetapi otomatis diberi `is_health_related = FALSE` dan tidak dihitung
 sebagai data health maupun outbreak. Aturan ini berlaku untuk collector,
 worker, `analyze-url`, dan re-analysis.
+
+### Maintenance hold saat re-analysis
+
+Untuk mencegah data baru dianalisis dengan versi pipeline yang berbeda selama
+re-analysis, gunakan maintenance workflow berikut. Data baru tidak dibuang;
+pesan disimpan di `pipeline_maintenance_messages` dan dilepas setelah proses
+selesai. Migration `129_pipeline_maintenance.sql` harus sudah diterapkan.
+
+Production/staging dengan compose override:
+
+```bash
+export COMPOSE_FILE=docker-compose.yml
+export COMPOSE_OVERRIDE_FILE=docker-compose-prod.override.yml
+export WORKER_SERVICE=disease-worker-python
+
+# 1. Drain queue dan buat snapshot re-analysis
+scripts/reanalysis_maintenance.sh start
+# 2. Simpan RUN_ID yang dicetak, lalu jalankan semua event pada snapshot
+scripts/reanalysis_maintenance.sh run <RUN_ID> --skip-who-sync --batch-size 50
+# 3. Hanya jalankan jika command run selesai dengan exit code 0
+scripts/reanalysis_maintenance.sh finish <RUN_ID>
+```
+
+`start` memindahkan pipeline ke `DRAINING`, menunggu queue kosong, lalu
+memindahkannya ke `REANALYZING`. Data baru selama proses disimpan durable dan
+akan dilepas saat `finish`. Tidak ada `--limit`, sehingga seluruh event health
+dalam snapshot diproses. Untuk pengujian terbatas, tambahkan `--limit 20` pada
+command `run`.
+
+Pantau status atau pulihkan setelah terminal terputus:
+
+```bash
+scripts/reanalysis_maintenance.sh status
+scripts/reanalysis_maintenance.sh recover
+```
+
+`maintenance-watchdog` berjalan sebagai service Docker. Jika proses
+re-analysis mati tanpa menjalankan cleanup, run yang heartbeat-nya stale akan
+ditandai gagal dan pesan tahanan dilepas kembali ke queue. Cleanup normal juga
+menggunakan `trap`, sehingga error atau `Ctrl-C` tidak meninggalkan pipeline
+terkunci. Jangan menjalankan `finish --force` kecuali hasil re-analysis memang
+ingin dilepas walaupun ada item gagal.
 
 ## Environment Variables
 
@@ -349,6 +412,8 @@ worker, `analyze-url`, dan re-analysis.
 | `RABBITMQ_URL` | `amqp://guest:guest@rabbitmq:5672/%2f` | RabbitMQ |
 | `COLLECTOR_URL` | `http://collector-python:8002` | Collector service |
 | `LOW_CONFIDENCE_THRESHOLD` | `0.5` | Threshold `needs_review` |
+| `REANALYZE_BATCH_SIZE` | `50` | Ukuran batch re-analysis |
+| `REANALYSIS_STALE_SECONDS` | `300` | Batas heartbeat sebelum watchdog recovery; minimum 60 detik |
 
 ## Fine-Tuning Model
 

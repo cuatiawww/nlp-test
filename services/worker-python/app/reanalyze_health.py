@@ -70,6 +70,11 @@ def parse_args() -> argparse.Namespace:
         "--who-limit", type=int, default=500,
         help="Maksimum report UNKNOWN yang dicoba resolusi ke WHO.",
     )
+    parser.add_argument(
+        "--run-id",
+        default="",
+        help="ID reanalysis_runs dari maintenance start; membatasi pekerjaan pada snapshot.",
+    )
     return parser.parse_args()
 
 
@@ -276,6 +281,24 @@ def update_event(conn: psycopg.Connection, row: dict, result: dict) -> None:
         )
 
 
+def update_run_progress(conn, run_id, row, *, processed=0, failed=0, error=None):
+    if not run_id:
+        return
+    conn.execute(
+        """
+        UPDATE reanalysis_runs
+           SET processed_items=processed_items+%s,
+               failed_items=failed_items+%s,
+               last_created_at=%s,
+               last_event_id=%s,
+               error=COALESCE(%s, error),
+               updated_at=NOW()
+         WHERE id=%s
+        """,
+        (processed, failed, row.get("created_at"), row.get("id"), error, run_id),
+    )
+
+
 def main() -> int:
     args = parse_args()
     if args.limit < 0 or args.offset < 0 or args.batch_size < 1:
@@ -287,8 +310,32 @@ def main() -> int:
 
     wait_for_nlp()
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        snapshot_at = None
+        if args.run_id:
+            run = conn.execute(
+                "SELECT snapshot_at, status FROM reanalysis_runs WHERE id=%s",
+                (args.run_id,),
+            ).fetchone()
+            if not run:
+                raise SystemExit(f"Unknown reanalysis run: {args.run_id}")
+            if run["status"] not in {"created", "running"}:
+                raise SystemExit(f"Reanalysis run is not runnable: {run['status']}")
+            state = conn.execute(
+                "SELECT mode FROM pipeline_control WHERE id=1"
+            ).fetchone()
+            if not state or str(state["mode"]).upper() != "REANALYZING":
+                raise SystemExit("Pipeline must remain in REANALYZING mode during the run")
+            snapshot_at = run["snapshot_at"]
+            conn.execute(
+                "UPDATE reanalysis_runs SET status='running', started_at=COALESCE(started_at,NOW()), updated_at=NOW() WHERE id=%s",
+                (args.run_id,),
+            )
+            conn.commit()
         count_row = conn.execute(
             "SELECT COUNT(*) AS count FROM disease_events WHERE is_health_related IS TRUE"
+            + (" AND created_at <= %s" if snapshot_at is not None else ""),
+            (snapshot_at.replace(tzinfo=None) if snapshot_at and snapshot_at.tzinfo else snapshot_at,)
+            if snapshot_at is not None else (),
         ).fetchone()
         eligible = int(count_row["count"])
         logger.info("Eligible health events: %d", eligible)
@@ -297,11 +344,14 @@ def main() -> int:
         while True:
             query = """
                 SELECT id, raw_report_id, original_text, language,
-                       source_type, source_name, published_at, created_at
+                       source_type, source_name, published_at, created_at, source_country
                 FROM disease_events
                 WHERE is_health_related IS TRUE
             """
             params: list[object] = []
+            if snapshot_at is not None:
+                query += " AND created_at <= %s"
+                params.append(snapshot_at.replace(tzinfo=None) if snapshot_at.tzinfo else snapshot_at)
             if last_created_at is not None:
                 query += " AND (created_at, id) > (%s, %s)"
                 params.extend([last_created_at, last_id])
@@ -333,6 +383,7 @@ def main() -> int:
                         with conn.transaction():
                             update_event(conn, row, result)
                             mark_kpi_snapshots_stale(conn)
+                            update_run_progress(conn, args.run_id, row, processed=1)
                     processed += 1
                     logger.info(
                         "Progress [%d/%d] id=%s -> %s (cases=%s, alert=%s)",
@@ -344,12 +395,28 @@ def main() -> int:
                 except Exception as exc:
                     failed += 1
                     logger.exception("Failed event id=%s: %s", row["id"], exc)
+                    update_run_progress(conn, args.run_id, row, failed=1, error=str(exc)[:500])
+                    conn.commit()
                     if args.stop_on_error:
+                        if args.run_id:
+                            conn.execute(
+                                "UPDATE reanalysis_runs SET status='failed', finished_at=NOW(), updated_at=NOW() WHERE id=%s",
+                                (args.run_id,),
+                            )
+                            conn.commit()
                         return 1
 
             if args.limit and total >= args.limit:
                 break
 
+    if args.run_id:
+        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as final_conn:
+            final_status = "completed" if failed == 0 else "failed"
+            final_conn.execute(
+                "UPDATE reanalysis_runs SET status=%s, finished_at=NOW(), updated_at=NOW() WHERE id=%s",
+                (final_status, args.run_id),
+            )
+            final_conn.commit()
     logger.info(
         "Re-analysis complete: processed=%d failed=%d dry_run=%s",
         processed, failed, args.dry_run,

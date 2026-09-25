@@ -1193,6 +1193,14 @@ async fn raw_report_outbox_once(
     channel: &lapin::Channel,
 ) -> Result<(), anyhow::Error> {
     let mut client = pool.get().await?;
+    let maintenance_mode = client
+        .query_opt("SELECT mode FROM pipeline_control WHERE id=1", &[])
+        .await?
+        .and_then(|row| row.get::<_, Option<String>>(0))
+        .unwrap_or_else(|| "RUNNING".to_string());
+    if maintenance_mode != "RUNNING" {
+        return Ok(());
+    }
     let transaction = client.transaction().await?;
     let rows = transaction
         .query(

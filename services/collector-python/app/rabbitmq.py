@@ -50,6 +50,9 @@ def publish(message: dict):
                     if message.get("source_type") == "social_media"
                     else config.RABBITMQ_QUEUE
                 )
+                from .maintenance import hold_message
+                if hold_message(routing_queue, message):
+                    return False
                 confirmed = channel.basic_publish(
                     exchange="",
                     routing_key=routing_queue,
@@ -76,6 +79,9 @@ def publish_to_queue(queue: str, message: dict) -> bool:
     """Best-effort publish to an isolated work queue. Never mix with disease.raw."""
     global _connection, _channel
     if not queue:
+        return False
+    from .maintenance import hold_message
+    if hold_message(queue, message):
         return False
     with _publish_lock:
         for attempt in range(2):
