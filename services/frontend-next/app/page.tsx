@@ -408,6 +408,7 @@ const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
     priority: 3,
   },
 ]
+
 export default function HomePage() {
   const { settings } = useSettings()
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -579,4 +580,336 @@ export default function HomePage() {
   }, [stats, crawlStats])
 
   return (
-    <div className=
+    <div className="w-full space-y-6 bg-[#f8fafc] px-4 py-6 sm:px-6 lg:px-8">
+      {/* 1. HERO & PRIMARY MODULES GRID (60% Welcome Jumbotron / 40% Primary Modules) */}
+      <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        {/* Left Jumbotron Banner (Col 7 - ~60%) */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#003865] via-[#0060A9] to-[#092545] p-6 sm:p-8 text-white shadow-md lg:col-span-7 flex flex-col justify-between min-h-[280px]">
+          <div className="pointer-events-none absolute -right-12 -top-12 h-64 w-64 rounded-full bg-white/5 blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-16 -left-16 h-64 w-64 rounded-full bg-blue-400/10 blur-3xl" />
+
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[11px] font-semibold tracking-wide text-white border border-white/20 backdrop-blur-md">
+                <Sparkles className="h-3.5 w-3.5 text-blue-200" />
+                ASEAN Real-Time Surveillance
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold text-emerald-200 border border-emerald-400/30 backdrop-blur-md">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                Engine Online
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-medium text-blue-100 border border-white/10">
+                <CalendarDays className="h-3.5 w-3.5 text-blue-200" />
+                Epi-Week W{currentEpiWeek.week} • {currentEpiWeek.year}
+              </span>
+            </div>
+
+            <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl text-white">
+              Welcome back, {userGreetingName}!
+            </h1>
+            <p className="mt-2 text-xs sm:text-sm text-blue-100/90 leading-relaxed max-w-xl">
+              Real-time disease intelligence and situational monitoring across 11 ASEAN member nations.
+            </p>
+
+            <div className="relative mt-5 w-full">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-200/80" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search modules or tools..."
+                className="w-full rounded-2xl border border-white/20 bg-white/10 py-2.5 pl-10 pr-10 text-xs sm:text-sm text-white placeholder:text-blue-200/60 shadow-inner backdrop-blur-md transition focus:border-white focus:bg-white focus:text-slate-900 focus:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-white/30"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-blue-200 hover:text-white"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-white/15 pt-4 text-xs text-blue-100/80">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-white">{userGreetingName}</span>
+              <span className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                {userRoleDisplay}
+              </span>
+            </div>
+            <span className="flex items-center gap-1.5 text-[11px] text-emerald-300">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {permittedItems.length} Authorized Modules
+            </span>
+          </div>
+        </div>
+
+        {/* Right Primary Modules Column (Col 5 - ~40%) */}
+        <div className="rounded-3xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-xs lg:col-span-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 mb-3.5">
+              <div className="flex items-center gap-2">
+                <div className="grid h-7 w-7 place-items-center rounded-lg bg-blue-50 text-[#0060A9] border border-blue-100">
+                  <Zap className="h-4 w-4" />
+                </div>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                  Primary Modules
+                </h2>
+              </div>
+              <span className="text-[11px] font-semibold text-slate-500">
+                Level: <span className="font-bold text-[#0060A9]">{userRoleDisplay}</span>
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {primaryShortcuts.map((item) => {
+                const Icon = item.icon
+                return (
+                  <Link
+                    key={item.id}
+                    href={item.path}
+                    className="group flex items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50/50 p-3.5 transition-all hover:border-[#0060A9] hover:bg-blue-50/30 hover:shadow-xs"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[#0060A9] border border-slate-200/80 shadow-2xs group-hover:bg-[#0060A9] group-hover:text-white transition-colors">
+                        <Icon className="h-4.5 w-4.5" />
+                      </div>
+                      <div className="truncate">
+                        <h3 className="text-xs font-bold text-slate-900 group-hover:text-[#0060A9] transition-colors truncate">
+                          {item.title}
+                        </h3>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {item.description}
+                        </p>
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-[#0060A9] group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span>Quick Launchpad</span>
+            <Link
+              href="#launchpad"
+              className="font-bold text-[#0060A9] hover:underline flex items-center gap-1"
+            >
+              View all {permittedItems.length} modules ↓
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. OVERVIEW METRIC CARDS */}
+      <section className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5">
+        {overviewMetrics.map((m) => {
+          const Icon = m.icon
+          return (
+            <article
+              key={m.id}
+              className="relative rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-all duration-150 hover:-translate-y-0.5 hover:border-[#0060A9]/50 hover:shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  {m.label}
+                </span>
+                <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border ${m.bg}`}>
+                  <Icon className="h-4 w-4" />
+                </div>
+              </div>
+
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-extrabold text-slate-900">
+                  {loadingStats ? (
+                    <RefreshCw className="h-5 w-5 animate-spin text-slate-400" />
+                  ) : (
+                    m.value.toLocaleString()
+                  )}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500 truncate">
+                {m.description}
+              </p>
+            </article>
+          )
+        })}
+      </section>
+
+      {/* 3. QUICK ACCESS HUB & MODULE LAUNCHPAD */}
+      <section id="launchpad" className="space-y-4 pt-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+              <Compass className="h-5 w-5 text-[#0060A9]" />
+              Module Launchpad
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Browse and open surveillance tools available for your profile.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-400">
+              {displayedItems.length} of {permittedItems.length} modules
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {availableCategories.map((cat) => {
+            const isSelected = selectedCategory === cat
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                  isSelected
+                    ? 'bg-[#0060A9] text-white shadow-xs'
+                    : 'border border-[#cfe0f1] bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {cat}
+              </button>
+            )
+          })}
+        </div>
+
+        {groupedItems.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-xs">
+            <Search className="mx-auto h-8 w-8 text-slate-400" />
+            <h3 className="mt-3 text-sm font-bold text-slate-800">
+              No matching modules found
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Try adjusting your search query or switch category filters.
+            </p>
+            <button
+              onClick={() => {
+                setSearchQuery('')
+                setSelectedCategory('All')
+              }}
+              className="mt-3 rounded-xl bg-slate-100 px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200"
+            >
+              Reset Filters
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-8 pt-2">
+            {groupedItems.map(([categoryName, items]) => (
+              <div key={categoryName}>
+                <div className="flex items-center gap-2 border-b border-slate-200 pb-2 mb-3.5">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                    {categoryName}
+                  </span>
+                  <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                    {items.length}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {items.map((item) => {
+                    const Icon = item.icon
+                    return (
+                      <Link
+                        key={item.id}
+                        href={item.path}
+                        className="group flex flex-col justify-between rounded-2xl border border-slate-200/90 bg-white p-4.5 shadow-xs transition-all duration-150 hover:-translate-y-0.5 hover:border-[#0060A9] hover:shadow-sm"
+                      >
+                        <div>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100 transition-colors group-hover:bg-[#0060A9] group-hover:text-white">
+                              <Icon className="h-5 w-5" />
+                            </div>
+
+                            {item.badge && (
+                              <span
+                                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wide uppercase border ${
+                                  item.badgeColor === 'blue'
+                                    ? 'bg-blue-50 text-[#0060A9] border-blue-200'
+                                    : item.badgeColor === 'emerald'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : item.badgeColor === 'amber'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                    : item.badgeColor === 'purple'
+                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                    : item.badgeColor === 'rose'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : item.badgeColor === 'cyan'
+                                    ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                                    : item.badgeColor === 'sky'
+                                    ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                                }`}
+                              >
+                                {item.badge}
+                              </span>
+                            )}
+                          </div>
+
+                          <h3 className="mt-3 text-sm font-bold text-slate-900 group-hover:text-[#0060A9] transition-colors">
+                            {item.title}
+                          </h3>
+                          <p className="mt-1 text-xs text-slate-500 leading-relaxed line-clamp-2">
+                            {item.description}
+                          </p>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-2.5 text-[11px]">
+                          <span className="font-mono text-slate-400 group-hover:text-slate-600">
+                            {item.path}
+                          </span>
+                          <span className="font-bold text-[#0060A9] flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                            Open ↗
+                          </span>
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 4. FOOTER GUIDANCE */}
+      <section className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+              ASEAN Disease Intelligence Portal
+            </h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Permissions are synchronized in real-time based on your account role.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {hasModuleAccess(user, '/console/users', settings.navigation_menu) && (
+            <Link
+              href="/console/users"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#cfe0f1] bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs transition"
+            >
+              <Users className="h-3.5 w-3.5 text-[#0060A9]" />
+              User Management
+            </Link>
+          )}
+          <Link
+            href="/business-process"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#cfe0f1] bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs transition"
+          >
+            <BookText className="h-3.5 w-3.5 text-[#0060A9]" />
+            Business Process
+          </Link>
+        </div>
+      </section>
+    </div>
+  )
+}
