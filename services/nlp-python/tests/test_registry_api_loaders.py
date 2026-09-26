@@ -83,6 +83,8 @@ class RegistryClientTests(unittest.TestCase):
 
 class RegistryLoaderTests(unittest.TestCase):
     def setUp(self):
+        self._env = mock.patch.dict(os.environ, {"NLP_SERVICE_URL": "http://nlp-python:8000"})
+        self._env.start()
         self.saved = {
             "SYMPTOM_DICT": dict(config.SYMPTOM_DICT),
             "DISEASE_DICT": dict(config.DISEASE_DICT),
@@ -111,11 +113,13 @@ class RegistryLoaderTests(unittest.TestCase):
             "LOCATION_ALIASES": dict(config.LOCATION_ALIASES),
             "LOCATION_LOAD_ATTEMPTED": config.LOCATION_LOAD_ATTEMPTED,
             "KEYWORDS_LOAD_ATTEMPTED": config.KEYWORDS_LOAD_ATTEMPTED,
+            "DISEASE_MASTER_LOAD_ATTEMPTED": config.DISEASE_MASTER_LOAD_ATTEMPTED,
             "DISEASE_ALIASES": dict(extractors.DISEASE_ALIASES),
             "COUNTRY_ALIASES": dict(extractors.COUNTRY_ALIASES),
         }
 
     def tearDown(self):
+        self._env.stop()
         config.SYMPTOM_DICT = self.saved["SYMPTOM_DICT"]
         config.DISEASE_DICT = self.saved["DISEASE_DICT"]
         config.DISEASE_MASTER_CONCEPTS = self.saved["DISEASE_MASTER_CONCEPTS"]
@@ -138,6 +142,7 @@ class RegistryLoaderTests(unittest.TestCase):
         config.LOCATION_ALIASES = self.saved["LOCATION_ALIASES"]
         config.LOCATION_LOAD_ATTEMPTED = self.saved["LOCATION_LOAD_ATTEMPTED"]
         config.KEYWORDS_LOAD_ATTEMPTED = self.saved["KEYWORDS_LOAD_ATTEMPTED"]
+        config.DISEASE_MASTER_LOAD_ATTEMPTED = self.saved["DISEASE_MASTER_LOAD_ATTEMPTED"]
         extractors.DISEASE_ALIASES = self.saved["DISEASE_ALIASES"]
         extractors.COUNTRY_ALIASES = self.saved["COUNTRY_ALIASES"]
 
@@ -154,6 +159,27 @@ class RegistryLoaderTests(unittest.TestCase):
         )
         for loader in loaders:
             self.assertNotIn("psycopg", inspect.getsource(loader), loader.__name__)
+
+    def test_unset_stack_url_uses_database_rows(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NLP_SERVICE_URL", None)
+            with mock.patch("app.registry_client.query_db", return_value=[
+                {"category": "disease", "keyword": "dengue", "target_label": "Dengue", "is_active": True},
+            ]) as query:
+                with mock.patch("app.registry_client.fetch_collection") as fetch:
+                    config.load_keywords_from_db()
+        fetch.assert_not_called()
+        query.assert_called_once()
+        self.assertEqual(config.DISEASE_DICT["dengue"], "Dengue")
+
+    def test_http_failure_falls_back_to_database_rows(self):
+        with mock.patch("app.registry_client.fetch_collection", side_effect=OSError("down")):
+            with mock.patch("app.registry_client.query_db", return_value=[
+                {"category": "symptom", "keyword": "fever", "target_label": "Fever", "is_active": True},
+            ]) as query:
+                config.load_keywords_from_db()
+        query.assert_called_once()
+        self.assertEqual(config.SYMPTOM_DICT["fever"], "Fever")
 
     def test_keywords_snapshot_keeps_priority_order_and_refetches(self):
         calls = []
