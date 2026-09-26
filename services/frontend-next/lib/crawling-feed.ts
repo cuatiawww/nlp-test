@@ -40,16 +40,31 @@ export const ASEAN_COUNTRIES: CountryMeta[] = [
 
 const fallbackCountry: CountryMeta = { code: "OUTSIDE_ASEAN", name: "OUTSIDE ASEAN", flag: "🌐", aliases: ["outside asean", "outside"] };
 
-function findCountry(value: string | null | undefined): CountryMeta | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) return undefined;
+const EXTERNAL_COUNTRIES: CountryMeta[] = [
+  { code: "CD", name: "Democratic Republic of the Congo", flag: "🇨🇩", aliases: ["democratic republic of the congo", "dr congo", "rd congo", "rd kongo", "dr kongo", "republik demokratik kongo", "drc", "rdc"] },
+  { code: "UG", name: "Uganda", flag: "🇺🇬", aliases: ["uganda"] },
+  { code: "NG", name: "Nigeria", flag: "🇳🇬", aliases: ["nigeria"] },
+  { code: "KE", name: "Kenya", flag: "🇰🇪", aliases: ["kenya"] },
+  { code: "GB", name: "United Kingdom", flag: "🇬🇧", aliases: ["united kingdom", "uk"] },
+  { code: "DE", name: "Germany", flag: "🇩🇪", aliases: ["germany", "jerman"] },
+  { code: "FR", name: "France", flag: "🇫🇷", aliases: ["france", "prancis"] },
+  { code: "SD", name: "Sudan", flag: "🇸🇩", aliases: ["sudan"] },
+  { code: "SS", name: "South Sudan", flag: "🇸🇸", aliases: ["south sudan"] },
+];
 
-  return ASEAN_COUNTRIES.find((country) =>
+function matchCountry(list: CountryMeta[], normalized: string): CountryMeta | undefined {
+  return list.find((country) =>
     country.aliases.some((alias) => {
-      if (alias.length <= 2) return normalized === alias;
+      if (alias.length <= 3) return normalized === alias;
       return normalized === alias || normalized.includes(alias);
     }),
   );
+}
+
+function findCountry(value: string | null | undefined): CountryMeta | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === "outside asean" || normalized === "global") return undefined;
+  return matchCountry(EXTERNAL_COUNTRIES, normalized) || matchCountry(ASEAN_COUNTRIES, normalized);
 }
 
 function countryFromSource(sourceUrl?: string | null, sourceName?: string | null): CountryMeta | undefined {
@@ -64,10 +79,6 @@ function countryFromSource(sourceUrl?: string | null, sourceName?: string | null
 }
 
 export function countryForEvent(event: DiseaseEvent): CountryMeta {
-  const c = (event.country || "").trim().toLowerCase();
-  if (c === "outside asean" || c.includes("outside") || c.includes("syria") || c.includes("congo") || c.includes("sudan") || c.includes("texas")) {
-    return fallbackCountry;
-  }
   return findCountry(event.country) ?? findCountry(event.location_name) ?? countryFromSource(event.url, event.source_name) ?? fallbackCountry;
 }
 

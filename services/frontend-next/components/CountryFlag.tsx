@@ -30,7 +30,42 @@ const pixelSizeMap: Record<FlagSize, number> = {
   xl: 32,
 };
 
+const COUNTRY_NAME_ISO: Record<string, string> = {
+  "democratic republic of the congo": "CD",
+  "dr congo": "CD",
+  "rd congo": "CD",
+  "rd kongo": "CD",
+  "dr kongo": "CD",
+  "drc": "CD",
+  "rdc": "CD",
+  "cod": "CD",
+  "cd": "CD",
+  "republik demokratik kongo": "CD",
+  uganda: "UG",
+  nigeria: "NG",
+  kenya: "KE",
+  rwanda: "RW",
+  ethiopia: "ET",
+  ghana: "GH",
+  sudan: "SD",
+  "south sudan": "SS",
+  "united kingdom": "GB",
+  germany: "DE",
+  france: "FR",
+  netherlands: "NL",
+  brazil: "BR",
+  "south africa": "ZA",
+  tanzania: "TZ",
+};
+
+function isoFromLabel(value?: string | null): string | null {
+  const key = (value || "").trim().toLowerCase();
+  return key ? COUNTRY_NAME_ISO[key] || null : null;
+}
+
 function normalizeCode(code?: string | null, name?: string | null): string {
+  const named = isoFromLabel(name) || isoFromLabel(code);
+  if (named) return named;
   if (code) {
     const c = code.trim().toUpperCase();
     if (["ID", "INA", "INDONESIA"].includes(c)) return "ID";
@@ -75,7 +110,7 @@ function normalizeCode(code?: string | null, name?: string | null): string {
     if (n.includes("australia")) return "AU";
     if (n.includes("asean")) return "ASEAN";
   }
-  return "ASEAN";
+  return "GLOBAL";
 }
 
 /* Vector Flag Renderers (viewBox 0 0 640 480) */
@@ -312,6 +347,15 @@ function SvgFlag({ code }: { code: string }) {
           </g>
         </svg>
       );
+    case "CD":
+      return (
+        <svg viewBox="0 0 640 480" className="h-full w-full object-cover">
+          <path fill="#007FFF" d="M0 0h640v480H0z" />
+          <path fill="#F7D618" d="M0 80 520 480h80L80 0H0z" />
+          <path fill="#CE1021" d="M0 140 460 480h70L70 0H0z" />
+          <polygon fill="#F7D618" points="95,55 108,95 150,95 116,120 129,160 95,135 61,160 74,120 40,95 82,95" />
+        </svg>
+      );
     case "OUTSIDE_ASEAN":
     case "GLOBAL":
     case "WORLD":
@@ -323,7 +367,6 @@ function SvgFlag({ code }: { code: string }) {
         </svg>
       );
     case "ASEAN":
-    default:
       return (
         <svg viewBox="0 0 640 480" className="h-full w-full object-cover">
           <path fill="#003399" d="M0 0h640v480H0z" />
@@ -339,6 +382,19 @@ function SvgFlag({ code }: { code: string }) {
           </g>
         </svg>
       );
+    default: {
+      if (/^[A-Z]{2}$/.test(code)) {
+        const emoji = Array.from(code).map((char) => String.fromCodePoint(127397 + char.charCodeAt(0))).join("");
+        return <span className="flex h-full w-full items-center justify-center text-[11px] leading-none">{emoji}</span>;
+      }
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-full w-full p-0.5 bg-slate-100">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+          <path d="M2 12h20" />
+        </svg>
+      );
+    }
   }
 }
 
