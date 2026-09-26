@@ -434,6 +434,7 @@ def analyze_article(extracted):
             "source_country": extracted.get("source_country"),
             "published_at": extracted.get("published_at"),
             "rules_only": False,
+            "historical_fast": False,
             "source_url": extracted.get("url"),
         },
         timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),

@@ -234,6 +234,7 @@ class AnalysisJobTests(unittest.TestCase):
             )
         sent = post.call_args.kwargs["json"]
         self.assertFalse(sent["rules_only"])
+        self.assertFalse(sent["historical_fast"])
         self.assertEqual(sent["source_url"], "https://example.org/news")
         self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
 

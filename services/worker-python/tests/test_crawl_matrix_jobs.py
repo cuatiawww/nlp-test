@@ -197,6 +197,64 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn(("Dengue", 12), disease_rows)
         self.assertIn(("Measles", 8), disease_rows)
 
+    def test_matrix_keeps_the_same_sub_events_as_url_analysis(self):
+        adapted = pipeline_analysis_to_matrix({
+            "disease_classification": "Chikungunya",
+            "country": "Philippines",
+            "sub_events": [
+                {
+                    "disease": "Chikungunya",
+                    "country": "Philippines",
+                    "location_name": "Basey; ; Gandara",
+                    "admin1": "Samar",
+                    "case_count": 372,
+                    "death_count": 0,
+                    "latitude": 11.28,
+                    "longitude": 125.07,
+                },
+                {
+                    "disease": "Chikungunya",
+                    "country": "Philippines",
+                    "location_name": "Thailand",
+                    "case_count": 1,
+                    "death_count": 0,
+                },
+                {
+                    "disease": "UNKNOWN",
+                    "country": "Philippines",
+                    "location_name": "Paranas",
+                    "case_count": 0,
+                    "death_count": 0,
+                },
+            ],
+        })
+        rows = [
+            (item["country"], item["provinces"], item["reported_cases"])
+            for item in adapted["locations"]
+        ]
+        self.assertEqual(rows, [
+            ("Philippines", ["Samar", "Basey"], 372),
+            ("Philippines", ["Thailand"], 1),
+            ("Philippines", ["Paranas"], 0),
+        ])
+        self.assertNotIn(";", str(rows))
+        self.assertEqual(adapted["locations"][0]["latitude"], 11.28)
+
+    def test_event_place_does_not_inherit_parent_or_semicolons(self):
+        from app.multi_event_persist import event_place_fields
+
+        location, province, city = event_place_fields(
+            {
+                "country": "Philippines",
+                "location_name": ";; Basey",
+                "admin1": "Samar",
+            },
+            {"province": "Communicable Diseases Agency", "city": "Quezon City"},
+        )
+        self.assertEqual(location, "Basey")
+        self.assertEqual(province, "Samar")
+        self.assertEqual(city, "Basey")
+
     def test_analyze_article_passes_title_and_source_country(self):
         from unittest.mock import Mock, patch
         response = Mock()
@@ -214,6 +272,8 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
         self.assertIn("Sharp dengue surge", payload["text"])
         self.assertEqual(payload["source_country"], "Malaysia")
+        self.assertFalse(payload["rules_only"])
+        self.assertFalse(payload["historical_fast"])
 
     def test_concept_resolution_keeps_full_label(self):
         label, concept = selected_concept(

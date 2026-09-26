@@ -5,12 +5,58 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any, Optional
 
 from .geo import st_makepoint_args
 
 logger = logging.getLogger(__name__)
 NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
+_EMPTY_PLACE = frozenset({"", "unknown", "n/a", "na", "null", "none", "-", "multi_country"})
+
+
+def focused_place(value: Any, country: str | None = None, *, keep_country: bool = False) -> str | None:
+    """One place name, the same focus URL analysis shows for an event.
+
+    Semicolon-joined leftovers (`Basey; ; Gandara` or `;;`) keep the first
+    real segment. The country name is not also stored as the city.
+    """
+    parts = [
+        part.strip(" ,")
+        for part in re.split(r";+", str(value or ""))
+        if part.strip(" ,;")
+    ]
+    country_key = str(country or "").strip().casefold()
+    finer = [
+        part for part in parts
+        if part.casefold() not in _EMPTY_PLACE and part.casefold() != country_key
+    ]
+    if finer:
+        return finer[0]
+    if keep_country and parts and parts[0].casefold() not in _EMPTY_PLACE:
+        return parts[0]
+    return None
+
+
+def event_place_fields(sub_evt: dict, result: dict | None = None) -> tuple[str | None, str | None, str | None]:
+    """Location, province, and city for one sub-event.
+
+    Province and city come from that event. They do not inherit the parent
+    article's place, which is what turned multi-event rows into `;;`.
+    """
+    parent = result or {}
+    country = sub_evt.get("country") or parent.get("country")
+    location = focused_place(
+        sub_evt.get("location_name") or parent.get("location_name"),
+        country,
+        keep_country=True,
+    )
+    province = focused_place(sub_evt.get("admin1") or sub_evt.get("admin1_name"), country)
+    city = focused_place(sub_evt.get("admin2") or sub_evt.get("admin2_name"), country)
+    if location and str(location).casefold() != str(country or "").strip().casefold():
+        if city is None and (province is None or location.casefold() != province.casefold()):
+            city = location
+    return location, province, city
 
 
 def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any], source_url: Optional[str] = None) -> int:
@@ -27,15 +73,13 @@ def persist_child_facts(conn, *, parent_event_id, raw_id, result: dict[str, Any]
     for sub_evt in sub_events:
         if not isinstance(sub_evt, dict):
             continue
-        sub_location = sub_evt.get("location_name") or result.get("location_name")
+        sub_location, sub_admin1, sub_admin2 = event_place_fields(sub_evt, result)
         sub_disease = sub_evt.get("disease") or result.get("disease_classification")
         sub_cases = sub_evt.get("case_count")
         sub_deaths = sub_evt.get("death_count")
         sub_lat = sub_evt.get("latitude")
         sub_lon = sub_evt.get("longitude")
         sub_evidence = sub_evt.get("evidence") or ""
-        sub_admin1 = sub_evt.get("admin1") or result.get("admin1_name") or result.get("province")
-        sub_admin2 = sub_evt.get("admin2") or result.get("admin2_name") or result.get("city")
         sub_iso3 = sub_evt.get("country_iso3") or result.get("country_iso3")
         sub_epistemic = sub_evt.get("epistemic_status") or result.get("epistemic_status") or "reported"
         sub_metric_type = sub_evt.get("metric_type") or "cases"
