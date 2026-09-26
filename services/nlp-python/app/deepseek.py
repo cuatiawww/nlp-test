@@ -550,12 +550,15 @@ def validate_and_correct_events(
     ] if config.DISEASE_MASTER_CONCEPTS else []
 
     focus = list(dict.fromkeys(review_focus or ["disease", "location", "counts", "outbreak status"]))
-    is_complex = "multi-country" in focus or "outbreak status" in focus
+    multi_fact_review = "multi-fact" in focus
+    is_complex = multi_fact_review or "multi-country" in focus or "outbreak status" in focus
     counts_missing = (
         "counts" in focus and draft_case_count <= 0 and draft_death_count <= 0
     )
     prompt_limit = (
-        config.DEEPSEEK_PROMPT_CHARS
+        max(config.DEEPSEEK_PROMPT_CHARS, 12000)
+        if multi_fact_review
+        else config.DEEPSEEK_PROMPT_CHARS
         if is_complex or counts_missing
         else min(config.DEEPSEEK_PROMPT_CHARS, 2800)
     )
@@ -568,9 +571,9 @@ def validate_and_correct_events(
         "1. ZERO HALLUCINATION POLICY: Extract metrics ONLY if explicitly stated in text.\n"
         "2. NON-EVENT FILTER: If the article is purely educational, informational, or coordination/prevention meeting with NO active case/outbreak metrics, set is_health_related=true/false appropriately and sub_events=[].\n"
         "3. DISEASE CONSTRAINTS: 'disease' MUST match one of the allowed official ASEAN concepts.\n"
-        "4. ATOMIC EVENTS: Return distinct country-level (disease, location, case_count, death_count) tuples. If a country total is present, do not also return province/city subset counts because they double-count the total.\n"
+        "4. SEPARATE FACTS: Return one sub_event for every explicitly stated combination of disease, country, and location that has its own case or death count. A stated country total and a stated province or city count are separate events. Include countries outside ASEAN. When the article states more than one disease, return one event per disease. The count must appear in that event's evidence sentence.\n"
         "5. REVIEW ONLY: Correct the local draft using the supplied body evidence; do not fetch or browse the URL.\n"
-        "6. COMPLETENESS: Include every explicitly stated country total relevant to the draft; do not omit a country merely because another country has a larger total.\n"
+        "6. COMPLETENESS: Include every explicitly stated country, including countries outside ASEAN, and every stated province or city count. Do not omit a country, location, or disease because another place has a larger total.\n"
         "7. METRIC SCOPE: Bind each case/death number to the same country in the exact evidence sentence. Never assign an article-wide total to a country, a treatment country, a recovered-patient count, or a clinical-trial participant count.\n"
         "8. PERIOD SELECTION: If a country total cumulative/to-date figure and a weekly/monthly figure both appear, use the cumulative/to-date total for the country-level event; use the shorter period only as a detail when it has a distinct location.\n"
         "9. SOURCE BOUNDARY: Articles can contain a copied footer or a second syndicated article. Prefer the primary headline/lede and its first complete report; do not mix a later appended article's metrics into the primary event.\n"
@@ -614,10 +617,14 @@ def validate_and_correct_events(
         result = chat_json(
             system_prompt,
             user_prompt,
-            max_tokens=min(
-                config.DEEPSEEK_RESPONSE_MAX_TOKENS,
-                config.DEEPSEEK_MAX_TOKENS,
-                800 if is_complex else 500,
+            max_tokens=(
+                config.DEEPSEEK_MAX_TOKENS
+                if multi_fact_review
+                else min(
+                    config.DEEPSEEK_RESPONSE_MAX_TOKENS,
+                    config.DEEPSEEK_MAX_TOKENS,
+                    800 if is_complex else 500,
+                )
             ),
         )
         if not isinstance(result, dict):

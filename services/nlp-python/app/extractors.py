@@ -1330,6 +1330,36 @@ def _newsroom_dateline_only(compact_text: str, name: str, positions: list[int]) 
     )
 
 
+_SHORT_COUNTRY_ALIASES = frozenset({"uk", "usa", "drc"})
+
+
+def extract_named_countries(text: str) -> list[str]:
+    """Distinct countries spelled in the article, including countries outside ASEAN."""
+    config.ensure_location_registry_loaded()
+    folded_text = _fold_location_text(text or "")
+    if not folded_text.strip():
+        return []
+    found: dict[str, int] = {}
+    for alias, standard in _country_alias_view().items():
+        folded_alias = _fold_location_text(alias)
+        if folded_alias in {"as"}:
+            continue
+        if len(folded_alias) < 4 and folded_alias not in _SHORT_COUNTRY_ALIASES:
+            continue
+        pattern = (
+            re.escape(folded_alias)
+            if _is_native_script(alias)
+            else rf"(?<!\w){re.escape(folded_alias)}(?!\w)"
+        )
+        match = re.search(pattern, folded_text, re.IGNORECASE)
+        if not match:
+            continue
+        previous = found.get(standard)
+        if previous is None or match.start() < previous:
+            found[standard] = match.start()
+    return [name for name, _pos in sorted(found.items(), key=lambda item: item[1])]
+
+
 def extract_all_mentioned_countries(text: str) -> list[str]:
     """Extract all distinct ASEAN countries explicitly mentioned in text with positive evidence."""
     config.ensure_location_registry_loaded()

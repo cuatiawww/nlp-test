@@ -38,6 +38,28 @@ def text_has_unbound_metric_evidence(text: str | None) -> bool:
     return False
 
 
+_CASE_FIGURE = re.compile(
+    r"(?<![-A-Za-z])(\d[\d.,]*)(?:\s+[A-Za-z][\w'-]*){0,6}\s+"
+    r"(?:kasus|cases?|infections?|ca\s+mắc)"
+    r"|(?:kasus|cases?|infections?|ca\s+mắc)"
+    r"\s+(?:sebanyak\s+|reaching\s+|of\s+|mencapai\s+)?"
+    r"(?<![-A-Za-z])(\d[\d.,]*)",
+    re.IGNORECASE,
+)
+
+
+def distinct_case_figure_count(text: str | None) -> int:
+    """How many different case totals the article states."""
+    figures: set[str] = set()
+    for match in _CASE_FIGURE.finditer(text or ""):
+        token = match.group(1) or match.group(2) or ""
+        digits = re.sub(r"[^\d]", "", token)
+        if not digits or _year_token(token):
+            continue
+        figures.add(digits)
+    return len(figures)
+
+
 def should_escalate_to_llm(
     historical_fast: bool = False,
     interactive: bool = False,
@@ -60,6 +82,7 @@ def should_escalate_to_llm(
     is_health_related: bool = False,
     unbound_metrics: bool = False,
     publisher_country_conflict: bool = False,
+    multi_fact: bool = False,
 ) -> bool:
     """Return True ONLY for valid outbreak candidates requiring rear-gate validation/correction."""
     # 1. Front-Gate Hard Rejections (Zero Token Waste):
@@ -96,8 +119,13 @@ def should_escalate_to_llm(
     # when they still kept the outlet's country.
     if publisher_country_conflict:
         return True
+    # Several countries, locations, case figures, or diseases are still a
+    # rear-gate job after the rules pin confidence. Two disease names alone
+    # do not set this flag.
+    if multi_fact:
+        return True
     # Already-high-confidence rows stay local, including official bulletins,
-    # unless the unbound-metric carve-out above applied.
+    # unless a carve-out above applied.
     if confidence >= config.DEEPSEEK_TRIGGER_CONFIDENCE:
         return False
 
