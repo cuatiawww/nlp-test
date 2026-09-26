@@ -13,7 +13,7 @@ function stripHtml(text?: string | null): string {
     .trim()
 }
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import {
@@ -146,6 +146,35 @@ function fmtTrunc(value?: string | number | null, className = 'max-w-[150px]') {
       {text}
     </span>
   )
+}
+
+function articleShell(row: CrawlHistoryRow): CrawlHistoryRow {
+  return {
+    ...row,
+    cases_display: null,
+    deaths_display: null,
+    geo_summary: null,
+    cases: null,
+    deaths: null,
+    country: null,
+    province: null,
+    city: null,
+    province_city_case: null,
+    latitude: null,
+    longitude: null,
+    disease: null,
+  }
+}
+
+function asEventRow(row: CrawlHistoryRow): CrawlHistoryRow {
+  return { ...row, cases_display: null, deaths_display: null, geo_summary: null }
+}
+
+function decomposedEvents(_parent: CrawlHistoryRow, kids: CrawlHistoryRow[] | undefined) {
+  const rows = kids || []
+  const children = rows.filter((row) => row.parent_event_id)
+  const events = children.length >= 2 ? children : rows
+  return events.length >= 2 ? events : []
 }
 
 function casesCell(row: CrawlHistoryRow) {
@@ -442,6 +471,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
     return count
   }, [country, disease, dateFrom, dateTo, status, geo])
   const [rows, setRows] = useState<CrawlHistoryRow[]>([])
+  const [eventRows, setEventRows] = useState<Record<string, CrawlHistoryRow[]>>({})
   const [jobs, setJobs] = useState<CrawlHistoryJob[]>([])
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -545,6 +575,26 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
     if (tab === 'matrix') void loadRows()
     else void loadJobs()
   }, [tab, loadRows, loadJobs])
+
+  useEffect(() => {
+    let active = true
+    const multi = rows.filter((row) => (row.event_count || 0) > 1 && row.id)
+    if (!multi.length) {
+      setEventRows({})
+      return
+    }
+    Promise.all(multi.map(async (row) => {
+      try {
+        const full = await fetchCrawlHistoryRow(row.id, row.crawl_channel)
+        return [row.id, full?.children || []] as const
+      } catch {
+        return [row.id, []] as const
+      }
+    })).then((pairs) => {
+      if (active) setEventRows(Object.fromEntries(pairs))
+    })
+    return () => { active = false }
+  }, [rows])
 
   useEffect(() => {
     setPage(1)
@@ -1140,45 +1190,57 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row, index) => (
-                    <tr
-                      key={`${row.crawl_channel}-${row.article_key || row.id}`}
-                      className="cursor-pointer hover:bg-blue-50/40"
-                      onClick={() => void openRow(row)}
-                    >
-                      {activeColumns.map((col) => {
-                        if (col.key === 'action') {
-                          return (
-                            <td
-                              key={col.key}
-                              className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1 text-center align-middle"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => void openRow(row)}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-[#0060A9] hover:bg-blue-50/60 hover:text-[#0060A9] transition shadow-2xs cursor-pointer"
-                                title="Review article & extracted disease events"
-                              >
-                                <Eye className="h-3.5 w-3.5 text-[#0060A9]" />
-                                <span>Review</span>
-                              </button>
-                            </td>
-                          )
-                        }
+                  {rows.map((row, index) => {
+                    const events = decomposedEvents(row, eventRows[row.id])
+                    const article = events.length ? articleShell(row) : row
+                    const renderCells = (item: CrawlHistoryRow, label: string | number, open: () => void) => activeColumns.map((col) => {
+                      if (col.key === 'action') {
                         return (
                           <td
                             key={col.key}
-                            className={`whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1.5 align-middle text-slate-800 ${
-                              col.sticky ? 'sticky left-0 z-[1]' : ''
-                            }`}
+                            className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1 text-center align-middle"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {rowCell(row, col.key, index, page)}
+                            <button
+                              type="button"
+                              onClick={open}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-[#0060A9] hover:bg-blue-50/60 hover:text-[#0060A9] transition shadow-2xs cursor-pointer"
+                              title="Review article & extracted disease events"
+                            >
+                              <Eye className="h-3.5 w-3.5 text-[#0060A9]" />
+                              <span>Review</span>
+                            </button>
                           </td>
                         )
-                      })}
-                    </tr>
-                  ))}
+                      }
+                      return (
+                        <td
+                          key={col.key}
+                          className={`whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1.5 align-middle text-slate-800 ${
+                            col.sticky ? 'sticky left-0 z-[1]' : ''
+                          }`}
+                        >
+                          {col.key === 'no' ? label : rowCell(item, col.key, index, page)}
+                        </td>
+                      )
+                    })
+                    return (
+                      <Fragment key={`${row.crawl_channel}-${row.article_key || row.id}`}>
+                        <tr className="cursor-pointer hover:bg-blue-50/40" onClick={() => void openRow(row)}>
+                          {renderCells(article, (page - 1) * PAGE_SIZE + index + 1, () => void openRow(row))}
+                        </tr>
+                        {events.map((event, eventIndex) => (
+                          <tr
+                            key={`${event.id || eventIndex}`}
+                            className="cursor-pointer bg-blue-50/30 hover:bg-blue-50/50"
+                            onClick={() => void openRow(row)}
+                          >
+                            {renderCells(asEventRow(event), `${index + 1}.${eventIndex + 1}`, () => void openRow({ ...row, ...asEventRow(event) }))}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

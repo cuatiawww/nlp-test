@@ -16,7 +16,7 @@ import {
   Search, Globe, MapPin, Bug, Activity, Heart, MessageSquare,
   Shield, Languages, Users, Skull, TrendingUp,
   FileText, ExternalLink, Layers, CheckCircle, Loader2, Calendar,
-  Database, RefreshCw, ChevronDown, ChevronRight
+  Database, RefreshCw
 } from 'lucide-react'
 
 // Disease labels can arrive from old records, keyword aliases, and WHO
@@ -86,7 +86,6 @@ export default function AnalyzePage() {
   const [stage, setStage] = useState('')
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
   const [forceRefresh, setForceRefresh] = useState(false)
-  const [matrixExpanded, setMatrixExpanded] = useState(true)
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
 
   useEffect(() => {
@@ -352,19 +351,20 @@ export default function AnalyzePage() {
                 .filter((c: string) => Boolean(c) && c !== 'MULTI_COUNTRY'),
             ))
             const hasScopedMetrics = subEvents.length >= 2
-            const isMultiCountryOrScoped = hasScopedMetrics || eventCountries.length > 1
-            const matrixCountry = isMultiCountryOrScoped
-              ? 'See event rows'
-              : eventCountries.length === 1
-                ? eventCountries[0]
-                : (result.country && result.country !== 'MULTI_COUNTRY' ? result.country : (hasScopedMetrics ? 'See event rows' : '-'))
+            const summedCases = subEvents.reduce((sum: number, evt: { case_count?: number }) => sum + (Number(evt.case_count) || 0), 0)
+            const summedDeaths = subEvents.reduce((sum: number, evt: { death_count?: number }) => sum + (Number(evt.death_count) || 0), 0)
+            const matrixCountry = eventCountries.length === 1
+              ? eventCountries[0]
+              : eventCountries.length > 1
+                ? eventCountries.join(', ')
+                : (result.country && result.country !== 'MULTI_COUNTRY' ? result.country : '-')
             const matrixCases = hasScopedMetrics
-              ? 'See event rows'
+              ? summedCases.toLocaleString()
               : ((result as any).case_count_unknown
                 ? 'unknown'
                 : result.case_count != null ? result.case_count.toLocaleString() : '0')
             const matrixDeaths = hasScopedMetrics
-              ? 'See event rows'
+              ? summedDeaths.toLocaleString()
               : (result.death_count != null ? result.death_count.toLocaleString() : '0')
             const resultLatitude = (result as any)?.latitude
             const resultLongitude = (result as any)?.longitude
@@ -420,12 +420,12 @@ export default function AnalyzePage() {
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Location / Country</span>
-                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={isMultiCountryOrScoped ? 'See event rows' : matrixCountry}>
-                      {isMultiCountryOrScoped
-                        ? 'See event rows'
+                    <p className="mt-1 text-sm font-black text-slate-900 truncate" title={matrixCountry}>
+                      {hasScopedMetrics
+                        ? `${subEvents.length} events`
                         : ((result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || result.province || matrixCountry || '-')}
                     </p>
-                    {!isMultiCountryOrScoped && result.country && result.country !== 'MULTI_COUNTRY' && (result.location_name || result.province) !== result.country && (
+                    {!hasScopedMetrics && result.country && result.country !== 'MULTI_COUNTRY' && (result.location_name || result.province) !== result.country && (
                       <span className="text-[11px] text-slate-500 font-medium">({result.country})</span>
                     )}
                   </div>
@@ -439,7 +439,7 @@ export default function AnalyzePage() {
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Recorded Deaths</span>
-                    <p className={`mt-1 text-lg font-black ${result.death_count > 0 ? 'text-red-600' : 'text-slate-900'} leading-snug truncate`}>
+                    <p className={`mt-1 text-lg font-black ${(hasScopedMetrics ? summedDeaths : result.death_count) > 0 ? 'text-red-600' : 'text-slate-900'} leading-snug truncate`}>
                       {matrixDeaths}
                     </p>
                   </div>
@@ -455,25 +455,6 @@ export default function AnalyzePage() {
                       </h3>
                     </div>
                     <div className="flex items-center gap-2">
-                      {subEvents.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setMatrixExpanded((prev) => !prev)}
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition-colors"
-                        >
-                          {matrixExpanded ? (
-                            <>
-                              <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
-                              Collapse Sub-Events ({subEvents.length})
-                            </>
-                          ) : (
-                            <>
-                              <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
-                              Expand Sub-Events ({subEvents.length})
-                            </>
-                          )}
-                        </button>
-                      )}
                       <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-[#0060A9] ring-1 ring-blue-200">
                         <Layers className="h-3 w-3" />
                         {subEvents.length > 0 ? `${subEvents.length} Decomposed Events` : '1 Event'}
@@ -503,33 +484,14 @@ export default function AnalyzePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {/* Parent Collapsed Article Row */}
+                        {/* One event: the article row is the event. Several events: only the event rows below. */}
+                        {subEvents.length < 2 && (
                         <tr className="hover:bg-blue-50/30 transition-colors">
                           <td className="sticky left-0 z-[1] whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-bold text-slate-800 shadow-[2px_0_0_#f1f5f9]">
-                            <div className="flex items-center gap-1.5">
-                              {subEvents.length > 0 ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setMatrixExpanded((prev) => !prev)}
-                                  className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                                  title="Toggle child events"
-                                >
-                                  {matrixExpanded ? (
-                                    <ChevronDown className="h-3.5 w-3.5 text-[#0060A9]" />
-                                  ) : (
-                                    <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
-                                  )}
-                                </button>
-                              ) : null}
-                              <span>1</span>
-                            </div>
+                            <span>1</span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            {isMultiCountryOrScoped ? (
-                              <span className="text-slate-500 font-medium italic">See event rows</span>
-                            ) : (
-                              matrixCountry
-                            )}
+                            {matrixCountry}
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono uppercase">
                             {result.language || '-'}
@@ -560,12 +522,8 @@ export default function AnalyzePage() {
                             </div>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            <span className="block max-w-[150px] truncate" title={isMultiCountryOrScoped ? 'See event rows' : matrixCountry}>
-                              {isMultiCountryOrScoped ? (
-                                <span className="text-slate-500 font-medium italic">See event rows</span>
-                              ) : (
-                                (result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || result.province || result.country || '-'
-                              )}
+                            <span className="block max-w-[150px] truncate" title={matrixCountry}>
+                              {(result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || result.province || result.country || '-'}
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-mono text-slate-600">
@@ -660,9 +618,10 @@ export default function AnalyzePage() {
                             </button>
                           </td>
                         </tr>
+                        )}
 
-                        {/* Expandable Child Decomposed Rows */}
-                        {matrixExpanded && subEvents.length > 0 && subEvents.map((evt: any, sIdx: number) => {
+                        {/* Same event rows for every multi-event article. */}
+                        {subEvents.length >= 2 && subEvents.map((evt: any, sIdx: number) => {
                           const childEvtSnippet = findEvidence(
                             result,
                             evt.disease || result.disease_classification,
@@ -671,8 +630,8 @@ export default function AnalyzePage() {
                           )
                           return (
                             <tr key={sIdx} className="bg-blue-50/20 hover:bg-blue-50/40 transition-colors text-slate-700">
-                              <td className="sticky left-0 z-[1] whitespace-nowrap border-b border-r border-slate-100 bg-blue-50/20 px-3 py-2 pl-6 font-mono text-[10px] text-[#0060A9] font-bold shadow-[2px_0_0_#f1f5f9]">
-                                1.{sIdx + 1}
+                              <td className="sticky left-0 z-[1] whitespace-nowrap border-b border-r border-slate-100 bg-blue-50/20 px-3 py-2 font-mono text-[10px] text-[#0060A9] font-bold shadow-[2px_0_0_#f1f5f9]">
+                                {sIdx + 1}
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-700 font-medium">
                                 {evt.country && evt.country !== 'MULTI_COUNTRY'
@@ -684,11 +643,18 @@ export default function AnalyzePage() {
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400 font-mono text-[10px]">
                                 {result.language || '-'}
                               </td>
-                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
-                                —
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-700">
+                                {url ? (
+                                  <a href={url} target="_blank" rel="noreferrer" className="inline-flex max-w-[180px] items-center gap-1 truncate text-[#0060A9] hover:underline" title={url}>
+                                    <ExternalLink className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{url}</span>
+                                  </a>
+                                ) : '—'}
                               </td>
-                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400">
-                                —
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-medium text-slate-900">
+                                <span className="block max-w-[220px] truncate" title={(result as any).title || url}>
+                                  {(result as any).title || (result as any).article_title || url || '—'}
+                                </span>
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-bold text-slate-900">
                                 <div className="flex items-center gap-1.5">

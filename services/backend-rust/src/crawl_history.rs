@@ -1190,6 +1190,7 @@ fn map_ledger_row(row: &tokio_postgres::Row) -> Value {
         "job_id": row.try_get::<_, Option<Uuid>>("crawl_job_id").ok().flatten(),
         "raw_report_id": row.try_get::<_, Option<Uuid>>("raw_report_id").ok().flatten(),
         "disease_event_id": row.try_get::<_, Option<Uuid>>("disease_event_id").ok().flatten(),
+        "parent_event_id": row.try_get::<_, Option<Uuid>>("parent_event_id").ok().flatten(),
         "title": title,
         "article_title": title,
         "url": map_opt_string(row, "url"),

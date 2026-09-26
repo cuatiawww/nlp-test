@@ -11,6 +11,13 @@ import { ASEAN11_COUNTRY_NAMES, isAseanCountryName } from '@/lib/asean-scope'
 type LocationOption = { country?: string | null; name?: string | null }
 const ASEAN_COUNTRIES: string[] = [...ASEAN11_COUNTRY_NAMES]
 
+function eventPlace(row: CrawlMatrixRow) {
+  const city = row.city && row.city !== row.country ? row.city : ''
+  const province = row.province && row.province !== row.country && row.province !== city ? row.province : ''
+  if (city && province) return `${city} · ${province}`
+  return city || province || row.province_city_case || '—'
+}
+
 function csvCell(value: unknown) {
   const text = value == null ? '' : String(value)
   return `"${text.replace(/"/g, '""')}"`
@@ -129,6 +136,22 @@ export default function CrawlMatrixPanel() {
 
   const statusLabel = job?.status === 'processing' ? 'Fetching and analyzing' : job?.status === 'waiting_for_collector' ? 'Waiting for service' : job?.status || 'Not started'
 
+  const articleGroups = useMemo(() => {
+    const groups: { key: string; title: string; rows: CrawlMatrixRow[] }[] = []
+    const index = new Map<string, number>()
+    for (const row of job?.rows || []) {
+      const key = row.source_url || row.article_title || row.id
+      const found = index.get(key)
+      if (found == null) {
+        index.set(key, groups.length)
+        groups.push({ key, title: row.article_title || row.source_url || 'Article', rows: [row] })
+      } else {
+        groups[found].rows.push(row)
+      }
+    }
+    return groups
+  }, [job?.rows])
+
   const displayedCountries = region === 'ASEAN' ? ASEAN_COUNTRIES : countries
 
   const handleRegionChange = (newRegion: string) => {
@@ -222,7 +245,44 @@ export default function CrawlMatrixPanel() {
             </ul>
           </details>
         )}
-        <div className="overflow-x-auto"><table className="min-w-[1250px] w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{['No.', 'Crawl Date', 'Diseases', 'Region', 'Country', 'Province', 'City', 'Province & City', 'Published Date', 'Case Date', 'Cases', 'Deaths', 'Latitude', 'Longitude', 'Source Type'].map(header => <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{job.rows.map((row: CrawlMatrixRow, index) => <tr key={row.id} className="align-top hover:bg-slate-50"><td className="px-3 py-3">{index + 1}</td><td className="px-3 py-3">{row.crawling_date || '-'}</td><td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}</td><td className="px-3 py-3">{row.region || '-'}</td><td className="px-3 py-3 font-semibold">{row.country}</td><td className="px-3 py-3">{row.province || '-'}</td><td className="px-3 py-3">{row.city || '-'}</td><td className="max-w-[180px] px-3 py-3">{row.province_city_case || '-'}</td><td className="px-3 py-3">{row.article_date || '-'}</td><td className="max-w-[190px] px-3 py-3">{row.date_case || '-'}</td><td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('en-US')}</td><td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('en-US')}</td><td className="px-3 py-3">{row.latitude ?? '-'}</td><td className="px-3 py-3">{row.longitude ?? '-'}</td><td className="px-3 py-3">{row.source_type || '-'}<div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div><details className="mt-1"><summary className="cursor-pointer text-[#0060A9]">Evidence</summary><p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Needs review'}</p>{row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Article <ExternalLink className="h-3 w-3" /></a>}</details></td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[1100px] w-full text-left text-xs">
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+              <tr>
+                {['No.', 'Disease', 'Country', 'Location', 'Cases', 'Deaths', 'Lat / Long', 'Published', 'Evidence'].map(header => (
+                  <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {articleGroups.map((group, groupIndex) => {
+                const many = group.rows.length > 1
+                return group.rows.map((row, eventIndex) => (
+                  <tr key={row.id} className={`align-top hover:bg-slate-50 ${many ? 'bg-blue-50/20' : ''}`}>
+                    <td className="px-3 py-3 font-mono text-[11px] font-bold text-[#0060A9]">{many ? `${groupIndex + 1}.${eventIndex + 1}` : groupIndex + 1}</td>
+                    <td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}</td>
+                    <td className="px-3 py-3 font-semibold">{row.country}<div className="text-[10px] font-normal text-slate-400">{row.region || ''}</div></td>
+                    <td className="max-w-[180px] px-3 py-3">{eventPlace(row)}</td>
+                    <td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('en-US')}</td>
+                    <td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('en-US')}</td>
+                    <td className="px-3 py-3 font-mono text-[11px]">{row.latitude != null && row.longitude != null ? `${row.latitude}, ${row.longitude}` : '—'}</td>
+                    <td className="px-3 py-3">{row.article_date || row.crawling_date || '—'}</td>
+                    <td className="px-3 py-3">
+                      {row.source_type || '—'}
+                      <div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div>
+                      {many && eventIndex === 0 && <div className="mt-1 max-w-[240px] truncate text-[10px] text-slate-500" title={group.title}>{group.title}</div>}
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[#0060A9]">Evidence</summary>
+                        <p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Needs review'}</p>
+                        {row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Article <ExternalLink className="h-3 w-3" /></a>}
+                      </details>
+                    </td>
+                  </tr>
+                ))
+              })}
+            </tbody>
+          </table>
+        </div>
         {!job.rows.length && !['queued', 'processing', 'waiting_for_collector'].includes(job.status) && <div className="p-8 text-center text-sm text-slate-400">No validated rows matched the filters. Try a broader country or date range.</div>}
       </div>}
     </section>

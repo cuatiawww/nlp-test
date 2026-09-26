@@ -388,6 +388,7 @@ export type CrawlHistoryRow = {
   job_id?: string | null;
   raw_report_id?: string | null;
   disease_event_id?: string | null;
+  parent_event_id?: string | null;
   title?: string | null;
   summary?: string | null;
   content?: string | null;
