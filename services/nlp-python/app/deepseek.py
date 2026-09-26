@@ -52,6 +52,30 @@ def _parse_count_token(value: str) -> int | None:
     return None
 
 
+_CASE_LABEL = re.compile(
+    r"\b(?:cases?|infections?|kasus|ca\s+mắc|ca\s+bệnh)\b",
+    re.IGNORECASE,
+)
+_DEATH_LABEL = re.compile(
+    r"\b(?:deaths?|fatalities|kematian|meninggal(?:\s+dunia)?|tử\s*vong|เสียชีวิต)\b",
+    re.IGNORECASE,
+)
+_RESPECTIVE = re.compile(
+    r"\b(?:respectively|masing-masing|berturut-turut)\b",
+    re.IGNORECASE,
+)
+_BACKREF = re.compile(
+    r"\b(?:there|they|their|the\s+same|that\s+(?:country|province|city|district|area|region)|"
+    r"di\s+sana|di\s+situ|(?:negara|provinsi|kota|kabupaten|wilayah|daerah)\s+(?:itu|tersebut|ini)|"
+    r"địa\s+phương|the\s+province|the\s+city|the\s+country)\b",
+    re.IGNORECASE,
+)
+_COUNT_TOKEN = re.compile(
+    r"\b(?:\d[\d,.]*|" + "|".join(_NUMBER_WORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+
 def _location_aliases(location: str) -> list[str]:
     normalized = _normalize(location)
     aliases = {normalized}
@@ -61,7 +85,134 @@ def _location_aliases(location: str) -> list[str]:
         "drc",
     }:
         aliases.update({"democratic republic of the congo", "democratic republic of congo", "drc"})
+    from .extractors import _country_alias_view
+    for alias, standard in _country_alias_view().items():
+        if _normalize(standard) == normalized and len(_normalize(alias)) >= 4:
+            aliases.add(_normalize(alias))
     return sorted((item for item in aliases if item), key=len, reverse=True)
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [
+        part.strip()
+        for part in re.split(r"(?<=[.!?。！？])\s+", re.sub(r"\s+", " ", text or "").strip())
+        if part.strip()
+    ]
+
+
+def _preceding_sentence(source_text: str, evidence: str) -> str:
+    folded = re.sub(r"\s+", " ", source_text or "").strip()
+    quote = re.sub(r"\s+", " ", evidence or "").strip()
+    if not folded or not quote:
+        return ""
+    start = folded.casefold().find(quote.casefold())
+    if start < 0:
+        return ""
+    earlier = _split_sentences(folded[:start])
+    return earlier[-1] if earlier else ""
+
+
+def _numbers_before_label(sentence: str, metric: str) -> list[int]:
+    label = _CASE_LABEL if metric == "cases" else _DEATH_LABEL
+    labels = list(label.finditer(sentence or ""))
+    if not labels:
+        return []
+    cue = _RESPECTIVE.search(sentence or "")
+    chosen = labels[-1]
+    if cue:
+        before_cue = [item for item in labels if item.start() <= cue.start()]
+        if before_cue:
+            chosen = before_cue[-1]
+    window = (sentence or "")[max(0, chosen.start() - 90):chosen.start()]
+    values: list[int] = []
+    for match in _COUNT_TOKEN.finditer(window):
+        value = _parse_count_token(match.group(0))
+        if value is None or value <= 0 or 1900 <= value <= 2100:
+            continue
+        values.append(value)
+    return values
+
+
+def _ordered_places(span: str) -> list[str]:
+    from .extractors import extract_named_countries
+    countries = extract_named_countries(span)
+    if len(countries) >= 2:
+        return countries
+    match = re.search(
+        r"((?:[A-Z][\w.'’-]+(?:\s+[A-Z][\w.'’-]+){0,2})"
+        r"(?:\s*,\s*(?:[A-Z][\w.'’-]+(?:\s+[A-Z][\w.'’-]+){0,2}))+"
+        r"(?:\s+(?:and|dan|serta)\s+(?:[A-Z][\w.'’-]+(?:\s+[A-Z][\w.'’-]+){0,2}))?)",
+        span or "",
+    )
+    if not match:
+        return countries
+    parts = re.split(r"\s*,\s*|\s+(?:and|dan|serta)\s+", match.group(1))
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _place_index(places: list[str], location: str) -> int | None:
+    from .extractors import country_alias_in_text
+    target = _normalize(location)
+    for index, place in enumerate(places):
+        if _normalize(place) == target or country_alias_in_text(location, place) or country_alias_in_text(place, location):
+            return index
+    return None
+
+
+def _cross_sentence_metric(
+    evidence: str,
+    location: str,
+    metric: str,
+    source_text: str = "",
+) -> int | None:
+    """Bind a count that the previous sentence, a pronoun, or 'respectively' attaches to a place."""
+    quote = re.sub(r"\s+", " ", evidence or "").strip()
+    if not quote or not location:
+        return None
+    sentences = _split_sentences(quote)
+    label = _CASE_LABEL if metric == "cases" else _DEATH_LABEL
+    metric_sentence = next((sentence for sentence in sentences if label.search(sentence)), sentences[-1])
+    place_span = quote
+    if _RESPECTIVE.search(metric_sentence) and len(_ordered_places(metric_sentence)) < 2:
+        previous = _preceding_sentence(source_text, quote) if source_text else ""
+        if not previous and len(sentences) >= 2:
+            previous = " ".join(sentences[:-1])
+        place_span = f"{previous} {metric_sentence}".strip()
+    if _RESPECTIVE.search(metric_sentence):
+        places = _ordered_places(place_span)
+        index = _place_index(places, location)
+        numbers = _numbers_before_label(metric_sentence, metric)
+        if index is not None and len(numbers) >= 2 and index < len(numbers):
+            return numbers[index]
+
+    aliases = _location_aliases(location)
+    named_here = any(
+        re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", metric_sentence, re.IGNORECASE)
+        for alias in aliases
+    )
+    if named_here or not _BACKREF.search(metric_sentence):
+        return None
+    previous = _preceding_sentence(source_text, metric_sentence) if source_text else ""
+    if not previous and metric_sentence in sentences:
+        earlier = sentences[:sentences.index(metric_sentence)]
+        previous = earlier[-1] if earlier else ""
+    if not previous:
+        return None
+    places = _ordered_places(previous)
+    if len(places) > 1:
+        return None
+    if len(places) == 1 and _place_index(places, location) != 0:
+        return None
+    mentioned = any(
+        re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", previous, re.IGNORECASE)
+        for alias in aliases
+    )
+    if not mentioned and len(places) != 1:
+        return None
+    numbers = _numbers_before_label(metric_sentence, metric)
+    if len(numbers) == 1:
+        return numbers[0]
+    return None
 
 
 def _scoped_metric_count(
@@ -81,6 +232,9 @@ def _scoped_metric_count(
     source = re.sub(r"\s+", " ", evidence or "").strip()
     if not source or not location:
         return None
+    linked = _cross_sentence_metric(evidence, location, metric, source_text)
+    if linked is not None:
+        return linked
     aliases = _location_aliases(location)
     location_pattern = re.compile("|".join(re.escape(alias) for alias in aliases), re.IGNORECASE)
 
@@ -89,7 +243,10 @@ def _scoped_metric_count(
     # lead. Keep the quoted sentence authoritative for the number and add only
     # a narrow source context window for the location binding.
     sources = [source]
-    if not location_pattern.search(source) and source_text:
+    # A pronoun that did not resolve to one place must not copy its number
+    # onto every country in the surrounding paragraph.
+    unresolved_pronoun = bool(_BACKREF.search(source)) and not location_pattern.search(source)
+    if not unresolved_pronoun and not location_pattern.search(source) and source_text:
         normalized_source_text = re.sub(r"\s+", " ", source_text or "").strip()
         start = normalized_source_text.casefold().find(source.casefold())
         if start >= 0:
@@ -370,6 +527,7 @@ def _compact_review_body(text: str, limit: int) -> str:
     )
     selected: list[str] = []
     used: set[str] = set()
+    number_token = re.compile(r"\b\d[\d,.]*\b")
 
     def add(sentence: str) -> bool:
         sentence = sentence.strip()
@@ -382,13 +540,50 @@ def _compact_review_body(text: str, limit: int) -> str:
         used.add(sentence)
         return True
 
-    # Preserve title/lede context, then add all high-value evidence in source order.
-    for sentence in sentences[:2]:
+    # Keep the sentence that a pronoun, "respectively", or a following count
+    # refers back to. A later fact still fits after one long sentence is skipped.
+    linked: set[int] = set()
+    for index, sentence in enumerate(sentences):
+        if index < 2 or anchor.search(sentence) or _BACKREF.search(sentence) or _RESPECTIVE.search(sentence):
+            linked.add(index)
+        if index and number_token.search(sentence) and not number_token.search(sentences[index - 1]):
+            linked.add(index - 1)
+        if index and (_BACKREF.search(sentence) or _RESPECTIVE.search(sentence)):
+            linked.add(index - 1)
+    for index, sentence in enumerate(sentences):
+        if index not in linked:
+            continue
         add(sentence)
-    for sentence in sentences[2:]:
-        if anchor.search(sentence) and not add(sentence):
-            break
     return "\n".join(selected)[:limit].rstrip()
+
+
+def _evidence_is_source_grounded(evidence: str, text_lower: str) -> bool:
+    """Accept one source sentence, or two or three consecutive source sentences."""
+    clean = re.sub(r'["“”\']', "", evidence or "").strip().lower()
+    clean = re.sub(r"\s+", " ", clean)
+    folded = re.sub(r"\s+", " ", text_lower or "")
+    if not clean:
+        return False
+    if clean in folded:
+        return True
+    parts = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?。！？])\s+", clean)
+        if part.strip()
+    ]
+    if 2 <= len(parts) <= 3:
+        pos = 0
+        adjacent = True
+        for part in parts:
+            found = folded.find(part, pos)
+            if found < 0 or (pos and found - pos > 40):
+                adjacent = False
+                break
+            pos = found + len(part)
+        if adjacent:
+            return True
+    words = clean.split()
+    return len(words) >= 6 and " ".join(words[:8]) in folded
 
 
 def verify_ground_truth_guardrails(
@@ -421,22 +616,12 @@ def verify_ground_truth_guardrails(
         if not isinstance(evt, dict):
             continue
         
-        # 1. Verbatim quote check
+        # 1. Verbatim quote check. Two or three consecutive sentences are
+        # accepted when each one appears, in order, in the article.
         evidence = str(evt.get("evidence") or "").strip()
-        clean_evidence = re.sub(r'["“”\']', '', evidence).strip().lower()
-        if not clean_evidence:
-            logger.warning("Dropping LLM sub-event without source evidence")
+        if not _evidence_is_source_grounded(evidence, text_lower):
+            logger.warning("Dropping hallucinated LLM sub-event: evidence '%s' not in source text", evidence[:80])
             continue
-        if clean_evidence and clean_evidence not in text_lower:
-            words = clean_evidence.split()
-            found_chunk = False
-            if len(words) >= 6:
-                chunk = " ".join(words[:8])
-                if chunk in text_lower:
-                    found_chunk = True
-            if not found_chunk:
-                logger.warning("Dropping hallucinated LLM sub-event: evidence '%s' not in source text", evidence[:80])
-                continue
 
         # 2. Strict Numeric Grounding
         case_count = int(evt.get("case_count") or 0)
@@ -571,14 +756,15 @@ def validate_and_correct_events(
         "1. ZERO HALLUCINATION POLICY: Extract metrics ONLY if explicitly stated in text.\n"
         "2. NON-EVENT FILTER: If the article is purely educational, informational, or coordination/prevention meeting with NO active case/outbreak metrics, set is_health_related=true/false appropriately and sub_events=[].\n"
         "3. DISEASE CONSTRAINTS: 'disease' MUST match one of the allowed official ASEAN concepts.\n"
-        "4. SEPARATE FACTS: Return one sub_event for every explicitly stated combination of disease, country, and location that has its own case or death count. A stated country total and a stated province or city count are separate events. Include countries outside ASEAN. When the article states more than one disease, return one event per disease. The count must appear in that event's evidence sentence.\n"
+        "4. SEPARATE FACTS: Return one sub_event for every explicitly stated combination of disease, country, and location that has its own case or death count. A stated country total and a stated province or city count are separate events. Include countries outside ASEAN. When the article states more than one disease, return one event per disease. The count and the place must appear in the evidence quote.\n"
         "5. REVIEW ONLY: Correct the local draft using the supplied body evidence; do not fetch or browse the URL.\n"
         "6. COMPLETENESS: Include every explicitly stated country, including countries outside ASEAN, and every stated province or city count. Do not omit a country, location, or disease because another place has a larger total.\n"
-        "7. METRIC SCOPE: Bind each case/death number to the same country in the exact evidence sentence. Never assign an article-wide total to a country, a treatment country, a recovered-patient count, or a clinical-trial participant count.\n"
+        "7. METRIC SCOPE: Bind each case/death number to the place the surrounding sentences refer to. Never assign an article-wide total to a country, a treatment country, a recovered-patient count, or a clinical-trial participant count.\n"
         "8. PERIOD SELECTION: If a country total cumulative/to-date figure and a weekly/monthly figure both appear, use the cumulative/to-date total for the country-level event; use the shorter period only as a detail when it has a distinct location.\n"
         "9. SOURCE BOUNDARY: Articles can contain a copied footer or a second syndicated article. Prefer the primary headline/lede and its first complete report; do not mix a later appended article's metrics into the primary event.\n"
         "10. OUTBREAK STATUS: Set outbreak_alert=true only when the article reports an active outbreak/epidemic/cluster/KLB or active transmission as an incident. A prevention campaign, routine surveillance total, rising risk, or a warning that an outbreak could occur is not itself an outbreak.\n"
         "11. OVERRIDE: If no active incident event is supported, return sub_events=[] so the local draft can be cleared.\n"
+        "12. SENTENCE LINKS: Read each sentence with the one before it and the one after it. A count may belong to the place, disease, or period named in the adjacent sentence. Resolve di sana, negara/provinsi/kota tersebut, địa phương, they, there, the same province, respectively, and masing-masing. Quote the consecutive source sentences that make the link. Do not connect a number to a place those sentences do not connect. Return every linked fact, including the smaller ones.\n"
         "Output valid JSON ONLY matching the requested schema."
     )
 
@@ -607,7 +793,7 @@ def validate_and_correct_events(
         '      "admin2": "City/District or null",\n'
         '      "case_count": int,\n'
         '      "death_count": int,\n'
-        '      "evidence": "Exact supporting sentence from article text"\n'
+        '      "evidence": "Exact consecutive sentences from the article that together state this fact"\n'
         "    }\n"
         "  ]\n"
         "}"

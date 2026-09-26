@@ -13,7 +13,12 @@ from app.llm_gate import (
     text_has_unbound_metric_evidence,
     truncate_for_llm,
 )
-from app.deepseek import validate_and_correct_events, verify_ground_truth_guardrails, _scoped_metric_count
+from app.deepseek import (
+    _compact_review_body,
+    validate_and_correct_events,
+    verify_ground_truth_guardrails,
+    _scoped_metric_count,
+)
 from app.extractors import extract_named_countries
 from app.agent import _is_quota_failure
 
@@ -474,7 +479,55 @@ class LlmGateTests(unittest.TestCase):
         system_prompt, _user_prompt = chat_json.call_args.args[:2]
         self.assertIn("province or city count are separate events", system_prompt)
         self.assertIn("countries outside ASEAN", system_prompt)
+        self.assertIn("SENTENCE LINKS", system_prompt)
         self.assertEqual(chat_json.call_args.kwargs["max_tokens"], 1500)
+
+    def test_cross_sentence_pronoun_keeps_the_place_from_the_previous_sentence(self):
+        source = "Wabah kolera melanda Yaman. Sebanyak 1200 kasus tercatat di sana. Jerman melaporkan 4 kasus."
+        self.assertEqual(
+            _scoped_metric_count("Sebanyak 1200 kasus tercatat di sana.", "Yemen", "cases", source),
+            1200,
+        )
+        self.assertIsNone(
+            _scoped_metric_count("Sebanyak 1200 kasus tercatat di sana.", "Germany", "cases", source),
+        )
+        result = verify_ground_truth_guardrails(
+            {
+                "is_health_related": True,
+                "disease_classification": "Cholera",
+                "sub_events": [
+                    {
+                        "disease": "Cholera",
+                        "location_name": "Yemen",
+                        "country": "Yemen",
+                        "case_count": 1200,
+                        "death_count": 0,
+                        "evidence": "Wabah kolera melanda Yaman. Sebanyak 1200 kasus tercatat di sana.",
+                    }
+                ],
+            },
+            source,
+            allowed_diseases=["Cholera"],
+        )
+        self.assertEqual(result["sub_events"][0]["case_count"], 1200)
+        self.assertEqual(result["sub_events"][0]["country"], "Yemen")
+
+    def test_respectively_pairs_each_country_with_its_own_count(self):
+        source = (
+            "The United Kingdom, Lithuania and Germany have reported outbreaks. "
+            "They recorded 12, 4 and 9 cases respectively."
+        )
+        evidence = "They recorded 12, 4 and 9 cases respectively."
+        self.assertEqual(_scoped_metric_count(evidence, "United Kingdom", "cases", source), 12)
+        self.assertEqual(_scoped_metric_count(evidence, "Lithuania", "cases", source), 4)
+        self.assertEqual(_scoped_metric_count(evidence, "Germany", "cases", source), 9)
+
+    def test_review_body_keeps_the_sentence_a_count_refers_to(self):
+        filler = "Berita lain tanpa angka sama sekali. " * 30
+        text = filler + "Wabah kolera melanda Yaman. Sebanyak 1200 kasus tercatat di sana."
+        body = _compact_review_body(text, 700)
+        self.assertIn("melanda Yaman", body)
+        self.assertIn("di sana", body)
 
     def test_guardrail_keeps_country_total_and_city_count(self):
         source = (
