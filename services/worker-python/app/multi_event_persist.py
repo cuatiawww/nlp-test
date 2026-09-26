@@ -11,7 +11,7 @@ from typing import Any, Optional
 from .geo import st_makepoint_args
 
 logger = logging.getLogger(__name__)
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.deepseek-multi-fact")
 _EMPTY_PLACE = frozenset({"", "unknown", "n/a", "na", "null", "none", "-", "multi_country"})
 
 

@@ -20,7 +20,7 @@ from .queue_reliability import (
 )
 
 logger = logging.getLogger(__name__)
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.deepseek-multi-fact")
 
 
 def _pipeline_version_matches(row) -> bool:

@@ -5,6 +5,7 @@ from typing import Optional, Any
 
 from . import config, extractors
 from .llm_gate import (
+    distinct_case_figure_count,
     resolve_agent_invocation_status,
     should_escalate_to_llm,
     text_has_unbound_metric_evidence,
@@ -617,7 +618,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Cheap local/rules NLP first. DeepSeek is the rear correction gate:
     # UNKNOWN / low confidence / needs_review / zero metrics, plus a known
     # disease whose case and death counts stayed 0 while the text still
-    # states a number. Never escalate only because an article listed more than one disease.
+    # states a number. A high-confidence row still goes to the rear gate
+    # when the article states several countries, locations, case figures,
+    # or more than one disease that already has a metric.
     known_disease = bool(disease and disease.strip().upper() != "UNKNOWN")
     unbound_metrics = (
         known_disease
@@ -628,6 +631,28 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             or text_has_unbound_metric_evidence(analysis_text)
         )
     )
+    named_case_countries = extractors.extract_named_countries(text)
+    finer_locations = {
+        str(item.get("name") or "").casefold()
+        for item in all_locations
+        if item.get("name")
+        and str(item.get("name")).casefold() != str(item.get("country") or "").casefold()
+    }
+    disease_names = [
+        item for item in extracted
+        if item and str(item).strip().upper() != "UNKNOWN"
+    ]
+    multi_fact = bool(
+        len(named_case_countries) > 1
+        or len(finer_locations) > 1
+        or distinct_case_figure_count(text) >= 2
+        or (
+            len(disease_names) > 1
+            and (prelim_cases > 0 or prelim_deaths > 0 or unbound_metrics)
+        )
+    )
+    if multi_fact:
+        review_focus.append("multi-fact")
     gate_confidence = confidence
     if is_policy_content and (prelim_cases > 0 or prelim_deaths > 0):
         # Entity extraction promotes a source-grounded disease to 0.85 before
@@ -658,6 +683,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         has_location_conflict=has_location_conflict,
         is_health_related=is_health_related,
         unbound_metrics=unbound_metrics,
+        multi_fact=multi_fact,
         publisher_country_conflict=bool(
             source_country
             and (named_foreign := extractors.extract_country_hint(text, publisher=source_country))
@@ -2140,9 +2166,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 ),
                 None,
             )
-            if local_specific and str(reviewed_location).casefold() == str(
-                levt.get("country") or country
-            ).casefold():
+            event_country = levt.get("country")
+            event_country_grounded = bool(
+                event_country
+                and (
+                    extractors.country_alias_in_text(event_country, text)
+                    or _location_is_source_grounded(event_country, text)
+                )
+            )
+            # One foreign-country hint must not rewrite every reviewed row.
+            # A grounded country, province, and city each stay their own event.
+            keep_event_country = len(llm_verified_sub_events) > 1 and event_country_grounded
+            if (
+                not keep_event_country
+                and local_specific
+                and str(reviewed_location).casefold() == str(
+                    levt.get("country") or country
+                ).casefold()
+            ):
                 reviewed_location = local_specific
             named_country = extractors.extract_country_hint(text)
             publisher_country = extractors.normalize_country(payload.source_country)
@@ -2152,22 +2193,28 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 and named_country.casefold() != publisher_country.casefold()
             )
             if not _location_is_source_grounded(reviewed_location, text):
-                reviewed_location = (
+                if keep_event_country:
+                    reviewed_location = event_country
+                else:
+                    reviewed_location = (
+                        named_country
+                        if article_names_another_country
+                        else (publisher_country or country or levt.get("country"))
+                    )
+            if keep_event_country:
+                reviewed_country = event_country
+            else:
+                reviewed_country = (
                     named_country
                     if article_names_another_country
-                    else (publisher_country or country or levt.get("country"))
+                    else (
+                        publisher_country
+                        if publisher_country and not _location_is_source_grounded(
+                            levt.get("location_name"), text
+                        ) and not extractors.country_alias_in_text(levt.get("country"), text)
+                        else levt.get("country") or country
+                    )
                 )
-            reviewed_country = (
-                named_country
-                if article_names_another_country
-                else (
-                    publisher_country
-                    if publisher_country and not _location_is_source_grounded(
-                        levt.get("location_name"), text
-                    ) and not extractors.country_alias_in_text(levt.get("country"), text)
-                    else levt.get("country") or country
-                )
-            )
             reviewed_events.append(
                 SubEvent(
                     disease=levt.get("disease") or disease,
@@ -2223,14 +2270,50 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 max(group, key=_review_period_rank)
                 for group in grouped_review.values()
             ]
-            reviewed_cases = sum(int(event.case_count or 0) for event in sub_events)
-            reviewed_deaths = sum(int(event.death_count or 0) for event in sub_events)
-            source_case_count = reviewed_cases
-            source_death_count = reviewed_deaths
-            source_death_explicit = reviewed_deaths > 0
-            explicit_case_count = reviewed_cases > 0
-            case_count = reviewed_cases
-            death_count = reviewed_deaths
+            reviewed_countries = list(dict.fromkeys(
+                str(event.country or "").strip()
+                for event in sub_events
+                if str(event.country or "").strip()
+            ))
+            if len(reviewed_countries) > 1:
+                multi_country_article = True
+                country = "MULTI_COUNTRY"
+                location = "MULTI_COUNTRY"
+                lat = None
+                lon = None
+                by_country: dict[str, list[SubEvent]] = {}
+                for event in sub_events:
+                    by_country.setdefault(str(event.country or "").strip(), []).append(event)
+                parent_cases = 0
+                parent_deaths = 0
+                for group in by_country.values():
+                    country_level = [
+                        event for event in group
+                        if str(event.location_name or "").casefold()
+                        == str(event.country or "").casefold()
+                    ]
+                    pool = country_level or group
+                    best = max(
+                        pool,
+                        key=lambda event: (int(event.case_count or 0), int(event.death_count or 0)),
+                    )
+                    parent_cases += int(best.case_count or 0)
+                    parent_deaths += int(best.death_count or 0)
+                source_case_count = parent_cases
+                source_death_count = parent_deaths
+                source_death_explicit = parent_deaths > 0
+                explicit_case_count = parent_cases > 0
+                case_count = parent_cases
+                death_count = parent_deaths
+            else:
+                reviewed_cases = sum(int(event.case_count or 0) for event in sub_events)
+                reviewed_deaths = sum(int(event.death_count or 0) for event in sub_events)
+                source_case_count = reviewed_cases
+                source_death_count = reviewed_deaths
+                source_death_explicit = reviewed_deaths > 0
+                explicit_case_count = reviewed_cases > 0
+                case_count = reviewed_cases
+                death_count = reviewed_deaths
 
     if llm_verified_sub_events and sub_events:
         # Parent totals must use country-level events only when a country total
@@ -2309,11 +2392,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # source-local metric event remains useful, but its disease identity
         # must follow the reviewed concept rather than the stale classifier.
         disease = llm_review_disease
-        extracted = list(dict.fromkeys([llm_review_disease, *extracted]))
+        reviewed_disease_names = list(dict.fromkeys(
+            evt.disease
+            for evt in sub_events
+            if evt.disease and str(evt.disease).strip().upper() != "UNKNOWN"
+        ))
+        extracted = list(dict.fromkeys([llm_review_disease, *reviewed_disease_names, *extracted]))
         is_health_related = True
-        for evt in sub_events:
-            if evt.disease and evt.disease.strip().upper() != "UNKNOWN":
-                evt.disease = llm_review_disease
+        # A single reviewed disease replaces the local label. Distinct
+        # diseases returned as separate events stay on those events.
+        if len(reviewed_disease_names) <= 1:
+            for evt in sub_events:
+                if evt.disease and evt.disease.strip().upper() != "UNKNOWN":
+                    evt.disease = llm_review_disease
 
     # Final locality preference: a source-grounded city/province wins over a
     # country-only LLM answer. This is especially important for short RSS
