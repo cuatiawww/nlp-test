@@ -107,3 +107,51 @@ def truncate_for_llm(text: str | None, limit: int | None = None) -> str:
     if len(value) <= cap:
         return value
     return value[:cap].rsplit(" ", 1)[0]
+
+# Agent / DeepSeek invocation status (Fase 0 baseline).
+# Distinguishes why the external LLM was or was not used so QA never
+# confuses "disabled" with "gate skipped" or "provider failed".
+AGENT_STATUS_DISABLED = "disabled"
+AGENT_STATUS_NOT_CALLED_GATE = "not_called_gate"
+AGENT_STATUS_FAILED = "failed"
+AGENT_STATUS_APPLIED = "applied"
+
+AGENT_INVOCATION_STATUSES = (
+    AGENT_STATUS_DISABLED,
+    AGENT_STATUS_NOT_CALLED_GATE,
+    AGENT_STATUS_FAILED,
+    AGENT_STATUS_APPLIED,
+)
+
+
+def resolve_agent_invocation_status(
+    *,
+    agent_enabled: bool | None = None,
+    gate_would_escalate: bool = False,
+    review_attempted: bool = False,
+    review_applied: bool = False,
+    review_failed: bool = False,
+) -> str:
+    """Classify DeepSeek/agent usage for a single analyze call.
+
+    Priority:
+    1. disabled — AGENT_ENABLED is false (kill switch; no HTTP ever)
+    2. failed — enabled + gate said yes, but call errored / returned empty
+    3. applied — enabled + review succeeded and was merged
+    4. not_called_gate — enabled but gate rejected escalation (or never attempted)
+    """
+    enabled = config.AGENT_ENABLED if agent_enabled is None else bool(agent_enabled)
+    if not enabled:
+        return AGENT_STATUS_DISABLED
+    if review_failed:
+        return AGENT_STATUS_FAILED
+    if review_applied:
+        return AGENT_STATUS_APPLIED
+    if review_attempted and not review_applied:
+        # Attempted but empty / None response without raising — treat as failed
+        # so operators do not confuse it with a deliberate gate skip.
+        return AGENT_STATUS_FAILED
+    if not gate_would_escalate:
+        return AGENT_STATUS_NOT_CALLED_GATE
+    # Gate would escalate but nothing attempted (defensive).
+    return AGENT_STATUS_NOT_CALLED_GATE

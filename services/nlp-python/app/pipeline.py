@@ -4,7 +4,7 @@ from functools import partial
 from typing import Optional, Any
 
 from . import config, extractors
-from .llm_gate import should_escalate_to_llm
+from .llm_gate import resolve_agent_invocation_status, should_escalate_to_llm
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
@@ -629,7 +629,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     llm_review_non_health = False
     llm_review_outbreak: bool | None = None
     llm_review_disease: str | None = None
+    llm_review_failed = False
+    llm_review_attempted = False
     if should_use_deepseek:
+        llm_review_attempted = True
         try:
             from .deepseek import validate_and_correct_events
             from .disease_master import resolve_local_disease_term
@@ -710,6 +713,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 if isinstance(resolved.get("outbreak_alert"), bool):
                     llm_review_outbreak = resolved["outbreak_alert"]
         except Exception as e:
+            llm_review_failed = True
             logger.info("DeepSeek local rear-gate fallback unavailable: %s", e)
 
     extracted = extractors.filter_diseases_to_evidence(extracted, text + " " + analysis_text)
@@ -2985,4 +2989,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         cases_display=collapsed.get("cases_display"),
         deaths_display=collapsed.get("deaths_display"),
         display_dimension=collapsed.get("dimension"),
+        agent_enabled=bool(config.AGENT_ENABLED),
+        agent_invocation_status=resolve_agent_invocation_status(
+            agent_enabled=bool(config.AGENT_ENABLED),
+            gate_would_escalate=bool(should_use_deepseek) if config.AGENT_ENABLED else False,
+            review_attempted=llm_review_attempted,
+            review_applied=llm_review_applied,
+            review_failed=llm_review_failed,
+        ),
     )
