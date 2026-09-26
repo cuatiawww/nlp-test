@@ -76,3 +76,8 @@ _qa_diff/
 # Local scratch & progress notes
 .*-progress.md
 probe_*.py
+
+# Local social-media exports and generated archives
+archive/
+data/social_media/facebook_result.csv
+data/social_media/instagram_result.csv
