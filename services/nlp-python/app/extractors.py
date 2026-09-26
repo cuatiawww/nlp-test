@@ -731,12 +731,14 @@ _PUBLISHER_ADMIN = re.compile(
     re.UNICODE,
 )
 _PLACE_CUE_BEFORE = re.compile(
-    r"(?:di|ke|dari|in|at|from|of|kabupaten|kota|provinsi|province|city|regency|district)\s+$",
-    re.IGNORECASE,
+    r"(?:di|ke|dari|in|at|from|of|kabupaten|kota|provinsi|province|city|regency|district|"
+    r"tại|ở|sa|em|no|na|pada|tỉnh|thành phố)\s+$|"
+    r"(?:ใน|ที่|อยู่|នៅ|ក្នុង|ໃນ|ທີ່|တွင်|จังหวัด|ខេត្ត|ແຂວງ)$",
+    re.IGNORECASE | re.UNICODE,
 )
 _PLACE_CUE_AFTER = re.compile(
     r"^\s*[,:]?\s*(?:[0-9]+|mencatat|melaporkan|mencatatkan|memiliki|menjadi|became|"
-    r"recorded|report(?:ed|s)?|confirm(?:ed|s)?|mengonfirmasi)\b",
+    r"recorded|report(?:ed|s)?|confirm(?:ed|s)?|mengonfirmasi|ghi\s+nhận)\b",
     re.IGNORECASE,
 )
 
@@ -1428,6 +1430,42 @@ def extract_all_mentioned_countries(text: str) -> list[str]:
     return sorted(valid, key=lambda c: country_scores[c], reverse=True)
 
 
+def extract_mentioned_case_countries(text: str) -> list[str]:
+    """Countries named as the place of cases, including non-ASEAN outbreaks.
+
+    ``extract_all_mentioned_countries`` stays ASEAN-scoped. This helper is
+    only for case-location attribution when a locative or outbreak clause
+    names a country that is not in the domestic gazetteer.
+    """
+
+    source = text or ""
+    if not source.strip():
+        return []
+    locative = (
+        r"(?:\b(?:in|at|from|di|ke|dari|sa|em|pada|melanda|across|throughout)\b|tại|ở)"
+    )
+    found: list[str] = []
+    for alias, canonical in _country_alias_view().items():
+        if not alias or len(alias.strip()) < 3:
+            continue
+        if _is_native_script(alias):
+            pattern = re.compile(rf"(?:{locative})\s*{re.escape(alias)}", re.IGNORECASE)
+        else:
+            pattern = re.compile(rf"(?:{locative})\s+{re.escape(alias)}\b", re.IGNORECASE)
+        if pattern.search(source):
+            if canonical not in found:
+                found.append(canonical)
+            continue
+        outbreak = re.compile(
+            rf"(?<!\w){re.escape(alias)}(?!\w).{{0,80}}"
+            rf"(?:cases?|kasus|kes|kaso|wabah|outbreak|cholera|kolera)",
+            re.IGNORECASE | re.DOTALL,
+        )
+        if outbreak.search(source) and canonical not in found:
+            found.append(canonical)
+    return found
+
+
 def validate_location_context(
     name: str,
     text: str,
@@ -1556,6 +1594,8 @@ def surveillance_scope_label(country: Optional[str]) -> Optional[str]:
         return None
     if value == "MULTI_COUNTRY":
         return "MULTI_COUNTRY"
+    if ";" in value:
+        return "Global"
     if is_global_scope_country(value):
         return "Global"
     mapped = normalize_country(value) or value
@@ -3220,6 +3260,20 @@ def related_link_offset(text: str) -> int:
     return match.start() if match else -1
 
 
+# Contrastive connectives start a new country/metric clause. Keep the
+# connective with the following clause so ``sementara itu Vietnam ...``
+# does not inherit Indonesia's count from the previous clause.
+CONTRASTIVE_CONNECTIVE_RE = re.compile(
+    r"(?:^|(?<=[\s,;:]))(?:"
+    r"sementara\s+itu|sedangkan|meanwhile|"
+    r"in\s+the\s+meantime|by\s+contrast|"
+    r"trong\s+khi(?:\s+đó)?|ขณะที่|samantala|"
+    r"enquanto\s+isso|manakala"
+    r")(?:\s+|$)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
 def _metric_sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     """Sentence bounds that do not split on thousands separators such as 2.001."""
 
@@ -3260,6 +3314,11 @@ def _metric_sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
             continue
         right = idx
         break
+    for match in CONTRASTIVE_CONNECTIVE_RE.finditer(source):
+        if match.end() <= start and match.end() > left:
+            left = match.end()
+        elif match.start() >= end and match.start() < right:
+            right = match.start()
     return left, right
 
 

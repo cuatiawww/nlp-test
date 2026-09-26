@@ -461,14 +461,18 @@ def _is_city_location(name: str, country: str) -> bool:
 LOCATION_CUES = re.compile(
     r"(?:\bdi\b|\bke\b|\bdari\b|\bhingga\b|\bse-?Indonesia\b|"
     r"\bin\b|\bfrom\b|\bto\b|\bacross\b|\bwithin\b|\bprovince\b|"
-    r"\bstate\b|\bdistrict\b|\bcountry\b|\bnegara\b|\bwilayah\b)",
-    re.IGNORECASE,
+    r"\bstate\b|\bdistrict\b|\bcountry\b|\bnegara\b|\bwilayah\b|"
+    r"\btại\b|\bở\b|\bsa\b|\bem\b|"
+    r"ใน|ที่|อยู่|នៅ|ក្នុង|ໃນ|ທີ່|တွင်|"
+    r"จังหวัด|ខេត្ត|ແຂວງ|tỉnh|thành phố)",
+    re.IGNORECASE | re.UNICODE,
 )
 
 METRIC_CUES = re.compile(
-    r"\b(?:cases?|kasus|infections?|infeksi|patients?|pasien|deaths?|"
-    r"kematian|fatalities|meninggal)\b",
-    re.IGNORECASE,
+    r"\b(?:cases?|kasus|kes|kaso|casos?|infections?|infeksi|patients?|pasien|"
+    r"deaths?|kematian|fatalities|meninggal|ca\s+mắc|tử\s+vong)\b|"
+    r"(?:ราย|กรณี|ករណី|ກໍລະນີ|လူနာ|เสียชีวิต|ស្លាប់|ເສຍຊີວິດ|သေဆုံး)",
+    re.IGNORECASE | re.UNICODE,
 )
 
 
@@ -856,6 +860,40 @@ def _pattern_signature(*lexicon_names: str) -> tuple:
     ) + ("number_words", extractors._runtime_number_word_pattern())
 
 
+_LATIN_LOCATIVE = r"(?:di|in|from|among|at|dari|ke|tại|ở|sa|em|no|na|pada)"
+_NATIVE_LOCATIVE = r"(?:ใน|ที่|อยู่|នៅ|ក្នុង|ໃນ|ທີ່|တွင်|၌)"
+_NATIVE_PLACE = r"[\u0E00-\u0E7F\u0E80-\u0EFF\u1000-\u109F\u1780-\u17FF]{2,40}"
+_ADMIN_PREFIX = (
+    r"(?:provinsi\s+|prov\.\s+|kabupaten\s+|kab\.\s+|kota\s+|"
+    r"tỉnh\s+|thành\s+phố\s+|จังหวัด|ខេត្ត|ແຂວງ)?"
+)
+
+
+def _locative_pattern() -> str:
+    """ASEAN locatives. Latin terms stay word-bounded; native terms may agglutinate."""
+
+    return rf"(?:\b{_LATIN_LOCATIVE}\b|{_NATIVE_LOCATIVE})"
+
+
+def _location_capture(*, dotted: bool = False) -> str:
+    extra = r"." if dotted else ""
+    latin = (
+        rf"(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’{extra}-]*"
+        rf"(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’{extra}-]*){{0,5}}"
+    )
+    return rf"(?P<location>{latin}|{_NATIVE_PLACE})"
+
+
+def _strip_locative_prefix(raw: str) -> str:
+    value = (raw or "").strip(" ,;:.-")
+    return re.sub(
+        rf"^{_locative_pattern()}\s*",
+        "",
+        value,
+        flags=re.IGNORECASE | re.UNICODE,
+    ).strip()
+
+
 def _runtime_relation_patterns() -> dict[str, tuple[re.Pattern[str], ...]]:
     """Build legacy location relations from the active DB lexicon."""
     signature = _pattern_signature("metric_case", "metric_death", "metric_magnitude")
@@ -868,23 +906,23 @@ def _runtime_relation_patterns() -> dict[str, tuple[re.Pattern[str], ...]]:
     number = extractors._runtime_number_word_pattern()
     magnitude_term = metric_term_pattern(tuple(config.get_lexicon_terms("metric_magnitude")))
     magnitude_group = rf"(?P<multiplier>{magnitude_term})?"
-    # The surrounding patterns are case-insensitive for metric vocabulary,
-    # but locality starts must remain title-cased. Otherwise ``Thailand
-    # reported 12 cases`` is captured as the fake locality ``Thailand
-    # reported`` and cannot be linked to the country.
-    location = r"(?P<location>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’-]*){0,5})"
-    location_dotted = r"(?P<location>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){0,5})"
+    # Locality starts stay title-cased for Latin names so ``Thailand
+    # reported 12 cases`` is not captured as the fake locality
+    # ``Thailand reported``. Native-script places do not use that cue.
+    location = _location_capture()
+    location_dotted = _location_capture(dotted=True)
+    locative = _locative_pattern()
     patterns = {
         "cases": (
             re.compile(
                 rf"(?<![\w.,])(?P<count>{number})(?![\w])\s*{magnitude_group}\s*"
-                rf"{case_term}\s+(?:[\w\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]+\s+){{0,4}}"
-                rf"(?:di|in|from|among)\s+(?:provinsi\s+|prov\.\s+|kabupaten\s+|kab\.\s+|kota\s+)?{location}",
+                rf"{case_term}\s*(?:[\w\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]+\s+){{0,4}}"
+                rf"{locative}\s*{_ADMIN_PREFIX}{location}",
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
                 rf"{location}(?:\s+[^.\n;:()]{{0,100}}?\s*[:,-]?\s*)"
-                rf"(?P<count>{number})\s*{magnitude_group}\s*{case_term}\b",
+                rf"(?P<count>{number})\s*{magnitude_group}\s*{case_term}(?![A-Za-zÀ-ÿ0-9_])",
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
@@ -894,17 +932,17 @@ def _runtime_relation_patterns() -> dict[str, tuple[re.Pattern[str], ...]]:
         ),
         "deaths": (
             re.compile(
-                rf"(?P<count>{number})\s*{magnitude_group}\s*{death_term}\s+(?:di|in)\s+{location_dotted}",
+                rf"(?P<count>{number})\s*{magnitude_group}\s*{death_term}\s*{locative}\s*{location_dotted}",
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
                 rf"(?P<count>{number})\s+[^.\n;:()]{{0,60}}?{death_term}\s+"
-                rf"(?:pada\s+[^.\n;:()]{{0,40}}?\s+)?(?:di|in)\s+{location}",
+                rf"(?:pada\s+[^.\n;:()]{{0,40}}?\s+)?{locative}\s*{location}",
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
                 rf"{location}(?:\s+[^.\n;:()]{{0,120}}?\s*[:,-]?\s*)"
-                rf"(?P<count>{number})\s*{magnitude_group}\s*{death_term}\b",
+                rf"(?P<count>{number})\s*{magnitude_group}\s*{death_term}(?![A-Za-zÀ-ÿ0-9_])",
                 re.IGNORECASE | re.UNICODE,
             ),
         ),
@@ -991,6 +1029,11 @@ def _metric_context(text: str, start: int, end: int, radius: int = 220) -> str:
         boundary_index = source.find(boundary, end, right)
         if boundary_index >= 0:
             right = min(right, boundary_index)
+    for match in extractors.CONTRASTIVE_CONNECTIVE_RE.finditer(source):
+        if match.end() <= start and match.end() > left:
+            left = match.end()
+        elif match.start() >= end and match.start() < right:
+            right = match.start()
     return source[left:right].strip()
 
 
@@ -1039,7 +1082,7 @@ def extract_time_frame(text: str, published_date: Optional[str] = None) -> str:
             start_month = (part - 1) * 3 + 1
             end_month = start_month + 2
             return f"{date(year, start_month, 1).isoformat()} to {date(year, end_month, monthrange(year, end_month)[1]).isoformat()}"
-    explicit_period = extract_event_period(value)
+    explicit_period = extract_event_period(value, published_at=published_date)
     if explicit_period.get("event_date_start"):
         start = explicit_period["event_date_start"]
         end = explicit_period.get("event_date_end") or start
@@ -1102,7 +1145,13 @@ def _relation_time_frame_for_span(
     source = text or ""
     context = _metric_context(source, start, end)
     years = _YEAR_TOKEN.findall(context)
-    local_frame = extract_time_frame(context, None)
+    local_period = extract_event_period(context, published_at=published_date)
+    if local_period.get("event_date_start"):
+        local_start = local_period["event_date_start"]
+        local_end = local_period.get("event_date_end") or local_start
+        local_frame = local_start if local_start == local_end else f"{local_start} to {local_end}"
+    else:
+        local_frame = extract_time_frame(context, None)
     prior_year = next(
         reversed(list(_YEAR_TOKEN.finditer(source, max(0, start - 220), start))),
         None,
@@ -1129,7 +1178,7 @@ def _relation_time_frame_for_span(
         ):
             return _year_frame(_calendar_year(year_after_metric.group(1)))
     local_year = _calendar_year(years[0]) if len(set(years)) == 1 else None
-    document_period = extract_event_period(source)
+    document_period = extract_event_period(source, published_at=published_date)
     document_start = document_period.get("event_date_start")
     document_end = document_period.get("event_date_end") or document_period.get("event_date")
     document_frame = (
@@ -1218,6 +1267,7 @@ def _candidate_location(linker: GazetteerLinker, raw: str, text: str, start: int
     context = text[max(0, start - 100):min(len(text), end + 100)]
     # Regex capture can consume trailing conjunctions or metric words. Try
     # shorter prefixes until a gazetteer entity links successfully.
+    raw = _strip_locative_prefix(raw)
     words = raw.strip(" ,;:.-").split()
     for size in range(min(6, len(words)), 0, -1):
         candidate = " ".join(words[:size])
@@ -1317,10 +1367,8 @@ def _runtime_metric_patterns() -> dict[str, Any]:
     case_term = metric_term_pattern(tuple(case_terms))
     death_term = metric_term_pattern(tuple(death_terms))
     unit_term = metric_term_pattern(tuple(unit_terms))
-    location_dotted = (
-        r"(?P<location>(?-i:[A-ZÀ-ÖØ-Ý])"
-        r"[\wÀ-ÿ'’-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){0,5})"
-    )
+    location_dotted = _location_capture(dotted=True)
+    locative = _locative_pattern()
     range_case = re.compile(
         rf"(?:between|antara|from|từ|từ khoảng|ระหว่าง|จาก|ចន្លោះ|ລະຫວ່າງ|"
         rf"ຈາກ)\s*(?P<low>{_NUMBER})\s*(?:and|dan|to|sampai|hingga|đến|ถึง|ដល់|"
@@ -1355,8 +1403,8 @@ def _runtime_metric_patterns() -> dict[str, Any]:
         re.IGNORECASE | re.UNICODE,
     )
     case_location_count = re.compile(
-        rf"(?:{case_term})\s+(?:[\w\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]+\s+){{0,5}}"
-        rf"(?:di|in|from|among)\s+{location_dotted}\s+"
+        rf"(?:{case_term})\s*(?:[\w\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF-]+\s+){{0,5}}"
+        rf"{locative}\s*{location_dotted}\s*"
         rf"(?:[^.\n;:()\d]{{0,80}}?\b(?:mencapai|mencatat|reported|reached|"
         rf"recorded|logged|tercatat|sebanyak|total)\s+)?"
         rf"(?P<count>(?<!\w)(?!(?:19|20|25)\d{{2}}\b){count_number}(?!\w))\s*(?P<multiplier>ribu|juta|million|thousand)?",
@@ -1463,6 +1511,9 @@ def _metric_is_valid(text: str, start: int, end: int) -> bool:
     if re.search(r"[A-Za-z\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF]\s*[-–]\s*$", prefix_token):
         return False
     if extractors.is_non_incident_metric_context(text, start, end):
+        return False
+    suffix = (text or "")[end:min(len(text), end + 16)]
+    if re.match(r":\d{2}\b", suffix) or re.match(r"\s*(?:WIB|WITA|WIT)\b", suffix, re.IGNORECASE):
         return False
     short_context = text[max(0, start - 32):min(len(text), end + 48)]
     if _NON_CASE_NUMBER_CONTEXT.search(short_context):
@@ -1736,7 +1787,25 @@ def _relation_disease(
         item for item in candidates
         if extractors.disease_has_textual_evidence(item, context)
     ]
-    return candidates[0] if len(candidates) == 1 else None
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    after = text[end:min(len(text), end + 28)]
+    after_hits = [
+        item for item in candidates
+        if extractors.disease_has_textual_evidence(item, after)
+    ]
+    if len(after_hits) == 1:
+        return after_hits[0]
+    before = text[max(0, start - 28):start]
+    before_hits = [
+        item for item in candidates
+        if extractors.disease_has_textual_evidence(item, before)
+    ]
+    if len(before_hits) == 1 and not after_hits:
+        return before_hits[0]
+    return None
 
 
 def _relation_qualifier(text: str, start: int, end: int) -> Optional[str]:
@@ -1763,12 +1832,12 @@ def _relation_qualifier(text: str, start: int, end: int) -> Optional[str]:
     local_end = min(sentence_end, end + 60)
     local = (text or "")[local_start:local_end]
     qualifier_patterns = (
-        ("comparison", r"\b(?:compared\s+(?:with|to)|versus|vs\.?|previous(?:ly)?|prior|last\s+(?:week|month|year)|pekan\s+sebelumnya|tahun\s+(?:lalu|sebelumnya)|dibanding(?:kan)?|berbanding)\b"),
-        ("historical", r"\b(?:historical(?:ly)?|historis|in\s+20\d{2}|pada\s+tahun\s+20\d{2}|for\s+the\s+whole\s+of)\b"),
-        ("cumulative", r"\b(?:cumulative|accumulated|total|year\s+to\s+date|ytd|sepanjang|kumulatif|jumlah\s+keseluruhan|sampai\s+saat\s+ini)\b"),
-        ("new", r"\b(?:new|baru|tambahan|latest|recent)\b"),
-        ("suspected", r"\b(?:suspected|suspect|suspek|diduga)\b"),
-        ("confirmed", r"\b(?:confirmed|terkonfirmasi|konfirmasi|positif)\b"),
+        ("comparison", r"\b(?:compared\s+(?:with|to)|versus|vs\.?|previous(?:ly)?|prior|last\s+(?:week|month|year)|pekan\s+sebelumnya|tahun\s+(?:lalu|sebelumnya)|dibanding(?:kan)?|berbanding|so\s+với)\b|เทียบกับ"),
+        ("historical", r"\b(?:historical(?:ly)?|historis|in\s+20\d{2}|pada\s+tahun\s+20\d{2}|for\s+the\s+whole\s+of|năm\s+ngoái|tahun\s+lepas)\b"),
+        ("cumulative", r"\b(?:cumulative|accumulated|total|year\s+to\s+date|ytd|sepanjang|kumulatif|jumlah\s+keseluruhan|sampai\s+saat\s+ini|tích\s+lũy|tổng)\b|สะสม|ทั้งหมด|รวม|សរុប|ສະສົມ"),
+        ("new", r"\b(?:new|baru|tambahan|latest|recent|baharu|mới|bago|novos?|novas?)\b|ใหม่|ថ្មី|ໃໝ່|အသစ်"),
+        ("suspected", r"\b(?:suspected|suspect|suspek|diduga|nghi\s+ngờ)\b"),
+        ("confirmed", r"\b(?:confirmed|terkonfirmasi|konfirmasi|positif|xác\s+nhận)\b"),
     )
     nearby: list[tuple[int, str]] = []
     for qualifier, pattern in qualifier_patterns:
@@ -1778,14 +1847,14 @@ def _relation_qualifier(text: str, start: int, end: int) -> Optional[str]:
         return min(nearby, key=lambda item: item[0])[1]
     match = re.search(
         r"\b(more than|over|at least|nearly|about|around|approximately|"
-        r"lebih dari|setidaknya|sekitar|hampir|lebih kurang|approximately)\b",
+        r"lebih dari|setidaknya|sekitar|hampir|lebih kurang|khoảng|ประมาณ)\b",
         local,
         re.IGNORECASE,
     )
     if not match:
         match = re.search(
             r"\b(more than|over|at least|nearly|about|around|approximately|"
-            r"lebih dari|setidaknya|sekitar|hampir|lebih kurang|approximately)\b",
+            r"lebih dari|setidaknya|sekitar|hampir|lebih kurang|khoảng|ประมาณ)\b",
             context,
             re.IGNORECASE,
         )
@@ -1820,21 +1889,9 @@ def _extract_narrative_relations(
             if extractors.metric_source_scope(source, match.start(), match.end()) != "article_local":
                 continue
             linked = _nearest_location(match.start(), match.end(), locations, text=source)
-            sentence_start = max(
-                source.rfind(".", 0, match.start()),
-                source.rfind("!", 0, match.start()),
-                source.rfind("?", 0, match.start()),
-                source.rfind("\n", 0, match.start()),
-            ) + 1
-            sentence_end_candidates = [
-                index for index in (
-                    source.find(".", match.end()),
-                    source.find("!", match.end()),
-                    source.find("?", match.end()),
-                    source.find("\n", match.end()),
-                ) if index >= 0
-            ]
-            sentence_end = min(sentence_end_candidates) if sentence_end_candidates else len(source)
+            sentence_start, sentence_end = extractors._metric_sentence_bounds(
+                source, match.start(), match.end()
+            )
             local_locations = [
                 item for item in locations
                 if item[0] >= sentence_start and item[1] <= sentence_end
@@ -1866,13 +1923,25 @@ def _extract_narrative_relations(
                     match.start(), match.end(), local_locations, text=source
                 ) or linked
             elif not local_locations:
-                prior_countries = list(dict.fromkeys(
+                prior_locations = [
+                    item for item in locations
+                    if item[1] <= sentence_start and item[0] >= max(0, sentence_start - 360)
+                ]
+                prior_subnational = [
+                    item for item in prior_locations
+                    if item[2].name.casefold() != (item[2].country or "").casefold()
+                ]
+                if len({item[2].name.casefold() for item in prior_subnational}) == 1:
+                    linked = prior_subnational[-1][2]
+                    prior_countries = []
+                else:
+                    prior_countries = list(dict.fromkeys(
                     extractors.normalize_country(value)
                     for value in extractors.extract_all_mentioned_countries(
                         source[max(0, sentence_start - 360):sentence_start]
                     )
                     if extractors.normalize_country(value)
-                ))
+                    ))
                 if prior_countries:
                     prior_text = source[max(0, sentence_start - 360):sentence_start]
                     prior_country = max(
@@ -1978,8 +2047,9 @@ _ADMIN_PLACE = re.compile(
     r"city|county|district|province|municipality|regency|prefecture|"
     r"daerah|negeri|tỉnh|huyện|thành phố|quận|"
     r"จังหวัด|อำเภอ|ខេត្ត|ស្រុក|ແຂວງ|ເມືອງ|ပြည်နယ်|မြို့နယ်"
-    r")\s+"
-    r"(?P<name>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+){0,3})",
+    r")\s*"
+    r"(?P<name>(?:(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+){0,3}|"
+    rf"{_NATIVE_PLACE}))",
     re.IGNORECASE | re.UNICODE,
 )
 _CAP_PLACE = re.compile(
@@ -2025,7 +2095,7 @@ def _clause_case_pattern() -> re.Pattern[str]:
         # The count must be its own token. A digit inside a disease code such
         # as H5N1 is not a case total. ``100-an`` is an approximate total.
         rf"(?<![\w])(?P<count>{_clause_count_token()})(?![\w])(?:-an)?(?:\s+(?P<multiplier>ribu|juta|million|thousand))?\s+"
-        rf"(?:[\wÀ-ÿ'’.-]+\s+){{0,4}}?(?:{word})(?!\w)",
+        rf"(?:[\wÀ-ÿ'’.-]+\s+){{0,4}}?(?:{word})(?![A-Za-zÀ-ÿ0-9_])",
         re.IGNORECASE | re.UNICODE,
     )
 
@@ -2052,6 +2122,8 @@ def _sentence_country(source: str, sentence_start: int, sentence_end: int, locat
     if countries:
         return Counter(countries).most_common(1)[0][0]
     mentioned = extractors.extract_all_mentioned_countries(source[sentence_start:sentence_end])
+    if not mentioned:
+        mentioned = extractors.extract_mentioned_case_countries(source[sentence_start:sentence_end])
     return mentioned[0] if len(mentioned) == 1 else ""
 
 
@@ -2079,6 +2151,14 @@ def _link_surface_place(
     linked = linker.link(name, context=context, evidence=context)
     if linked:
         return linked
+    folded = extractors._fold_location_text(name)
+    for alias, standard in extractors._country_alias_view().items():
+        if folded == extractors._fold_location_text(alias):
+            return LinkedLocation(
+                name=standard,
+                country=standard,
+                evidence=context,
+            )
     # "Disease Prevention" inside an organization name is not a city.
     # A one-word unknown place can still carry the count when a locative
     # names it ("di Banyuwangi") or the window calls it a city or province
@@ -2090,14 +2170,15 @@ def _link_surface_place(
     # The locative has to sit on this name. A city word anywhere in the
     # window is a separate cue ("Lampang became the city").
     locative = re.search(
-        rf"\b(?:di|ke|dari|in|at|from)\s+{re.escape(stripped)}\b",
+        rf"(?:{_locative_pattern()})\s*{re.escape(stripped)}(?![A-Za-zÀ-ÿ0-9_])",
         context or "",
-        re.IGNORECASE,
+        re.IGNORECASE | re.UNICODE,
     )
     named_admin = re.search(
-        r"\b(?:city|cities|kota|province|provinsi|kabupaten|town|regency|district|kecamatan)\b",
+        r"\b(?:city|cities|kota|province|provinsi|kabupaten|town|regency|district|kecamatan|tỉnh|thành phố)\b|"
+        r"(?:จังหวัด|ខេត្ត|ແຂວງ)",
         context or "",
-        re.IGNORECASE,
+        re.IGNORECASE | re.UNICODE,
     )
     if not locative and not named_admin:
         return None
@@ -2159,7 +2240,9 @@ def _clause_place_candidates(
         if linked is None:
             # "Di Latvia" is a locative plus the place, not a two-word city.
             parts = name.split()
-            if len(parts) > 1 and parts[0].casefold() in {"di", "in", "at", "dari", "ke", "from"}:
+            if len(parts) > 1 and parts[0].casefold() in {
+                "di", "in", "at", "dari", "ke", "from", "tại", "ở", "sa", "em", "no", "na", "pada",
+            }:
                 cut = name.find(parts[1])
                 if cut > 0:
                     name = name[cut:]
@@ -2208,8 +2291,8 @@ def _count_window(
             continue
         # "Di Latvia, ... ada tiga kasus" names the place before the clause.
         if idx < count_start and re.fullmatch(
-            r"\s*(?:di|in|at|dari|ke|from|ở|tại)?\s*"
-            r"(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){0,3}\s*",
+            rf"\s*(?:{_locative_pattern()})?\s*"
+            rf"(?:(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){{0,3}}|{_NATIVE_PLACE})\s*",
             source[sentence_start:idx],
         ):
             continue
@@ -2275,6 +2358,52 @@ def _clause_death_count(source: str, start: int, end: int) -> Optional[int]:
     return _number(match.group("count"), "")
 
 
+def _relation_named_in(relation: MetricRelation, text: str, linker: GazetteerLinker) -> bool:
+    """True when this relation's place is spelled in the text, including aliases."""
+
+    name = str(getattr(relation.location, "name", "") or "")
+    if name and name.casefold() in (text or "").casefold():
+        return True
+    return any(
+        linked.name.casefold() == name.casefold()
+        for _, _, linked in linker.local_mentions(text or "")
+    )
+
+
+def _previous_sentence_place(
+    source: str,
+    sentence_start: int,
+    locations: list[tuple[int, int, LinkedLocation]],
+) -> Optional[LinkedLocation]:
+    if sentence_start <= 1:
+        return None
+    prev_left, prev_right = extractors._metric_sentence_bounds(
+        source, max(0, sentence_start - 2), max(0, sentence_start - 1)
+    )
+    if prev_right > sentence_start:
+        return None
+    prev_places = [
+        item for item in locations
+        if prev_left <= item[0] < prev_right
+        and item[2].name.casefold() != (item[2].country or "").casefold()
+    ]
+    names = {item[2].name.casefold() for item in prev_places}
+    if len(names) == 1:
+        return prev_places[-1][2]
+    country_places = [
+        item for item in locations
+        if prev_left <= item[0] < prev_right
+        and item[2].name.casefold() == (item[2].country or "").casefold()
+    ]
+    country_names = {item[2].name.casefold() for item in country_places}
+    if len(country_names) == 1:
+        return country_places[-1][2]
+    mentioned = extractors.extract_mentioned_case_countries(source[prev_left:prev_right])
+    if len(mentioned) != 1:
+        return None
+    return LinkedLocation(name=mentioned[0], country=mentioned[0], evidence=source[prev_left:prev_right])
+
+
 def _bind_counts_to_clause_places(
     source: str,
     relations: list[MetricRelation],
@@ -2336,6 +2465,12 @@ def _bind_counts_to_clause_places(
             continue
         if re.match(r"\s*(?:%|percent|persen)\b", source[count_end:count_end + 12], re.I):
             continue
+        if re.match(r":\d{2}\b", source[count_end:count_end + 8]) or re.match(
+            r"\s*(?:WIB|WITA|WIT)\b", source[count_end:count_end + 8], re.I
+        ):
+            continue
+        if not _metric_is_valid(source, count_start, count_end):
+            continue
         if re.match(
             r"\s*(?:deaths?|died|killed|fatalit(?:y|ies)|kematian|meninggal|tử\s+vong|เสียชีวิต)\b",
             source[count_end:count_end + 24],
@@ -2395,10 +2530,12 @@ def _bind_counts_to_clause_places(
             # total, not 106 cases in the one country named at the end.
             place = None
         if place is None:
+            place = _previous_sentence_place(source, sentence_start, locations)
+        if place is None:
             kept = [
                 relation for relation in kept
                 if relation not in overlapping
-                or relation.location.name.casefold() in source[sentence_start:sentence_end].casefold()
+                or _relation_named_in(relation, source[sentence_start:sentence_end], linker)
             ]
             continue
         aligned = [
@@ -2669,25 +2806,15 @@ def extract_metric_relations(
     death_terms = metric_term_pattern(tuple(config.get_lexicon_terms("metric_death")))
     zero_death = re.compile(
         rf"(?:\b(?:no|zero|without)\s+(?:reported\s+)?{death_terms}\b|"
-        rf"\b(?:tidak\s+ada|tiada|nihil|tanpa)\s+(?:laporan\s+)?{death_terms}\b)",
+        rf"\b(?:tidak\s+ada|tiada|nihil|tanpa)\s+(?:laporan\s+)?{death_terms}\b|"
+        rf"\b(?:không\s+(?:có|ghi\s+nhận)|walang|sem)\s+(?:báo\s+cáo\s+|relatos?\s+de\s+)?{death_terms}\b|"
+        rf"(?:ไม่มี|គ្មាន|ບໍ່ມີ|မရှိ)\s*{death_terms})",
         re.IGNORECASE | re.UNICODE,
     )
     for match in zero_death.finditer(working):
-        sentence_start = max(
-            source.rfind(".", 0, match.start()),
-            source.rfind("!", 0, match.start()),
-            source.rfind("?", 0, match.start()),
-            source.rfind("\n", 0, match.start()),
-        ) + 1
-        sentence_end_candidates = [
-            index for index in (
-                source.find(".", match.end()),
-                source.find("!", match.end()),
-                source.find("?", match.end()),
-                source.find("\n", match.end()),
-            ) if index >= 0
-        ]
-        sentence_end = min(sentence_end_candidates) if sentence_end_candidates else len(source)
+        sentence_start, sentence_end = extractors._metric_sentence_bounds(
+            source, match.start(), match.end()
+        )
         local_locations = [
             item for item in locations
             if item[0] >= sentence_start and item[1] <= sentence_end
@@ -2732,21 +2859,9 @@ def extract_metric_relations(
             # ``cases and N deaths`` is clause-local. Nearest-document
             # matching can attach North Kivu's death count to the next
             # sentence's South Kivu when both names are close together.
-            sentence_start = max(
-                source.rfind(".", 0, match.start()),
-                source.rfind("!", 0, match.start()),
-                source.rfind("?", 0, match.start()),
-                source.rfind("\n", 0, match.start()),
-            ) + 1
-            sentence_end_candidates = [
-                index for index in (
-                    source.find(".", match.end()),
-                    source.find("!", match.end()),
-                    source.find("?", match.end()),
-                    source.find("\n", match.end()),
-                ) if index >= 0
-            ]
-            sentence_end = min(sentence_end_candidates) if sentence_end_candidates else len(source)
+            sentence_start, sentence_end = extractors._metric_sentence_bounds(
+                source, match.start(), match.end()
+            )
             local_locations = [
                 item for item in locations
                 if item[0] >= sentence_start and item[1] <= sentence_end

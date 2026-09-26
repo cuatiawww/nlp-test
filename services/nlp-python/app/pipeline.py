@@ -1266,6 +1266,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 primary_country=country,
                 linker=shared_linker,
                 relations=relational_events if relation_context_ready else None,
+                published_at=published_at,
             ),
             (),
             config.MULTI_EVENT_STAGE_TIMEOUT_SECONDS,
@@ -2600,6 +2601,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             evt.country = None
         if evt.location_name == "MULTI_COUNTRY":
             evt.location_name = None
+        if evt.country and ";" in str(evt.country):
+            continue
         norm_evt_country = extractors.normalize_country(evt.country)
         if norm_evt_country:
             evt.country = norm_evt_country
@@ -2624,7 +2627,11 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
             for admin_field in ("admin1", "admin2"):
                 admin_val = getattr(evt, admin_field)
-                if admin_val:
+                if (
+                    admin_val
+                    and ";" not in str(admin_val)
+                    and not extractors.is_global_scope_country(norm_evt_country)
+                ):
                     admin_h = extractors.resolve_location_hierarchy(admin_val)
                     if admin_h.get("country") and admin_h["country"].casefold() != norm_evt_country.casefold():
                         setattr(evt, admin_field, None)
@@ -3009,6 +3016,13 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 case_count = int(best_local.case_count or 0)
             if int(best_local.death_count or 0) > int(death_count or 0):
                 death_count = int(best_local.death_count or 0)
+            if best_local.admin1:
+                final_province = best_local.admin1
+                loc_hier = {**loc_hier, "admin1_name": best_local.admin1}
+            if extractors.is_global_scope_country(best_local.country or best_local.location_name):
+                country = extractors.GLOBAL_SCOPE_COUNTRY
+                location = extractors.GLOBAL_SCOPE_COUNTRY
+                final_city = None
         elif (
             not split_country_total
             and case_count
@@ -3019,6 +3033,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 case_count = max(int(evt.case_count or 0) for evt in local_rows)
             else:
                 case_count = sum(int(evt.case_count or 0) for evt in local_rows)
+
+    if (
+        len(sub_events) == 1
+        and sub_events[0].country
+        and ";" in str(sub_events[0].country)
+    ):
+        country = sub_events[0].country
+        if extractors.is_global_scope_country(sub_events[0].location_name):
+            location = extractors.GLOBAL_SCOPE_COUNTRY
+        final_province = None
+        final_city = None
 
     # Final source-scalar authority for single-disease articles. Runs after
     # local_rows so a noisy country-level composer total cannot override DoH /

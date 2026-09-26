@@ -64,7 +64,33 @@ def sentence_spans(text: str) -> list[tuple[int, int, str]]:
     if tail:
         leading = len(source[start:]) - len(source[start:].lstrip())
         spans.append((start + leading, len(source), tail))
-    return spans or ([(0, len(source), source)] if source.strip() else [])
+    split_spans = _split_contrastive_spans(spans)
+    return split_spans or ([(0, len(source), source)] if source.strip() else [])
+
+
+def _split_contrastive_spans(spans: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
+    """Keep contrastive connectives with the following country/metric clause."""
+
+    result: list[tuple[int, int, str]] = []
+    for start, _end, value in spans:
+        last = 0
+        for match in extractors.CONTRASTIVE_CONNECTIVE_RE.finditer(value):
+            if match.start() == 0:
+                continue
+            head = value[last:match.start()]
+            stripped = head.strip()
+            if stripped:
+                leading = len(head) - len(head.lstrip())
+                abs_start = start + last + leading
+                abs_end = start + last + len(head.rstrip())
+                result.append((abs_start, abs_end, stripped))
+            last = match.start()
+        tail = value[last:]
+        stripped = tail.strip()
+        if stripped:
+            leading = len(tail) - len(tail.lstrip())
+            result.append((start + last + leading, start + last + leading + len(stripped), stripped))
+    return result
 
 
 def _canonical_labels(labels: list[str] | None) -> list[str]:
@@ -119,7 +145,7 @@ def _nearest_disease(context: str, candidates: list[str], metric_anchor: int) ->
 def _metric_qualifier(context: str) -> Optional[str]:
     match = re.search(
         r"\b(more than|over|at least|nearly|about|around|approximately|"
-        r"lebih dari|setidaknya|sekitar|hampir|lebih kurang)\b",
+        r"lebih dari|setidaknya|sekitar|hampir|lebih kurang|khoảng|ประมาณ)\b",
         context or "",
         re.IGNORECASE,
     )
@@ -332,6 +358,28 @@ def _most_specific_event_location(sentence: str, evidence: str, base_location, l
     if base_name and base_name.casefold() != base_country.casefold() and _place_is_named(base_name, sentence or "", linker):
         return base_location
 
+    base_is_country = (
+        bool(base_name)
+        and bool(base_country)
+        and base_name.casefold() == base_country.casefold()
+    ) or not any(
+        bool(getattr(base_location, attribute, False))
+        for attribute in ("is_province", "is_city")
+    )
+    # "309,786 cases in Indonesia" stays national even when the next clause
+    # ranks West Java as the province with the most cases.
+    if base_is_country and (
+        _place_is_named(base_name, evidence or "", linker)
+        or _place_is_named(base_country, evidence or "", linker)
+        or re.search(
+            r"\b(?:nationwide|nationally|nasional|se-?indonesia|toàn quốc|trên cả nước)\b|"
+            r"ทั่วประเทศ",
+            evidence or "",
+            re.IGNORECASE,
+        )
+    ):
+        return base_location
+
     try:
         candidates = extractors.extract_all_locations(
             sentence,
@@ -345,12 +393,10 @@ def _most_specific_event_location(sentence: str, evidence: str, base_location, l
     # A country-level metric followed by origin/breakdown locations is still
     # a country total. Do not promote it to the first province merely because
     # the sentence lists where the referred cases originated.
-    base_is_country = not any(
-        bool(getattr(base_location, attribute, False))
-        for attribute in ("is_province", "is_city")
-    )
     if base_is_country and re.search(
-        r"\b(?:berasal\s+dari|berpunca\s+dari|originat(?:e|ed)\s+from|came\s+from|from)\b",
+        r"\b(?:berasal\s+dari|berpunca\s+dari|originat(?:e|ed)\s+from|came\s+from|"
+        r"became\s+the\s+province|province\s+with\s+the\s+most|"
+        r"followed\s+by|daftar|list\s+of|terbanyak)\b",
         evidence or sentence,
         re.IGNORECASE,
     ):
@@ -463,7 +509,7 @@ def build_atomic_events(
     document_relations = (
         relations
         if relations is not None
-        else extract_metric_relations(source, linker=linker, published_date=None)
+        else extract_metric_relations(source, linker=linker, published_date=published_at)
     )
     if document_relations:
         # The relation extractor already identified the only sentences that
@@ -641,15 +687,25 @@ def build_atomic_events(
             if hierarchy is None:
                 hierarchy = extractors.resolve_location_hierarchy(location.name, country_hint=location.country)
                 hierarchy_cache[hierarchy_key] = hierarchy
-            frame = extract_event_period(sentence, published_at=None)
-            metric_frame = extract_event_period(relation_time_frame or "", published_at=None) if relation_time_frame else {}
+            frame = extract_event_period(sentence, published_at=published_at)
+            metric_frame = extract_event_period(relation_time_frame or "", published_at=published_at) if relation_time_frame else {}
             if relation_time_frame and (" to " in relation_time_frame or metric_frame.get("event_date_start")):
                 time_frame = relation_time_frame
             elif frame.get("event_date_start") and frame.get("event_date_end"):
                 time_frame = f"{frame['event_date_start']} to {frame['event_date_end']}"
             else:
                 time_frame = frame.get("event_date_start") or frame.get("event_date_end") or ""
-            event_period = metric_frame or frame
+            event_period = metric_frame if metric_frame.get("event_date_start") else frame
+            sentence_period = str(frame.get("period_type") or "")
+            metric_period = str(event_period.get("period_type") or "")
+            if sentence_period in {"historical", "monthly"}:
+                period_type = sentence_period
+            elif metric_period not in {"", "unknown"}:
+                period_type = metric_period
+            elif sentence_period not in {"", "unknown"}:
+                period_type = sentence_period
+            else:
+                period_type = "current"
             metric_value = value if value is not None else (deaths if metric_type == "deaths" else cases)
             event = {
                 "disease": event_disease,
@@ -673,7 +729,7 @@ def build_atomic_events(
                 "metric_value_max": value_max,
                 "metric_qualifier": qualifier,
                 "time_frame": time_frame,
-                "temporal_context": frame.get("period_type") or "current",
+                "temporal_context": period_type,
                 "epistemic_status": classify_epistemic_status(sentence, disease=event_disease),
                 "evidence": evidence or sentence.strip(),
                 "evidence_offset_start": start + max(0, start_offset),

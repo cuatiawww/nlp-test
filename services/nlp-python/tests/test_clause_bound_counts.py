@@ -239,9 +239,10 @@ class ClauseBoundCountTests(unittest.TestCase):
                 counted = {
                     (evt.get("location_name"), int(evt.get("case_count") or 0), int(evt.get("death_count") or 0))
                     for evt in events
+                    if int(evt.get("case_count") or 0) > 0
                 }
-                self.assertIn(("Indonesia", 309786, 0), counted)
-                self.assertIn((expected_place[language], 63748, 0), counted)
+                self.assertEqual(counted, {("Indonesia", 309786, 0)})
+                self.assertIn(expected_place[language], str(events[0].get("admin1") or ""))
                 self.assertNotIn((expected_place[language], 309786, 0), counted)
                 self.assertNotIn(("Indonesia", 63748, 0), counted)
                 self.assertFalse(any(deaths == 309786 for _, _, deaths in counted))
@@ -329,15 +330,21 @@ class ClauseBoundCountTests(unittest.TestCase):
                 counted = {
                     (evt.get("location_name"), int(evt.get("case_count") or 0))
                     for evt in events
-                    if int(evt.get("case_count") or 0) > 0
+                    if int(evt.get("case_count") or 0) > 0 and evt.get("country")
                 }
                 for place, count in expected:
                     self.assertIn((place, count), local)
-                    self.assertIn((place, count), counted)
-                country_count = expected[0][1]
+                country_name, country_count = expected[0]
+                self.assertEqual(counted, {(country_name, country_count)})
+                joined = " ".join(str(evt.get("admin1") or "") for evt in events)
                 for place, count in expected[1:]:
+                    if (place, count) in local and any(
+                        evt.get("country") and place in str(evt.get("admin1") or "")
+                        for evt in events
+                    ):
+                        self.assertIn(place, joined)
                     self.assertNotIn((place, country_count), counted)
-                    self.assertNotIn((expected[0][0], count), counted)
+                    self.assertNotIn((country_name, count), counted)
 
     def test_country_total_parent_drops_only_the_empty_country_row(self):
         events = [

@@ -110,13 +110,15 @@ _RE_CUMULATIVE = re.compile(
     r"\b(?:sejak\s+awal\s+tahun|total\s+akumulatif|akumulasi|sepanjang\s+tahun|"
     r"sepanjang\s+20\d{2}|total\s+kasus|secara\s+keseluruhan|cumulative|to\s+date|"
     r"so\s+far\s+this\s+year|year[- ]to[- ]date|ytd|tổng\s+số\s+ca|"
-    r"สะสม|ตั้งแต่ต้นปี|จนถึงปัจจุบัน)\b",
+    r"tích\s+lũy|kes\s+kumulatif)\b|(?:สะสม|ตั้งแต่ต้นปี|จนถึงปัจจุบัน|"
+    r"សរុប|ສະສົມ)",
     re.IGNORECASE,
 )
 
 _RE_NEW_CASES = re.compile(
     r"\b(?:kasus\s+baru|penambahan\s+(?:kasus)?|tambahan\s+kasus|new\s+cases?|"
-    r"tercatat\s+hari\s+ini|dalam\s+24\s+jam\s+terakhir|ca\s+mắc\s+mới|ca\s+mới)\b",
+    r"tercatat\s+hari\s+ini|dalam\s+24\s+jam\s+terakhir|ca\s+mắc\s+mới|ca\s+mới|"
+    r"kes\s+baharu|kaso\s+bago)\b|(?:รายใหม่|ผู้ป่วยใหม่)",
     re.IGNORECASE,
 )
 
@@ -443,6 +445,197 @@ def _relative_case_period(sample: str, published: date) -> Optional[dict]:
     }
 
 
+_MONTH_ALIASES = {
+    "january": 1, "januari": 1, "jan": 1,
+    "february": 2, "februari": 2, "feb": 2,
+    "march": 3, "maret": 3, "mar": 3, "mac": 3,
+    "april": 4, "apr": 4,
+    "may": 5, "mei": 5,
+    "june": 6, "juni": 6, "jun": 6,
+    "july": 7, "juli": 7, "jul": 7, "julai": 7,
+    "august": 8, "agustus": 8, "aug": 8, "ogos": 8,
+    "september": 9, "sep": 9, "sept": 9,
+    "october": 10, "oktober": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "desember": 12, "dec": 12, "disember": 12,
+}
+
+
+def _month_number(raw: Optional[str], month_map: dict[str, int]) -> Optional[int]:
+    token = (raw or "").casefold().rstrip(".")
+    if not token:
+        return None
+    if token.isdigit():
+        value = int(token)
+        return value if 1 <= value <= 12 else None
+    return month_map.get(token) or _MONTH_ALIASES.get(token)
+
+
+def _month_pattern(month_map: dict[str, int]) -> str:
+    aliases = set(month_map) | set(_MONTH_ALIASES)
+    return "(?:" + "|".join(re.escape(name) for name in sorted(aliases, key=len, reverse=True)) + ")"
+
+
+def _iso_week_bounds(year: int, week: int) -> Optional[tuple[date, date]]:
+    try:
+        if 1 <= week <= 53:
+            return date.fromisocalendar(year, week, 1), date.fromisocalendar(year, week, 7)
+    except (ValueError, OverflowError):
+        return None
+    return None
+
+
+def _period_result(
+    start: Optional[date],
+    end: Optional[date],
+    period_type: str,
+    *,
+    review: bool = True,
+) -> dict:
+    start_iso = start.isoformat() if start else None
+    end_iso = end.isoformat() if end else start_iso
+    return {
+        "event_date_start": start_iso,
+        "event_date_end": end_iso,
+        "event_date": end_iso or start_iso,
+        "period_type": period_type,
+        "date_needs_review": review,
+    }
+
+
+def _surveillance_window(
+    sample: str,
+    month_map: dict[str, int],
+    pub_year: int,
+    pub_dt: Optional[date],
+) -> Optional[dict]:
+    """Bind sitrep phrases: Jan-Jul, EW8, first 8 months, YTD, to 30 August."""
+
+    months = _month_pattern(month_map)
+
+    first_weeks = re.search(
+        r"\b(?:first\s+)?(?P<num>\d{1,2})\s+e-?weeks?\s*(?:of\s+|tahun\s+)?(?P<year>20\d{2}|25\d{2})?\b"
+        r"|\b(?:to|by|through|hingga)\s+(?P<to_num>\d{1,2})\s+(?:e-)?weeks?\b",
+        sample,
+        re.I,
+    )
+    if first_weeks:
+        raw_week = first_weeks.group("num") or first_weeks.group("to_num")
+        year = _calendar_year(first_weeks.group("year")) or pub_year
+        bounds = _iso_week_bounds(year, int(raw_week))
+        if bounds:
+            start = date(year, 1, 1) if first_weeks.group("num") else bounds[0]
+            return _period_result(start, bounds[1], "weekly", review=False)
+
+    month_span = re.search(
+        rf"(?:from|between|sejak|dari)?\s*"
+        rf"(?P<m1>{months})\.?\s*(?:-|–|—|to|until|hingga|sampai)\s*"
+        rf"(?P<m2>{months})\.?\s+(?P<year>20\d{{2}}|25\d{{2}})\b",
+        sample,
+        re.I | re.UNICODE,
+    )
+    if month_span:
+        year = _calendar_year(month_span.group("year"))
+        start_m = _month_number(month_span.group("m1"), month_map)
+        end_m = _month_number(month_span.group("m2"), month_map)
+        if year and start_m and end_m:
+            return _period_result(
+                date(year, start_m, 1),
+                date(year, end_m, calendar.monthrange(year, end_m)[1]),
+                "cumulative",
+            )
+
+    through_day = re.search(
+        rf"\b(?:to|through|until|hingga|sampai|by)\s+"
+        rf"(?:(?P<d>\d{{1,2}})\s+(?P<m>{months})|(?P<m_alt>{months})\.?\s+(?P<d_alt>\d{{1,2}}))\.?"
+        rf"\s*,?\s+(?P<year>20\d{{2}}|25\d{{2}})\b",
+        sample,
+        re.I | re.UNICODE,
+    )
+    if through_day:
+        year = _calendar_year(through_day.group("year"))
+        month = _month_number(through_day.group("m") or through_day.group("m_alt"), month_map)
+        day = int(through_day.group("d") or through_day.group("d_alt"))
+        end = _ymd(year, month, day)
+        if end:
+            return _period_result(date(year, 1, 1), date.fromisoformat(end), "cumulative")
+
+    through_month = re.search(
+        rf"\b(?:to|through|until|hingga|sampai|as of|per)\s+(?P<m>{months})\.?\s+(?P<year>20\d{{2}}|25\d{{2}})\b",
+        sample,
+        re.I | re.UNICODE,
+    )
+    if through_month:
+        year = _calendar_year(through_month.group("year"))
+        month = _month_number(through_month.group("m"), month_map)
+        if year and month:
+            return _period_result(
+                date(year, 1, 1),
+                date(year, month, calendar.monthrange(year, month)[1]),
+                "cumulative",
+            )
+
+    first_months = re.search(
+        r"\b(?:first|pertama)\s+(?P<num>\d{1,2})\s+(?:months?|bulan)\s+(?:of\s+|tahun\s+)?(?P<year>20\d{2}|25\d{2})?"
+        r"|(?P<num_id>\d{1,2})\s+bulan\s+pertama(?:\s+tahun)?\s*(?P<year_id>20\d{2}|25\d{2})?",
+        sample,
+        re.I,
+    )
+    if first_months:
+        count = int(first_months.group("num") or first_months.group("num_id"))
+        year = _calendar_year(first_months.group("year") or first_months.group("year_id")) or pub_year
+        if 1 <= count <= 12:
+            return _period_result(
+                date(year, 1, 1),
+                date(year, count, calendar.monthrange(year, count)[1]),
+                "cumulative",
+            )
+
+    half = re.search(
+        r"\b(?P<label>first\s+half|second\s+half|h[12]|paruh\s+pertama|paruh\s+kedua|"
+        r"setengah\s+tahun\s+pertama)\s+(?:of\s+|tahun\s+)?(?P<year>20\d{2}|25\d{2})?",
+        sample,
+        re.I,
+    )
+    if half:
+        year = _calendar_year(half.group("year")) or pub_year
+        label = half.group("label").casefold()
+        second = bool(re.search(r"second|h2|kedua", label))
+        start_m, end_m = (7, 12) if second else (1, 6)
+        return _period_result(
+            date(year, start_m, 1),
+            date(year, end_m, calendar.monthrange(year, end_m)[1]),
+            "cumulative",
+        )
+
+    bound = re.search(
+        rf"\b(?P<when>early|late|mid(?:-|\s+)?|awal|akhir|pertengahan)\s+"
+        rf"(?P<m>{months})\.?\s+(?P<year>20\d{{2}}|25\d{{2}})\b",
+        sample,
+        re.I | re.UNICODE,
+    )
+    if bound:
+        year = _calendar_year(bound.group("year"))
+        month = _month_number(bound.group("m"), month_map)
+        if year and month:
+            when = bound.group("when").casefold()
+            if when.startswith("early") or when == "awal":
+                day = 1
+            elif when.startswith("late") or when == "akhir":
+                day = calendar.monthrange(year, month)[1]
+            else:
+                day = 15
+            stamp = date(year, month, day)
+            return _period_result(stamp, stamp, "incident")
+
+    if pub_dt and re.search(r"\b(?:year[\s-]?to[\s-]?date|\bytd\b|setakat ini)\b", sample, re.I):
+        since = re.search(rf"\b(?:since|sejak|from|dari)\s+(?P<m>{months})\b", sample, re.I | re.UNICODE)
+        month = _month_number(since.group("m"), month_map) if since else 1
+        return _period_result(date(pub_year, month or 1, 1), pub_dt, "cumulative")
+
+    return None
+
+
 def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
     """Return reporting window, period type, and whether Date Case needs review.
 
@@ -475,9 +668,10 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
             pass
     pub_year = pub_dt.year if pub_dt else datetime.now().year
 
-    # 1. Epidemiological Week (e.g. "pekan ke-12 tahun 2026", "minggu ke-10 2026", "epi week 14")
+    # 1. Epidemiological Week (e.g. "pekan ke-12", "minggu epidemiologi 36", "EW8 2026")
     epi_week_match = re.search(
-        r"\b(?:pekan\s+ke[- ]?|minggu\s+ke[- ]?|epi(?:demiological)?\s+week\s+|week\s+)(\d{1,2})"
+        r"\b(?:pekan\s+ke[- ]?|minggu\s+(?:ke[- ]?|epidemiologi\s+)|"
+        r"epi(?:demiological)?\s+week\s+|e-?week\s+|EW\s*|week\s+)(\d{1,2})"
         r"(?:\s+(?:tahun\s+|of\s+)?(20\d{2}|25\d{2}))?\b",
         sample[:2500],
         re.I,
@@ -577,6 +771,12 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
                 result["event_date"] = normalize_publication_date(extract_date_from_text(as_of.group(0)))
                 result["event_date_end"] = result["event_date"]
                 result["date_needs_review"] = True
+
+    if not result.get("event_date") and not result.get("event_date_start"):
+        window = _surveillance_window(sample[:2500], month_map, pub_year, pub_dt)
+        if window:
+            result.update(window)
+            return result
 
     if pub_dt and not result.get("event_date") and not result.get("event_date_start"):
         relative = _relative_case_period(sample[:4000], pub_dt)

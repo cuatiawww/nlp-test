@@ -107,6 +107,88 @@ class RuntimeStructuredExtractionPlanTests(unittest.TestCase):
             {("North Kivu", 100, 20), ("South Kivu", 50, 5)},
         )
 
+    def test_country_total_folds_provincial_breakdown_into_admin1(self):
+        events = [
+            {
+                "disease": "Dengue",
+                "location_name": "Indonesia",
+                "country": "Indonesia",
+                "case_count": 309786,
+                "death_count": 0,
+            },
+            {
+                "disease": "Dengue",
+                "location_name": "Jawa Barat",
+                "country": "Indonesia",
+                "admin1": "Jawa Barat",
+                "case_count": 63748,
+                "death_count": 0,
+            },
+            {
+                "disease": "Dengue",
+                "location_name": "Jawa Timur",
+                "country": "Indonesia",
+                "admin1": "Jawa Timur",
+                "case_count": 41037,
+                "death_count": 0,
+            },
+            {
+                "disease": "Dengue",
+                "location_name": "Jawa Barat",
+                "country": "Indonesia",
+                "case_count": 309786,
+                "death_count": 0,
+            },
+        ]
+        projected = _collapse_same_country_events(events)
+        self.assertEqual(len(projected), 1)
+        self.assertEqual(projected[0]["location_name"], "Indonesia")
+        self.assertEqual(projected[0]["case_count"], 309786)
+        self.assertEqual(projected[0]["admin1"], "Jawa Barat; Jawa Timur")
+
+    def test_relative_and_historical_windows_do_not_fold_into_current(self):
+        events = [
+            {
+                "disease": "Dengue",
+                "location_name": "Indonesia",
+                "country": "Indonesia",
+                "case_count": 5000,
+                "death_count": 0,
+                "temporal_context": "cumulative",
+                "event_date_start": "2026-01-01",
+                "event_date_end": "2026-09-26",
+            },
+            {
+                "disease": "Dengue",
+                "location_name": "Indonesia",
+                "country": "Indonesia",
+                "case_count": 0,
+                "death_count": 12,
+                "temporal_context": "monthly",
+                "event_date_start": "2026-06-26",
+                "event_date_end": "2026-06-26",
+            },
+            {
+                "disease": "Dengue",
+                "location_name": "Indonesia",
+                "country": "Indonesia",
+                "case_count": 2000,
+                "death_count": 0,
+                "temporal_context": "historical",
+                "event_date_start": "2023-01-01",
+                "event_date_end": "2023-12-31",
+            },
+        ]
+        projected = _collapse_same_country_events(events)
+        dated = {
+            (int(item["case_count"] or 0), int(item["death_count"] or 0), item.get("event_date_start"))
+            for item in projected
+        }
+        self.assertEqual(
+            dated,
+            {(5000, 0, "2026-01-01"), (0, 12, "2026-06-26"), (2000, 0, "2023-01-01")},
+        )
+
     def test_route_adapters_keep_shared_nlp_endpoint_contract(self):
         path = Path(__file__).resolve()
         repo_root = next(

@@ -18,6 +18,7 @@ import time
 from typing import Any, Optional
 
 from . import config, extractors
+from .multi_fact_display import join_unique_labels
 
 logger = logging.getLogger(__name__)
 
@@ -745,6 +746,7 @@ def extract_multi_events(
     linker: Any = None,
     relations: Optional[list[Any]] = None,
     atomic_events: Optional[list[dict[str, Any]]] = None,
+    published_at: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Decompose one document into N structured events.
 
@@ -782,6 +784,7 @@ def extract_multi_events(
                 text,
                 disease_labels=diseases_extracted,
                 primary_disease=primary_disease,
+                published_at=published_at,
                 linker=linker,
                 relations=relations,
             )
@@ -967,6 +970,7 @@ def compose_structured_events(
     primary_country: Optional[str] = None,
     linker: Any = None,
     relations: Optional[list[Any]] = None,
+    published_at: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Location-scoped counts plus per-disease facts for one article.
 
@@ -984,6 +988,7 @@ def compose_structured_events(
             text,
             disease_labels=diseases_extracted,
             primary_disease=primary_disease,
+            published_at=published_at,
             linker=linker,
             relations=relations,
         )
@@ -1008,6 +1013,7 @@ def compose_structured_events(
         linker=linker,
         relations=relations,
         atomic_events=atomic_events,
+        published_at=published_at,
     )
     logger.info(
         "multi_event_function_timings extract_multi_events_seconds=%.3f events=%s",
@@ -1103,7 +1109,7 @@ def compose_structured_events(
         validate_surveillance_facts,
     )
 
-    doc_period = extract_event_period(text)
+    doc_period = extract_event_period(text, published_at=published_at)
     epistemic_cache = {}
     metric_cache = {}
     period_cache = {}
@@ -1176,10 +1182,21 @@ def compose_structured_events(
         # Temporal interval per sub-event
         evt_period = period_cache.get(evt_evidence)
         if evt_period is None:
-            evt_period = extract_event_period(evt_evidence) if evt_evidence else {}
+            evt_period = (
+                extract_event_period(evt_evidence, published_at=published_at)
+                if evt_evidence else {}
+            )
             period_cache[evt_evidence] = evt_period
-        evt["event_date_start"] = evt_period.get("event_date_start") or doc_period.get("event_date_start")
-        evt["event_date_end"] = evt_period.get("event_date_end") or doc_period.get("event_date_end")
+        # Atomic events already resolved relative phrases from published_at.
+        # Do not let a document-wide year or "this year" overwrite that date.
+        if not evt.get("event_date_start"):
+            evt["event_date_start"] = evt_period.get("event_date_start") or doc_period.get("event_date_start")
+        if not evt.get("event_date_end"):
+            evt["event_date_end"] = evt_period.get("event_date_end") or doc_period.get("event_date_end")
+        if not evt.get("temporal_context"):
+            evt["temporal_context"] = (
+                evt_period.get("period_type") or doc_period.get("period_type") or "current"
+            )
 
         # Evidence offsets
         cached_offsets = offset_cache.get(evt_evidence)
@@ -1200,6 +1217,13 @@ def compose_structured_events(
         evt["validation_flags"] = list(sub_flags)
         evt.setdefault("confidence", 0.90)
 
+    events = _fold_global_background_event(
+        text,
+        _collapse_same_country_events(events, text=text, disease=primary_disease),
+        relations=relations,
+        case_count=case_count,
+        primary_disease=primary_disease,
+    )
     if events:
         return events
 
@@ -1282,30 +1306,36 @@ def compose_structured_events(
         if doc_epistemic == "negative_surveillance" and "negative_surveillance" not in validation_flags:
             validation_flags.append("negative_surveillance")
 
-        return [{
-            "disease": primary_disease,
-            "location_name": hier.get("canonical_name") or primary_location or "",
-            "country": country,
-            "admin1": hier.get("admin1_name"),
-            "admin2": hier.get("admin2_name"),
-            "country_iso3": hier.get("country_iso3"),
-            "latitude": lat,
-            "longitude": lon,
-            "case_count": max(0, case_count),
-            "death_count": max(0, death_count),
-            "metric_type": "negative_surveillance" if doc_epistemic == "negative_surveillance" else m_type,
-            "unit": "status" if doc_epistemic == "negative_surveillance" else m_unit,
-            "evidence": single_evidence,
-            "evidence_offset_start": s_off,
-            "evidence_offset_end": e_off,
-            "event_date_start": doc_period.get("event_date_start"),
-            "event_date_end": doc_period.get("event_date_end"),
-            "epistemic_status": doc_epistemic,
-            "validation_flags": validation_flags,
-            "relations": ([{"type": "negative_surveillance", "evidence": single_evidence}] if doc_epistemic == "negative_surveillance" else []),
-            "needs_review": False if doc_epistemic == "negative_surveillance" else True,
-            "confidence": 0.90,
-        }]
+        return _fold_global_background_event(
+            text,
+            [{
+                "disease": primary_disease,
+                "location_name": hier.get("canonical_name") or primary_location or "",
+                "country": country,
+                "admin1": hier.get("admin1_name"),
+                "admin2": hier.get("admin2_name"),
+                "country_iso3": hier.get("country_iso3"),
+                "latitude": lat,
+                "longitude": lon,
+                "case_count": max(0, case_count),
+                "death_count": max(0, death_count),
+                "metric_type": "negative_surveillance" if doc_epistemic == "negative_surveillance" else m_type,
+                "unit": "status" if doc_epistemic == "negative_surveillance" else m_unit,
+                "evidence": single_evidence,
+                "evidence_offset_start": s_off,
+                "evidence_offset_end": e_off,
+                "event_date_start": doc_period.get("event_date_start"),
+                "event_date_end": doc_period.get("event_date_end"),
+                "epistemic_status": doc_epistemic,
+                "validation_flags": validation_flags,
+                "relations": ([{"type": "negative_surveillance", "evidence": single_evidence}] if doc_epistemic == "negative_surveillance" else []),
+                "needs_review": False if doc_epistemic == "negative_surveillance" else True,
+                "confidence": 0.90,
+            }],
+            relations=relations,
+            case_count=case_count,
+            primary_disease=primary_disease,
+        )
     logger.info(
         "multi_event_function_timings compose_structured_events_seconds=%.3f events=%s",
         time.perf_counter() - extract_started,
@@ -1342,12 +1372,226 @@ def _country_centroid(country: Optional[str], hierarchy: dict[str, Any]) -> tupl
     return lat, lon
 
 
-def _collapse_same_country_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Collapse region rows into country events while preserving evidence.
+def _count_is_global_average(text: str, value: int) -> bool:
+    digits = re.sub(r"\D", "", str(value))
+    if not digits:
+        return False
+    for match in re.finditer(r"\d[\d.,]*", text or ""):
+        if re.sub(r"\D", "", match.group(0)) != digits:
+            continue
+        if extractors.metric_source_scope(text, match.start(), match.end()) == "global_average":
+            return True
+    return False
 
-    A country total wins over its regional breakdown.  If no country total is
-    present, distinct regional metrics are summed once.  Different diseases,
-    periods, temporal contexts, or countries remain separate events.
+
+def _global_metric_values(relations: Optional[list[Any]], text: str, case_count: int) -> list[int]:
+    values: list[int] = []
+    for relation in relations or []:
+        if getattr(relation, "source_scope", "") != "global_average":
+            continue
+        value = int(getattr(relation, "value", 0) or getattr(relation, "cases", 0) or 0)
+        if value > 0:
+            values.append(value)
+    if int(case_count or 0) > 0 and _count_is_global_average(text, int(case_count)):
+        values.append(int(case_count))
+    return list(dict.fromkeys(values))
+
+
+_DISEASE_ANAPHORA = re.compile(
+    r"\b(?:the\s+(?:disease|virus|outbreak)|this\s+(?:disease|virus|outbreak)|"
+    r"penyakit\s+(?:ini|tersebut)|virus\s+(?:ini|tersebut)|wabah\s+(?:ini|tersebut)|"
+    r"bệnh\s+này|dịch\s+(?:này|bệnh))\b",
+    re.IGNORECASE,
+)
+_OUTBREAK_PRESENCE = re.compile(
+    r"\b(?:cases?|kasus|kes|kaso|wabah|outbreak|deaths?|kematian|"
+    r"present|melanda|beredar|tercatat|recorded|reported|"
+    r"ada\s+di|terdapat|menyebar|spreading|circulating)\b",
+    re.IGNORECASE,
+)
+
+
+def _place_aliases(place: str) -> list[str]:
+    names = [place]
+    for alias, canonical in (getattr(config, "LOCATION_ALIASES", {}) or {}).items():
+        if str(canonical).casefold() == place.casefold() and alias not in names:
+            names.append(alias)
+    return names
+
+
+def _place_named_in(sentence: str, place: str) -> bool:
+    if extractors.country_alias_in_text(place, sentence):
+        return True
+    for alias in _place_aliases(place):
+        if not alias:
+            continue
+        if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", sentence or "", re.IGNORECASE):
+            return True
+    return False
+
+
+def _place_is_comparative_only(sentence: str, place: str) -> bool:
+    return bool(
+        re.search(
+            rf"\b(?:unlike|compared\s+(?:to|with)|dibandingkan(?:\s+dengan)?|daripada)\s+"
+            rf"{re.escape(place)}\b",
+            sentence or "",
+            re.IGNORECASE,
+        )
+    )
+
+
+def _place_tied_to_disease_narrative(text: str, place: str, disease: Optional[str]) -> bool:
+    """A named place is listed only when that sentence is about this disease."""
+
+    if not place or not (text or "").strip():
+        return False
+    from .intelligence import sentence_spans
+
+    prev_has_disease = False
+    for _, _, sentence in sentence_spans(text):
+        has_disease = bool(disease) and extractors.disease_has_textual_evidence(disease, sentence)
+        if _place_named_in(sentence, place) and not _place_is_comparative_only(sentence, place):
+            if has_disease:
+                return True
+            if prev_has_disease and (
+                _DISEASE_ANAPHORA.search(sentence) or _OUTBREAK_PRESENCE.search(sentence)
+            ):
+                return True
+        prev_has_disease = has_disease or (
+            prev_has_disease and bool(_DISEASE_ANAPHORA.search(sentence))
+        )
+    return False
+
+
+def _mentioned_countries_without_counts(
+    text: str,
+    events: list[dict[str, Any]],
+    disease: Optional[str] = None,
+) -> list[str]:
+    counted = {
+        str(item.get("location_name") or item.get("country") or "").casefold()
+        for item in events
+        if (
+            int(item.get("case_count") or 0) > 0
+            or int(item.get("death_count") or 0) > 0
+        )
+        and str(item.get("location_name") or "").casefold()
+        != str(extractors.GLOBAL_SCOPE_COUNTRY).casefold()
+    }
+    named: list[str] = []
+    for name in (
+        *extractors.extract_mentioned_case_countries(text),
+        *extractors.extract_named_countries(text),
+        *extractors.extract_all_mentioned_countries(text),
+    ):
+        if not name or extractors.is_global_scope_country(name):
+            continue
+        if name.casefold() in counted:
+            continue
+        if not _place_tied_to_disease_narrative(text, name, disease):
+            continue
+        if name not in named:
+            named.append(name)
+    return named
+
+
+def _fold_global_background_event(
+    text: str,
+    events: list[dict[str, Any]],
+    *,
+    relations: Optional[list[Any]] = None,
+    case_count: int = 0,
+    primary_disease: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """A worldwide average plus named countries without counts is one Global event."""
+
+    global_values = _global_metric_values(relations, text, case_count)
+    if not global_values:
+        return events
+    global_value = max(global_values)
+    own_local = [
+        item for item in events
+        if (
+            int(item.get("case_count") or 0) > 0
+            or int(item.get("death_count") or 0) > 0
+        )
+        and not extractors.is_global_scope_country(item.get("location_name") or item.get("country"))
+        and int(item.get("case_count") or 0) not in global_values
+    ]
+    if own_local:
+        return events
+    mentioned = _mentioned_countries_without_counts(text, own_local, disease=primary_disease)
+    if not mentioned and not any(
+        extractors.is_global_scope_country(item.get("location_name") or item.get("country"))
+        for item in events
+    ) and events:
+        leaked = [
+            item for item in events
+            if int(item.get("case_count") or 0) in global_values
+        ]
+        if not leaked:
+            return events
+    global_event = next(
+        (
+            item.copy()
+            for item in events
+            if extractors.is_global_scope_country(item.get("location_name") or item.get("country"))
+        ),
+        (events[0].copy() if events else {}),
+    )
+    evidence = next(
+        (
+            str(getattr(relation, "evidence", "") or "")
+            for relation in relations or []
+            if getattr(relation, "source_scope", "") == "global_average"
+            and getattr(relation, "evidence", None)
+        ),
+        str(global_event.get("evidence") or ""),
+    )
+    listed = join_unique_labels(mentioned)
+    global_event.update({
+        "disease": global_event.get("disease") or primary_disease or "UNKNOWN",
+        "location_name": extractors.GLOBAL_SCOPE_COUNTRY,
+        "country": listed or extractors.GLOBAL_SCOPE_COUNTRY,
+        "admin1": None,
+        "admin2": None,
+        "country_iso3": None,
+        "latitude": None,
+        "longitude": None,
+        "case_count": global_value,
+        "metric_qualifier": "global_average",
+        "evidence": evidence or global_event.get("evidence") or "",
+    })
+    provenance = dict(global_event.get("provenance") or {})
+    provenance["source_scope"] = "global_average"
+    provenance["mentioned_countries"] = mentioned
+    global_event["provenance"] = provenance
+    return [global_event]
+
+
+def _event_time_bucket(event: dict[str, Any]) -> str:
+    """Split historical years and relative months from the current report."""
+    period = str(event.get("temporal_context") or "current")
+    start = str(event.get("event_date_start") or "")
+    year = start[:4] if len(start) >= 4 and start[:4].isdigit() else ""
+    if period == "historical":
+        return f"historical:{year or 'unknown'}"
+    if period == "monthly":
+        return f"monthly:{start or 'open'}"
+    return "current"
+
+
+def _collapse_same_country_events(
+    events: list[dict[str, Any]],
+    text: str = "",
+    disease: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Fold a national total and its provincial list into one country event.
+
+    Named provinces stay on ``admin1`` as ``Jawa Barat; Jawa Timur``. Distinct
+    regional rows without a country total stay separate. Different diseases,
+    periods, or countries remain separate events.
     """
     if len(events) < 2:
         return events
@@ -1364,11 +1608,13 @@ def _collapse_same_country_events(events: list[dict[str, Any]]) -> list[dict[str
         event.setdefault("admin1", hierarchy.get("admin1_name"))
         event.setdefault("admin2", hierarchy.get("admin2_name"))
         disease = str(event.get("disease") or "UNKNOWN").casefold()
+        # A national total and its province list are one event even when
+        # qualifier typing marks one row cumulative and the next unknown.
+        # Distinct years and relative months stay out of that fold.
         key = (
             disease,
             country.casefold(),
-            str(event.get("time_frame") or ""),
-            str(event.get("temporal_context") or "current"),
+            _event_time_bucket(event),
         )
         groups.setdefault(key, []).append(event)
 
@@ -1385,51 +1631,52 @@ def _collapse_same_country_events(events: list[dict[str, Any]]) -> list[dict[str
             if str(item.get("location_name") or "").casefold() == country.casefold()
         ]
 
-        # Regional rows are already atomic evidence-backed events. Keep them
-        # separate when no explicit country total exists; summing them into a
-        # synthetic country event loses the disease-location-metric relation
-        # that downstream multi-event consumers need.
+        # Regional rows without a country total stay atomic. A stated national
+        # total plus a provincial/city list is still one country event; the
+        # named places go into admin1 as ``Jawa Barat; Jawa Timur``.
         if not country_level:
             collapsed.extend(group)
             continue
 
-        base_event = max(
-            country_level or group,
+        regional = [
+            item for item in group
+            if str(item.get("location_name") or "").casefold() != country.casefold()
+        ]
+        best_country = max(
+            country_level,
             key=lambda item: (
                 int(item.get("case_count") or 0),
                 int(item.get("death_count") or 0),
             ),
         )
-        if country_level:
-            cases = max(int(item.get("case_count") or 0) for item in country_level)
-            deaths = max(int(item.get("death_count") or 0) for item in country_level)
-        else:
-            # Region rows are distinct evidence units.  Deduplication already
-            # removed repeated mentions for the same location/context.
-            cases = sum(int(item.get("case_count") or 0) for item in group)
-            deaths = sum(int(item.get("death_count") or 0) for item in group)
+        country_cases = int(best_country.get("case_count") or 0)
+        country_deaths = int(best_country.get("death_count") or 0)
 
-        base = base_event.copy()
-        hierarchy = _event_country_context({"location_name": country, "country": country})[1]
-        lat, lon = _country_centroid(country, hierarchy)
-        base.update({
-            "location_name": hierarchy.get("canonical_name") or country,
-            "country": country,
-            "admin1": None,
-            "admin2": None,
-            "country_iso3": base.get("country_iso3") or hierarchy.get("country_iso3"),
-            "latitude": lat,
-            "longitude": lon,
-            "case_count": cases,
-            "death_count": deaths,
-            "needs_review": bool(base.get("needs_review")) or len(distinct_locations) > 1 and not country_level,
-        })
-
-        relation_rows = list(base.get("relations") or [])
-        metric_rows = list(base.get("metrics") or [])
-        for item in group:
-            if item is base_event:
+        regional_labels: list[str] = []
+        distinct_regional = []
+        relation_rows = list(best_country.get("relations") or [])
+        metric_rows = list(best_country.get("metrics") or [])
+        for item in regional:
+            label = str(item.get("location_name") or item.get("admin1") or "").strip()
+            cases = int(item.get("case_count") or 0)
+            deaths = int(item.get("death_count") or 0)
+            leaked_total = bool(country_cases and cases == country_cases and deaths == country_deaths)
+            if (
+                label
+                and label.casefold() != country.casefold()
+                and not leaked_total
+                and (
+                    cases > 0
+                    or deaths > 0
+                    or _place_tied_to_disease_narrative(text, label, disease)
+                )
+            ):
+                regional_labels.append(label)
+            if cases <= 0 and deaths <= 0:
                 continue
+            if leaked_total:
+                continue
+            distinct_regional.append(item)
             relation_rows.append({
                 "type": "regional_support",
                 "location": item.get("location_name"),
@@ -1442,16 +1689,27 @@ def _collapse_same_country_events(events: list[dict[str, Any]]) -> list[dict[str
                 "source_text": "original",
             })
             metric_rows.extend(item.get("metrics") or [])
-        base["relations"] = relation_rows
-        base["metrics"] = metric_rows
-        provenance = dict(base.get("provenance") or {})
-        provenance["country_aggregation"] = {
-            "source_event_count": len(group),
-            "source_locations": sorted(distinct_locations),
-            "country_total_preferred": bool(country_level),
-        }
-        base["provenance"] = provenance
-        collapsed.append(base)
+        joined_places = join_unique_labels(regional_labels)
+        if (country_cases > 0 or country_deaths > 0) and (joined_places or distinct_regional):
+            folded = best_country.copy()
+            folded["admin1"] = joined_places or folded.get("admin1")
+            folded["admin2"] = None
+            folded["relations"] = relation_rows
+            folded["metrics"] = metric_rows
+            provenance = dict(folded.get("provenance") or {})
+            provenance["country_aggregation"] = {
+                "source_event_count": len(group),
+                "source_locations": sorted(distinct_locations),
+                "country_total_preferred": True,
+                "folded_places": joined_places,
+            }
+            folded["provenance"] = provenance
+            collapsed.append(folded)
+            continue
+        if distinct_regional:
+            collapsed.extend(distinct_regional)
+            continue
+        collapsed.append(best_country)
 
     return [*collapsed, *unresolved]
 

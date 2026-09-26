@@ -165,6 +165,32 @@ class EpidemiologyTests(unittest.TestCase):
         self.assertTrue(period["date_needs_review"])
         self.assertEqual(period["event_date_start"], "2025-09-01")
 
+    def test_sitrep_sentence_windows(self):
+        published = "2026-09-20"
+        cases = [
+            ("Indonesia recorded 5,431 cases from January to July 2026.", "2026-01-01", "2026-07-31"),
+            ("Jan-Jul 2026 Indonesia logged 5,431 cases.", "2026-01-01", "2026-07-31"),
+            ("West Java recorded 39,672 cases to May 2026.", "2026-01-01", "2026-05-31"),
+            ("South Sumatra reported 1,426 cases through 21 May 2026.", "2026-01-01", "2026-05-21"),
+            ("There were 10,453 suspected measles cases by EW8 2026.", "2026-02-16", "2026-02-22"),
+            ("Weekly measles cases fell to 146 by EW12 2026.", "2026-03-16", "2026-03-22"),
+            ("Minggu epidemiologi 36 tahun 2026 tercatat potensi KLB.", "2026-08-31", "2026-09-06"),
+            ("Malaysia recorded 65,979 cases by EW35 2026.", "2026-08-24", "2026-08-30"),
+            ("Cumulative 21,777 cases in the first 34 e-weeks 2026.", "2026-01-01", "2026-08-23"),
+            ("The case pointed to early April 2026.", "2026-04-01", "2026-04-01"),
+            ("Symptoms began in late March 2026.", "2026-03-31", "2026-03-31"),
+            ("Nearly 100,000 cases in the first 8 months of 2026.", "2026-01-01", "2026-08-31"),
+            ("8,000 cases in the first half of 2026.", "2026-01-01", "2026-06-30"),
+            ("86,113 ILI cases to 30 August 2026.", "2026-01-01", "2026-08-30"),
+            ("More than 130,000 influenza cases since January YTD.", "2026-01-01", "2026-09-20"),
+            ("25,948 dengue cases and 39 deaths YTD.", "2026-01-01", "2026-09-20"),
+            ("Nationally 33,886 cases to 12 weeks.", "2026-03-16", "2026-03-22"),
+        ]
+        for text, start, end in cases:
+            period = extract_event_period(text, published_at=published)
+            self.assertEqual(period["event_date_start"], start, text)
+            self.assertEqual(period["event_date_end"], end, text)
+
 
 if __name__ == "__main__":
     unittest.main()
