@@ -2432,7 +2432,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/manual-crawler/jobs/:id/reprocess", post(reprocess_crawl_job))
         .route("/api/v1/crawl-history/summary", get(crawl_history::summary))
         .route("/api/v1/crawl-history/rows", get(crawl_history::list_rows))
-        .route("/api/v1/crawl-history/rows/:id", get(crawl_history::get_row))
+        .route("/api/v1/crawl-history/rows/:id", get(crawl_history::get_row).delete(crawl_history::delete_row))
         .route("/api/v1/crawl-history/jobs", get(crawl_history::list_jobs))
         .route("/api/v1/crawl-history/jobs/:id", get(crawl_history::get_job))
         .route("/api/v1/events", get(list_events))
@@ -11582,7 +11582,7 @@ async fn require_admin_token(
     Ok((id, username))
 }
 
-async fn require_admin(
+pub(crate) async fn require_admin(
     state: &Arc<AppState>,
     headers: &axum::http::HeaderMap,
 ) -> Result<(Uuid, String), (StatusCode, axum::Json<serde_json::Value>)> {

@@ -38,6 +38,7 @@ import {
   Edit3,
   Eye,
   CheckCircle2,
+  Trash2,
   Clock,
 } from 'lucide-react'
 import Pagination from '@/components/Pagination'
@@ -45,10 +46,13 @@ import Modal from '@/components/Modal'
 import CorrectionModal, { CorrectionTarget } from '@/components/CorrectionModal'
 import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
 import CountryFlag from '@/components/CountryFlag'
+import { getAuthUser } from '@/lib/auth'
+import { useAuthStore } from '@/lib/authStore'
 import {
   downloadCrawlHistoryExport,
   fetchCrawlHistoryJobs,
   fetchCrawlHistoryRow,
+  deleteCrawlHistoryRow,
   fetchCrawlHistoryRows,
   fetchCrawlHistorySummary,
   isAuthFailureMessage,
@@ -119,7 +123,7 @@ export const ALL_LOG_COLUMNS: { key: string; label: string; width: number; stick
   { key: 'relevance_score', label: 'Relevance Score', width: 110 },
   { key: 'outbreak_alert', label: 'Outbreak Alert', width: 110 },
   { key: 'needs_review', label: 'Review Status', width: 125 },
-  { key: 'action', label: 'Actions', width: 105 },
+  { key: 'action', label: 'Actions', width: 175 },
 ]
 
 function fmtNum(value?: number | null) {
@@ -454,6 +458,34 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const storeUser = useAuthStore((s) => s.user)
+  const authUser = getAuthUser()
+  const currentUsername = (storeUser?.username || authUser?.username || '').trim().toLowerCase()
+  const isWebmaster = currentUsername === 'webmaster'
+
+  async function handleDeleteRow(row: CrawlHistoryRow) {
+    const rowTitle = row.title || row.article_title || 'item ini'
+    if (!window.confirm(`Yakin ingin menghapus data crawl "${rowTitle}"?\nData artikel dan kejadian terkait akan dihapus secara permanen dari sistem.`)) {
+      return
+    }
+    const targetId = row.id || row.disease_event_id || ''
+    if (!targetId) return
+
+    setDeletingId(row.id)
+    try {
+      await deleteCrawlHistoryRow(targetId)
+      toast.success('Data crawl history berhasil dihapus')
+      setRows((prev) => prev.filter((r) => r.id !== row.id && r.disease_event_id !== targetId))
+      void loadSummary()
+    } catch (err: any) {
+      toast.error(err?.message || 'Gagal menghapus data crawl')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -1154,15 +1186,33 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                               className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-2 py-1 text-center align-middle"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <button
-                                type="button"
-                                onClick={() => void openRow(row)}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-[#0060A9] hover:bg-blue-50/60 hover:text-[#0060A9] transition shadow-2xs cursor-pointer"
-                                title="Review article & extracted disease events"
-                              >
-                                <Eye className="h-3.5 w-3.5 text-[#0060A9]" />
-                                <span>Review</span>
-                              </button>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => void openRow(row)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-[#0060A9] hover:bg-blue-50/60 hover:text-[#0060A9] transition shadow-2xs cursor-pointer"
+                                  title="Review article & extracted disease events"
+                                >
+                                  <Eye className="h-3.5 w-3.5 text-[#0060A9]" />
+                                  <span>Review</span>
+                                </button>
+                                {isWebmaster && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDeleteRow(row)}
+                                    disabled={deletingId === row.id}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2 py-1 text-[11px] font-bold text-red-600 hover:border-red-500 hover:bg-red-50 hover:text-red-700 transition shadow-2xs cursor-pointer disabled:opacity-50"
+                                    title="Hapus data crawl history (Khusus Webmaster)"
+                                  >
+                                    {deletingId === row.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin text-red-600" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                                    )}
+                                    <span>Delete</span>
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           )
                         }

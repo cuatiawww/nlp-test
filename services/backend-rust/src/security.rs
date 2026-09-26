@@ -182,7 +182,8 @@ fn is_nlp_internal_write(method: &Method, path: &str) -> bool {
 }
 
 pub fn is_admin_route(method: &Method, path: &str) -> bool {
-    path.starts_with("/api/v1/users")
+    (path.starts_with("/api/v1/crawl-history/rows") && *method == Method::DELETE)
+        || path.starts_with("/api/v1/users")
         || path.starts_with("/api/v1/roles")
         || path == "/api/v1/data/cleanup-events"
         || path == "/api/v1/source-credibility/recompute"

@@ -547,6 +547,9 @@ export const fetchCrawlHistoryRow = (id: string, channel?: string) => {
   );
 };
 
+export const deleteCrawlHistoryRow = (id: string) =>
+  delAuth(`/api/v1/crawl-history/rows/${encodeURIComponent(id)}`);
+
 export const fetchCrawlHistoryJobs = (filters: CrawlHistoryFilters = {}) => {
   const query = crawlHistoryParams(filters).toString();
   return fetchPaginated<CrawlHistoryJob>(`/api/v1/crawl-history/jobs${query ? `?${query}` : ''}`);

@@ -5,7 +5,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -1633,6 +1633,134 @@ pub async fn get_row(
     Ok(Json(ApiResponse {
         success: true,
         data,
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+pub async fn delete_row(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let (_user_id, username) = crate::require_admin(&state, &headers).await?;
+    if username.to_lowercase() != "webmaster" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"success": false, "error": "Hanya akun dengan username webmaster yang dapat menghapus data crawl history"})),
+        ));
+    }
+    let uuid = parse_row_id(&id)?;
+    let client = state.db.get().await.map_err(internal_error)?;
+
+    let mut raw_report_ids: Vec<Uuid> = Vec::new();
+    let mut source_urls: Vec<String> = Vec::new();
+    let mut event_ids: Vec<Uuid> = Vec::new();
+
+    if let Ok(rows) = client
+        .query(
+            "SELECT id, raw_report_id, source_url FROM crawl_matrix_rows WHERE id = $1 OR raw_report_id = $1",
+            &[&uuid],
+        )
+        .await
+    {
+        for r in rows {
+            if let Ok(Some(raw_id)) = r.try_get::<_, Option<Uuid>>(1) {
+                raw_report_ids.push(raw_id);
+            }
+            if let Ok(Some(u)) = r.try_get::<_, Option<String>>(2) {
+                let trimmed = u.trim();
+                if !trimmed.is_empty() {
+                    source_urls.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    if let Ok(rows) = client
+        .query(
+            "SELECT id, raw_report_id, source_url FROM disease_events WHERE id = $1 OR raw_report_id = $1",
+            &[&uuid],
+        )
+        .await
+    {
+        for r in rows {
+            let ev_id: Uuid = r.get(0);
+            event_ids.push(ev_id);
+            if let Ok(Some(raw_id)) = r.try_get::<_, Option<Uuid>>(1) {
+                raw_report_ids.push(raw_id);
+            }
+            if let Ok(Some(u)) = r.try_get::<_, Option<String>>(2) {
+                let trimmed = u.trim();
+                if !trimmed.is_empty() {
+                    source_urls.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    let _ = client
+        .execute(
+            "DELETE FROM disease_events WHERE parent_event_id = $1 OR parent_event_id = ANY($2::uuid[])",
+            &[&uuid, &event_ids],
+        )
+        .await;
+
+    let _ = client
+        .execute(
+            "DELETE FROM analysis_jobs WHERE event_id = $1 OR event_id = ANY($2::uuid[])",
+            &[&uuid, &event_ids],
+        )
+        .await;
+
+    let events_deleted = client
+        .execute(
+            "DELETE FROM disease_events WHERE id = $1 OR id = ANY($2::uuid[]) OR (raw_report_id IS NOT NULL AND raw_report_id = ANY($3::uuid[]))",
+            &[&uuid, &event_ids, &raw_report_ids],
+        )
+        .await
+        .unwrap_or(0);
+
+    let matrix_deleted = client
+        .execute(
+            "DELETE FROM crawl_matrix_rows WHERE id = $1 OR (raw_report_id IS NOT NULL AND raw_report_id = ANY($2::uuid[]))",
+            &[&uuid, &raw_report_ids],
+        )
+        .await
+        .unwrap_or(0);
+
+    let reports_deleted = if !raw_report_ids.is_empty() {
+        client
+            .execute(
+                "DELETE FROM raw_reports WHERE id = ANY($1::uuid[])",
+                &[&raw_report_ids],
+            )
+            .await
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    if !source_urls.is_empty() {
+        let _ = client
+            .execute(
+                "DELETE FROM crawler_nlp_cache WHERE source_url = ANY($1::text[])",
+                &[&source_urls],
+            )
+            .await;
+    }
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "message": "Data crawl history berhasil dihapus",
+            "events_deleted": events_deleted,
+            "matrix_deleted": matrix_deleted,
+            "reports_deleted": reports_deleted,
+            "id": id,
+        }),
         total: None,
         page: None,
         per_page: None,
