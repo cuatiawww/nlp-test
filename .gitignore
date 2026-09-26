@@ -71,3 +71,4 @@ database/dump*.sql
 
 # Agent settings
 .agents/
+_qa_diff/

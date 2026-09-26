@@ -254,6 +254,19 @@ DEFAULT_COUNTRY_ALIASES: dict[str, str] = {
     # Idiomatic homeland label used in Indonesian national totals.
     "tanah air": "Indonesia",
     "seluruh tanah air": "Indonesia",
+    # Publisher mastheads that encode event geography when the body only
+    # says "nationwide" / "the capital" (gold title+source meta path).
+    "jakarta post": "Indonesia",
+    "the jakarta post": "Indonesia",
+    "antaranews": "Indonesia",
+    "antara news": "Indonesia",
+    "bernama": "Malaysia",
+    "gma news": "Philippines",
+    "gmanetwork": "Philippines",
+    "philstar": "Philippines",
+    "philippine star": "Philippines",
+    "inquirer.net": "Philippines",
+    "philippine doh": "Philippines",
     "ລາວ": "Laos",
     "ສປປ ລາວ": "Laos",
     "ประเทศไทย": "Thailand",
@@ -2256,6 +2269,26 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         location = country
     if not country and not location:
         country = extract_country_hint(text)
+    # National deixis ("nationwide", "across the country") with no named
+    # foreign country: the ASEAN source_country is the event geography.
+    if not country and norm_source and norm_source in config.ASEAN_COUNTRIES:
+        national_scope = re.search(
+            r"(?i)\b(?:"
+            r"nationwide|nationally|countrywide|across\s+the\s+country|"
+            r"throughout\s+the\s+country|in\s+the\s+country|"
+            r"seluruh\s+(?:tanah\s+air|negeri|negara)|di\s+tanah\s+air|"
+            r"peringkat\s+kebangsaan|seluruh\s+indonesia"
+            r")\b",
+            text or "",
+        )
+        conflicting = [
+            c for c in extract_all_mentioned_countries(text or "")
+            if c != norm_source
+        ]
+        if national_scope and not conflicting:
+            country = norm_source
+            if not location:
+                location = country
     cases = extract_case_count(text, disease=disease)
     explicit = has_explicit_case_count(text, disease=disease)
     if article_states_zero_cases(text):
@@ -3427,13 +3460,19 @@ def extract_death_count(text: str, disease: Optional[str] = None) -> int:
         focal_including = list(re.finditer(
             r"(?i)(?P<cases>\d{1,3}(?:[.,]\d{3})*|\d+)\s+"
             r"(?:laboratory-confirmed\s+)?(?:cases?|kasus|infections?)\b"
-            r"[^.!?]{0,120}?\bincluding\s+(?P<deaths>\d{1,3}(?:[.,]\d{3})*|\d+|six|five|four|three|two|one)\s+"
+            r"[^.!?]{0,120}?\bincluding\s+(?P<deaths>\d{1,3}(?:[.,]\d{3})*|\d+|"
+            r"twenty|nineteen|eighteen|seventeen|sixteen|fifteen|fourteen|thirteen|"
+            r"twelve|eleven|ten|nine|eight|seven|six|five|four|three|two|one)\s+"
             r"(?:deaths?|fatalities|kematian|meninggal)\b",
             source[:4000],
         ))
         if focal_including:
             word_deaths = {
                 "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+                "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+                "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+                "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+                "twenty": 20,
             }
             ranked = []
             for match in focal_including:
@@ -3448,14 +3487,35 @@ def extract_death_count(text: str, disease: Optional[str] = None) -> int:
                 period = _period_score(window, source)
                 if latest is not None and years and latest in years:
                     period += 20
+                # Prefer cumulative / YTD national totals over a single-month
+                # slice in the same outbreak year (Viet Nam dengue 9 vs 1).
+                if re.search(
+                    r"\b(?:cumulatively|cumulative|year[- ]to[- ]date|\bytd\b|"
+                    r"from\s+january|january\s+to|total\s+of|so\s+far\s+this\s+year)\b",
+                    window,
+                    re.I,
+                ):
+                    period += 28
+                if re.search(
+                    r"\b(?:in\s+(?:january|february|march|april|may|june|july|august|"
+                    r"september|october|november|december)\s+20\d{2})\b",
+                    window,
+                    re.I,
+                ) and not re.search(
+                    r"\b(?:cumulatively|cumulative|from\s+january|january\s+to|total\s+of)\b",
+                    window,
+                    re.I,
+                ):
+                    period -= 15
                 if re.search(r"\b(?:since\s+(?:then|19\d{2}|200)|first\s+detected|historical)\b", window, re.I):
                     period -= 30
-                ranked.append((period, -match.start(), int(parsed_d)))
+                # Higher death totals win period ties so YTD beats a month slice.
+                ranked.append((period, int(parsed_d), -match.start()))
             if ranked:
                 best = max(ranked)
                 max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
-                if 0 < best[2] <= max_count:
-                    return max(0, int(best[2]))
+                if 0 < best[1] <= max_count:
+                    return max(0, int(best[1]))
         # "20,115 total cases, including 11 deaths" — national inclusive death total
         including_deaths = re.search(
             r"(?i)(?:total\s+)?(?:cases?|kasus)\b[^.!?]{0,60}?\bincluding\s+"

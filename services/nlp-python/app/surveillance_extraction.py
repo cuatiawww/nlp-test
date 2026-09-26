@@ -2202,10 +2202,16 @@ def _bind_counts_to_clause_places(
 
     for match_start, match_end, count_start, count_end, value in matches:
         scope = extractors.metric_source_scope(source, count_start, count_end)
+        # Only evict relations that claim this count value. Bloated early-pass
+        # evidence windows (e.g. Malang 2001 spanning into "215 kasus") must
+        # not delete a correct prior binding when the next count is processed.
         overlapping = [
             relation for relation in kept
-            if _offsets_overlap(relation.evidence_offset_start, relation.evidence_offset_end, match_start, match_end)
-            or _offsets_overlap(relation.evidence_offset_start, relation.evidence_offset_end, count_start, count_end)
+            if relation.cases == value
+            and (
+                _offsets_overlap(relation.evidence_offset_start, relation.evidence_offset_end, match_start, match_end)
+                or _offsets_overlap(relation.evidence_offset_start, relation.evidence_offset_end, count_start, count_end)
+            )
         ]
         if scope != "article_local":
             kept = [relation for relation in kept if relation not in overlapping]

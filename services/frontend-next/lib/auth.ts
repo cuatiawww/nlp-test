@@ -144,7 +144,7 @@ export function hasModuleAccess(
   if (cleanPath.startsWith('/sources') && user.permissions?.includes('sources')) return true;
   if (cleanPath.startsWith('/analyze') && user.permissions?.includes('analyze')) return true;
   if (cleanPath.startsWith('/manual-crawler') && user.permissions?.includes('manual_crawler')) return true;
-  if (cleanPath.startsWith('/crawl-history') && (user.permissions?.includes('crawl_history') || user.permissions?.includes('manual_crawler'))) return true;
+  if ((cleanPath.startsWith('/crawl-history') || cleanPath.startsWith('/crawling-log')) && (user.permissions?.includes('crawl_history') || user.permissions?.includes('manual_crawler'))) return true;
   if (cleanPath.startsWith('/processing') && user.permissions?.includes('processing')) return true;
   if ((cleanPath.startsWith('/reports') || cleanPath.startsWith('/laporan')) && user.permissions?.includes('reports')) return true;
   if (cleanPath.startsWith('/tv') && user.permissions?.includes('tv')) return true;

@@ -181,7 +181,18 @@ export const DEFAULT_NAVIGATION_CONFIG: SidebarGroupConfig[] = [
         ]
       },
       { id: 'mod_crawler', label: 'Manual Crawler', labelKey: 'sidebar.items.manualCrawler', icon: 'FileText', href: '/manual-crawler', order: 7, enabled: true },
-      { id: 'mod_crawl_history', label: 'Crawl History', icon: 'History', href: '/crawl-history', order: 8, enabled: true },
+      {
+        id: 'mod_crawl_history',
+        label: 'Crawl History',
+        icon: 'History',
+        href: '/crawl-history',
+        order: 8,
+        enabled: true,
+        subItems: [
+          { id: 'sub_crawl_matrix', label: 'Feed Matrix & Articles', href: '/crawl-history', icon: 'FileSpreadsheet', order: 1, enabled: true },
+          { id: 'sub_crawling_log', label: 'Crawling & Collector Logs', href: '/crawling-log', icon: 'History', order: 2, enabled: true },
+        ]
+      },
       { id: 'mod_processing', label: 'Processing', labelKey: 'sidebar.items.processing', icon: 'Activity', href: '/processing', order: 9, enabled: true },
       {
         id: 'mod_reports',

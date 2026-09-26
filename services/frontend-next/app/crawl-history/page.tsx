@@ -1,44 +1,48 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { Database, FileText } from 'lucide-react'
 import CrawlHistoryPanel from '@/components/CrawlHistoryPanel'
-import CrawlerHistoryCleanupPanel from '@/components/CrawlerHistoryCleanupPanel'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
 
 function CrawlHistoryBody() {
   const { t } = useTranslation()
   const params = useSearchParams()
   const jobId = params.get('job_id') || undefined
-  const [historyVersion, setHistoryVersion] = useState(0)
 
   return (
-    <div className="px-4 md:px-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="px-4 md:px-6 py-6 max-w-7xl mx-auto space-y-4">
+      {/* Header & Quick Navigation */}
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
         <div>
           <h1 className="text-xl font-bold uppercase tracking-[0.04em] text-slate-900">
-            {t('pages.crawlHistory.title')}
+            {t('pages.crawlHistory.title') || 'CRAWL HISTORY & FEED MATRIX'}
           </h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-500">
-            {t('pages.crawlHistory.subtitle')}
+          <p className="mt-1 max-w-3xl text-xs text-slate-500">
+            {t('pages.crawlHistory.subtitle') || 'Explore and review monitored articles and disease surveillance events detected across regional feeds.'}
           </p>
         </div>
-        <Link
-          href="/manual-crawler"
-          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          {t('pages.crawlHistory.openManual')}
-        </Link>
-        <Link
-          href="#collector-run-log"
-          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100"
-        >
-          Manage collector run log
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/manual-crawler"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-2xs"
+          >
+            {t('pages.crawlHistory.openManual') || 'Open Manual Crawler'}
+          </Link>
+          <Link
+            href="/crawling-log"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100 transition shadow-2xs flex items-center gap-1.5"
+          >
+            <Database className="h-3.5 w-3.5 text-amber-700" />
+            <span>Manage Crawling & Collector Logs →</span>
+          </Link>
+        </div>
       </div>
-      <CrawlerHistoryCleanupPanel onCleaned={() => setHistoryVersion((version) => version + 1)} />
-      <CrawlHistoryPanel key={historyVersion} initialJobId={jobId} />
+
+      {/* Main Clean Matrix Feed Panel */}
+      <CrawlHistoryPanel initialJobId={jobId} />
     </div>
   )
 }
