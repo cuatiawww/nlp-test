@@ -34,12 +34,20 @@ from .epidemiology import (
 logger = logging.getLogger(__name__)
 
 
+_CASE_FIGURE = re.compile(
+    r"\b\d{1,3}(?:,\d{3})+\s+(?:HFMD\s+)?(?:cases?|kasus|infections?)\b|"
+    r"\b(?:more than|over|approximately|nearly)\s+\d[\d,]*\s+(?:HFMD\s+)?(?:cases?|kasus)\b",
+    re.IGNORECASE,
+)
+
+
 def _primary_article_boundary(text: str) -> int | None:
     """Return the first obvious syndicated-footer boundary, if present.
 
     Feeds sometimes concatenate a second article after the primary report
     (for example a ``Vietnam+`` attribution).  Keeping that tail as context
     is useful, but its metrics must not replace the primary article's event.
+    A mid-lede ``Source:`` byline must not cut the body that holds the counts.
     """
     matches = [
         match.start()
@@ -49,7 +57,15 @@ def _primary_article_boundary(text: str) -> int | None:
             re.IGNORECASE,
         )
     ]
-    return min(matches) if matches else None
+    for pos in sorted(matches):
+        if pos < 500:
+            continue
+        head = text[:pos]
+        tail = text[pos:]
+        if _CASE_FIGURE.search(tail) and not _CASE_FIGURE.search(head):
+            continue
+        return pos
+    return None
 
 
 def _location_is_source_grounded(name: str | None, text: str) -> bool:

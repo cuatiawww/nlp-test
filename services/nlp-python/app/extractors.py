@@ -3395,6 +3395,21 @@ CONTRASTIVE_CONNECTIVE_RE = re.compile(
 )
 
 
+def _newline_is_sentence_break(source: str, idx: int) -> bool:
+    """True only for a paragraph break, not a wrapped line.
+
+    News HTML often wraps ``recorded\\nnationwide`` and ``over\\n18,000 cases``.
+    A single newline after a letter or comma is wrap, not a new sentence.
+    """
+
+    if idx < 0 or idx >= len(source) or source[idx] != "\n":
+        return False
+    if idx + 1 < len(source) and source[idx + 1] == "\n":
+        return True
+    prev = source[idx - 1] if idx else ""
+    return prev in ".!?"
+
+
 def _metric_sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     """Sentence bounds that do not split on thousands separators such as 2.001."""
 
@@ -3414,6 +3429,9 @@ def _metric_sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
         ):
             pos = idx
             continue
+        if source[idx] == "\n" and not _newline_is_sentence_break(source, idx):
+            pos = idx
+            continue
         left = idx + 1
         break
     right = len(source)
@@ -3431,6 +3449,9 @@ def _metric_sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
             and source[idx - 1].isdigit()
             and source[idx + 1].isdigit()
         ):
+            pos = idx + 1
+            continue
+        if source[idx] == "\n" and not _newline_is_sentence_break(source, idx):
             pos = idx + 1
             continue
         right = idx
@@ -3914,8 +3935,13 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         cumulative_candidates = [
             item for item in candidates
             if re.search(
-                r"\b(?:cumulativ(?:e|ely)|a\s+total\s+of|total(?:ly)?|has\s+logged|"
+                r"\b(?:cumulativ(?:e|ely)|a\s+total\s+of|has\s+logged|"
                 r"reported\s+in\s+20\d{2})\b",
+                _sentence_window(search_text, item[1], item[1] + 1),
+                re.IGNORECASE,
+            ) and not re.search(
+                r"(?:%|percent|per\s+cent|persen).{0,24}\bof\s+total\b|"
+                r"\bof\s+total\s+(?:infections?|cases?|kasus)\b",
                 _sentence_window(search_text, item[1], item[1] + 1),
                 re.IGNORECASE,
             )

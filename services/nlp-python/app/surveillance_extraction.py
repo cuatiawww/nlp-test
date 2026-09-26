@@ -1571,28 +1571,35 @@ _NON_CASE_NUMBER_CONTEXT = re.compile(
 )
 
 _CASE_BREAKDOWN_CONTEXT = re.compile(
-    r"(?:\bage(?:d)?\b|\brate\b|อายุ|อัตราป่วย|โรงพยาบาล|hospital)",
+    r"(?:\bage(?:d)?\b|\brate\b|อายุ|อัตราป่วย|"
+    r"hospital(?:s)?\s+(?:beds?|ward|capacity|admissions?))",
     re.IGNORECASE | re.UNICODE,
+)
+_SEVERITY_SUBSET_PREFIX = re.compile(
+    r"(?:including|trong\s+đó|bao\s+gồm|diantaranya|gồm)\s+$",
+    re.IGNORECASE | re.UNICODE,
+)
+_SEVERITY_SUBSET_AFTER = re.compile(
+    r"(?:\s+\w+){0,4}?(?:severe|grade|intubat|ventilat|nặng|berat|nang)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_CLINICAL_SUBSET = re.compile(
+    r"\b(?:intubat|mechanical\s+ventilat|ventilat)\b",
+    re.IGNORECASE,
 )
 
 
 def _looks_like_case_breakdown(text: str, start: int) -> bool:
-    """Reject age/hospital/rate breakdown numbers as national case totals."""
+    """Reject age/rate/severity-subset numbers as the parent case total."""
 
     source = text or ""
-    prefix_start = max(0, start - 120)
-    for match in re.finditer(r"[.!?;\n]", source[prefix_start:start]):
-        if match.group(0) == ".":
-            absolute = prefix_start + match.start()
-            if (
-                absolute > 0
-                and absolute + 1 < len(source)
-                and source[absolute - 1].isdigit()
-                and source[absolute + 1].isdigit()
-            ):
-                continue
-        prefix_start = prefix_start + match.end()
+    prefix_start, _ = extractors._metric_sentence_bounds(source, start, start)
     prefix = source[prefix_start:start]
+    after = source[start:start + 72]
+    if _SEVERITY_SUBSET_PREFIX.search(prefix) and _SEVERITY_SUBSET_AFTER.search(after):
+        return True
+    if _CLINICAL_SUBSET.search(after):
+        return True
     return bool(_CASE_BREAKDOWN_CONTEXT.search(prefix))
 
 _CALENDAR_YEAR_CONTEXT = re.compile(
@@ -1647,7 +1654,13 @@ def _metric_is_valid(text: str, start: int, end: int) -> bool:
         return False
     short_context = text[max(0, start - 32):min(len(text), end + 48)]
     if _NON_CASE_NUMBER_CONTEXT.search(short_context):
-        return False
+        after = (text or "")[end:min(len(text), end + 48)]
+        if not re.match(
+            r"(?:\s+[\w/-]+){0,3}\s*(?:cases?|kasus|infections?|ca\s+mắc)\b",
+            after,
+            re.IGNORECASE,
+        ):
+            return False
     context = text[max(0, start - 100):min(len(text), end + 100)]
     if re.search(
         r"\b(?:patients?|pasien|pesakit)\b[^.!?;:]{0,80}\b(?:required\s+hospital|hospital\s+(?:treatment|care|admission|ward)|"
@@ -2466,6 +2479,9 @@ def _clause_place_candidates(
         if linked is None:
             continue
         chosen.append((start, end, linked))
+    regional = _regional_scope_location(sentence, source, linker)
+    if regional is not None:
+        chosen.append((sentence_start, sentence_end, regional))
     return chosen
 
 
@@ -2613,6 +2629,54 @@ def _previous_sentence_place(
     return LinkedLocation(name=mentioned[0], country=mentioned[0], evidence=source[prev_left:prev_right])
 
 
+_CARDINAL_REGION = re.compile(
+    r"\b(?P<dir>southern|northern|central|eastern|western)\s+region\b|"
+    r"\b(?P<dir2>southern|northern|central|eastern|western)\s+"
+    r"(?P<nation>vietnam|laos|thailand|cambodia|indonesia|malaysia|myanmar|philippines)\b|"
+    r"\b(?:khu\s+vực\s+|miền\s+)(?P<vi>nam|bắc|trung)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_VI_REGION_DIR = {"nam": "Southern", "bắc": "Northern", "trung": "Central"}
+
+
+def _regional_scope_location(
+    sentence: str,
+    source: str,
+    linker: GazetteerLinker,
+) -> Optional[LinkedLocation]:
+    """Bind ``the southern region`` / ``miền nam`` to the article country."""
+
+    match = _CARDINAL_REGION.search(sentence or "")
+    if not match:
+        return None
+    groups = match.groupdict()
+    nation = (groups.get("nation") or "").strip()
+    country = extractors.normalize_country(nation) if nation else None
+    if not country:
+        mentioned = extractors.extract_all_mentioned_countries(source)
+        if len(mentioned) != 1:
+            mentioned = extractors.extract_mentioned_case_countries(source)
+        if len(mentioned) != 1:
+            return None
+        country = mentioned[0]
+    direction = (groups.get("dir") or groups.get("dir2") or "").strip()
+    if groups.get("vi"):
+        direction = _VI_REGION_DIR.get(groups["vi"].casefold(), "")
+    if not direction:
+        return None
+    base = _country_level_location(country, linker, context=sentence, evidence=sentence)
+    if base is None:
+        return None
+    return LinkedLocation(
+        name=f"{direction.title()} {country}",
+        country=country,
+        latitude=base.latitude,
+        longitude=base.longitude,
+        is_province=True,
+        evidence=(sentence or "").strip(),
+    )
+
+
 def _unbound_domestic_place(
     source: str,
     sentence_start: int,
@@ -2628,6 +2692,9 @@ def _unbound_domestic_place(
     """
 
     sentence = source[sentence_start:sentence_end]
+    regional = _regional_scope_location(sentence, source, linker)
+    if regional:
+        return regional
     country_name = None
     if _DOMESTIC_SCOPE.search(sentence):
         country_name = extractors.reporting_authority_country(source)
@@ -2790,7 +2857,14 @@ def _bind_counts_to_clause_places(
             # total, not 106 cases in the one country named at the end.
             place = None
         if place is None:
-            place = _previous_sentence_place(source, sentence_start, locations)
+            current = source[sentence_start:sentence_end]
+            if re.search(
+                r"\b(?:the city|the province|the district|the department|"
+                r"kota itu|provinsi tersebut|thành phố)\b",
+                current,
+                re.IGNORECASE,
+            ):
+                place = _previous_sentence_place(source, sentence_start, locations)
         span = source[match_start:match_end]
         if place is None and re.search(r"\b(?:kasus|cases?|kes|ca)\b", span, re.IGNORECASE):
             # Bare numbers in a case sentence ("10 provinces", "September 19")
@@ -2839,8 +2913,11 @@ def _bind_counts_to_clause_places(
         )
         place_spans = [start for start, end, linked in places if linked.name.casefold() == place.name.casefold()]
         place_ends = [end for start, end, linked in places if linked.name.casefold() == place.name.casefold()]
-        evidence_start = min([match_start, *place_spans]) if place_spans else match_start
-        evidence_end = max([match_end, *place_ends]) if place_ends else match_end
+        if place_spans:
+            evidence_start = min([match_start, *place_spans])
+            evidence_end = max([match_end, *place_ends])
+        else:
+            evidence_start, evidence_end = sentence_start, sentence_end
         evidence = source[evidence_start:evidence_end].strip()
         kept.append(MetricRelation(
             location=place,
