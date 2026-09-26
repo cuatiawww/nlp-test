@@ -137,7 +137,13 @@ def source_name(url: str) -> str:
     return (urlparse(url).hostname or "URL Analyzer").removeprefix("www.")
 
 
-def build_news_query(disease_names: list[str], country: str | None, region: str | None) -> str:
+def build_news_query(
+    disease_names: list[str],
+    country: str | None,
+    region: str | None,
+    member_countries: list[str] | None = None,
+    province_city: str | None = None,
+) -> str:
     """Build an effective Google News query for the selected filters."""
     disease_terms = [f'"{name}"' if " " in name else name for name in disease_names if name]
     if not disease_terms:
@@ -147,15 +153,46 @@ def build_news_query(disease_names: list[str], country: str | None, region: str 
     query = f"({' OR '.join(selected_diseases)})"
     geography = (country or "").strip()
     if not geography:
-        if region and region.casefold() == "asean":
+        members = [str(name).strip() for name in (member_countries or []) if str(name).strip()]
+        if members:
+            geography = "(" + " OR ".join(members[:15]) + ")"
+        elif region and region.casefold() == "asean":
             geography = "(Indonesia OR Malaysia OR Vietnam OR Thailand OR Philippines OR Singapore OR Cambodia OR Myanmar OR Laos OR Brunei)"
         elif region and region.casefold() not in {"asean", "global"}:
             geography = region.strip()
+    place = (province_city or "").strip()
+    if place:
+        geography = f'"{place}" {geography}'.strip()
     return f"{query} {geography}".strip()
 
 
-def discover_google_news(disease_names: list[str], country: str | None, region: str | None, limit: int) -> list[dict]:
-    query = build_news_query(disease_names, country, region)
+def master_region_countries(conn, region: str | None) -> list[str]:
+    """Countries linked to this master region. Global stays unscoped."""
+    label = (region or "").strip()
+    if not label or label.casefold() == "global":
+        return []
+    rows = conn.execute(
+        """SELECT c.name
+           FROM master_regions r
+           JOIN master_region_countries rc ON rc.region_id = r.id
+           JOIN master_countries c ON c.id = rc.country_id AND c.is_active = TRUE
+           WHERE r.is_active = TRUE
+             AND (lower(r.name) = lower(%s) OR lower(r.code) = lower(%s))
+           ORDER BY c.display_order, c.name""",
+        (label, label),
+    ).fetchall()
+    return [str(row["name"]) for row in rows if row.get("name")]
+
+
+def discover_google_news(
+    disease_names: list[str],
+    country: str | None,
+    region: str | None,
+    limit: int,
+    member_countries: list[str] | None = None,
+    province_city: str | None = None,
+) -> list[dict]:
+    query = build_news_query(disease_names, country, region, member_countries, province_city)
     logger.info("Discovering matrix articles with Google News query=%r limit=%s", query, limit)
     response = requests.get(
         "https://news.google.com/rss/search?q=" + quote_plus(query) + "&hl=en&gl=US&ceid=US:en",
@@ -194,7 +231,9 @@ def discover_google_news(disease_names: list[str], country: str | None, region: 
 
 
 def discover_urls(disease_names: list[str], country: str | None, region: str | None, limit: int,
-                  date_from: str | None = None, date_to: str | None = None) -> tuple[list[dict], list[str]]:
+                  date_from: str | None = None, date_to: str | None = None,
+                  member_countries: list[str] | None = None,
+                  province_city: str | None = None) -> tuple[list[dict], list[str]]:
     """Use collector-owned multi-source discovery, retaining a Google fallback."""
     try:
         response = requests.post(
@@ -203,6 +242,8 @@ def discover_urls(disease_names: list[str], country: str | None, region: str | N
                 "disease_names": disease_names,
                 "country": country,
                 "region": region,
+                "region_countries": member_countries or [],
+                "province_city": province_city,
                 "date_from": date_from,
                 "date_to": date_to,
                 "max_urls": limit,
@@ -215,7 +256,9 @@ def discover_urls(disease_names: list[str], country: str | None, region: str | N
     except Exception as exc:
         warning = f"Multi-source discovery unavailable; Google News fallback used ({str(exc)[:120]})"
         logger.warning(warning)
-        return discover_google_news(disease_names, country, region, limit), [warning]
+        return discover_google_news(
+            disease_names, country, region, limit, member_countries, province_city
+        ), [warning]
 
 
 def disease_labels(analysis: dict) -> list[str]:
@@ -1095,6 +1138,7 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False, lease_token: st
             _renew_job_lease(conn, job_id, lease_token)
             concepts = matching_concepts(conn, payload.get("disease_concept_ids") or [])
             disease_names = [str(row["canonical_name"]) for row in concepts]
+            member_countries = master_region_countries(conn, payload.get("region"))
 
         if reprocess:
             with connect() as conn:
@@ -1120,6 +1164,7 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False, lease_token: st
                     discovered, discovery_warnings = discover_urls(
                         disease_names, payload.get("country"), payload.get("region"),
                         payload.get("max_articles", 20), payload.get("date_from"), payload.get("date_to"),
+                        member_countries, payload.get("province_city"),
                     )
                     warnings.extend(discovery_warnings)
         elif str(payload.get("url") or "").strip():
@@ -1129,6 +1174,7 @@ def run_job(job_id: str, payload: dict, reprocess: bool = False, lease_token: st
             discovered, discovery_warnings = discover_urls(
                 disease_names, payload.get("country"), payload.get("region"),
                 payload.get("max_articles", 20), payload.get("date_from"), payload.get("date_to"),
+                member_countries, payload.get("province_city"),
             )
             warnings.extend(discovery_warnings)
 

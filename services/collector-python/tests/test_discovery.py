@@ -85,6 +85,12 @@ class ManualCatalogDiscoveryTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in selected], ["The Star"])
         self.assertFalse(source_matches_geography(sources[1], None, "ASEAN"))
         self.assertTrue(source_matches_geography({"country": "International"}, "Malaysia", "ASEAN"))
+        self.assertFalse(source_matches_geography(
+            {"country": "Malaysia"}, None, "Europe", ["France", "Germany"],
+        ))
+        self.assertTrue(source_matches_geography(
+            {"country": "France"}, None, "Europe", ["France", "Germany"],
+        ))
 
     def test_official_main_source_ranks_ahead_of_google_other_and_international(self):
         selected = select_manual_crawl_sources(
