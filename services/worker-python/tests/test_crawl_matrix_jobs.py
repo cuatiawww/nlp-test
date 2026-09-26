@@ -317,6 +317,7 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
         self.assertIn("Sharp dengue surge", payload["text"])
         self.assertEqual(payload["source_country"], "Malaysia")
+        self.assertEqual(payload.get("pdf_tables"), [])
         self.assertFalse(payload["rules_only"])
         self.assertFalse(payload["historical_fast"])
 

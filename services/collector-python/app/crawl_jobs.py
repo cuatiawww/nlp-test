@@ -161,6 +161,8 @@ def _country_coordinates(conn, country: str):
 def _disease_labels(analysis: dict) -> list[str]:
     """Return surveillance disease labels without treating a string as chars."""
     value = analysis.get("disease_classification")
+    if not value:
+        value = analysis.get("disease_extracted")
     if isinstance(value, (list, tuple, set)):
         return [str(item).strip() for item in value if str(item).strip()]
     if value is None:
@@ -188,8 +190,11 @@ def _article_matches(analysis: dict, disease_names: list[str], country: str | No
     ):
         return False
     if country:
-        return any(str(item.get("country") or "").casefold() == country.casefold()
-                   for item in analysis.get("locations") or [])
+        named = [
+            *(analysis.get("locations") or []),
+            *(analysis.get("sub_events") or []),
+        ]
+        return any(str(item.get("country") or "").casefold() == country.casefold() for item in named)
     return True
 
 
@@ -208,10 +213,37 @@ def prepare_article_text(article: dict, max_chars: int = 35000) -> str:
     return combined[:max_chars]
 
 
+def _events_as_locations(analysis: dict) -> list[dict]:
+    """One persist row per pipeline sub-event, same as URL analyze / crawl matrix."""
+    rows = []
+    for event in analysis.get("sub_events") or []:
+        if not isinstance(event, dict):
+            continue
+        country = str(event.get("country") or "").strip()
+        if not country:
+            continue
+        place = str(event.get("location_name") or "").strip()
+        admin1 = str(event.get("admin1") or "").strip()
+        provinces = []
+        for item in (admin1, place):
+            if item and item.casefold() != country.casefold() and item not in provinces:
+                provinces.append(item)
+        rows.append({
+            "country": country,
+            "provinces": provinces,
+            "reported_cases": int(event.get("case_count") or 0),
+            "deaths": int(event.get("death_count") or 0),
+            "time_frame": event.get("time_frame") or event.get("event_date_start") or "",
+            "disease": event.get("disease"),
+            "evidence": str(event.get("evidence") or event.get("source_evidence") or "")[:1000],
+        })
+    return rows
+
+
 def analyze_article(article: dict) -> dict:
-    """Call the shared NLP core through the collector compatibility adapter."""
+    """Call the same Full NLP endpoint as URL analyze and crawl-matrix."""
     response = requests.post(
-        config.NLP_SERVICE_URL.rstrip("/") + "/nlp/analyze/surveillance",
+        config.NLP_SERVICE_URL.rstrip("/") + "/nlp/analyze",
         json={
             "text": prepare_article_text(article),
             "source_type": "news",
@@ -226,7 +258,14 @@ def analyze_article(article: dict) -> dict:
         timeout=(5, 120),
     )
     response.raise_for_status()
-    return response.json()
+    analysis = response.json()
+    locations = _events_as_locations(analysis)
+    if locations:
+        analysis = {**analysis, "locations": locations}
+    extracted = analysis.get("disease_extracted")
+    if extracted and not isinstance(analysis.get("disease_classification"), list):
+        analysis = {**analysis, "disease_classification": extracted}
+    return analysis
 
 
 def _ensure_raw_report(conn, article: dict):
@@ -318,14 +357,13 @@ def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts:
             for province in provinces
         ):
             continue
-        evidence = ""
-        # The strict extractor includes evidence internally only in its relation
-        # stage; retain a deterministic article excerpt when it is unavailable.
-        content = article.get("content", "")
-        for sentence in re.split(r"(?<=[.!?])\s+|\n+", content):
-            if country.casefold() in sentence.casefold() and re.search(r"\d", sentence):
-                evidence = sentence.strip()[:1000]
-                break
+        evidence = str(item.get("evidence") or "").strip()
+        if not evidence:
+            content = article.get("content", "")
+            for sentence in re.split(r"(?<=[.!?])\s+|\n+", content):
+                if country.casefold() in sentence.casefold() and re.search(r"\d", sentence):
+                    evidence = sentence.strip()[:1000]
+                    break
         conn.execute(
             """INSERT INTO crawl_matrix_rows
                (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
@@ -333,7 +371,7 @@ def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts:
                 number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name,
                 source_url, article_title, evidence, confidence, processing_status)
                VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-            (job_id, raw_id, concept["id"] if concept else None, disease,
+            (job_id, raw_id, concept["id"] if concept else None, str(item.get("disease") or "").strip() or disease,
              None,
              "ASEAN" if country in ASEAN_COUNTRIES else "Outside ASEAN",
              country, ", ".join(provinces), published, item.get("time_frame") or "",

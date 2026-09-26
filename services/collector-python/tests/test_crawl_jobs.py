@@ -7,7 +7,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.crawl_jobs import analyze_article, _article_matches, _disease_labels, _selected_concept, sanitize_crawl_url
+from app.crawl_jobs import (
+    analyze_article,
+    _article_matches,
+    _disease_labels,
+    _events_as_locations,
+    _selected_concept,
+    sanitize_crawl_url,
+)
 from app.crawler_identity import UnsafeUrlError
 
 
@@ -59,12 +66,28 @@ class CrawlJobLogicTests(unittest.TestCase):
             })
 
         self.assertEqual(result["disease_classification"], ["Dengue"])
-        self.assertIn("/nlp/analyze/surveillance", post.call_args.args[0])
+        self.assertIn("/nlp/analyze", post.call_args.args[0])
+        self.assertNotIn("/surveillance", post.call_args.args[0])
         sent = post.call_args.kwargs["json"]
         self.assertEqual(sent["source_url"], "https://example.org/dengue")
         self.assertFalse(sent["rules_only"])
         self.assertFalse(sent["historical_fast"])
         self.assertIn("12 dengue cases", sent["text"])
+
+    def test_sub_events_become_one_location_row_each(self):
+        rows = _events_as_locations({
+            "sub_events": [
+                {"country": "Vietnam", "location_name": "Vietnam", "case_count": 25000, "death_count": 0},
+                {"country": "Vietnam", "location_name": "Southern Vietnam", "admin1": "Southern Vietnam", "case_count": 18000, "death_count": 0},
+            ]
+        })
+        self.assertEqual(
+            [(item["country"], item["reported_cases"], item["provinces"]) for item in rows],
+            [
+                ("Vietnam", 25000, []),
+                ("Vietnam", 18000, ["Southern Vietnam"]),
+            ],
+        )
 
 
 if __name__ == "__main__":

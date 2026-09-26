@@ -29,7 +29,7 @@ def _repair_legacy_lexicon_text(value: str) -> str:
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.27.clause-sentence-wrap")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.27.path-parity")
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")

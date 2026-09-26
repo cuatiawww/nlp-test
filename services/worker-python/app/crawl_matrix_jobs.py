@@ -816,6 +816,8 @@ def analyze_article(article: dict) -> dict:
             "source_country": article.get("source_country") or "",
             "published_at": article.get("published_at"),
             "source_url": article.get("url"),
+            "document_type": article.get("document_type"),
+            "pdf_tables": article.get("pdf_tables") or [],
         },
         (5, NLP_REQUEST_TIMEOUT_SECONDS),
         source_name=article.get("source_name") or "manual crawl",

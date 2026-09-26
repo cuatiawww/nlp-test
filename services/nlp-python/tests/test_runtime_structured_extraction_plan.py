@@ -203,9 +203,11 @@ class RuntimeStructuredExtractionPlanTests(unittest.TestCase):
         collector = (services_root / "collector-python/app/crawl_jobs.py").read_text(encoding="utf-8")
         worker = (services_root / "worker-python/app/analysis_jobs.py").read_text(encoding="utf-8")
         matrix = (services_root / "worker-python/app/crawl_matrix_jobs.py").read_text(encoding="utf-8")
-        self.assertIn("/nlp/analyze/surveillance", collector)
+        self.assertIn('"/nlp/analyze"', collector)
+        self.assertNotIn("/nlp/analyze/surveillance", collector)
         self.assertIn("/nlp/analyze/raw", worker)
         self.assertIn("/nlp/analyze/raw", matrix)
+        self.assertIn("_full_pipeline_payload", (repo_root / "services/nlp-python/app/main.py").read_text(encoding="utf-8"))
         self.assertIn("pipeline.run", (repo_root / "services/nlp-python/app/main.py").read_text(encoding="utf-8"))
 
     def test_large_gazetteer_repeated_hierarchy_resolution_uses_index_and_cache(self):
