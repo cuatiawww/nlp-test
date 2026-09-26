@@ -2406,6 +2406,9 @@ _FOCAL_SINGULAR = re.compile(
     r"(?:reported|reports|confirms?)\s+(?:a|another|one)\s+(?:severe\s+)?"
     r"(?:human\s+)?(?:h5n1\s+)?(?:avian\s+(?:influenza|flu)\s+)?"
     r"(?:infection|case)\b|"
+    # Short confirm headlines omit the article: confirms human H5N1 avian flu case
+    r"(?:reported|reports|confirms?)\s+(?:human\s+)?(?:h5n1\s+)?(?:avian\s+(?:influenza|flu)\s+)?"
+    r"(?:infection|case)\b(?!s\b)|"
     # Indonesian / Malay single individual
     r"seorang\s+(?:wanita|pria|anak|pasien|warga|balita|bayi|ibu|bapak|orang|lansia|santri|siswi|siswa|korban|perawat|dokter)\b|"
     r"seekor\s+(?:anjing|kucing|kera|monyet|unggas|burung|ayam)\b|"
@@ -2834,11 +2837,11 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     case_label = _runtime_metric_label_pattern("metric_case")
     localized_patterns = {
         "case_count": [
-            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF(),/'-]+){{0,7}}\s*{case_label}(?!\w)"
+            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/,.'-]*){{0,7}}\s*{case_label}(?!\w)"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has|of)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
             rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({num_token})\s*\)",
-            rf"(?:with|logged|recorded|reported|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({num_token})\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
+            rf"(?:with|logged|recorded|reported|confirms?|confirmed|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({num_token})\s+(?:[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/-]*\s+){{0,6}}(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
             rf"(?:cases?|infections?|kasus).{{0,90}}(?:rose|climbed|increased|jumped|naik).{{0,50}}to\s+({num_token})",
             rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({num_token})",
             rf"(?:cases?|infections?|kasus|pasien)\b[^.\n;:]{{0,100}}?\b(?:reached|recorded|reported|tercatat|mencatat|melaporkan|total(?:ed)?|stood at|of)\s+({num_token})",
@@ -4877,11 +4880,78 @@ def _mention_is_non_outbreak_context(pos: int, text: str, link_at: int) -> bool:
 _INCIDENTAL_DISEASE_CONTEXT = re.compile(
     r"(?i)\b(?:"
     r"glossary|abbreviations?|footnotes?|references?|"
-    r"related\s+(?:diseases?|articles?|stories|links?)|"
+    r"related\s+(?:diseases?|articles?|stories|links?|syndromes?)|"
     r"see\s+also|other\s+diseases?|list\s+of\s+diseases?|"
-    r"differential\s+diagnosis|diseases?\s+included"
+    r"differential\s+diagnosis|diseases?\s+included|"
+    r"clinical\s+presentation|main\s+clinical|interchangeably|"
+    r"syndromic\s+(?:label|name|term)|glossary\s+term"
     r")\b"
 )
+_DIARRHEA_FAMILY_LABELS = frozenset({
+    "acute diarrhea",
+    "acute diarrhoea",
+})
+_AWD_OR_WATERY = re.compile(
+    r"(?i)\b(?:acute\s+watery\s+diarrhoe?a|awd|watery\s+diarrhoe?a)\b"
+)
+
+
+def _disease_mentions_are_negated(name: str, text: str) -> bool:
+    """True when every textual mention of the disease is under negation."""
+    source = text or ""
+    token = (name or "").strip()
+    if not token:
+        return False
+    positions = list(disease_mention_positions(name, source) or [])
+    if not positions:
+        for match in re.finditer(re.escape(token), source, re.IGNORECASE):
+            positions.append(match.start())
+    if not positions:
+        return False
+    neg_re = re.compile(
+        rf"(?i)(?:\bno\s+(?:cases?\s+of\s+)?{re.escape(token)}\b|"
+        rf"\b{re.escape(token)}\s+(?:was\s+|were\s+|has\s+been\s+|have\s+been\s+)?"
+        rf"(?:not\s+(?:been\s+)?)?(?:detected|reported|confirmed|found|identified)|"
+        rf"\b(?:without|tanpa)\s+{re.escape(token)}\b)",
+    )
+    for pos in positions:
+        window = source[max(0, pos - 50): pos + len(token) + 60]
+        if not neg_re.search(window):
+            return False
+    return True
+
+
+def _collapse_cholera_diarrhea_family(pool: list[str], text: str) -> list[str]:
+    """Prefer Cholera over Acute diarrhea when cholera evidence is present.
+
+    Bare diarrhea without cholera stays Acute diarrhea. Negated cholera
+    (\"no cholera was detected\") is dropped so diarrhea is not co-tagged.
+    """
+    if len(pool) <= 1:
+        return pool
+    source = text or ""
+    labels = list(pool)
+    folded = {item: (item or "").casefold() for item in labels}
+
+    def _is_diarrhea(label: str) -> bool:
+        value = folded[label]
+        return value in _DIARRHEA_FAMILY_LABELS or "diarrhea" in value or "diarrhoea" in value
+
+    def _is_cholera(label: str) -> bool:
+        value = folded[label]
+        return value == "cholera" or value.startswith("cholera")
+
+    cholera_items = [item for item in labels if _is_cholera(item)]
+    diarrhea_items = [item for item in labels if _is_diarrhea(item)]
+
+    if cholera_items and all(_disease_mentions_are_negated(item, source) for item in cholera_items):
+        labels = [item for item in labels if item not in cholera_items]
+        cholera_items = []
+
+    if cholera_items and diarrhea_items:
+        labels = [item for item in labels if item not in diarrhea_items]
+
+    return labels
 _DEDICATED_DISEASE_SENTENCE = re.compile(
     r"(?i)\b(?:"
     r"cases?|case\s+fatality|outbreak|epidemic|pandemic|situation\s+update|"
@@ -4960,6 +5030,8 @@ def prefer_outbreak_diseases(candidates: list[str], text: str) -> list[str]:
     ]
     if evidenced:
         pool = evidenced
+
+    pool = _collapse_cholera_diarrhea_family(pool, source)
 
     def sort_key(name: str) -> tuple[int, int]:
         positions = disease_mention_positions(name, source) or [10**9]

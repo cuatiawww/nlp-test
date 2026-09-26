@@ -69,5 +69,59 @@ class DiseaseComentionTests(unittest.TestCase):
         )
 
 
+
+    def test_cholera_preferred_over_acute_diarrhea_when_both_present(self):
+        text = (
+            "Cholera outbreak in Yemen. "
+            "Acute watery diarrhea (AWD) cases reached 1200 this week."
+        )
+        config.DISEASE_DICT.update({
+            "cholera": "Cholera",
+            "acute watery diarrhea": "Acute diarrhea",
+            "acute diarrhea": "Acute diarrhea",
+            "awd": "Acute diarrhea",
+            "diarrhea": "Acute diarrhea",
+            "watery diarrhea": "Acute diarrhea",
+        })
+        preferred = extractors.prefer_outbreak_diseases(
+            extractors.filter_diseases_to_evidence(extractors.extract_diseases(text), text),
+            text,
+        )
+        self.assertEqual(preferred, ["Cholera"], msg=f"got {preferred}")
+        facts = extractors.predict_surveillance_facts(text)
+        self.assertEqual(facts.get("disease"), "Cholera")
+        self.assertNotIn("Acute diarrhea", facts.get("diseases") or [])
+
+    def test_bare_diarrhea_without_cholera_stays_acute_diarrhea(self):
+        text = "Acute diarrhea outbreak: 150 cases and 2 deaths in the district."
+        config.DISEASE_DICT.update({
+            "cholera": "Cholera",
+            "acute diarrhea": "Acute diarrhea",
+            "diarrhea": "Acute diarrhea",
+        })
+        preferred = extractors.prefer_outbreak_diseases(
+            extractors.filter_diseases_to_evidence(extractors.extract_diseases(text), text),
+            text,
+        )
+        self.assertEqual(preferred, ["Acute diarrhea"])
+        facts = extractors.predict_surveillance_facts(text)
+        self.assertEqual(facts.get("disease"), "Acute diarrhea")
+
+    def test_negated_cholera_does_not_join_diarrhea_primary(self):
+        text = "Diarrhea cases rose to 800 in the province; no cholera was detected."
+        config.DISEASE_DICT.update({
+            "cholera": "Cholera",
+            "diarrhea": "Acute diarrhea",
+            "acute diarrhea": "Acute diarrhea",
+        })
+        preferred = extractors.prefer_outbreak_diseases(
+            extractors.filter_diseases_to_evidence(extractors.extract_diseases(text), text),
+            text,
+        )
+        self.assertEqual(preferred, ["Acute diarrhea"], msg=f"got {preferred}")
+        facts = extractors.predict_surveillance_facts(text)
+        self.assertEqual(facts.get("disease"), "Acute diarrhea")
+        self.assertNotIn("Cholera", facts.get("diseases") or [])
+
 if __name__ == "__main__":
     unittest.main()

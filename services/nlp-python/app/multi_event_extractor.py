@@ -1478,4 +1478,55 @@ def _deduplicate_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
             if event.get("evidence") and not existing.get("evidence"):
                 existing["evidence"] = event["evidence"]
-    return list(merged.values())
+    return _fold_mirror_child_events(list(merged.values()))
+
+
+def _fold_mirror_child_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop child/subnational rows that mirror a parent national metric 1:1.
+
+    When a province/city event carries the same disease + cases + deaths as a
+    country-level parent in the same country, it is a parser duplicate of the
+    national total rather than a distinct bound subnational observation.
+    """
+    if len(events) < 2:
+        return events
+
+    def _is_country_level(event: dict[str, Any]) -> bool:
+        loc = str(event.get("location_name") or "").casefold().strip()
+        country = str(event.get("country") or "").casefold().strip()
+        if not loc or not country:
+            return False
+        return loc == country
+
+    parents = [
+        event for event in events
+        if _is_country_level(event)
+        and (int(event.get("case_count") or 0) > 0 or int(event.get("death_count") or 0) > 0)
+    ]
+    if not parents:
+        return events
+
+    kept: list[dict[str, Any]] = []
+    for event in events:
+        if _is_country_level(event):
+            kept.append(event)
+            continue
+        mirror = False
+        for parent in parents:
+            if str(event.get("country") or "").casefold() != str(parent.get("country") or "").casefold():
+                continue
+            if (event.get("disease") or "").casefold() != (parent.get("disease") or "").casefold():
+                continue
+            if int(event.get("case_count") or 0) != int(parent.get("case_count") or 0):
+                continue
+            if int(event.get("death_count") or 0) != int(parent.get("death_count") or 0):
+                continue
+            if (event.get("time_frame") or "") != (parent.get("time_frame") or ""):
+                continue
+            if (event.get("temporal_context") or "") != (parent.get("temporal_context") or ""):
+                continue
+            mirror = True
+            break
+        if not mirror:
+            kept.append(event)
+    return kept
