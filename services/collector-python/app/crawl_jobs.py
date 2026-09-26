@@ -193,16 +193,28 @@ def _article_matches(analysis: dict, disease_names: list[str], country: str | No
     return True
 
 
+def prepare_article_text(article: dict, max_chars: int = 35000) -> str:
+    """Same title and body join the URL and continuous workers send to NLP."""
+    title = str(article.get("title") or "").strip()
+    content = str(article.get("content") or article.get("text") or "").strip()
+    if title and content.startswith(title):
+        title = ""
+    combined = f"{title}\n\n{content}".strip() if title else content
+    return combined[:max_chars]
+
+
 def analyze_article(article: dict) -> dict:
     """Call the shared NLP core through the collector compatibility adapter."""
     response = requests.post(
         config.NLP_SERVICE_URL.rstrip("/") + "/nlp/analyze/surveillance",
         json={
-            "text": article.get("content") or "",
+            "text": prepare_article_text(article),
             "source_type": "news",
             "source_name": article.get("source_name"),
             "published_at": article.get("published_at"),
             "source_url": article.get("url"),
+            "rules_only": False,
+            "historical_fast": False,
         },
         timeout=(5, 120),
     )

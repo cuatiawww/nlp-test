@@ -60,7 +60,11 @@ class CrawlJobLogicTests(unittest.TestCase):
 
         self.assertEqual(result["disease_classification"], ["Dengue"])
         self.assertIn("/nlp/analyze/surveillance", post.call_args.args[0])
-        self.assertEqual(post.call_args.kwargs["json"]["source_url"], "https://example.org/dengue")
+        sent = post.call_args.kwargs["json"]
+        self.assertEqual(sent["source_url"], "https://example.org/dengue")
+        self.assertFalse(sent["rules_only"])
+        self.assertFalse(sent["historical_fast"])
+        self.assertIn("12 dengue cases", sent["text"])
 
 
 if __name__ == "__main__":

@@ -546,6 +546,16 @@ def message_source_url(msg: dict | None) -> str:
     return ""
 
 
+def nlp_text_from_message(msg: dict) -> str:
+    """Continuous crawl uses the same title and body string as URL analysis."""
+    from .analysis_jobs import _prepare_text_for_nlp
+    title = str((msg or {}).get("title") or "").strip()
+    body = str((msg or {}).get("text") or (msg or {}).get("content") or "")
+    if title and body.lstrip().startswith(title):
+        title = ""
+    return _prepare_text_for_nlp({"title": title, "content": body})
+
+
 def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
              source_language: str = "", source_country: str = "",
              source_url: str = "") -> dict:
@@ -678,7 +688,7 @@ def callback(ch, method, properties, body):
         nlp = fast_non_health_result(msg)
         if nlp is None:
             nlp = call_nlp(
-                msg.get("text", ""),
+                nlp_text_from_message(msg),
                 msg.get("source_type", ""),
                 msg.get("source_name", ""),
                 published_at,

@@ -790,6 +790,11 @@ def validate_and_correct_events(
         "10. OUTBREAK STATUS: Set outbreak_alert=true only when the article reports an active outbreak/epidemic/cluster/KLB or active transmission as an incident. A prevention campaign, routine surveillance total, rising risk, or a warning that an outbreak could occur is not itself an outbreak.\n"
         "11. OVERRIDE: If no active incident event is supported, return sub_events=[] so the local draft can be cleared.\n"
         "12. SENTENCE LINKS: Read each sentence with the one before it and the one after it. A count may belong to the place, disease, or period named in the adjacent sentence. Resolve di sana, negara/provinsi/kota tersebut, địa phương, they, there, the same province, respectively, and masing-masing. Quote the consecutive source sentences that make the link. Do not connect a number to a place those sentences do not connect. Return every linked fact, including the smaller ones.\n"
+        "13. DISEASE NUMBERS: Digits inside a disease name are not a case count. COVID-19, SARS-CoV-2, and H5N1 contribute no cases by themselves. A count written before the name, such as 42 COVID-19 cases, is a real count.\n"
+        "14. PUBLISHER VERSUS OUTBREAK: A dateline such as JAKARTA — names the newsroom. The outbreak country is the place in the case sentence. RD Kongo, RDC, DRC, and Republik Demokratik Kongo are the Democratic Republic of the Congo. Republic of the Congo is a different country. Krimea-Kongo and Crimean-Congo name a fever, not a country.\n"
+        "15. ONE FACT ONCE: The same disease, place, and count is one event. A country total and a smaller province or city count are two events. Do not add them together.\n"
+        "16. RELATIVE TIME: Phrases such as 3 bulan yang lalu, minggu lalu, and last month are measured from the article publication date.\n"
+        "17. SEVERAL DISEASES: When two diseases each have their own count, return both events even if they share a country.\n"
         "Output valid JSON ONLY matching the requested schema."
     )
 

@@ -1442,6 +1442,15 @@ mod analysis_contract_tests {
         assert!(folded.contains("viet nam"));
         assert!(folded.contains("lao pdr"));
         assert!(folded.contains("OUTSIDE ASEAN"));
+        assert_eq!(
+            prepare_nlp_text("Dengue surge", "Officials reported cases.", 35_000),
+            "Dengue surge\n\nOfficials reported cases."
+        );
+        assert_eq!(
+            prepare_nlp_text("Dengue surge", "Dengue surge\n\nOfficials reported cases.", 35_000),
+            "Dengue surge\n\nOfficials reported cases."
+        );
+        assert_eq!(prepare_nlp_text("Title", "abcdef", 4), "Titl");
         let kept = case_country_sql("l.country");
         assert!(kept.contains("NULLIF(BTRIM(l.country)"));
         assert!(kept.contains("= 'OUTSIDE ASEAN'"));
@@ -3440,6 +3449,23 @@ async fn reprocess_crawl_job(
     Ok(Json(body))
 }
 
+fn prepare_nlp_text(title: &str, body: &str, max_len: usize) -> String {
+    let title = title.trim();
+    let body = body.trim();
+    let combined = if title.is_empty() || body.starts_with(title) {
+        if body.is_empty() { title.to_string() } else { body.to_string() }
+    } else if body.is_empty() {
+        title.to_string()
+    } else {
+        format!("{title}\n\n{body}")
+    };
+    if max_len == 0 || combined.chars().count() <= max_len {
+        combined
+    } else {
+        combined.chars().take(max_len).collect()
+    }
+}
+
 async fn analyze_url(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AnalyzeUrlRequest>,
@@ -3833,20 +3859,7 @@ async fn analyze_url(
         .unwrap_or_else(|_| "35000".to_string())
         .parse()
         .unwrap_or(35000);
-    let content = if body_text.chars().count() > max_len {
-        // Use the same character-oriented cap as the Python worker. Truncate
-        // on a character boundary so Khmer/Lao/Myanmar content is preserved.
-        let safe_prefix: String = body_text.chars().take(max_len).collect();
-        format!("{}...", safe_prefix)
-    } else {
-        body_text
-    };
-
-    let text = if title.is_empty() {
-        content.clone()
-    } else {
-        format!("{}.\n{}", title, content)
-    };
+    let text = prepare_nlp_text(&title, &body_text, max_len);
 
     // All article callers use the same Full NLP contract. URL analysis is
     // only a fetch trigger; NLP itself is always the raw shared pipeline.

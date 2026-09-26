@@ -24,6 +24,14 @@ from app.agent import _is_quota_failure
 
 
 class LlmGateTests(unittest.TestCase):
+    def test_rear_gate_is_taught_the_repeated_mistakes(self):
+        import inspect
+        source = inspect.getsource(validate_and_correct_events)
+        self.assertIn("COVID-19", source)
+        self.assertIn("RD Kongo", source)
+        self.assertIn("3 bulan yang lalu", source)
+        self.assertIn("same disease, place, and count", source)
+
     def test_confidence_threshold_boundary(self):
         """Only health rows below 0.85 are eligible for review."""
         with patch.object(config, "AGENT_ENABLED", True):

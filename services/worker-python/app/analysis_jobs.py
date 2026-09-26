@@ -396,15 +396,19 @@ def _strip_embedded_anchors(value: str) -> str:
 
 
 def _prepare_text_for_nlp(extracted, max_chars=None):
+    """One article string for manual crawl, continuous crawl, and URL analysis."""
     max_chars = NLP_INPUT_MAX_CHARS if max_chars is None else max_chars
     title = _strip_embedded_anchors(extracted.get("title") or "")
-    content = _strip_embedded_anchors(extracted.get("content") or "")
+    content = _strip_embedded_anchors(extracted.get("content") or extracted.get("text") or "")
+    if title and content.startswith(title):
+        title = ""
     if len(content) <= max_chars:
-        return (title + "\n\n" + content).strip()
+        combined = f"{title}\n\n{content}".strip() if title else content
+        return combined[:max_chars]
 
     sections = extracted.get("sections") or []
     if sections:
-        header = f"{title}\n\n" + content[:4000]
+        header = f"{title}\n\n{content[:4000]}".strip() if title else content[:4000]
         parts = [header]
         cur_len = len(header)
         for sec in sections:
@@ -417,8 +421,9 @@ def _prepare_text_for_nlp(extracted, max_chars=None):
                 if rem > 400:
                     parts.append(sec_text[:rem])
                 break
-        return "".join(parts).strip()
-    return (title + "\n\n" + content[:max_chars]).strip()
+        return "".join(parts).strip()[:max_chars]
+    combined = f"{title}\n\n{content[:max_chars]}".strip() if title else content[:max_chars]
+    return combined[:max_chars]
 
 def analyze_article(extracted):
     import requests
