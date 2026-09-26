@@ -382,9 +382,19 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
     "saudi arabia": "Saudi Arabia",
     "south africa": "South Africa",
     "democratic republic of the congo": "Democratic Republic of the Congo",
+    "democratic republic of congo": "Democratic Republic of the Congo",
     "dr congo": "Democratic Republic of the Congo",
     "rd congo": "Democratic Republic of the Congo",
+    "rd kongo": "Democratic Republic of the Congo",
+    "kongo": "Democratic Republic of the Congo",
+    "republik demokratik kongo": "Democratic Republic of the Congo",
+    "republik demokratik congo": "Democratic Republic of the Congo",
 }
+
+_NEWSROOM_DATELINES = frozenset({
+    "hanoi", "ha noi", "jakarta", "manila", "bangkok", "phnom penh",
+    "yangon", "vientiane", "singapore", "dili", "kuala lumpur", "naypyidaw",
+})
 
 
 
@@ -1156,6 +1166,31 @@ def extract_country_hint(text: str) -> Optional[str]:
     return max(country_scores.keys(), key=lambda k: country_scores[k])
 
 
+def country_alias_in_text(canonical: str | None, text: str | None) -> bool:
+    """True when the article spells this country, including a local-language alias."""
+    candidate = " ".join(str(canonical or "").split()).strip()
+    if not candidate or not text:
+        return False
+    target = candidate.casefold()
+    for alias, standard in _country_alias_view().items():
+        if str(standard).casefold() != target or len(alias) < 4:
+            continue
+        if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _newsroom_dateline_only(compact_text: str, name: str, positions: list[int]) -> bool:
+    """A capital that appears only as 'JAKARTA —' is the newsroom, not the outbreak."""
+    if _fold_location_text(name) not in _NEWSROOM_DATELINES or not positions:
+        return False
+    span = max(len(name), 8) + 8
+    return all(
+        re.search(r"[—–-]", compact_text[pos: pos + span])
+        for pos in positions
+    )
+
+
 def extract_all_mentioned_countries(text: str) -> list[str]:
     """Extract all distinct ASEAN countries explicitly mentioned in text with positive evidence."""
     config.ensure_location_registry_loaded()
@@ -1571,19 +1606,20 @@ def extract_location(
             ):
                 # Dateline "KUALA LUMPUR, Aug 4 —" is byline location, not the outbreak province.
                 score -= 12.0
-            folded_loc = _fold_location_text(loc)
-            newsroom = folded_loc in {
-                "hanoi", "ha noi", "jakarta", "manila", "bangkok", "phnom penh",
-                "yangon", "vientiane", "singapore", "dili", "kuala lumpur", "naypyidaw",
-            }
-            dash_window = compact_text[pos: pos + max(len(loc), 8) + 8]
-            if newsroom and re.search(r"[—–-]", dash_window):
-                # "HÀ NỘI —" is the newsroom dateline, not the outbreak province.
+            if _fold_location_text(loc) in _NEWSROOM_DATELINES and re.search(
+                r"[—–-]", compact_text[pos: pos + max(len(loc), 8) + 8]
+            ):
+                # "HÀ NỘI —" / "JAKARTA —" is the newsroom, not the outbreak place.
                 score -= 18.0
             scored[loc] = score
 
+    for loc in list(scored):
+        positions = [place_pos for place, place_pos in hits if place == loc]
+        if _newsroom_dateline_only(compact_text, loc, positions):
+            scored.pop(loc, None)
+
     if not scored:
-        return hits[0][0]
+        return None
 
     return max(
         scored.keys(),
@@ -1695,6 +1731,10 @@ def extract_all_locations(
 
     results = []
     for name in distinct_names:
+        if _newsroom_dateline_only(
+            compact_text, name, [place_pos for place, place_pos in hits if place == name]
+        ):
+            continue
         c = config.LOCATION_COUNTRIES.get(name, country)
         if allowed_set:
             folded_c = _fold_location_text(c or "")
@@ -2399,8 +2439,10 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         location = country
     if not country and not location:
         country = extract_country_hint(text)
-    # National deixis ("nationwide", "across the country") with no named
-    # foreign country: the ASEAN source_country is the event geography.
+    # National deixis ("nationwide", "seluruh tanah air") with no named
+    # foreign country: the publisher country is the event geography.
+    # A missing gazetteer hit is not enough. An Indonesian wire story about
+    # RD Kongo must not become an Indonesia event.
     if not country and norm_source and norm_source in config.ASEAN_COUNTRIES:
         national_scope = re.search(
             r"(?i)\b(?:"
@@ -2411,16 +2453,29 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
             r")\b",
             text or "",
         )
+        foreign = extract_country_hint(text or "")
         conflicting = [
             c for c in extract_all_mentioned_countries(text or "")
             if c != norm_source
         ]
-        # Also accept place-less national bulletins (DOH totals with no city).
-        no_local_place = not location and not all_locations
-        if (national_scope or no_local_place) and not conflicting:
+        if foreign and foreign != norm_source:
+            conflicting.append(foreign)
+        if national_scope and not conflicting:
             country = norm_source
             if not location:
                 location = country
+    if not location and country:
+        location = country
+    if location and not all_locations:
+        lat, lon, conf, needs_rev = geocode_place(location, country, text)
+        all_locations = [{
+            "name": location,
+            "latitude": lat,
+            "longitude": lon,
+            "country": country,
+            "geocode_confidence": conf,
+            "geocode_needs_review": needs_rev,
+        }]
     cases = extract_case_count(text, disease=disease)
     explicit = has_explicit_case_count(text, disease=disease)
     if article_states_zero_cases(text):
