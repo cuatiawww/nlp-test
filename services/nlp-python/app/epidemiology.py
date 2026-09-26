@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -281,6 +282,167 @@ def _single_event_date(text: str) -> Optional[str]:
     return None
 
 
+_RELATIVE_NUMBER_WORDS = {
+    "a": 1, "an": 1, "one": 1, "satu": 1, "dua": 2, "two": 2,
+    "tiga": 3, "three": 3, "empat": 4, "four": 4, "lima": 5, "five": 5,
+    "enam": 6, "six": 6, "tujuh": 7, "seven": 7, "delapan": 8, "eight": 8,
+    "sembilan": 9, "nine": 9, "sepuluh": 10, "ten": 10,
+}
+_RELATIVE_UNITS = {
+    "hari": "day", "day": "day", "days": "day", "ngày": "day", "วัน": "day",
+    "minggu": "week", "pekan": "week", "week": "week", "weeks": "week",
+    "tuần": "week", "สัปดาห์": "week",
+    "bulan": "month", "month": "month", "months": "month",
+    "tháng": "month", "เดือน": "month",
+    "tahun": "year", "year": "year", "years": "year",
+    "năm": "year", "ปี": "year",
+}
+_FUSED_RELATIVE = {
+    "sehari": ("day", 1), "seminggu": ("week", 1),
+    "sebulan": ("month", 1), "setahun": ("year", 1),
+}
+_RELATIVE_POINT = re.compile(
+    r"\b(?P<num>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh)"
+    r"\s+(?P<unit>hari|days?|minggu|pekan|weeks?|bulan|months?|tahun|years?|"
+    r"tháng|tuần|ngày|năm|เดือน|สัปดาห์|วัน|ปี)"
+    r"\s*(?:yang|yg)?\s*(?:lalu|lepas|ago|trước|ที่แล้ว)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_RELATIVE_FUSED = re.compile(
+    r"\b(?P<fused>sehari|seminggu|sebulan|setahun)\s*(?:yang|yg)?\s*(?:lalu|lepas|ago)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_RELATIVE_WINDOW = re.compile(
+    r"(?:selama|dalam|in\s+the\s+(?:past|last)|over\s+the\s+(?:past|last))\s+"
+    r"(?P<num>\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh)"
+    r"\s+(?P<unit>hari|days?|minggu|pekan|weeks?|bulan|months?|tahun|years?|"
+    r"tháng|tuần|ngày|năm|เดือน|สัปดาห์|วัน|ปี)"
+    r"(?:\s+(?:terakhir|last|qua|yang\s+lalu|yg\s+lalu|lalu))?"
+    r"(?!\s*(?:ke\s+depan|mendatang|from\s+now|ข้างหน้า))",
+    re.IGNORECASE | re.UNICODE,
+)
+_RELATIVE_CACH_DAY = re.compile(
+    r"cách\s+đây\s+(?P<num>\d+)\s+(?P<unit>ngày|tuần|tháng|năm)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_RELATIVE_BARE_WINDOW = re.compile(
+    r"\b(?P<num>\d+)\s+(?P<unit>hari|days?|minggu|weeks?|bulan|months?|tahun|years?)\s+terakhir\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_RELATIVE_LAST_MONTH = re.compile(
+    r"\b(?:last\s+month|bulan\s+lalu|bulan\s+lepas|tháng\s+trước)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_RELATIVE_LAST_YEAR = re.compile(
+    r"\b(?:last\s+year|tahun\s+lalu|tahun\s+lepas|năm\s+ngoái)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_RELATIVE_AGE = re.compile(
+    r"(?:berusia|berumur|usia|umur|aged|age(?:\s+of)?|tuổi)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _shift_months(value: date, months: int) -> date:
+    index = value.month - 1 + months
+    year = value.year + index // 12
+    month = index % 12 + 1
+    return date(year, month, min(value.day, calendar.monthrange(year, month)[1]))
+
+
+def _relative_count(token: str) -> Optional[int]:
+    raw = (token or "").casefold()
+    if raw.isdigit():
+        value = int(raw)
+        return value if 1 <= value <= 36 else None
+    return _RELATIVE_NUMBER_WORDS.get(raw)
+
+
+def _shift_back(value: date, count: int, kind: str) -> date:
+    if kind == "day":
+        return value - timedelta(days=count)
+    if kind == "week":
+        return value - timedelta(days=7 * count)
+    if kind == "year":
+        return _shift_months(value, -12 * count)
+    return _shift_months(value, -count)
+
+
+def _relative_case_period(sample: str, published: date) -> Optional[dict]:
+    """Turn '3 bulan yang lalu' into a case date from the publication date.
+
+    A point phrase lands on publication minus the offset. A 'selama N bulan
+    terakhir' phrase is the window ending on the publication date. Ages such
+    as 'berusia 3 bulan' are not dates.
+    """
+    candidates: list[tuple[int, str, int, str]] = []
+
+    def add(match: re.Match, kind: str, count: int, unit: str) -> None:
+        if _RELATIVE_AGE.search(sample[max(0, match.start() - 24): match.start()]):
+            return
+        candidates.append((match.start(), kind, count, unit))
+
+    for match in _RELATIVE_FUSED.finditer(sample):
+        unit, count = _FUSED_RELATIVE[match.group("fused").casefold()]
+        add(match, "point", count, unit)
+    for match in _RELATIVE_WINDOW.finditer(sample):
+        count = _relative_count(match.group("num"))
+        unit = _RELATIVE_UNITS.get(match.group("unit").casefold())
+        if count and unit:
+            add(match, "window", count, unit)
+    for match in _RELATIVE_BARE_WINDOW.finditer(sample):
+        count = _relative_count(match.group("num"))
+        unit = _RELATIVE_UNITS.get(match.group("unit").casefold())
+        if count and unit:
+            add(match, "window", count, unit)
+    for match in _RELATIVE_POINT.finditer(sample):
+        count = _relative_count(match.group("num"))
+        unit = _RELATIVE_UNITS.get(match.group("unit").casefold())
+        if count and unit:
+            add(match, "point", count, unit)
+    for match in _RELATIVE_CACH_DAY.finditer(sample):
+        count = _relative_count(match.group("num"))
+        unit = _RELATIVE_UNITS.get(match.group("unit").casefold())
+        if count and unit:
+            add(match, "point", count, unit)
+    for match in _RELATIVE_LAST_MONTH.finditer(sample):
+        add(match, "point", 1, "month")
+    for match in _RELATIVE_LAST_YEAR.finditer(sample):
+        add(match, "year", 1, "year")
+    if not candidates:
+        return None
+    _position, kind, count, unit = min(candidates, key=lambda item: item[0])
+    if kind == "year":
+        year = published.year - count
+        return {
+            "event_date_start": f"{year:04d}-01-01",
+            "event_date_end": f"{year:04d}-12-31",
+            "event_date": f"{year:04d}-12-31",
+            "period_type": "historical",
+            "date_needs_review": True,
+        }
+    start = _shift_back(published, count, unit)
+    if kind == "window":
+        period = {"day": "incident", "week": "weekly", "month": "monthly", "year": "cumulative"}[unit]
+        return {
+            "event_date_start": start.isoformat(),
+            "event_date_end": published.isoformat(),
+            "event_date": published.isoformat(),
+            "period_type": period,
+            "date_needs_review": True,
+        }
+    period = {"day": "incident", "week": "weekly", "month": "monthly", "year": "historical"}[unit]
+    return {
+        "event_date_start": start.isoformat(),
+        "event_date_end": start.isoformat(),
+        "event_date": start.isoformat(),
+        "period_type": period,
+        "date_needs_review": True,
+    }
+
+
 def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
     """Return reporting window, period type, and whether Date Case needs review.
 
@@ -415,6 +577,12 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
                 result["event_date"] = normalize_publication_date(extract_date_from_text(as_of.group(0)))
                 result["event_date_end"] = result["event_date"]
                 result["date_needs_review"] = True
+
+    if pub_dt and not result.get("event_date") and not result.get("event_date_start"):
+        relative = _relative_case_period(sample[:4000], pub_dt)
+        if relative:
+            result.update(relative)
+            return result
 
     # Annual references are periods, not publication dates.  Preserve them so
     # two reports for different years cannot collapse into one event merely

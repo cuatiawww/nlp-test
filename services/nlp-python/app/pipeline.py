@@ -58,11 +58,13 @@ def _location_is_source_grounded(name: str | None, text: str) -> bool:
         if str(canonical).casefold() == candidate.casefold():
             if str(alias).casefold() not in config.LOCATION_STOPWORDS:
                 names.append(str(alias))
-    return any(
+    if any(
         re.search(rf"(?<!\w){re.escape(value)}(?!\w)", text or "", re.IGNORECASE)
         for value in names
         if value
-    )
+    ):
+        return True
+    return extractors.country_alias_in_text(candidate, text)
 
 
 def _interactive_analysis_text(text: str) -> str:
@@ -247,7 +249,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         text
     ) or extractors.is_clearly_non_health_topic(semantic_text)
     source_country = extractors.normalize_country(payload.source_country)
-    location_country = source_country or facts.get("country") or extractors.extract_country_hint(text[:1500])
+    article_country = facts.get("country") or extractors.extract_country_hint(text[:1500])
+    # The feed's country is the publisher. It must not replace a country the
+    # article itself names (an Indonesian wire story about RD Kongo).
+    if (
+        article_country
+        and source_country
+        and str(article_country).casefold() != str(source_country).casefold()
+    ):
+        location_country = article_country
+    else:
+        location_country = article_country or source_country
     if location_country and location_country not in config.ASEAN_COUNTRIES:
         # Keep ASEAN countries; do not promote a source/publisher country into
         # the article's event geography.
@@ -311,13 +323,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Missing city/province remains missing. A country-level location is only
     # retained when the article explicitly names that country.
     if location and not _location_is_source_grounded(location, text):
-        location = (
-            source_country
-            if source_country
-            else extractors.extract_country_hint(text)
-            if extractors.extract_country_hint(text)
-            else None
-        )
+        hinted = extractors.extract_country_hint(text)
+        if hinted and (
+            hinted.casefold() != str(source_country or "").casefold()
+            or extractors.country_alias_in_text(hinted, text)
+        ):
+            location = hinted
+        elif source_country and extractors.country_alias_in_text(source_country, text):
+            location = source_country
+        else:
+            location = None
     asean_hits = [
         loc for loc in all_locations
         if isinstance(loc, dict)
@@ -640,6 +655,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         has_location_conflict=has_location_conflict,
         is_health_related=is_health_related,
         unbound_metrics=unbound_metrics,
+        publisher_country_conflict=bool(
+            source_country
+            and (named_foreign := extractors.extract_country_hint(text, publisher=source_country))
+            and named_foreign.casefold() != str(source_country).casefold()
+            and (
+                not facts.get("country")
+                or str(facts.get("country")).casefold() == str(source_country).casefold()
+            )
+        ),
     )
     llm_verified_sub_events = []
     llm_review_applied = False
@@ -705,15 +729,31 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         # A country-only LLM answer must not erase a
                         # source-grounded province/city already linked by the
                         # local gazetteer.
+                        named_country = extractors.extract_country_hint(text)
+                        publisher_country = extractors.normalize_country(payload.source_country)
                         location = local_specific or (
                             reviewed_location
                             if _location_is_source_grounded(reviewed_location, text)
-                            else (payload.source_country or country)
+                            else (
+                                named_country
+                                if named_country and (
+                                    not publisher_country
+                                    or named_country.casefold() != publisher_country.casefold()
+                                )
+                                else (publisher_country or country)
+                            )
                         )
                     if first_evt.get("country"):
-                        if not payload.source_country or _location_is_source_grounded(
-                            first_evt.get("location_name"), text
+                        named_country = extractors.extract_country_hint(text)
+                        publisher_country = extractors.normalize_country(payload.source_country)
+                        if named_country and (
+                            not publisher_country
+                            or named_country.casefold() != publisher_country.casefold()
                         ):
+                            country = named_country
+                        elif not publisher_country or _location_is_source_grounded(
+                            first_evt.get("location_name"), text
+                        ) or extractors.country_alias_in_text(first_evt.get("country"), text):
                             country = first_evt["country"]
                     if first_evt.get("case_count") is not None:
                         prelim_cases = int(first_evt["case_count"])
@@ -2083,14 +2123,29 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 levt.get("country") or country
             ).casefold():
                 reviewed_location = local_specific
+            named_country = extractors.extract_country_hint(text)
+            publisher_country = extractors.normalize_country(payload.source_country)
+            article_names_another_country = bool(
+                named_country
+                and publisher_country
+                and named_country.casefold() != publisher_country.casefold()
+            )
             if not _location_is_source_grounded(reviewed_location, text):
-                reviewed_location = payload.source_country or country or levt.get("country")
-            reviewed_country = (
-                payload.source_country
-                if payload.source_country and not _location_is_source_grounded(
-                    levt.get("location_name"), text
+                reviewed_location = (
+                    named_country
+                    if article_names_another_country
+                    else (publisher_country or country or levt.get("country"))
                 )
-                else levt.get("country") or country
+            reviewed_country = (
+                named_country
+                if article_names_another_country
+                else (
+                    publisher_country
+                    if publisher_country and not _location_is_source_grounded(
+                        levt.get("location_name"), text
+                    ) and not extractors.country_alias_in_text(levt.get("country"), text)
+                    else levt.get("country") or country
+                )
             )
             reviewed_events.append(
                 SubEvent(
@@ -2265,14 +2320,30 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             None,
         )
     )
-    if local_source_location and (
+    article_named = extractors.extract_country_hint(text[:1500])
+    place_country = extractors.normalize_country(
+        config.LOCATION_COUNTRIES.get(str(local_source_location or ""))
+    )
+    place_conflicts_article = bool(
+        article_named
+        and place_country
+        and place_country.casefold() != article_named.casefold()
+    )
+    publisher_conflicts_article = bool(
+        article_named
+        and source_country
+        and article_named.casefold() != str(source_country).casefold()
+    )
+    if local_source_location and not place_conflicts_article and (
         len(relation_location_names) == 1
         or not location
         or str(location).casefold() == str(country or "").casefold()
         or not _location_is_source_grounded(location, text)
     ):
         location = local_source_location
-        if source_country:
+        if place_country:
+            country = extractors.country_scope(place_country)
+        elif source_country and not publisher_conflicts_article:
             country = source_country
         if len(sub_events) == 1:
             sub_events[0].location_name = local_source_location

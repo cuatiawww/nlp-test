@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.collectors.web_scraper import (
+    _databoks_chart_article,
     _extract_main_content,
     _extract_next_rsc_article,
     _extract_published_at,
@@ -213,6 +214,34 @@ class WebScraperHelpersTest(unittest.TestCase):
         </head><body><article>Long enough article content.</article></body></html>
         """
         self.assertEqual(_extract_published_at(html), "2026-08-19")
+
+    def test_databoks_chart_script_becomes_the_article(self):
+        html = """
+        <html><head><title>Geographic Distribution of Suspected Dengue Cases in Indonesia, September 2026 | Databoks</title></head>
+        <body>
+        <h1>Geographic Distribution of Suspected Dengue Cases in Indonesia, September 2026</h1>
+        <div>Inflasi yoy (Agu) | 3,19% | +0,31 ||| Inflasi mom (Jul) | -0,14% | -0,58</div>
+        <script>
+        contentVariable = {
+            data_nama: "Geographic Distribution of Suspected Dengue Cases in Indonesia, September 2026",
+            description_published: "East Java recorded 4,812 suspected dengue cases in September 2026. Jakarta recorded 1,204 cases.1. East Java: 4,8122. Jakarta: 1,204",
+            data_x: "4812,1204",
+            data_y: "East Java,Jakarta"
+        };
+        </script>
+        </body></html>
+        """
+        title, content = _extract_main_content(
+            html,
+            url="https://databoks.katadata.co.id/en/consumer-services/statistics/abc/dengue",
+        )
+        self.assertIn("Dengue", title)
+        self.assertIn("4,812 suspected dengue cases", content)
+        self.assertIn("East Java: 4812 cases", content)
+        self.assertNotIn("Inflasi yoy", content)
+        chart_title, chart_body = _databoks_chart_article(html)
+        self.assertIn("September 2026", chart_title)
+        self.assertIn("Jakarta: 1204 cases", chart_body)
 
 
 class InteractiveExtractTimeoutTests(unittest.IsolatedAsyncioTestCase):

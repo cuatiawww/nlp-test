@@ -55,6 +55,12 @@ QUANG_TRI = """
 HÀ NỘI — Quang Tri reported 430 dengue cases after flooding. No deaths.
 """
 
+DRC_FROM_JAKARTA = """
+JAKARTA — Wabah Ebola di RD Kongo Belum Terkendali, WHO Ungkap Situasi Terbaru
+WHO mencatat 7.733 kasus dan 3.732 kematian.
+Wabah Ebola di Republik Demokratik Kongo (RD Kongo) masih menjadi perhatian serius.
+"""
+
 
 class CrawlAuditExtractionTests(unittest.TestCase):
     def setUp(self):
@@ -183,6 +189,52 @@ class CrawlAuditExtractionTests(unittest.TestCase):
             "Dengue in the Philippines had a case fatality rate of about 1 percent."
         )
         self.assertEqual(percent, 0)
+
+    def test_indonesian_wire_keeps_drc_instead_of_the_publisher(self):
+        config.LOCATION_COORDS["Jakarta"] = (-6.2088, 106.8456)
+        config.LOCATION_COUNTRIES["Jakarta"] = "Indonesia"
+        config.build_location_patterns()
+        extractors.invalidate_location_alias_cache()
+        facts = extractors.predict_surveillance_facts(DRC_FROM_JAKARTA, "Indonesia")
+        self.assertEqual(facts["country"], "Democratic Republic of the Congo")
+        self.assertEqual(facts["location"], "Democratic Republic of the Congo")
+        self.assertNotEqual(facts["location"], "Jakarta")
+        self.assertTrue(extractors.country_alias_in_text(
+            "Democratic Republic of the Congo", DRC_FROM_JAKARTA
+        ))
+
+    def test_unrecognized_foreign_place_does_not_inherit_the_publisher(self):
+        config.LOCATION_COORDS["Jakarta"] = (-6.2088, 106.8456)
+        config.LOCATION_COUNTRIES["Jakarta"] = "Indonesia"
+        config.build_location_patterns()
+        extractors.invalidate_location_alias_cache()
+        text = "JAKARTA — Wabah di wilayah Equateur mencatat 40 kasus baru."
+        facts = extractors.predict_surveillance_facts(text, "Indonesia")
+        self.assertNotEqual(facts["country"], "Indonesia")
+        self.assertNotEqual(facts["location"], "Jakarta")
+        self.assertNotEqual(facts["location"], "Indonesia")
+
+    def test_other_countries_are_not_replaced_by_an_indonesian_wire(self):
+        samples = (
+            ("JAKARTA — Wabah kolera di Nigeria mencatat 80 kasus dan 4 kematian.", "Nigeria"),
+            ("JAKARTA — WHO mencatat 12 kematian akibat kolera di Sudan.", "Sudan"),
+            ("JAKARTA — Mozambik melaporkan 30 kasus kolera dan 2 kematian.", "Mozambique"),
+            ("JAKARTA — Wabah campak di Turki mencatat 15 kasus.", "Turkey"),
+        )
+        for text, expected in samples:
+            facts = extractors.predict_surveillance_facts(text, "Indonesia")
+            self.assertEqual(facts["country"], expected, text)
+            self.assertNotEqual(facts["location"], "Indonesia")
+
+    def test_comparison_mention_does_not_replace_the_home_country(self):
+        text = "Kasus DBD di Indonesia mencapai 100 kasus, lebih tinggi dibandingkan Thailand."
+        facts = extractors.predict_surveillance_facts(text, "Indonesia")
+        self.assertEqual(facts["country"], "Indonesia")
+
+    def test_national_deixis_still_uses_the_publisher_country(self):
+        text = "Kasus demam berdarah tercatat 100 kasus di seluruh tanah air."
+        facts = extractors.predict_surveillance_facts(text, "Indonesia")
+        self.assertEqual(facts["country"], "Indonesia")
 
     def test_wrong_country_centroid_is_not_kept(self):
         lat, lon = extractors.sanitize_event_coordinates(
