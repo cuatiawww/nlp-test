@@ -375,6 +375,12 @@ export type CrawlMatrixRow = {
   article_title?: string | null;
   evidence?: string | null;
   confidence?: number | null;
+  language?: string | null;
+  event_type?: string | null;
+  sentiment?: string | null;
+  relevance_score?: string | number | null;
+  source_credibility?: number | null;
+  is_health_related?: boolean | null;
   processing_status?: string | null;
   raw_report_id?: string | null;
   reprocessed_at?: string | null;
