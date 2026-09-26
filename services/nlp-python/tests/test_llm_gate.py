@@ -19,7 +19,7 @@ from app.deepseek import (
     verify_ground_truth_guardrails,
     _scoped_metric_count,
 )
-from app.extractors import extract_named_countries
+from app.extractors import extract_case_count, extract_named_countries
 from app.agent import _is_quota_failure
 
 
@@ -289,6 +289,14 @@ class LlmGateTests(unittest.TestCase):
         self.assertFalse(text_has_unbound_metric_evidence(
             "COVID-19 preparedness update with no incident total."
         ))
+
+    def test_covid_suffix_is_not_a_case_count(self):
+        headline = "Singapore monitoring rise in COVID-19 infections; current vaccine still effective."
+        self.assertIsNone(_scoped_metric_count(headline, "Singapore", "cases", headline))
+        self.assertEqual(extract_case_count(headline, disease="COVID-19"), 0)
+        stated = "Singapore reported 42 COVID-19 cases this week."
+        self.assertEqual(_scoped_metric_count(stated, "Singapore", "cases", stated), 42)
+        self.assertEqual(extract_case_count(stated, disease="COVID-19"), 42)
 
     def test_outbreak_with_zero_metrics_triggers_llm(self):
         """Vietnam/Mimika Case: Outbreak news with 0 counts extracted locally must trigger LLM verification."""

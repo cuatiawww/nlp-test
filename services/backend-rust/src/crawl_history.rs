@@ -876,14 +876,33 @@ fn collapse_article_sql(inner: &str) -> String {
             __INNER__
         ),
         base AS (
-            SELECT r.*
-            FROM raw r
-            WHERE NOT EXISTS (
-                SELECT 1 FROM raw child
-                WHERE child.article_key = r.article_key
-                  AND child.parent_event_id IS NOT NULL
-            )
-            OR r.parent_event_id IS NOT NULL
+            SELECT DISTINCT ON (
+                article_key,
+                LOWER(BTRIM(COALESCE(disease, ''))),
+                LOWER(BTRIM(COALESCE(country, ''))),
+                LOWER(BTRIM(COALESCE(NULLIF(BTRIM(city), ''), NULLIF(BTRIM(province_city_case), ''), NULLIF(BTRIM(province), ''), ''))),
+                COALESCE(cases, 0),
+                COALESCE(deaths, 0)
+            ) *
+            FROM (
+                SELECT r.*
+                FROM raw r
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM raw child
+                    WHERE child.article_key = r.article_key
+                      AND child.parent_event_id IS NOT NULL
+                )
+                OR r.parent_event_id IS NOT NULL
+            ) kept
+            ORDER BY
+                article_key,
+                LOWER(BTRIM(COALESCE(disease, ''))),
+                LOWER(BTRIM(COALESCE(country, ''))),
+                LOWER(BTRIM(COALESCE(NULLIF(BTRIM(city), ''), NULLIF(BTRIM(province_city_case), ''), NULLIF(BTRIM(province), ''), ''))),
+                COALESCE(cases, 0),
+                COALESCE(deaths, 0),
+                sort_ts DESC NULLS LAST,
+                id DESC
         ),
         by_country AS (
             SELECT article_key, country,
@@ -2295,6 +2314,7 @@ mod tests {
         let sql = collapse_article_sql("SELECT 1 AS article_key, NULL::uuid AS parent_event_id");
         assert!(sql.contains("dt.cases_display"));
         assert!(sql.contains("parent_event_id"));
+        assert!(sql.contains("DISTINCT ON"));
         assert!(sql.contains("primary_place"));
         assert!(sql.contains("primary_country"));
         assert!(sql.contains("FILTER (WHERE cases > 0)"));

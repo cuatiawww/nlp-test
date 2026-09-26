@@ -158,11 +158,23 @@ function asEventRow(row: CrawlHistoryRow): CrawlHistoryRow {
   return { ...row, cases_display: null, deaths_display: null, geo_summary: null }
 }
 
+function factKey(row: CrawlHistoryRow) {
+  const place = (row.city || row.province_city_case || row.province || '').trim().toLowerCase()
+  return [row.disease || '', row.country || '', place, row.cases ?? '', row.deaths ?? ''].join('|').toLowerCase()
+}
+
 function decomposedEvents(_parent: CrawlHistoryRow, kids: CrawlHistoryRow[] | undefined) {
   const rows = kids || []
   const children = rows.filter((row) => row.parent_event_id)
   const events = children.length >= 2 ? children : rows
-  return events.length >= 2 ? events : []
+  const seen = new Set<string>()
+  const unique = events.filter((row) => {
+    const key = factKey(row)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  return unique.length >= 2 ? unique : []
 }
 
 function casesCell(row: CrawlHistoryRow) {

@@ -1,12 +1,30 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { ChevronDown, ChevronRight, Download, ExternalLink, Loader2, Play, RefreshCw } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Loader2, MapPin, Play, RefreshCw } from 'lucide-react'
 import { createCrawlJob, fetchCrawlJob, fetchPaginated, reprocessCrawlJob } from '@/lib/api'
 import type { CrawlJobStatus, CrawlMatrixRow } from '@/types'
 import type { DiseaseConcept } from '@/lib/api'
 import { ASEAN11_COUNTRY_NAMES, isAseanCountryName } from '@/lib/asean-scope'
+import CountryFlag from '@/components/CountryFlag'
+
+const MATRIX_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
+  { key: 'no', label: 'No', width: 68, sticky: true },
+  { key: 'source_info', label: 'Source & Channel', width: 160 },
+  { key: 'needs_review', label: 'Status', width: 155 },
+  { key: 'title', label: 'Article Title & Link', width: 320 },
+  { key: 'country', label: 'Country & Region', width: 160 },
+  { key: 'province_city_case', label: 'Province & City', width: 180 },
+  { key: 'lat_long', label: 'Lat / Long', width: 125 },
+  { key: 'disease', label: 'Disease', width: 160 },
+  { key: 'cases', label: 'Cases', width: 90 },
+  { key: 'deaths', label: 'Deaths', width: 90 },
+  { key: 'language', label: 'Language', width: 80 },
+  { key: 'article_date', label: 'Published Date', width: 120 },
+  { key: 'crawling_date', label: 'Crawling Date', width: 130 },
+  { key: 'action', label: 'Action', width: 110 },
+]
 
 type LocationOption = { country?: string | null; name?: string | null }
 const ASEAN_COUNTRIES: string[] = [...ASEAN11_COUNTRY_NAMES]
@@ -16,6 +34,169 @@ function eventPlace(row: CrawlMatrixRow) {
   const province = row.province && row.province !== row.country && row.province !== city ? row.province : ''
   if (city && province) return `${city} · ${province}`
   return city || province || row.province_city_case || '—'
+}
+
+function fmtCount(value?: number | null) {
+  return (value || 0).toLocaleString('en-US')
+}
+
+function statusBadge(status?: string | null) {
+  if (status === 'processed' || status === 'reviewed') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+        <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Reviewed
+      </span>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">
+        Failed
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+      <Clock className="h-3 w-3 text-amber-600" /> Needs Review
+    </span>
+  )
+}
+
+function EventsButton({ count, open, onToggle }: { count: number; open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => { event.stopPropagation(); onToggle() }}
+      className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-bold text-[#0060A9] hover:bg-blue-100"
+      title={open ? 'Tutup event' : 'Buka event'}
+      aria-expanded={open}
+    >
+      {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+      {count} events
+    </button>
+  )
+}
+
+function matrixCells(input: {
+  label: string
+  row: CrawlMatrixRow
+  shaded?: boolean
+  toggle?: () => void
+  open?: boolean
+  eventCount?: number
+  summary?: { disease: string; country: string; cases: number; deaths: number; status: string; title: string }
+}) {
+  const bg = input.shaded ? 'bg-blue-50/40' : 'bg-white'
+  const row = input.row
+  const summary = input.summary
+  return MATRIX_COLUMNS.map((col) => {
+    let node: ReactNode = '—'
+    if (col.key === 'no') {
+      node = (
+        <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-[#0060A9]">
+          {input.toggle ? (
+            <button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); input.toggle?.() }}
+              className="rounded p-0.5 text-slate-500 hover:bg-slate-100"
+              title={input.open ? 'Tutup event' : 'Buka event'}
+              aria-expanded={Boolean(input.open)}
+            >
+              {input.open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            </button>
+          ) : null}
+          {input.label}
+        </span>
+      )
+    } else if (col.key === 'source_info') {
+      node = (
+        <div className="flex flex-col">
+          <span className="max-w-[150px] truncate font-medium" title={row.source_name || ''}>{row.source_name || row.source_type || '—'}</span>
+          <span className="font-mono text-[10px] uppercase text-slate-400">Manual</span>
+        </div>
+      )
+    } else if (col.key === 'needs_review') {
+      node = statusBadge(summary?.status || row.processing_status)
+    } else if (col.key === 'title') {
+      const title = summary?.title || row.article_title || row.source_url || '—'
+      node = (
+        <div className="max-w-[300px]">
+          <div className="flex items-start gap-1">
+            <span className="line-clamp-2 text-xs font-medium leading-snug" title={title}>{title}</span>
+            {row.source_url ? (
+              <a href={row.source_url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="mt-0.5 shrink-0 text-[#0060A9]" title={row.source_url}>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
+          </div>
+          {!summary && row.evidence ? (
+            <details className="mt-1" onClick={(event) => event.stopPropagation()}>
+              <summary className="cursor-pointer text-[#0060A9]">Evidence</summary>
+              <p className="mt-1 whitespace-normal text-slate-600">{row.evidence}</p>
+            </details>
+          ) : null}
+        </div>
+      )
+    } else if (col.key === 'country') {
+      const name = summary?.country || row.country || '—'
+      const showFlag = name !== '—' && !/countries|multi_country/i.test(name)
+      node = (
+        <div className="flex items-center gap-1.5">
+          {showFlag ? <CountryFlag countryCode={name} size="xs" shape="rounded" /> : null}
+          <div className="min-w-0">
+            <span className="block max-w-[130px] truncate font-semibold" title={name}>{name}</span>
+            {!summary && row.region ? (
+              <span className="inline-flex rounded border border-slate-200 bg-slate-100 px-1.5 text-[9px] font-bold uppercase tracking-tight text-slate-600">{row.region}</span>
+            ) : null}
+          </div>
+        </div>
+      )
+    } else if (col.key === 'province_city_case') {
+      node = input.toggle && input.eventCount ? (
+        <EventsButton count={input.eventCount} open={Boolean(input.open)} onToggle={input.toggle} />
+      ) : (
+        <div className="flex max-w-[170px] items-start gap-1.5">
+          <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-500" />
+          <span className="block truncate text-[11px] font-bold" title={eventPlace(row)}>{eventPlace(row)}</span>
+        </div>
+      )
+    } else if (col.key === 'lat_long') {
+      const text = !summary && row.latitude != null && row.longitude != null ? `${row.latitude}, ${row.longitude}` : '—'
+      node = <span className="font-mono text-[10px] text-slate-700">{text}</span>
+    } else if (col.key === 'disease') {
+      const disease = summary?.disease || row.disease_name || '—'
+      node = <span className="block max-w-[140px] truncate font-semibold" title={disease}>{disease}</span>
+    } else if (col.key === 'cases') {
+      node = <span className="font-bold">{fmtCount(summary ? summary.cases : row.number_of_cases)}</span>
+    } else if (col.key === 'deaths') {
+      const deaths = summary ? summary.deaths : row.number_of_deaths
+      node = <span className={deaths ? 'font-bold text-red-600' : 'font-bold text-slate-600'}>{fmtCount(deaths)}</span>
+    } else if (col.key === 'article_date') {
+      node = row.article_date || '—'
+    } else if (col.key === 'crawling_date') {
+      node = row.crawling_date || '—'
+    } else if (col.key === 'action') {
+      node = row.source_url ? (
+        <a
+          href={row.source_url}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => event.stopPropagation()}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-[#0060A9] hover:bg-blue-50/60 hover:text-[#0060A9]"
+        >
+          <ExternalLink className="h-3.5 w-3.5 text-[#0060A9]" /> Article
+        </a>
+      ) : '—'
+    }
+    return (
+      <td
+        key={col.key}
+        className={`whitespace-nowrap border-b border-r border-slate-100 px-2 py-1.5 align-middle text-slate-800 ${bg} ${col.sticky ? 'sticky left-0 z-[1]' : ''}`}
+      >
+        {node}
+      </td>
+    )
+  })
 }
 
 function csvCell(value: unknown) {
@@ -246,73 +427,68 @@ export default function CrawlMatrixPanel() {
             </ul>
           </details>
         )}
-        <div className="overflow-x-auto">
-          <table className="min-w-[1100px] w-full text-left text-xs">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+        <div className="max-h-[70vh] overflow-auto">
+          <table className="w-full border-separate border-spacing-0 text-left text-[11px]" style={{ minWidth: MATRIX_COLUMNS.reduce((sum, col) => sum + col.width, 0) }}>
+            <colgroup>
+              {MATRIX_COLUMNS.map((col) => <col key={col.key} style={{ width: col.width }} />)}
+            </colgroup>
+            <thead>
               <tr>
-                {['No.', 'Disease', 'Country', 'Location', 'Cases', 'Deaths', 'Lat / Long', 'Published', 'Evidence'].map(header => (
-                  <th key={header} className="whitespace-nowrap px-3 py-3 font-semibold">{header}</th>
+                {MATRIX_COLUMNS.map((col) => (
+                  <th
+                    key={col.key}
+                    className={`sticky top-0 z-10 whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600 ${col.sticky ? 'left-0 z-20 shadow-[2px_0_0_#e2e8f0]' : ''}`}
+                  >
+                    {col.label}
+                  </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {articleGroups.map((group, groupIndex) => {
                 const many = group.rows.length > 1
                 const open = Boolean(openArticles[group.key])
+                const toggle = () => setOpenArticles((current) => ({ ...current, [group.key]: !current[group.key] }))
                 const cases = group.rows.reduce((sum, row) => sum + (row.number_of_cases || 0), 0)
                 const deaths = group.rows.reduce((sum, row) => sum + (row.number_of_deaths || 0), 0)
                 const diseases = Array.from(new Set(group.rows.map((row) => row.disease_name).filter(Boolean)))
                 const countries = Array.from(new Set(group.rows.map((row) => row.country).filter(Boolean)))
-                const summary = many ? (
-                  <tr key={`${group.key}-summary`} className="align-top hover:bg-slate-50">
-                    <td className="px-3 py-3 font-mono text-[11px] font-bold text-[#0060A9]">
-                      <button
-                        type="button"
-                        onClick={() => setOpenArticles((current) => ({ ...current, [group.key]: !current[group.key] }))}
-                        className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-slate-100"
-                        title={open ? 'Tutup event' : 'Buka event'}
-                      >
-                        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                        {groupIndex + 1}
-                      </button>
-                    </td>
-                    <td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{diseases.length === 1 ? diseases[0] : `${group.rows.length} events`}</td>
-                    <td className="px-3 py-3 font-semibold">{countries.length === 1 ? countries[0] : `${countries.length} countries`}</td>
-                    <td className="max-w-[180px] px-3 py-3 text-slate-500">{group.rows.length} events</td>
-                    <td className="px-3 py-3 font-bold text-slate-800">{cases.toLocaleString('en-US')}</td>
-                    <td className="px-3 py-3 font-bold text-red-600">{deaths.toLocaleString('en-US')}</td>
-                    <td className="px-3 py-3 text-slate-400">—</td>
-                    <td className="px-3 py-3">{group.rows[0]?.article_date || group.rows[0]?.crawling_date || '—'}</td>
-                    <td className="px-3 py-3">
-                      <div className="max-w-[240px] truncate text-[11px] text-slate-600" title={group.title}>{group.title}</div>
-                    </td>
-                  </tr>
-                ) : null
-                const visibleRows = many && !open ? [] : group.rows
-                return [
-                  summary,
-                  ...visibleRows.map((row, eventIndex) => (
-                    <tr key={row.id} className={`align-top hover:bg-slate-50 ${many ? 'bg-blue-50/20' : ''}`}>
-                      <td className="px-3 py-3 font-mono text-[11px] font-bold text-[#0060A9]">{many ? `${groupIndex + 1}.${eventIndex + 1}` : groupIndex + 1}</td>
-                      <td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}</td>
-                      <td className="px-3 py-3 font-semibold">{row.country}<div className="text-[10px] font-normal text-slate-400">{row.region || ''}</div></td>
-                      <td className="max-w-[180px] px-3 py-3">{eventPlace(row)}</td>
-                      <td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('en-US')}</td>
-                      <td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('en-US')}</td>
-                      <td className="px-3 py-3 font-mono text-[11px]">{row.latitude != null && row.longitude != null ? `${row.latitude}, ${row.longitude}` : '—'}</td>
-                      <td className="px-3 py-3">{row.article_date || row.crawling_date || '—'}</td>
-                      <td className="px-3 py-3">
-                        {row.source_type || '—'}
-                        <div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div>
-                        <details className="mt-1">
-                          <summary className="cursor-pointer text-[#0060A9]">Evidence</summary>
-                          <p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Needs review'}</p>
-                          {row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Article <ExternalLink className="h-3 w-3" /></a>}
-                        </details>
-                      </td>
+                const status = group.rows.some((row) => row.processing_status === 'failed')
+                  ? 'failed'
+                  : group.rows.every((row) => row.processing_status === 'processed')
+                    ? 'processed'
+                    : 'needs_review'
+                const lead = group.rows[0]
+                return (
+                  <Fragment key={group.key}>
+                    <tr className={many ? 'cursor-pointer hover:bg-blue-50/40' : 'hover:bg-slate-50'} onClick={many ? toggle : undefined}>
+                      {matrixCells({
+                        label: String(groupIndex + 1),
+                        row: lead,
+                        toggle: many ? toggle : undefined,
+                        open,
+                        eventCount: many ? group.rows.length : undefined,
+                        summary: many ? {
+                          disease: diseases.length === 1 ? diseases[0] : `${diseases.length} diseases`,
+                          country: countries.length === 1 ? countries[0] : `${countries.length} countries`,
+                          cases,
+                          deaths,
+                          status,
+                          title: group.title,
+                        } : undefined,
+                      })}
                     </tr>
-                  )),
-                ]
+                    {many && open && group.rows.map((row, eventIndex) => (
+                      <tr key={row.id} className="bg-blue-50/30 hover:bg-blue-50/50">
+                        {matrixCells({
+                          label: `${groupIndex + 1}.${eventIndex + 1}`,
+                          row,
+                          shaded: true,
+                        })}
+                      </tr>
+                    ))}
+                  </Fragment>
+                )
               })}
             </tbody>
           </table>
