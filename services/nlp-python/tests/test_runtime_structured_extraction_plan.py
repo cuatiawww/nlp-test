@@ -141,10 +141,12 @@ class RuntimeStructuredExtractionPlanTests(unittest.TestCase):
             },
         ]
         projected = _collapse_same_country_events(events)
-        self.assertEqual(len(projected), 1)
-        self.assertEqual(projected[0]["location_name"], "Indonesia")
-        self.assertEqual(projected[0]["case_count"], 309786)
-        self.assertEqual(projected[0]["admin1"], "Jawa Barat; Jawa Timur")
+        self.assertEqual(
+            {(item["location_name"], item["case_count"]) for item in projected},
+            {("Indonesia", 309786), ("Jawa Barat", 63748), ("Jawa Timur", 41037)},
+        )
+        indonesia = next(item for item in projected if item["location_name"] == "Indonesia")
+        self.assertEqual(indonesia["admin1"], "Jawa Barat; Jawa Timur")
 
     def test_relative_and_historical_windows_do_not_fold_into_current(self):
         events = [

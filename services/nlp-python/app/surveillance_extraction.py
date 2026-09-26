@@ -829,20 +829,55 @@ def aggregate_relation_totals(
 
 # Month aliases are loaded from the shared language_markers registry.
 # Numeric month grammar remains handled by the date parser.
+_COMPARATIVE_CUE = re.compile(
+    r"\b(?:setelah|sesudah|dibandingkan(?:\s+dengan)?|membandingkan(?:\s+dengan)?|"
+    r"dibanding|daripada|seperti|antara\s+lain|misalnya|after|following|behind|"
+    r"compared\s+(?:to|with))\b",
+    re.IGNORECASE,
+)
+
+
 def _is_comparative_location(text: str, loc_start: int) -> bool:
     """Returns True if the location at loc_start is inside a comparative clause,
     e.g. 'setelah Jawa Barat, Jawa Tengah, dan Jawa Timur'."""
     prefix = text[max(0, loc_start - 120):loc_start]
-    comp_match = re.search(
-        r"\b(?:setelah|sesudah|dibandingkan(?:\s+dengan)?|dibanding|daripada|seperti|antara\s+lain|misalnya|after|following|behind|compared\s+(?:to|with))\s+([^.;\n]*)$",
-        prefix,
+    cues = list(_COMPARATIVE_CUE.finditer(prefix))
+    if not cues:
+        return False
+    # The nearest cue governs the place. An earlier ``dibandingkan periode``
+    # must not hide ``membandingkan dengan Malaysia`` at the end of the prefix.
+    intervening = prefix[cues[-1].end():].strip()
+    if re.search(r"[.;\n]", intervening):
+        return False
+    return bool(re.fullmatch(
+        r"(?:[A-Za-zÀ-ÿ'’.-]+\s*[,/&]?\s*|(?:dan|atau|serta|and|or)\s+)*",
+        intervening,
         re.IGNORECASE,
-    )
-    if comp_match:
-        intervening = comp_match.group(1).strip()
-        if re.fullmatch(r"(?:[A-Za-zÀ-ÿ'’.-]+\s*[,/&]?\s*|(?:dan|atau|serta|and|or)\s+)*", intervening, re.IGNORECASE):
-            return True
-    return False
+    ))
+
+
+def _comparison_country_metric(
+    text: str,
+    sentence_start: int,
+    sentence_end: int,
+    locations: list[tuple[int, int, LinkedLocation]],
+) -> bool:
+    """True when every place in the sentence is a cross-border comparison.
+
+    ``compared with Malaysia, which recorded 80`` must not become a domestic
+    total. A sentence that also names the outbreak country keeps that count.
+    """
+
+    comparative = False
+    other = False
+    for start, _end, linked in locations:
+        if not (sentence_start <= start < sentence_end):
+            continue
+        if _is_comparative_location(text, start):
+            comparative = True
+        else:
+            other = True
+    return comparative and not other
 
 
 _NUMBER = r"(?:\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)"
@@ -1087,12 +1122,11 @@ def extract_time_frame(text: str, published_date: Optional[str] = None) -> str:
         start = explicit_period["event_date_start"]
         end = explicit_period.get("event_date_end") or start
         return start if start == end else f"{start} to {end}"
-    year_only = re.search(
-        r"\b(?:pada|di|tahun|year|in|during|throughout|sepanjang|ช่วงกลางปี|ปี)\s+(?:tahun\s+)?(20\d{2}|25\d{2})\b",
-        value, re.I,
-    )
+    from .epidemiology import _case_year_mention
+
+    year_only = _case_year_mention(value)
     if year_only:
-        return _year_frame(_calendar_year(year_only.group(1)))
+        return _year_frame(_calendar_year(year_only.group("year")))
     weekly = re.findall(r"\b(?:weekly|minggu(?: ke-)?)\s*(?:M|ke-)?\s*(\d{1,2})\b", value, re.I)
     # If the article mentions different reporting weeks for different
     # countries, do not assign the first week to every metric relation.
@@ -1304,11 +1338,16 @@ def _source_scope_location(
     """Use source scope only when the article explicitly says domestic."""
 
     country = extractors.normalize_country(source_country)
+    authority = extractors.reporting_authority_country(text)
+    if authority and (not country or country == authority):
+        country = authority
     if country not in config.ASEAN_COUNTRIES:
         return None
     # The portal country is not the case country. Use it only when the
-    # article writes that country name. Nasional/internasional alone is global.
-    if not extractors.country_alias_in_text(country, text):
+    # article writes that country name, or a Kemenkes national bulletin
+    # states the domestic total without repeating "Indonesia".
+    # Nasional/internasional alone is global.
+    if not authority and not extractors.country_alias_in_text(country, text):
         return None
     mentioned = extractors.extract_all_mentioned_countries(text)
     same_country_mentioned = country in mentioned and len(mentioned) == 1
@@ -1635,8 +1674,24 @@ def _nearest_location(
     valid_locations = locations
     if text:
         filtered = [loc for loc in locations if not _is_comparative_location(text, loc[0])]
-        if filtered:
-            valid_locations = filtered
+        if not filtered:
+            return None
+        valid_locations = filtered
+    if text:
+        sentence_start, sentence_end = extractors._metric_sentence_bounds(
+            text, metric_start, metric_end
+        )
+        sentence = text[sentence_start:sentence_end]
+        # "kasus nasional ... 146" must not attach to a province named only
+        # in a later sentence (Cianjur 25).
+        if _DOMESTIC_SCOPE.search(sentence):
+            in_sentence = [
+                loc for loc in valid_locations
+                if sentence_start <= loc[0] < sentence_end
+            ]
+            if not in_sentence:
+                return None
+            valid_locations = in_sentence
     candidate = min(
         valid_locations,
         key=lambda item: min(abs(metric_start - item[1]), abs(item[0] - metric_end)),
@@ -1798,13 +1853,19 @@ def _relation_disease(
     ]
     if len(after_hits) == 1:
         return after_hits[0]
-    before = text[max(0, start - 28):start]
+    before = text[max(0, start - 64):start]
     before_hits = [
         item for item in candidates
         if extractors.disease_has_textual_evidence(item, before)
     ]
-    if len(before_hits) == 1 and not after_hits:
-        return before_hits[0]
+    if before_hits and not after_hits:
+        def _last_mention(item: str) -> int:
+            positions = extractors.disease_mention_positions(item, before)
+            return max(positions) if positions else -1
+
+        closest = max(before_hits, key=_last_mention)
+        if _last_mention(closest) >= 0:
+            return closest
     return None
 
 
@@ -1888,10 +1949,12 @@ def _extract_narrative_relations(
                 continue
             if extractors.metric_source_scope(source, match.start(), match.end()) != "article_local":
                 continue
-            linked = _nearest_location(match.start(), match.end(), locations, text=source)
             sentence_start, sentence_end = extractors._metric_sentence_bounds(
                 source, match.start(), match.end()
             )
+            if _comparison_country_metric(source, sentence_start, sentence_end, locations):
+                continue
+            linked = _nearest_location(match.start(), match.end(), locations, text=source)
             local_locations = [
                 item for item in locations
                 if item[0] >= sentence_start and item[1] <= sentence_end
@@ -2124,7 +2187,22 @@ def _sentence_country(source: str, sentence_start: int, sentence_end: int, locat
     mentioned = extractors.extract_all_mentioned_countries(source[sentence_start:sentence_end])
     if not mentioned:
         mentioned = extractors.extract_mentioned_case_countries(source[sentence_start:sentence_end])
-    return mentioned[0] if len(mentioned) == 1 else ""
+    if len(mentioned) == 1:
+        return mentioned[0]
+    sentence = source[sentence_start:sentence_end]
+    # "Lampang became the city ... nationwide, with 1,200 cases" names the
+    # city only. The country is the one in the previous sentence.
+    if sentence_start > 1 and _DOMESTIC_SCOPE.search(sentence):
+        prev_left, prev_right = extractors._metric_sentence_bounds(
+            source, max(0, sentence_start - 2), max(0, sentence_start - 1)
+        )
+        if prev_right <= sentence_start:
+            prior = extractors.extract_all_mentioned_countries(source[prev_left:prev_right])
+            if len(prior) != 1:
+                prior = extractors.extract_mentioned_case_countries(source[prev_left:prev_right])
+            if len(prior) == 1:
+                return prior[0]
+    return ""
 
 
 def _place_is_usable(name: str) -> bool:
@@ -2204,6 +2282,8 @@ def _clause_place_candidates(
         if start < sentence_start or end > sentence_end:
             continue
         if linked.name.casefold() == (linked.country or "").casefold():
+            continue
+        if _is_comparative_location(source, start):
             continue
         if not _place_is_usable(linked.name):
             continue
@@ -2404,6 +2484,49 @@ def _previous_sentence_place(
     return LinkedLocation(name=mentioned[0], country=mentioned[0], evidence=source[prev_left:prev_right])
 
 
+def _unbound_domestic_place(
+    source: str,
+    sentence_start: int,
+    sentence_end: int,
+    count_start: int,
+    linker: GazetteerLinker,
+) -> Optional[LinkedLocation]:
+    """Attach a count that names no place to the article's country.
+
+    National wording (``kasus campak nasional ... 146``) and sitrep lines
+    (``Campak: 80 kasus``) keep the country already established by Kemenkes
+    or a single named country. A later province must not be required.
+    """
+
+    sentence = source[sentence_start:sentence_end]
+    country_name = None
+    if _DOMESTIC_SCOPE.search(sentence):
+        country_name = extractors.reporting_authority_country(source)
+        if not country_name:
+            mentioned = extractors.extract_all_mentioned_countries(source)
+            if len(mentioned) == 1:
+                country_name = mentioned[0]
+    if not country_name:
+        prefix = source[max(0, count_start - 72):count_start]
+        if extractors.extract_alias_diseases(prefix) or extractors.extract_diseases(prefix):
+            country_name = extractors.reporting_authority_country(source[:sentence_end])
+            if not country_name:
+                prior = source[:sentence_start]
+                mentioned = extractors.extract_mentioned_case_countries(prior)
+                if len(mentioned) != 1:
+                    mentioned = extractors.extract_all_mentioned_countries(prior)
+                if len(mentioned) == 1:
+                    country_name = mentioned[0]
+    if not country_name:
+        return None
+    return _country_level_location(
+        country_name,
+        linker,
+        context=sentence,
+        evidence=sentence.strip(),
+    )
+
+
 def _bind_counts_to_clause_places(
     source: str,
     relations: list[MetricRelation],
@@ -2519,6 +2642,9 @@ def _bind_counts_to_clause_places(
             ))
             continue
         sentence_start, sentence_end = extractors._metric_sentence_bounds(source, count_start, count_end)
+        if _comparison_country_metric(source, sentence_start, sentence_end, locations):
+            kept = [relation for relation in kept if relation not in overlapping]
+            continue
         window = _count_window(source, count_start, count_end, sentence_start, sentence_end, count_spans)
         country_hint = _sentence_country(source, sentence_start, sentence_end, locations)
         places = _clause_place_candidates(
@@ -2531,6 +2657,14 @@ def _bind_counts_to_clause_places(
             place = None
         if place is None:
             place = _previous_sentence_place(source, sentence_start, locations)
+        span = source[match_start:match_end]
+        if place is None and re.search(r"\b(?:kasus|cases?|kes|ca)\b", span, re.IGNORECASE):
+            # Bare numbers in a case sentence ("10 provinces", "September 19")
+            # are not national totals. Only a count written with a case word
+            # may fall back to the article country.
+            place = _unbound_domestic_place(
+                source, sentence_start, sentence_end, count_start, linker,
+            )
         if place is None:
             kept = [
                 relation for relation in kept

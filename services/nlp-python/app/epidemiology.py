@@ -561,7 +561,9 @@ def _surveillance_window(
             return _period_result(date(year, 1, 1), date.fromisoformat(end), "cumulative")
 
     through_month = re.search(
-        rf"\b(?:to|through|until|hingga|sampai|as of|per)\s+(?P<m>{months})\.?\s+(?P<year>20\d{{2}}|25\d{{2}})\b",
+        rf"\b(?:(?:through|until|hingga|sampai(?:\s+dengan)?|as of|per)\s+"
+        rf"(?:(?:akhir|awal)\s+)?|to\s+)"
+        rf"(?P<m>{months})\.?\s+(?:tahun\s+)?(?P<year>20\d{{2}}|25\d{{2}})\b",
         sample,
         re.I | re.UNICODE,
     )
@@ -636,6 +638,55 @@ def _surveillance_window(
     return None
 
 
+_COMPARISON_YEAR = re.compile(
+    r"(?i)\b(?:dibandingkan(?:\s+dengan)?|membandingkan(?:\s+dengan)?|dibanding|"
+    r"compared\s+(?:with|to)|tahun\s+(?:lalu|sebelumnya|lepas)|"
+    r"periode\s+yang\s+sama|same\s+period)\b"
+)
+
+
+def _case_year_mention(sample: str) -> Optional[re.Match]:
+    """Year of the case period, not a comparison year earlier in the lede."""
+
+    matches = list(re.finditer(
+        r"\b(?P<cue>in|pada|di|tahun|during|sepanjang|since|sejak|ปี|พ\.ศ\.)\s+"
+        r"(?:tahun\s+)?(?P<year>20\d{2}|25\d{2})\b",
+        sample or "",
+        re.IGNORECASE,
+    ))
+    for match in matches:
+        window = (sample or "")[max(0, match.start() - 80): match.end() + 40]
+        if _COMPARISON_YEAR.search(window):
+            continue
+        return match
+    return None
+
+
+def reconcile_stale_publication_date(
+    text: str,
+    published_at: Optional[str],
+    period: Optional[dict] = None,
+) -> Optional[str]:
+    """Replace a footer/copyright year when the title states a later report year."""
+
+    if not published_at:
+        return published_at
+    match = re.search(r"\b(?:tahun|year)\s+(20\d{2})\b", (text or "")[:600], re.I)
+    if not match:
+        return published_at
+    report_year = int(match.group(1))
+    try:
+        published_year = int(str(published_at)[:4])
+    except ValueError:
+        return published_at
+    if report_year <= published_year:
+        return published_at
+    event_date = (period or {}).get("event_date")
+    if event_date and str(event_date)[:4] == f"{report_year:04d}":
+        return event_date
+    return f"{report_year:04d}-01-01"
+
+
 def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
     """Return reporting window, period type, and whether Date Case needs review.
 
@@ -670,7 +721,7 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
 
     # 1. Epidemiological Week (e.g. "pekan ke-12", "minggu epidemiologi 36", "EW8 2026")
     epi_week_match = re.search(
-        r"\b(?:pekan\s+ke[- ]?|minggu\s+(?:ke[- ]?|epidemiologi\s+)|"
+        r"\b(?:pekan\s+ke[- ]?|minggu\s+(?:ke[- ]?|epidemiologi(?:\s+ke[- ]?)?\s*)|"
         r"epi(?:demiological)?\s+week\s+|e-?week\s+|EW\s*|week\s+)(\d{1,2})"
         r"(?:\s+(?:tahun\s+|of\s+)?(20\d{2}|25\d{2}))?\b",
         sample[:2500],
@@ -801,11 +852,7 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
             result["period_type"] = "historical"
             result["date_needs_review"] = True
             return result
-        year_match = re.search(
-            r"\b(?P<cue>in|pada|tahun|during|sepanjang|since|sejak|ปี|พ\.ศ\.)\s+(?P<year>20\d{2}|25\d{2})\b",
-            sample[:2500],
-            re.IGNORECASE,
-        )
+        year_match = _case_year_mention(sample[:2500])
         if year_match:
             year = _calendar_year(year_match.group("year"))
             result["event_date_start"] = f"{year:04d}-01-01"

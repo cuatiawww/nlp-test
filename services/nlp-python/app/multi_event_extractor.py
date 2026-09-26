@@ -101,7 +101,7 @@ _RE_LOCATION_DEATHS_PARENS = re.compile(
 # Pattern family 4: "Lokasi tercatat/mencatat N kasus (dan N kematian)"
 _RE_LOC_VERB_CASES_ID = re.compile(
     rf"(?:(?:di|in|pada)\s+)?([{_ASEAN_CHARS}][a-zA-Z\u00C0-\u024F{_ASEAN_CHARS}\s-]{{1,30}}?)\s+"
-    r"(?:tercatat|mencatat|melaporkan|ditemukan|ada|terdapat|mengonfirmasi|konfirmasi)\s+"
+    r"(?:tercatat|mencatat|catat|melaporkan|ditemukan|ada|terdapat|mengonfirmasi|konfirmasi)\s+"
     r"(?:sebanyak\s+)?(\d[\d.,]*)\s+kasus"
     r"(?:(?:\s+dan|,)\s+(\d[\d.,]*)\s+(?:kematian|meninggal|korban\s+jiwa))?",
     re.UNICODE | re.IGNORECASE,
@@ -450,10 +450,27 @@ def _who_country_heading_regex() -> re.Pattern:
     alternates = "|".join(
         re.escape(name) for name in sorted(_WHO_COUNTRY_HEADING_NAMES, key=len, reverse=True)
     )
-    # Optional parenthetical such as "(Monthly update)".
+    # Own line, or a PDF line that continues into the narrative
+    # ("Indonesia As of 5 August..."). Mid-sentence mentions stay unmatched.
     return re.compile(
-        rf"(?m)^(?P<country>{alternates})(?:\s*\([^)\n]{{0,60}}\))?\s*$"
+        rf"(?m)^(?P<country>{alternates})"
+        rf"(?:\s*\([^)\n]{{0,60}}\))?"
+        rf"(?:\s*$|\s+(?=[A-Z0-9]))"
     )
+
+
+def who_bulletin_char_limit(text: str, default_limit: int) -> int:
+    """Keep later WPRO country sections inside interactive URL analysis.
+
+    A dengue Situation Update puts Cambodia on page 1 and Indonesia several
+    pages later. The default 6k cap returns Cambodia only.
+    """
+    sample = text or ""
+    if not re.search(r"(?i)situation\s+update|western\s+pacific", sample):
+        return default_limit
+    if len(_split_who_country_sections(sample)) < 2:
+        return default_limit
+    return min(len(sample), max(default_limit, 28000))
 
 
 def _canonical_who_country(raw: str) -> Optional[str]:
@@ -1586,11 +1603,12 @@ def _collapse_same_country_events(
     text: str = "",
     disease: Optional[str] = None,
 ) -> list[dict[str, Any]]:
-    """Fold a national total and its provincial list into one country event.
+    """Keep a national total and the provincial counts that support it.
 
-    Named provinces stay on ``admin1`` as ``Jawa Barat; Jawa Timur``. Distinct
-    regional rows without a country total stay separate. Different diseases,
-    periods, or countries remain separate events.
+    The country row lists provinces on ``admin1``. Each province with its own
+    case or death count also stays as a matrix row. A province that only
+    repeats the national total is dropped. Different diseases, periods, or
+    countries remain separate events.
     """
     if len(events) < 2:
         return events
@@ -1703,7 +1721,12 @@ def _collapse_same_country_events(
                 "folded_places": joined_places,
             }
             folded["provenance"] = provenance
+            # Keep the national total and each province that has its own
+            # count. Folding the provinces away left Katadata as one Jawa
+            # Barat row. A copy of the national total onto a province is
+            # already excluded from distinct_regional.
             collapsed.append(folded)
+            collapsed.extend(distinct_regional)
             continue
         if distinct_regional:
             collapsed.extend(distinct_regional)

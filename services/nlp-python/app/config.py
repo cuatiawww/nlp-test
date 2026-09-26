@@ -29,7 +29,7 @@ def _repair_legacy_lexicon_text(value: str) -> str:
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.deepseek-multi-fact")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.batch1-analyze")
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
@@ -317,6 +317,8 @@ DEFAULT_LANGUAGE_MARKERS: dict[str, list[str]] = {
 # extraction functional during startup, tests, and temporary DB outages.
 DEFAULT_LEXICON_TERMS: dict[str, dict[str, list[str]]] = {
     "metric_case": {
+        "id": ["kasus"],
+        "en": ["cases", "case"],
         "lo": ["ກໍລະນີ", "ກໍລະນີສະສົມ"],
         "th": ["ราย", "กรณี"],
         "km": ["ករណី"],
@@ -325,6 +327,8 @@ DEFAULT_LEXICON_TERMS: dict[str, dict[str, list[str]]] = {
         "tl": ["kaso"],
     },
     "metric_death": {
+        "id": ["kematian", "meninggal"],
+        "en": ["deaths", "death"],
         "lo": ["ເສຍຊີວິດ"],
         "th": ["เสียชีวิต"],
         "km": ["ស្លាប់"],
@@ -361,6 +365,8 @@ DEFAULT_LEXICON_VALUES: dict[str, dict[str, int]] = {
         "juta": 1000000,
         "thousand": 1000,
         "million": 1000000,
+        "miliar": 1000000000,
+        "billion": 1000000000,
         "nghìn": 1000,
         "ngàn": 1000,
         "nghin": 1000,

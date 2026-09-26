@@ -25,6 +25,7 @@ from .epidemiology import (
     extract_event_date,
     extract_event_period,
     extract_labeled_counts,
+    reconcile_stale_publication_date,
     normalize_publication_date,
     validate_surveillance_facts,
 )
@@ -71,7 +72,12 @@ def _location_is_source_grounded(name: str | None, text: str) -> bool:
 
 def _interactive_analysis_text(text: str) -> str:
     """Keep interactive URL analysis on lede+body, not a full crawl dump."""
-    limit = int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000)
+    from .multi_event_extractor import who_bulletin_char_limit
+
+    limit = who_bulletin_char_limit(
+        text,
+        int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000),
+    )
     raw = text or ""
     if len(raw) <= limit:
         return raw
@@ -1192,6 +1198,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # dates must never silently become the article publication date.
     published_at = normalize_publication_date(payload.published_at)
     period = extract_event_period(text, published_at=published_at)
+    published_at = reconcile_stale_publication_date(text, published_at, period)
     event_date = period.get("event_date") or extract_event_date(text)
     count_period = period.get("period_type") or extractors.count_period_type(text)
     if period.get("date_needs_review"):
@@ -2480,6 +2487,20 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                         continue
                     event.location_name = local_source_location
                     event.country = country
+
+    country_level_events = [
+        evt for evt in sub_events
+        if evt.country
+        and str(evt.location_name or "").casefold() == str(evt.country).casefold()
+        and ((evt.case_count or 0) > 0 or (evt.death_count or 0) > 0)
+    ]
+    if len(country_level_events) == 1 and len({
+        str(evt.location_name or "").casefold() for evt in sub_events if evt.location_name
+    }) > 1:
+        # A national total plus provincial rows stays on the country.
+        # Do not pin the article location to one of the provinces.
+        location = country_level_events[0].location_name or country_level_events[0].country
+        country = country_level_events[0].country or country
 
     summary = _build_article_summary(
         text,

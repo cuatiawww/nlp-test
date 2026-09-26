@@ -278,17 +278,20 @@ class RelationAttributionTests(unittest.TestCase):
             for evt in events
             if int(evt.get("case_count") or 0) > 0
         }
-        self.assertEqual(counted, {("Indonesia", 309786)})
+        self.assertIn(("Indonesia", 309786), counted)
+        self.assertIn(("Jawa Barat", 63748), counted)
+        self.assertIn(("Jawa Timur", 41037), counted)
         self.assertNotIn(("Jawa Barat", 309786), counted)
-        provinces = str(events[0].get("admin1") or "")
+        country_event = next(evt for evt in events if evt.get("location_name") == "Indonesia")
+        provinces = str(country_event.get("admin1") or "")
         self.assertIn("Jawa Barat", provinces)
         self.assertIn("Jawa Timur", provinces)
         self.assertIn(";", provinces)
         projected = _collapse_same_country_events(events)
-        self.assertEqual(len(projected), 1)
-        self.assertEqual(projected[0]["location_name"], "Indonesia")
-        self.assertEqual(int(projected[0]["case_count"] or 0), 309786)
-        self.assertIn("Jawa Barat", str(projected[0].get("admin1") or ""))
+        self.assertGreater(len(projected), 1)
+        indonesia = next(item for item in projected if item["location_name"] == "Indonesia")
+        self.assertEqual(int(indonesia["case_count"] or 0), 309786)
+        self.assertIn("Jawa Barat", str(indonesia.get("admin1") or ""))
 
     def test_global_average_without_country_counts_stays_one_global_event(self):
         linker = self._use_places({

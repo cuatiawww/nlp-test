@@ -461,6 +461,11 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
     "ireland": "Ireland",
 }
 
+_STRONG_COMPARISON = re.compile(
+    r"(?:dibandingkan(?:\s+dengan)?|membandingkan(?:\s+dengan)?|dibanding|"
+    r"compared\s+(?:with|to)|daripada|unlike|versus|vs\.?)",
+    re.IGNORECASE,
+)
 _OUTBREAK_COUNTRY_NEAR = re.compile(
     r"\b(?:kasus|cases?|infections?|infected|terjangkit|terinfeksi|kematian|deaths?|meninggal|wabah|outbreak|epidemic|"
     r"klb|ca\s+mắc|tử\s*vong|dịch|เสียชีวิต)\b",
@@ -1262,6 +1267,7 @@ def extract_country_hint(text: str, publisher: Optional[str] = None) -> Optional
         matches = [
             match for match in pattern.finditer(lower_text)
             if not _alias_hit_is_disease_name(lower_text, match.start(), alias)
+            and not _STRONG_COMPARISON.search(lower_text[max(0, match.start() - 70): match.start()])
         ]
         if not matches:
             continue
@@ -1572,6 +1578,25 @@ def is_global_scope_country(value: Optional[str]) -> bool:
     return folded in _GLOBAL_SCOPE_FOLDED
 
 
+_KEMENKES_AUTHORITY = re.compile(
+    r"\b(?:kemenkes|kementerian\s+kesehatan)\b",
+    re.IGNORECASE,
+)
+_NATIONAL_SCOPE_WORD = re.compile(
+    r"\b(?:nasional|secara\s+nasional|tingkat\s+nasional|se-?indonesia)\b",
+    re.IGNORECASE,
+)
+
+
+def reporting_authority_country(text: str) -> Optional[str]:
+    """Kemenkes national bulletins are Indonesia even when the name is omitted."""
+
+    source = text or ""
+    if _KEMENKES_AUTHORITY.search(source) and _NATIONAL_SCOPE_WORD.search(source):
+        return "Indonesia"
+    return None
+
+
 def article_has_unspecified_geo_scope(text: str) -> bool:
     """True when the article says national or international and names no country."""
     for match in _UNSPECIFIED_GEO_SCOPE.finditer(text or ""):
@@ -1871,7 +1896,7 @@ def extract_location(
     # 3. Specificity bonus for multi-word or distinct city names = +1
     # 4. Penalty if inside comparative phrasing ("in contrast to Singapore", "including Thailand") = -5
     contextual = re.compile(
-        r"(?:setelah|sesudah|dibandingkan|dibanding|daripada|seperti|termasuk|antara lain|misalnya|including|includes|compared with|compared to|higher than|lower than|"
+        r"(?:setelah|sesudah|dibandingkan|membandingkan|dibanding|daripada|seperti|termasuk|antara lain|misalnya|including|includes|compared with|compared to|higher than|lower than|"
         r"both|between|across|regional partners|countries in|in contrast to|"
         r"neighbouring|neighboring|unlike|versus|vs\.?)",
         re.IGNORECASE,
@@ -1892,6 +1917,12 @@ def extract_location(
 
     for loc, pos in hits:
         if loc not in scored:
+            positions = [place_pos for place, place_pos in hits if place == loc]
+            if positions and all(
+                _STRONG_COMPARISON.search(lower_text[max(0, place_pos - 70): place_pos])
+                for place_pos in positions
+            ):
+                continue
             score = float(counts[loc] * 3)
             if any(p < 200 for l, p in hits if l == loc):
                 score += 4.0
@@ -2681,8 +2712,10 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
     case counts cannot drift between those paths.
     """
     text = strip_embedded_markup(repair_mojibake(text or ""))
-    lede = title_lede_text(text)
-    opening = text[:1200] if text else ""
+    link_at = related_link_offset(text)
+    geo_text = text[:link_at] if link_at > 0 else text
+    lede = title_lede_text(geo_text)
+    opening = geo_text[:1200] if geo_text else ""
     aliases = extract_alias_diseases(lede) or extract_alias_diseases(opening)
     diseases = extract_diseases(lede) or extract_diseases(opening)
     ranked = filter_diseases_to_evidence(
@@ -2695,6 +2728,9 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
     # weather sections. Primary geography must start from the headline/lede;
     # source-country and later regional mentions are not event geography.
     country = extract_country_hint(opening)
+    authority = reporting_authority_country(geo_text)
+    if authority and (not country or is_global_scope_country(country)):
+        country = authority
     norm_source = normalize_country(source_country)
     mentioned_asean = extract_all_mentioned_countries(opening)
     if norm_source and (not country or country == norm_source):
@@ -2713,8 +2749,8 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
     allowed = None
 
     all_locations = [
-        item for item in extract_all_locations(text, allowed_countries=allowed)
-        if is_usable_place_name(str(item.get("name") or ""), text)
+        item for item in extract_all_locations(geo_text, allowed_countries=allowed)
+        if is_usable_place_name(str(item.get("name") or ""), geo_text)
     ]
 
     # Validate with validate_location_context to eliminate leakage
@@ -2737,6 +2773,26 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
                 continue
             validated_locations.append(item)
     all_locations = validated_locations
+
+    def _comparison_only(name: str) -> bool:
+        positions = [
+            match.start()
+            for match in re.finditer(rf"\b{re.escape(name)}\b", geo_text or "", re.IGNORECASE)
+        ]
+        return bool(positions) and all(
+            _STRONG_COMPARISON.search((geo_text or "")[max(0, pos - 70):pos])
+            for pos in positions
+        )
+
+    all_locations = [
+        item for item in all_locations
+        if not _comparison_only(str(item.get("name") or ""))
+    ]
+    preferred_name = extract_location(geo_text) if geo_text else None
+    if preferred_name:
+        preferred = [item for item in all_locations if item.get("name") == preferred_name]
+        rest = [item for item in all_locations if item.get("name") != preferred_name]
+        all_locations = preferred + rest
 
     location = None
     if all_locations:
@@ -2774,8 +2830,13 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         country = named_country
         if location and str(location).casefold() == str(norm_source).casefold():
             location = named_country
+    if authority and (not country or is_global_scope_country(country)):
+        country = authority
+        if not location or is_global_scope_country(location):
+            location = authority
     if (
-        not named_country
+        not authority
+        and not named_country
         and not country
         and article_has_unspecified_geo_scope(text)
     ):
@@ -4042,9 +4103,9 @@ def extract_case_count(text: str, disease: Optional[str] = None) -> int:
         source = _compact_spaced_thousands(str(text or ""))
         # Prefer exact "sebanyak 161.752 kasus ... dengan 673 kematian" over "161 ribu".
         exact_pair = re.search(
-            r"(?i)(?:sebanyak|tercatat|logged|recorded|reported)\s+"
+            r"(?i)(?:sebanyak|tercatat|mencatat|logged|recorded|reported)\s+"
             r"(?P<cases>\d{1,3}(?:[.,]\d{3})+)\s+(?:kasus|cases)\b"
-            r"[^.!?]{0,80}?(?:dengan|with|and)\s+"
+            r"[^.!?]{0,80}?(?:dengan|dan|with|and)\s+"
             r"(?P<deaths>\d{1,3}(?:[.,]\d{3})*|\d+)\s+"
             r"(?:kematian|deaths?|meninggal|fatalities)\b",
             source[:2500],
@@ -4067,6 +4128,13 @@ def extract_case_count(text: str, disease: Optional[str] = None) -> int:
             for match in country_pattern.finditer(source):
                 parsed = _parse_count(match.group("count"), match.group(0))
                 if parsed is None:
+                    continue
+                # ``COVID-19 cases`` is the disease name, not 19 cases.
+                prefix = source[max(0, match.start("count") - 16): match.start("count")]
+                if re.search(
+                    r"(?i)(?:covid|sars[\s_-]*cov|h\d+n|clade|type|ev)[\s_-]*$",
+                    prefix,
+                ):
                     continue
                 window = _sentence_window(source, match.start(), match.end())
                 window_l = window.casefold()
@@ -4236,9 +4304,9 @@ def extract_death_count(text: str, disease: Optional[str] = None) -> int:
                 if 0 < parsed_deaths <= max_count:
                     return max(0, int(parsed_deaths))
         exact_pair = re.search(
-            r"(?i)(?:sebanyak|tercatat|logged|recorded|reported)\s+"
+            r"(?i)(?:sebanyak|tercatat|mencatat|logged|recorded|reported)\s+"
             r"(?P<cases>\d{1,3}(?:[.,]\d{3})+)\s+(?:kasus|cases)\b"
-            r"[^.!?]{0,80}?(?:dengan|with|and)\s+"
+            r"[^.!?]{0,80}?(?:dengan|dan|with|and)\s+"
             r"(?P<deaths>\d{1,3}(?:[.,]\d{3})*|\d+)\s+"
             r"(?:kematian|deaths?|meninggal|fatalities)\b",
             source[:2500],
@@ -5379,6 +5447,17 @@ def _match_disease_alias(
     return key in lower_text
 
 
+def _lao_token_is_disease(text: str) -> bool:
+    """True when a 'lao' token is the disease, not Lao PDR / Lao People's."""
+
+    for match in re.finditer(r"\blao\b", text or "", re.IGNORECASE):
+        after = (text or "")[match.end(): match.end() + 24]
+        if re.match(r"(?:s\b|'s\b|\s+people|\s+pdr\b)", after, re.IGNORECASE):
+            continue
+        return True
+    return False
+
+
 def _matched_disease_aliases(
     text: str,
     aliases: Optional[dict[str, str]] = None,
@@ -5400,6 +5479,9 @@ def _matched_disease_aliases(
         if key.casefold() == "afp" and str(value).casefold() == "polio":
             if not re.search(r"\b(?:polio|poliovirus|poliomyelitis|cvdpv)\b", text or "", re.IGNORECASE):
                 continue
+        # Vietnamese "lao" is tuberculosis. WHO "Lao PDR" / "Lao People's" is not.
+        if key.casefold() == "lao" and not _lao_token_is_disease(text):
+            continue
         matched.append((key, value))
     normalized = [
         (
@@ -5425,6 +5507,17 @@ def _matched_disease_aliases(
 def extract_diseases(text: str) -> list[str]:
     aliases = active_disease_aliases()
     diseases = set(extract_terms(text, config.DISEASE_DICT))
+    # Dictionary key ``lao`` is Vietnamese for tuberculosis. WHO headings
+    # ``Lao People's`` / ``Lao PDR`` are the country.
+    if not _lao_token_is_disease(text) and not re.search(
+        r"\b(?:tuberculosis|tuberkulosis|tbc|tibi)\b",
+        text or "",
+        re.IGNORECASE,
+    ):
+        diseases = {
+            item for item in diseases
+            if "tuberculosis" not in str(item).casefold() and str(item).casefold() not in {"tb", "tbc"}
+        }
     lower_text = text.lower()
     folded_text = re.sub(r"[^\w]+", " ", text.casefold()).strip()
     matched = _matched_disease_aliases(text, aliases=aliases, folded_text=folded_text)
@@ -5484,14 +5577,17 @@ def _mention_is_non_outbreak_context(pos: int, text: str, link_at: int) -> bool:
 
 
 _INCIDENTAL_DISEASE_CONTEXT = re.compile(
-    r"(?i)\b(?:"
-    r"glossary|abbreviations?|footnotes?|references?|"
+    r"(?i)(?:"
+    r"\b(?:glossary|abbreviations?|footnotes?|references?|"
     r"related\s+(?:diseases?|articles?|stories|links?|syndromes?)|"
     r"see\s+also|other\s+diseases?|list\s+of\s+diseases?|"
     r"differential\s+diagnosis|diseases?\s+included|"
     r"clinical\s+presentation|main\s+clinical|interchangeably|"
-    r"syndromic\s+(?:label|name|term)|glossary\s+term"
-    r")\b"
+    r"syndromic\s+(?:label|name|term)|glossary\s+term|"
+    r"kata\s+kunci|keywords?|"
+    r"penyakit\s+lain|other\s+diseases?|tetap\s+dipantau)\b"
+    r"|(?<!\w)tags?\s*:"
+    r")"
 )
 _DIARRHEA_FAMILY_LABELS = frozenset({
     "acute diarrhea",
