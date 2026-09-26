@@ -637,7 +637,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
   const cards = [
     {
       label: 'Health Events',
-      value: summary ? fmtNum(summary.quality?.surveillance ?? summary.matrix_rows) || '0' : '—',
+      value: quality === 'surveillance' ? (fmtNum(total) || '0') : (summary ? fmtNum(summary.quality?.surveillance ?? summary.matrix_rows) || '0' : '—'),
+      subtext: quality === 'surveillance' && country ? `Filtered (${country})` : undefined,
       icon: Activity,
       color: 'text-[#0060A9] bg-blue-50 border-blue-200',
     },
@@ -661,14 +662,16 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
     },
     {
       label: 'Non Health',
-      value: summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) || '0' : '—',
+      value: quality === 'noise' ? (fmtNum(total) || '0') : (summary ? fmtNum(summary.noise_excluded ?? summary.quality?.noise) || '0' : '—'),
+      subtext: quality === 'noise' && country ? `Filtered (${country})` : undefined,
       icon: Filter,
       color: 'text-slate-600 bg-slate-50 border-slate-200',
     },
     {
-      label: 'Batch Tasks',
-      value: summary ? fmtNum(summary.jobs) || '0' : '—',
-      icon: Layers,
+      label: 'Filtered Matrix Records',
+      value: fmtNum(total) || '0',
+      subtext: 'Active Matrix View Total',
+      icon: FileText,
       color: 'text-amber-700 bg-amber-50 border-amber-200',
     },
   ]

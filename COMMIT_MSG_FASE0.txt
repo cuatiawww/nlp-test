@@ -1,0 +1,5 @@
+fase0(nlp): AGENT_ENABLED=false baseline with invocation status
+
+Distinguish disabled / not_called_gate / failed / applied so QA never
+confuses the DeepSeek kill switch with a gate skip or provider failure.
+Additive AnalyzeResponse fields; no schema migration; no HTTP when off.
