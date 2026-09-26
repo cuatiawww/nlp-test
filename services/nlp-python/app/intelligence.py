@@ -305,6 +305,22 @@ def _collapse_hierarchical_parser_duplicates(events: list[dict[str, Any]], hiera
     return kept
 
 
+def _place_is_named(name: str, text: str, linker: GazetteerLinker | None) -> bool:
+    """True when the text spells this place, including a gazetteer alias."""
+
+    token = str(name or "").strip()
+    if not token or not text:
+        return False
+    if token.casefold() in text.casefold():
+        return True
+    if linker is None:
+        return False
+    return any(
+        linked.name.casefold() == token.casefold()
+        for _, _, linked in linker.local_mentions(text)
+    )
+
+
 def _most_specific_event_location(sentence: str, evidence: str, base_location, linker: GazetteerLinker):
     """Prefer a supported child place when a relation initially links its parent."""
 
@@ -312,7 +328,8 @@ def _most_specific_event_location(sentence: str, evidence: str, base_location, l
     base_country = str(getattr(base_location, "country", "") or "")
     # A count already tied to a subnational place in this sentence keeps that
     # place. Do not replace it with another city that merely shares the sentence.
-    if base_name and base_name.casefold() != base_country.casefold() and base_name.casefold() in (sentence or "").casefold():
+    # "West Java" is the same place as "Jawa Barat" when the gazetteer says so.
+    if base_name and base_name.casefold() != base_country.casefold() and _place_is_named(base_name, sentence or "", linker):
         return base_location
 
     try:
@@ -529,9 +546,13 @@ def build_atomic_events(
             for relation in local_relations:
                 evidence_lower = str(relation.evidence or sentence).casefold()
                 sentence_lower = sentence.casefold()
-                explicit_location = any(
-                    token and (token.casefold() in evidence_lower or token.casefold() in sentence_lower)
-                    for token in (relation.location.name, relation.location.country)
+                explicit_location = (
+                    _place_is_named(relation.location.name, relation.evidence or "", linker)
+                    or _place_is_named(relation.location.name, sentence, linker)
+                    or bool(
+                        relation.location.country
+                        and relation.location.country.casefold() in f"{evidence_lower}\n{sentence_lower}"
+                    )
                 )
                 same_country = relation.location.country.casefold() == scoped_country.casefold()
                 if not explicit_location and same_country and relation.location.name.casefold() != scoped_country.casefold():

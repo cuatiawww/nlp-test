@@ -14,7 +14,7 @@ from .models.classifier import classify_disease, classify, classify_sentiment, c
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
 from .multilingual import detect_language_profile, normalize_language_code
-from .surveillance_extraction import source_reliability_score
+from .surveillance_extraction import promote_country_total, source_reliability_score
 from .epidemiology import (
     calibrate_outbreak_alert,
     classify_epistemic_status,
@@ -1286,6 +1286,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         logger.warning("Multi-event extraction failed: %s", exc)
         sub_events = []
 
+    split_country_total = False
     if sub_events:
         event_diseases = list(dict.fromkeys(
             extractors.canonical_disease_name(evt.disease)
@@ -1300,11 +1301,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if len(event_diseases) == 1:
             disease = event_diseases[0]
             extracted = list(dict.fromkeys([disease, *extracted]))
-        if not location and sub_events[0].location_name:
+        # "309,786 cases in Indonesia. West Java ... with 63,748 cases"
+        # is two events. The parent keeps the country total. The province
+        # keeps its own count and does not inherit the national figure.
+        sub_events, country_total = promote_country_total(sub_events)
+        split_country_total = country_total is not None
+        if country_total is not None:
+            location = country_total.location_name
+            country = country_total.country
+            case_count = int(country_total.case_count or 0)
+            explicit_case_count = True
+            if country_total.latitude is not None:
+                lat = country_total.latitude
+                lon = country_total.longitude
+        if not location and sub_events and sub_events[0].location_name:
             location = sub_events[0].location_name
-        if not country and sub_events[0].country:
+        if not country and sub_events and sub_events[0].country:
             country = sub_events[0].country
-        if lat is None and sub_events[0].latitude is not None:
+        if lat is None and sub_events and sub_events[0].latitude is not None:
             lat = sub_events[0].latitude
             lon = sub_events[0].longitude
 
@@ -2334,7 +2348,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         and source_country
         and article_named.casefold() != str(source_country).casefold()
     )
-    if local_source_location and not place_conflicts_article and (
+    if local_source_location and not split_country_total and not place_conflicts_article and (
         len(relation_location_names) == 1
         or not location
         or str(location).casefold() == str(country or "").casefold()
@@ -2866,7 +2880,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         local_names = {str(evt.location_name or "").casefold() for evt in local_rows if evt.location_name}
         local_counts = {int(evt.case_count or 0) for evt in local_rows}
         if location and str(location).casefold() not in local_names:
-            if len(local_names) == 1:
+            if len(local_names) == 1 and not split_country_total:
                 location = next(evt.location_name for evt in local_rows if evt.location_name)
                 loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=country)
                 admin_place = extractors.split_admin_place(location, country)
@@ -2890,7 +2904,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 case_count = int(best_local.case_count or 0)
             if int(best_local.death_count or 0) > int(death_count or 0):
                 death_count = int(best_local.death_count or 0)
-        elif case_count and int(case_count) not in local_counts and int(case_count) > max(local_counts):
+        elif (
+            not split_country_total
+            and case_count
+            and int(case_count) not in local_counts
+            and int(case_count) > max(local_counts)
+        ):
             if int(case_count) > sum(int(evt.case_count or 0) for evt in local_rows) * 2:
                 case_count = max(int(evt.case_count or 0) for evt in local_rows)
             else:
