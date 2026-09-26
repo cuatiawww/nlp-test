@@ -72,3 +72,7 @@ database/dump*.sql
 # Agent settings
 .agents/
 _qa_diff/
+
+# Local scratch & progress notes
+.*-progress.md
+probe_*.py
