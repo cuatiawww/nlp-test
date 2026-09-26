@@ -81,11 +81,28 @@ def clean_province_names(provinces) -> list[str]:
     return cleaned
 
 
+_GLOBAL_COUNTRY_LABELS = frozenset({
+    "global", "internasional", "international", "worldwide", "world",
+    "nasional", "national", "multi_country",
+})
+
+
 def surveillance_scope_for_country(country: str | None) -> str | None:
     value = str(country or '').strip().casefold()
     if not value:
         return None
+    if value in _GLOBAL_COUNTRY_LABELS:
+        return 'Global'
     return 'ASEAN' if value in {item.casefold() for item in ASEAN_COUNTRIES} else 'Outside ASEAN'
+
+
+def matrix_region(country: str | None, request: dict) -> str:
+    value = str(country or "").strip()
+    if value in ASEAN_COUNTRIES:
+        return "ASEAN"
+    if value.casefold() in _GLOBAL_COUNTRY_LABELS:
+        return "Global"
+    return str(request.get("region") or "Global")
 
 
 def split_province_city(names: list[str]) -> tuple[str | None, str | None]:
@@ -477,6 +494,8 @@ def country_coordinates(conn, country: str, areas: list[str] | None = None):
     A requested province that is not in the gazetteer stays unpinned. It must
     not inherit the country centroid or the Indonesia default pin.
     """
+    if str(country or "").strip().casefold() in _GLOBAL_COUNTRY_LABELS:
+        return None, None
     requested = [str(area or "").strip() for area in (areas or []) if str(area or "").strip()]
     for area_name in requested:
         curated = curated_admin_coordinates(area_name, country)
@@ -654,7 +673,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             (
                 job_id, raw_id, item_concept["id"] if item_concept else None, item_disease,
                 None,
-                "ASEAN" if country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
+                matrix_region(country, request),
                 country, province_city_case, province, city, published, date_case,
                 0 if analysis.get("case_count_unknown") else int(item.get("reported_cases") or 0),
                 int(item.get("deaths") or 0),
@@ -669,14 +688,11 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
     if rows == 0 and disease:
         # Graceful fallback: article is relevant but lacks fine-grained metric pairs
         text_content = article.get("content", "") + " " + article.get("title", "")
-        detected_country = request.get("country")
-        if not detected_country:
-            for c_name in ASEAN_COUNTRIES:
-                if re.search(r"\b" + re.escape(c_name) + r"\b", text_content, re.I):
-                    detected_country = c_name
-                    break
-        if not detected_country and request.get("region", "").casefold() == "asean":
-            detected_country = None
+        detected_country = None
+        for c_name in ASEAN_COUNTRIES:
+            if re.search(r"\b" + re.escape(c_name) + r"\b", text_content, re.I):
+                detected_country = c_name
+                break
 
         if detected_country:
             latitude, longitude = country_coordinates(conn, detected_country)
@@ -708,7 +724,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 (
                     job_id, raw_id, concept["id"] if concept else None, disease,
                     None,
-                    "ASEAN" if detected_country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
+                    matrix_region(detected_country, request),
                     detected_country,
                     province_city_case, analysis.get("city"), published, date_case,
                     cases, deaths,

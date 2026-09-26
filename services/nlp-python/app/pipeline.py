@@ -250,21 +250,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     ) or extractors.is_clearly_non_health_topic(semantic_text)
     source_country = extractors.normalize_country(payload.source_country)
     article_country = facts.get("country") or extractors.extract_country_hint(text[:1500])
-    # The feed's country is the publisher. It must not replace a country the
-    # article itself names (an Indonesian wire story about RD Kongo).
-    if (
-        article_country
-        and source_country
-        and str(article_country).casefold() != str(source_country).casefold()
-    ):
-        location_country = article_country
+    # The feed country is the publisher. The case country is only a country
+    # the article names, or Global when the scope is nasional/internasional.
+    if extractors.is_global_scope_country(article_country):
+        location_country = extractors.GLOBAL_SCOPE_COUNTRY
     else:
-        location_country = article_country or source_country
-    if location_country and location_country not in config.ASEAN_COUNTRIES:
-        # Keep ASEAN countries; do not promote a source/publisher country into
-        # the article's event geography.
-        if extractors.extract_country_hint(text[:1500]) is None:
-            location_country = extractors.country_scope(location_country)
+        location_country = article_country
     mentioned_countries = extractors.extract_all_mentioned_countries(text[:1500])
     if location_country and location_country in config.ASEAN_COUNTRIES:
         allowed_countries = {location_country}
@@ -288,8 +279,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     all_locations = [
         item for item in all_locations
         if isinstance(item, dict)
-        and (_location_is_source_grounded(item.get("name"), text)
-        or str(item.get("name") or "").casefold() == str(source_country or "").casefold()
+        and (
+            _location_is_source_grounded(item.get("name"), text)
+            or extractors.is_global_scope_country(item.get("name"))
+            or extractors.is_global_scope_country(item.get("country"))
         )
     ]
     all_locations = _attach_location_provenance(all_locations, text)
@@ -329,8 +322,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             or extractors.country_alias_in_text(hinted, text)
         ):
             location = hinted
-        elif source_country and extractors.country_alias_in_text(source_country, text):
-            location = source_country
+        elif extractors.article_has_unspecified_geo_scope(text):
+            location = extractors.GLOBAL_SCOPE_COUNTRY
         else:
             location = None
     asean_hits = [
@@ -361,10 +354,20 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # event location. Keep the surveillance scope scalar as OUTSIDE ASEAN,
         # but do not erase the actual place from location_name.
         location = raw_country
-    if asean_hits and (raw_country not in config.ASEAN_COUNTRIES or not location):
+    if (
+        asean_hits
+        and not extractors.is_global_scope_country(raw_country)
+        and (raw_country not in config.ASEAN_COUNTRIES or not location)
+        and (
+            not raw_country
+            or str(raw_country).casefold() == str(asean_hits[0].get("country") or "").casefold()
+        )
+    ):
         location = asean_hits[0]["name"]
         raw_country = asean_hits[0].get("country") or raw_country
-    country = extractors.country_scope(raw_country)
+    country = extractors.event_country_name(raw_country)
+    if extractors.is_global_scope_country(country):
+        location = extractors.GLOBAL_SCOPE_COUNTRY
     lat, lon, geocode_confidence, geocode_needs_review = extractors.geocode_place(
         location, raw_country if raw_country in config.ASEAN_COUNTRIES else country, text
     )
@@ -740,7 +743,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                                     not publisher_country
                                     or named_country.casefold() != publisher_country.casefold()
                                 )
-                                else (publisher_country or country)
+                                else country
                             )
                         )
                     if first_evt.get("country"):
@@ -751,10 +754,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                             or named_country.casefold() != publisher_country.casefold()
                         ):
                             country = named_country
-                        elif not publisher_country or _location_is_source_grounded(
-                            first_evt.get("location_name"), text
-                        ) or extractors.country_alias_in_text(first_evt.get("country"), text):
+                        elif extractors.country_alias_in_text(first_evt.get("country"), text):
                             country = first_evt["country"]
+                        elif extractors.article_has_unspecified_geo_scope(text) and not named_country:
+                            country = extractors.GLOBAL_SCOPE_COUNTRY
                     if first_evt.get("case_count") is not None:
                         prelim_cases = int(first_evt["case_count"])
                     if first_evt.get("death_count") is not None:
@@ -1989,14 +1992,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # If the article identifies only a country, make that country the event
     # location and use its gazetteer centroid.  This is event geography, not
     # publisher/source geography.
-    if country and (not location or str(location).strip().casefold() != str(country).strip().casefold()):
+    if (
+        country
+        and not extractors.is_global_scope_country(country)
+        and (not location or str(location).strip().casefold() != str(country).strip().casefold())
+    ):
         location_hierarchy = extractors.resolve_location_hierarchy(country, country_hint=country)
         if not location:
             location = location_hierarchy.get("canonical_name") or country
         if lat is None and location.casefold() == str(country).casefold():
             lat = location_hierarchy.get("latitude")
             lon = location_hierarchy.get("longitude")
-    elif country and lat is None:
+    elif country and lat is None and not extractors.is_global_scope_country(country):
         location_hierarchy = extractors.resolve_location_hierarchy(country, country_hint=country)
         lat = location_hierarchy.get("latitude")
         lon = location_hierarchy.get("longitude")
@@ -2343,11 +2350,6 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         and place_country
         and place_country.casefold() != article_named.casefold()
     )
-    publisher_conflicts_article = bool(
-        article_named
-        and source_country
-        and article_named.casefold() != str(source_country).casefold()
-    )
     if local_source_location and not split_country_total and not place_conflicts_article and (
         len(relation_location_names) == 1
         or not location
@@ -2356,9 +2358,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     ):
         location = local_source_location
         if place_country:
-            country = extractors.country_scope(place_country)
-        elif source_country and not publisher_conflicts_article:
-            country = source_country
+            country = extractors.event_country_name(place_country)
         if len(sub_events) == 1:
             sub_events[0].location_name = local_source_location
             sub_events[0].country = country
@@ -2384,7 +2384,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         location=location,
         country=country,
         source_country=source_country,
-        surveillance_scope=("MULTI_COUNTRY" if country == "MULTI_COUNTRY" else "ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
+        surveillance_scope=extractors.surveillance_scope_label(country),
         case_count=case_count,
         death_count=death_count,
     )
@@ -3076,7 +3076,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         locations=all_locations,
         original_location_name=original_location,
         source_country=source_country,
-        surveillance_scope=("MULTI_COUNTRY" if country == "MULTI_COUNTRY" else "ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
+        surveillance_scope=extractors.surveillance_scope_label(country),
         translated=bool(translated_text),
         translation_provider=translation.get("provider") or "none",
         translation_status=translation.get("translation_status") or (

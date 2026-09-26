@@ -1256,6 +1256,10 @@ def _source_scope_location(
     country = extractors.normalize_country(source_country)
     if country not in config.ASEAN_COUNTRIES:
         return None
+    # The portal country is not the case country. Use it only when the
+    # article writes that country name. Nasional/internasional alone is global.
+    if not extractors.country_alias_in_text(country, text):
+        return None
     mentioned = extractors.extract_all_mentioned_countries(text)
     same_country_mentioned = country in mentioned and len(mentioned) == 1
     if not _DOMESTIC_SCOPE.search(text or "") and not same_country_mentioned:

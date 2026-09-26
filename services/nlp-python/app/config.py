@@ -751,6 +751,19 @@ def load_locations_from_db():
         LOCATION_ADMIN_LEVEL = {}
         LOCATION_REGISTRY_REFERENCE_ID = None
         apply_curated_localities()
+        try:
+            from . import extractors
+            # The reset above kept only the built-in names. External aliases
+            # such as Inggris and Jerman still have to resolve when the
+            # registry cannot be reached.
+            extractors.COUNTRY_ALIASES = dict(
+                getattr(extractors, "DEFAULT_COUNTRY_ALIASES", {})
+            )
+            extractors.COUNTRY_ALIASES.update(
+                getattr(extractors, "EXTERNAL_COUNTRY_ALIASES", {})
+            )
+        except Exception:
+            pass
         build_location_patterns()
         logging.getLogger(__name__).warning(
             "Location registry unavailable; using curated offline localities: %s", e

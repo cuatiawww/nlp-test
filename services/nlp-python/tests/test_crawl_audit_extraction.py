@@ -231,10 +231,13 @@ class CrawlAuditExtractionTests(unittest.TestCase):
         facts = extractors.predict_surveillance_facts(text, "Indonesia")
         self.assertEqual(facts["country"], "Indonesia")
 
-    def test_national_deixis_still_uses_the_publisher_country(self):
+    def test_national_deixis_without_a_named_country_is_global(self):
         text = "Kasus demam berdarah tercatat 100 kasus di seluruh tanah air."
         facts = extractors.predict_surveillance_facts(text, "Indonesia")
-        self.assertEqual(facts["country"], "Indonesia")
+        self.assertEqual(facts["country"], "Global")
+        self.assertEqual(facts["location"], "Global")
+        self.assertIsNone(facts["locations"][0]["latitude"])
+        self.assertIsNone(facts["locations"][0]["longitude"])
 
     def test_wrong_country_centroid_is_not_kept(self):
         lat, lon = extractors.sanitize_event_coordinates(

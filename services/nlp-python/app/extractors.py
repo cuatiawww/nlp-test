@@ -282,22 +282,7 @@ def _fold_with_positions(value: str) -> tuple[str, list[int]]:
 # country names are retained as a small offline safety registry so a Lao/Thai/
 # Khmer/Burmese article remains attributable before DB bootstrap completes.
 DEFAULT_COUNTRY_ALIASES: dict[str, str] = {
-    # Idiomatic homeland label used in Indonesian national totals.
-    "tanah air": "Indonesia",
-    "seluruh tanah air": "Indonesia",
-    # Publisher mastheads that encode event geography when the body only
-    # says "nationwide" / "the capital" (gold title+source meta path).
-    "jakarta post": "Indonesia",
-    "the jakarta post": "Indonesia",
-    "antaranews": "Indonesia",
-    "antara news": "Indonesia",
-    "bernama": "Malaysia",
-    "gma news": "Philippines",
-    "gmanetwork": "Philippines",
-    "philstar": "Philippines",
-    "philippine star": "Philippines",
-    "inquirer.net": "Philippines",
-    "philippine doh": "Philippines",
+    # A masthead or "tanah air" names the outlet, not the country of the cases.
     "ລາວ": "Laos",
     "ສປປ ລາວ": "Laos",
     "ประเทศไทย": "Thailand",
@@ -920,7 +905,12 @@ def sanitize_event_coordinates(
     """
     country_norm = normalize_country(country) if country else None
     loc = str(location or "").strip()
-    if str(country_norm or "").upper() == "MULTI_COUNTRY" or loc.upper() == "MULTI_COUNTRY":
+    if (
+        str(country_norm or "").upper() == "MULTI_COUNTRY"
+        or loc.upper() == "MULTI_COUNTRY"
+        or is_global_scope_country(country)
+        or is_global_scope_country(loc)
+    ):
         return None, None
     subnational = bool(loc) and bool(country_norm) and loc.casefold() != str(country_norm).casefold()
     cleared = False
@@ -1174,6 +1164,8 @@ def geocode_place(
     needs_review=True rather than a wrong pin.
     """
     raw = (name or "").strip()
+    if is_global_scope_country(raw) or is_global_scope_country(country):
+        return None, None, 0.0, False
     if not raw or not is_usable_place_name(raw, surrounding_text):
         return None, None, 0.0, True
     mapped = normalize_country(country) or config.LOCATION_COUNTRIES.get(raw)
@@ -1425,12 +1417,8 @@ def validate_location_context(
     if article_country == city_country:
         return {"name": raw_name, "country": city_country, "score": 2, "is_valid": True}
         
-    # 3. Source Context / Standalone Unambiguous City (Score 1):
-    norm_source = normalize_country(source_country)
+    # 3. A city next to a case count. The publisher country is not evidence.
     if not mentioned_countries:
-        if norm_source and norm_source == city_country:
-            return {"name": raw_name, "country": city_country, "score": 1, "is_valid": True}
-        # Prominent city with health or case indicator
         for match in re.finditer(rf"\b{re.escape(name_lower)}\b", lower_text):
             start = max(0, match.start() - 100)
             end = min(len(lower_text), match.end() + 100)
@@ -1445,12 +1433,82 @@ def validate_location_context(
     return {"name": raw_name, "country": city_country, "score": 0, "is_valid": False}
 
 
+GLOBAL_SCOPE_COUNTRY = "Global"
+
+_GLOBAL_SCOPE_FOLDED = frozenset({
+    "global", "internasional", "international", "worldwide", "world",
+    "nasional", "national",
+})
+
+# Geographic scope with no country name. Facility phrases such as
+# "bandara internasional" are not this scope.
+_UNSPECIFIED_GEO_SCOPE = re.compile(
+    r"(?i)(?:"
+    r"\b(?:secara|tingkat|skala|level|cakupan)\s+(?:nasional|internasional|international|global)\b|"
+    r"\b(?:nationwide|nationally|countrywide|internationally|worldwide|globally)\b|"
+    r"\b(?:seluruh\s+(?:tanah\s+air|negeri|dunia|negara)|di\s+tanah\s+air|"
+    r"seluruh\s+dunia|secara\s+global|in\s+the\s+country|across\s+the\s+country|"
+    r"throughout\s+the\s+country)\b|"
+    r"\b(?:toàn\s+quốc|trong\s+nước|trên\s+cả\s+nước|sa\s+buong\s+bansa)\b|"
+    r"ทั่วประเทศ|ระดับประเทศ|"
+    r"\b(?:nasional|internasional|international|national)\b"
+    r")"
+)
+_SCOPE_FACILITY = re.compile(
+    r"(?i)(?:\b(?:bandara|airport|penerbangan|flight)\s+(?:internasional|international|nasional|national)\b|"
+    r"\b(?:internasional|international|nasional|national)\s+"
+    r"(?:airport|bandara|flight|penerbangan|committee|organization|organisation|"
+    r"agency|federation|health\s+regulations?)\b)"
+)
+
+
+def is_global_scope_country(value: Optional[str]) -> bool:
+    """True for nasional/internasional/global labels that are not a country."""
+    folded = _fold_location_text(str(value or "").strip())
+    return folded in _GLOBAL_SCOPE_FOLDED
+
+
+def article_has_unspecified_geo_scope(text: str) -> bool:
+    """True when the article says national or international and names no country."""
+    for match in _UNSPECIFIED_GEO_SCOPE.finditer(text or ""):
+        window = (text or "")[max(0, match.start() - 32): match.end() + 32]
+        if _SCOPE_FACILITY.search(window):
+            continue
+        return True
+    return False
+
+
+def event_country_name(value: Optional[str]) -> Optional[str]:
+    """Country written on the case. Nasional/internasional stay Global."""
+    if is_global_scope_country(value):
+        return GLOBAL_SCOPE_COUNTRY
+    return normalize_country(value)
+
+
+def surveillance_scope_label(country: Optional[str]) -> Optional[str]:
+    """KPI bucket. The case country itself stays on ``country``."""
+    value = str(country or "").strip()
+    if not value:
+        return None
+    if value == "MULTI_COUNTRY":
+        return "MULTI_COUNTRY"
+    if is_global_scope_country(value):
+        return "Global"
+    mapped = normalize_country(value) or value
+    if mapped in config.ASEAN_COUNTRIES:
+        return "ASEAN"
+    return "Outside ASEAN"
+
+
 def country_scope(country: Optional[str]) -> Optional[str]:
     """Return the display/filter country without relabeling known ASEAN data.
 
     Non-ASEAN labels (United States/Utah, India, DRC, ...) become OUTSIDE ASEAN
     so default asean11 KPIs cannot be inflated by secondary geographies.
+    Nasional/internasional stay Global and are not a publisher country.
     """
+    if is_global_scope_country(country):
+        return GLOBAL_SCOPE_COUNTRY
     mapped = normalize_country(country)
     value = (mapped or "").strip()
     if not value:
@@ -2598,31 +2656,41 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         location = country
     if not country and not location:
         country = extract_country_hint(text)
-    # National deixis ("nationwide", "seluruh tanah air") with no named
-    # foreign country: the publisher country is the event geography.
-    # A missing gazetteer hit is not enough. An Indonesian wire story about
-    # RD Kongo must not become an Indonesia event.
-    if not country and norm_source and norm_source in config.ASEAN_COUNTRIES:
-        national_scope = re.search(
-            r"(?i)\b(?:"
-            r"nationwide|nationally|countrywide|across\s+the\s+country|"
-            r"throughout\s+the\s+country|in\s+the\s+country|"
-            r"seluruh\s+(?:tanah\s+air|negeri|negara)|di\s+tanah\s+air|"
-            r"peringkat\s+kebangsaan|seluruh\s+indonesia"
-            r")\b",
-            text or "",
-        )
-        foreign = extract_country_hint(text or "")
-        conflicting = [
-            c for c in extract_all_mentioned_countries(text or "")
-            if c != norm_source
-        ]
-        if foreign and foreign != norm_source:
-            conflicting.append(foreign)
-        if national_scope and not conflicting:
-            country = norm_source
-            if not location:
-                location = country
+    # Country is the country named on the cases. A publisher country is not
+    # used. "Nasional" / "internasional" with no named country is global, and
+    # that row has no coordinates.
+    named_country = extract_country_hint(text, publisher=norm_source)
+    publisher_only = bool(
+        country
+        and norm_source
+        and str(country).casefold() == str(norm_source).casefold()
+        and not country_alias_in_text(country, text)
+    )
+    if publisher_only:
+        country = named_country
+        if location and str(location).casefold() == str(norm_source).casefold():
+            location = named_country
+    if (
+        not named_country
+        and not country
+        and article_has_unspecified_geo_scope(text)
+    ):
+        country = GLOBAL_SCOPE_COUNTRY
+        location = GLOBAL_SCOPE_COUNTRY
+        all_locations = [{
+            "name": GLOBAL_SCOPE_COUNTRY,
+            "latitude": None,
+            "longitude": None,
+            "country": GLOBAL_SCOPE_COUNTRY,
+            "geocode_confidence": 0.0,
+            "geocode_needs_review": False,
+        }]
+    elif is_global_scope_country(country):
+        country = GLOBAL_SCOPE_COUNTRY
+        location = GLOBAL_SCOPE_COUNTRY
+        for item in all_locations:
+            item["latitude"] = None
+            item["longitude"] = None
     if not location and country:
         location = country
     if location and not all_locations:
