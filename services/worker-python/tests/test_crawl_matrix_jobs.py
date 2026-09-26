@@ -31,6 +31,15 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn("Dengue OR Measles", query)
         self.assertNotIn("ASEAN", query)
 
+    def test_news_query_uses_master_region_members_and_location(self):
+        query = build_news_query(
+            ["Ebola"], None, "Sub-Saharan Africa",
+            ["Democratic Republic of the Congo", "Uganda"], "Kinshasa",
+        )
+        self.assertIn("Democratic Republic of the Congo OR Uganda", query)
+        self.assertIn('"Kinshasa"', query)
+        self.assertNotIn("Sub-Saharan Africa", query)
+
     def test_scalar_and_list_disease_outputs_have_the_same_shape(self):
         self.assertEqual(disease_labels({"disease_classification": "Dengue"}), ["Dengue"])
         self.assertEqual(disease_labels({"disease_classification": ["Dengue", "Measles"]}), ["Dengue", "Measles"])

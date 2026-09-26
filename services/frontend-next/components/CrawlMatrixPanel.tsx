@@ -3,10 +3,9 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Bug, ChevronDown, ChevronRight, Download, ExternalLink, Loader2, MapPin, Play, RefreshCw } from 'lucide-react'
-import { createCrawlJob, fetchCrawlJob, fetchPaginated, reprocessCrawlJob } from '@/lib/api'
+import { createCrawlJob, fetchCrawlJob, fetchMasterRegions, fetchPaginated, reprocessCrawlJob } from '@/lib/api'
 import type { CrawlJobStatus, CrawlMatrixRow } from '@/types'
-import type { DiseaseConcept } from '@/lib/api'
-import { ASEAN11_COUNTRY_NAMES, isAseanCountryName } from '@/lib/asean-scope'
+import type { DiseaseConcept, MasterRegion } from '@/lib/api'
 
 const MATRIX_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 68, sticky: true },
@@ -32,8 +31,7 @@ const MATRIX_COLUMNS: { key: string; label: string; width: number; sticky?: bool
   { key: 'action', label: 'Action', width: 95 },
 ]
 
-type LocationOption = { country?: string | null; name?: string | null }
-const ASEAN_COUNTRIES: string[] = [...ASEAN11_COUNTRY_NAMES]
+type PlaceOption = { id: string; name: string; country?: string | null; admin_level?: number | null }
 
 function eventPlace(row: CrawlMatrixRow) {
   const city = row.city && row.city !== row.country ? row.city : ''
@@ -238,11 +236,14 @@ function download(name: string, content: string, type: string) {
 
 export default function CrawlMatrixPanel() {
   const [diseases, setDiseases] = useState<DiseaseConcept[]>([])
-  const [countries, setCountries] = useState<string[]>([])
+  const [regions, setRegions] = useState<MasterRegion[]>([])
+  const [places, setPlaces] = useState<PlaceOption[]>([])
+  const [placesLoading, setPlacesLoading] = useState(false)
+  const [placeSearch, setPlaceSearch] = useState('')
   const [selectedDiseases, setSelectedDiseases] = useState<string[]>([])
   const [diseaseSearch, setDiseaseSearch] = useState('')
   const [articleUrl, setArticleUrl] = useState('')
-  const [region, setRegion] = useState('ASEAN')
+  const [regionId, setRegionId] = useState('')
   const [country, setCountry] = useState('')
   const [provinceCity, setProvinceCity] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -257,11 +258,14 @@ export default function CrawlMatrixPanel() {
     let active = true
     Promise.all([
       fetchPaginated<DiseaseConcept>('/api/v1/disease-concepts?is_active=true&per_page=100'),
-      fetchPaginated<LocationOption>('/api/v1/locations?per_page=100'),
-    ]).then(([diseaseResult, locationResult]) => {
+      fetchMasterRegions({ per_page: 100 }),
+    ]).then(([diseaseResult, regionRows]) => {
       if (!active) return
       setDiseases(diseaseResult.data.filter(item => item.is_active))
-      setCountries(Array.from(new Set([...ASEAN_COUNTRIES, ...locationResult.data.map(item => item.country).filter(Boolean) as string[]])).sort())
+      const activeRegions = (regionRows || []).filter(item => item.is_active)
+      setRegions(activeRegions)
+      const asean = activeRegions.find(item => item.code === 'ASEAN') || activeRegions[0]
+      if (asean) setRegionId(asean.id)
     }).catch(error => toast.error(error?.message || 'Master data could not be loaded'))
       .finally(() => active && setLoadingMaster(false))
     return () => { active = false }
@@ -283,6 +287,42 @@ export default function CrawlMatrixPanel() {
     return () => { active = false; window.clearInterval(timer) }
   }, [job?.job_id, job?.status])
 
+  const selectedRegion = regions.find(item => item.id === regionId) || null
+  const regionCountries = selectedRegion?.countries || []
+
+  useEffect(() => {
+    if (!country) {
+      setPlaces([])
+      setPlaceSearch('')
+      return
+    }
+    let active = true
+    setPlacesLoading(true)
+    const path = `/api/v1/locations?snapshot=true&is_active=true&country=${encodeURIComponent(country)}`
+    fetchPaginated<PlaceOption>(path).then(result => {
+      if (!active) return
+      const rows = result.data.filter(item => {
+        const name = (item.name || '').trim()
+        if (!name || name.toLowerCase() === country.toLowerCase()) return false
+        return item.admin_level == null || item.admin_level <= 2
+      })
+      const unique = Array.from(new Map(rows.map(item => [item.name.toLowerCase(), item])).values())
+      unique.sort((a, b) => a.name.localeCompare(b.name))
+      setPlaces(unique)
+    }).catch(() => {
+      if (active) setPlaces([])
+    }).finally(() => {
+      if (active) setPlacesLoading(false)
+    })
+    return () => { active = false }
+  }, [country])
+
+  const visiblePlaces = useMemo(() => {
+    const query = placeSearch.trim().toLowerCase()
+    const matched = query ? places.filter(item => item.name.toLowerCase().includes(query)) : places
+    return matched.slice(0, 200)
+  }, [places, placeSearch])
+
   const visibleDiseases = useMemo(() => {
     const query = diseaseSearch.trim().toLowerCase()
     return diseases.filter(item => !query || `${item.disease_id || ''} ${item.canonical_name} ${item.category || ''}`.toLowerCase().includes(query)).slice(0, 40)
@@ -299,7 +339,7 @@ export default function CrawlMatrixPanel() {
       const created = await createCrawlJob({
         disease_concept_ids: selectedDiseases,
         url: articleUrl.trim() || null,
-        region: region || null,
+        region: selectedRegion?.name || null,
         country: country || null,
         province_city: provinceCity || null,
         date_from: dateFrom || null,
@@ -363,13 +403,21 @@ export default function CrawlMatrixPanel() {
     return groups
   }, [job?.rows])
 
-  const displayedCountries = region === 'ASEAN' ? ASEAN_COUNTRIES : countries
-
-  const handleRegionChange = (newRegion: string) => {
-    setRegion(newRegion)
-    if (newRegion === 'ASEAN' && country && !isAseanCountryName(country)) {
+  function handleRegionChange(nextRegionId: string) {
+    setRegionId(nextRegionId)
+    const next = regions.find(item => item.id === nextRegionId)
+    const names = new Set((next?.countries || []).map(item => item.name))
+    if (country && !names.has(country)) {
       setCountry('')
+      setProvinceCity('')
+      setPlaceSearch('')
     }
+  }
+
+  function handleCountryChange(nextCountry: string) {
+    setCountry(nextCountry)
+    setProvinceCity('')
+    setPlaceSearch('')
   }
 
   return (
@@ -402,16 +450,21 @@ export default function CrawlMatrixPanel() {
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-600">Region</label>
-            <select value={region} onChange={e => handleRegionChange(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-              <option value="ASEAN">ASEAN (All Member Countries)</option>
-              <option value="Global">Global</option>
+            <select value={regionId} onChange={e => handleRegionChange(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+              {regions.length === 0 && <option value="">No regions in master data</option>}
+              {regions.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
-            <label className="mt-3 block text-xs font-semibold text-slate-600">Country (optional {region === 'ASEAN' ? '- defaults to all ASEAN' : ''})</label>
-            <select value={country} onChange={e => setCountry(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-              <option value="">{region === 'ASEAN' ? 'All ASEAN countries (auto)' : 'All countries'}</option>
-              {displayedCountries.map(item => <option key={item} value={item}>{item}</option>)}
+            <label className="mt-3 block text-xs font-semibold text-slate-600">Country{selectedRegion ? ` in ${selectedRegion.name}` : ''}</label>
+            <select value={country} onChange={e => handleCountryChange(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+              <option value="">{regionCountries.length ? `All countries in ${selectedRegion?.name}` : 'Select a region first'}</option>
+              {regionCountries.map(item => <option key={item.id} value={item.name}>{item.name}</option>)}
             </select>
-            <input value={provinceCity} onChange={e => setProvinceCity(e.target.value)} placeholder="Province or city (optional)" className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            <label className="mt-3 block text-xs font-semibold text-slate-600">Location</label>
+            <input value={placeSearch} onChange={e => setPlaceSearch(e.target.value)} disabled={!country} placeholder={country ? 'Search province or city' : 'Select a country first'} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50" />
+            <select value={provinceCity} onChange={e => setProvinceCity(e.target.value)} disabled={!country} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-50">
+              <option value="">{!country ? 'Select a country first' : placesLoading ? 'Loading locations...' : 'All locations in this country'}</option>
+              {visiblePlaces.map(item => <option key={item.id || item.name} value={item.name}>{item.name}</option>)}
+            </select>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-600">Article date range</label>

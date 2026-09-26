@@ -31,6 +31,8 @@ class DiscoverUrlsRequest(BaseModel):
     disease_names: list[str] = Field(min_length=1, max_length=20)
     country: str | None = None
     region: str | None = None
+    region_countries: list[str] = Field(default_factory=list)
+    province_city: str | None = None
     date_from: str | None = None
     date_to: str | None = None
     max_urls: int = Field(default=20, ge=1, le=500)
@@ -186,6 +188,8 @@ async def discover_article_urls(payload: DiscoverUrlsRequest):
         payload.date_to,
         payload.max_urls,
         sources,
+        payload.region_countries,
+        payload.province_city,
     )
     logger.info("URL discovery completed: found=%d warnings=%d", len(results), len(warnings))
     return {"success": True, "data": results, "warnings": warnings}
