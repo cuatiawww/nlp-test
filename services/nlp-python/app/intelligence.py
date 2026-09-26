@@ -26,6 +26,22 @@ from .multilingual import normalize_local_digits
 
 logger = logging.getLogger(__name__)
 
+def _relation_in_span(relation: Any, start: int, end: int, sentence: str) -> bool:
+    """Match a relation to a sentence by offset first, then collapsed evidence."""
+
+    offset = getattr(relation, "evidence_offset_start", None)
+    if offset is not None and start <= offset < end:
+        return True
+    evidence = str(getattr(relation, "evidence", "") or "")
+    if not evidence:
+        return False
+    if evidence.casefold() in sentence.casefold():
+        return True
+    collapsed_evidence = re.sub(r"\s+", " ", evidence).casefold()
+    collapsed_sentence = re.sub(r"\s+", " ", sentence).casefold()
+    return bool(collapsed_evidence) and collapsed_evidence in collapsed_sentence
+
+
 _SENTENCE_RE = re.compile(r".*?(?:[.!?。！？]+|$)", re.S)
 _GENERIC_METRIC_RE = re.compile(
     r"(?P<value>\d[\d.,]*)\s*"
@@ -520,17 +536,7 @@ def build_atomic_events(
         relevant_spans = []
         for span in spans:
             start, end, sentence = span
-            if any(
-                (
-                    relation.evidence_offset_start is not None
-                    and start <= relation.evidence_offset_start < end
-                )
-                or (
-                    relation.evidence
-                    and relation.evidence.casefold() in sentence.casefold()
-                )
-                for relation in document_relations
-            ):
+            if any(_relation_in_span(relation, start, end, sentence) for relation in document_relations):
                 relevant_spans.append(span)
         if relevant_spans:
             spans = relevant_spans
@@ -538,7 +544,7 @@ def build_atomic_events(
     for start, end, sentence in spans:
         local_relations = [
             relation for relation in document_relations
-            if relation.evidence and relation.evidence.casefold() in sentence.casefold()
+            if _relation_in_span(relation, start, end, sentence)
         ]
         local_relations = [
             relation for relation in local_relations
@@ -590,6 +596,9 @@ def build_atomic_events(
             scoped_country = scope_countries[0]
             scoped_relations = []
             for relation in local_relations:
+                if str(relation.qualifier or "").startswith("sitrep"):
+                    scoped_relations.append(relation)
+                    continue
                 evidence_lower = str(relation.evidence or sentence).casefold()
                 sentence_lower = sentence.casefold()
                 explicit_location = (
@@ -675,18 +684,43 @@ def build_atomic_events(
                 str(getattr(incoming_location, "name", "") or ""),
                 str(getattr(incoming_location, "country", "") or ""),
             )
-            location = specific_location_cache.get(location_key)
-            if location is None:
-                location = _most_specific_event_location(sentence, evidence, incoming_location, linker)
-                if location is None:
-                    logger.debug("Skipping metric event after location refinement failed: %s", evidence or sentence[:160])
-                    return
+            if str(qualifier or "").startswith("sitrep"):
+                location = incoming_location
                 specific_location_cache[location_key] = location
+            else:
+                location = specific_location_cache.get(location_key)
+                if location is None:
+                    location = _most_specific_event_location(sentence, evidence, incoming_location, linker)
+                    if location is None:
+                        logger.debug("Skipping metric event after location refinement failed: %s", evidence or sentence[:160])
+                        return
+                    specific_location_cache[location_key] = location
             hierarchy_key = (str(location.name or ""), str(location.country or ""))
-            hierarchy = hierarchy_cache.get(hierarchy_key)
-            if hierarchy is None:
-                hierarchy = extractors.resolve_location_hierarchy(location.name, country_hint=location.country)
+            if str(qualifier or "").startswith("sitrep") and extractors.is_global_scope_country(location.country):
+                hierarchy = {
+                    "canonical_name": extractors.GLOBAL_SCOPE_COUNTRY,
+                    "country": extractors.GLOBAL_SCOPE_COUNTRY,
+                    "country_iso3": None,
+                    "admin1_name": None,
+                    "admin2_name": None,
+                    "latitude": None,
+                    "longitude": None,
+                }
                 hierarchy_cache[hierarchy_key] = hierarchy
+            else:
+                hierarchy = hierarchy_cache.get(hierarchy_key)
+                if hierarchy is None:
+                    hierarchy = extractors.resolve_location_hierarchy(location.name, country_hint=location.country)
+                    hierarchy_cache[hierarchy_key] = hierarchy
+                if (
+                    str(qualifier or "").startswith("sitrep")
+                    and location.country
+                    and hierarchy.get("country")
+                    and str(hierarchy.get("country")).casefold() != str(location.country).casefold()
+                ):
+                    hierarchy = dict(hierarchy)
+                    hierarchy["canonical_name"] = location.name
+                    hierarchy["country"] = location.country
             frame = extract_event_period(sentence, published_at=published_at)
             metric_frame = extract_event_period(relation_time_frame or "", published_at=published_at) if relation_time_frame else {}
             if relation_time_frame and (" to " in relation_time_frame or metric_frame.get("event_date_start")):
@@ -698,7 +732,13 @@ def build_atomic_events(
             event_period = metric_frame if metric_frame.get("event_date_start") else frame
             sentence_period = str(frame.get("period_type") or "")
             metric_period = str(event_period.get("period_type") or "")
-            if sentence_period in {"historical", "monthly"}:
+            if qualifier in {"weekly", "sitrep_weekly"} or str(relation_time_frame or "").startswith("Weekly"):
+                period_type = "weekly"
+            elif qualifier in {"daily", "sitrep_daily"}:
+                period_type = "daily"
+            elif qualifier in {"cumulative", "sitrep_cumulative"}:
+                period_type = "cumulative"
+            elif sentence_period in {"historical", "monthly", "weekly"}:
                 period_type = sentence_period
             elif metric_period not in {"", "unknown"}:
                 period_type = metric_period

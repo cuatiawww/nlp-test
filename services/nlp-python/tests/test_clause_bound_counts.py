@@ -243,10 +243,6 @@ class ClauseBoundCountTests(unittest.TestCase):
                 }
                 self.assertIn(("Indonesia", 309786, 0), counted)
                 self.assertIn((expected_place[language], 63748, 0), counted)
-                country_event = next(
-                    evt for evt in events if evt.get("location_name") == "Indonesia"
-                )
-                self.assertIn(expected_place[language], str(country_event.get("admin1") or ""))
                 self.assertNotIn((expected_place[language], 309786, 0), counted)
                 self.assertNotIn(("Indonesia", 63748, 0), counted)
                 self.assertFalse(any(deaths == 309786 for _, _, deaths in counted))
@@ -338,17 +334,9 @@ class ClauseBoundCountTests(unittest.TestCase):
                 }
                 for place, count in expected:
                     self.assertIn((place, count), local)
+                self.assertEqual(counted, set(expected))
                 country_name, country_count = expected[0]
-                self.assertIn((country_name, country_count), counted)
                 for place, count in expected[1:]:
-                    self.assertIn((place, count), counted)
-                joined = " ".join(str(evt.get("admin1") or "") for evt in events)
-                for place, count in expected[1:]:
-                    if (place, count) in local and any(
-                        evt.get("country") and place in str(evt.get("admin1") or "")
-                        for evt in events
-                    ):
-                        self.assertIn(place, joined)
                     self.assertNotIn((place, country_count), counted)
                     self.assertNotIn((country_name, count), counted)
 

@@ -292,6 +292,11 @@ class RelationAttributionTests(unittest.TestCase):
         indonesia = next(item for item in projected if item["location_name"] == "Indonesia")
         self.assertEqual(int(indonesia["case_count"] or 0), 309786)
         self.assertIn("Jawa Barat", str(indonesia.get("admin1") or ""))
+        projected = _collapse_same_country_events(events)
+        self.assertIn(("Indonesia", 309786), {
+            (evt.get("location_name"), int(evt.get("case_count") or 0))
+            for evt in projected
+        })
 
     def test_global_average_without_country_counts_stays_one_global_event(self):
         linker = self._use_places({

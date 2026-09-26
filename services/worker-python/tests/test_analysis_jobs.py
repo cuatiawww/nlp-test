@@ -124,7 +124,7 @@ class AnalysisJobTests(unittest.TestCase):
             nlp,
             nlp_retries=0,
         )
-        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["status"], "waiting_nlp")
         self.assertIn("NLP HTTP 503: busy", result["warnings"][0])
         self.assertEqual(result["result"]["content"], "Report")
 
@@ -220,10 +220,13 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "empty_article")
 
     def test_analyze_article_uses_full_raw_pipeline(self):
+        missing = Mock(status_code=404, ok=False, headers={}, reason="Not Found")
+        missing.text = ""
         response = Mock()
         response.ok = True
+        response.status_code = 200
         response.json.return_value = {"disease_classification": "Dengue", "case_count": 10}
-        with patch("requests.post", return_value=response) as post:
+        with patch("requests.post", side_effect=[missing, response]) as post:
             analyze_article(
                 {
                     "title": "DBD",
@@ -236,24 +239,42 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertFalse(sent["rules_only"])
         self.assertFalse(sent["historical_fast"])
         self.assertEqual(sent["source_url"], "https://example.org/news")
-        self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
+        self.assertTrue(post.call_args_list[0].args[0].endswith("/nlp/analyze/jobs"))
+        self.assertTrue(post.call_args_list[1].args[0].endswith("/nlp/analyze/raw"))
         self.assertFalse(post.call_args.kwargs["allow_redirects"])
 
+    def test_analyze_article_polls_async_nlp_job(self):
+        created = Mock(ok=True, status_code=200)
+        created.json.return_value = {"job_id": "j1", "status": "queued"}
+        polled = Mock(ok=True, status_code=200)
+        polled.json.return_value = {"status": "done", "result": {"case_count": 4}}
+        with patch("requests.post", return_value=created), patch("requests.get", return_value=polled) as get:
+            result = analyze_article({
+                "title": "DBD",
+                "content": "10 kasus",
+                "url": "https://example.org/news",
+            })
+        self.assertEqual(result["case_count"], 4)
+        self.assertIn("/nlp/jobs/j1", get.call_args.args[0])
+
     def test_raw_405_retries_the_same_pipeline_on_analyze(self):
+        missing = Mock(status_code=404, ok=False, headers={}, reason="Not Found")
+        missing.text = ""
         denied = Mock(status_code=405, ok=False, headers={}, reason="Method Not Allowed")
         denied.text = '{"detail":"Method Not Allowed"}'
         allowed = Mock(status_code=200, ok=True, headers={})
         allowed.json.return_value = {"disease_classification": "COVID-19", "case_count": 3642}
-        with patch("requests.post", side_effect=[denied, allowed]) as post:
+        with patch("requests.post", side_effect=[missing, denied, allowed]) as post:
             result = analyze_article({
                 "title": "Thailand",
                 "content": "Thailand recorded 3,642 cumulative Covid-19 cases.",
                 "url": "https://globalnation.inquirer.net/example",
             })
         self.assertEqual(result["case_count"], 3642)
-        self.assertTrue(post.call_args_list[0].args[0].endswith("/nlp/analyze/raw"))
-        self.assertTrue(post.call_args_list[1].args[0].endswith("/nlp/analyze"))
-        self.assertFalse(post.call_args_list[1].args[0].endswith("/nlp/analyze/raw"))
+        self.assertTrue(post.call_args_list[0].args[0].endswith("/nlp/analyze/jobs"))
+        self.assertTrue(post.call_args_list[1].args[0].endswith("/nlp/analyze/raw"))
+        self.assertTrue(post.call_args_list[2].args[0].endswith("/nlp/analyze"))
+        self.assertFalse(post.call_args_list[2].args[0].endswith("/nlp/analyze/raw"))
 
     def test_url_worker_spawns_manual_crawler_in_the_existing_service(self):
         from app.analysis_jobs import spawn_matrix_worker_enabled, analysis_prefetch, QUEUE

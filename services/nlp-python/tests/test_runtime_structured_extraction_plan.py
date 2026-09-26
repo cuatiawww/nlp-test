@@ -107,7 +107,7 @@ class RuntimeStructuredExtractionPlanTests(unittest.TestCase):
             {("North Kivu", 100, 20), ("South Kivu", 50, 5)},
         )
 
-    def test_country_total_folds_provincial_breakdown_into_admin1(self):
+    def test_country_total_keeps_provincial_counts_as_separate_events(self):
         events = [
             {
                 "disease": "Dengue",

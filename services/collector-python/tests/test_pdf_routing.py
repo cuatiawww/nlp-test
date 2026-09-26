@@ -37,9 +37,9 @@ class PdfRoutingTests(unittest.TestCase):
         context.__exit__ = Mock(return_value=False)
         with patch("pdfplumber.open", return_value=context):
             result = extract_pdf(b"%PDF", "https://example.org/a.pdf", Mock())
-        self.assertEqual(result["content"], "Situation report")
+        self.assertIn("Situation report", result["content"])
         self.assertEqual(result["pdf_tables"][0]["rows"][1], ["Dengue", "10"])
-        self.assertNotIn("10", result["content"])
+        self.assertIn("Dengue | 10", result["content"])
 
     def test_scanned_pdf_requires_ocr_not_non_health(self):
         document = Mock(pages=[], metadata={})

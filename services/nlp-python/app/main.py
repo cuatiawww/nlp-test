@@ -52,11 +52,10 @@ from . import pipeline
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-import threading
+import queue as queue_module
 
-# One CPU-bound fine-tuned inference at a time. Extra requests wait rather than
-# stacking torch threadpools that hang /health under load.
-_INFERENCE_SEM = threading.Semaphore(max(1, int(os.getenv("NLP_INFERENCE_CONCURRENCY", "1"))))
+from .inference_pool import POOL
+from .config import NLP_REQUEST_TIMEOUT_SECONDS
 
 
 app = FastAPI(title="Disease NLP Service", version="0.3.0")
@@ -115,19 +114,45 @@ def health():
     # backend-rust, while backend-rust itself waits for this health check.
     # Readiness must be local and non-blocking to avoid a startup deadlock.
     from .config import NLP_MODEL, DISEASE_LABELS
+    from .model_cache import local_model_available
+    pool = POOL.snapshot()
     return {
         "status": "ok",
         "service": "nlp-python",
         "model": NLP_MODEL,
         "disease_labels": list(DISEASE_LABELS),
+        "inference": pool,
+        "models": {
+            "nllb": local_model_available(os.getenv("TRANSLATION_LOCAL_MODEL", "facebook/nllb-200-distilled-600M")),
+            "xlm-roberta": local_model_available("xlm-roberta-base"),
+            "indobert": local_model_available("indolem/indobert-base-uncased"),
+            "fine-tuned": local_model_available("/app/models/fine-tuned"),
+        },
     }
+
+
+def _run_analysis(payload: AnalyzeRequest):
+    try:
+        return POOL.submit_and_wait(
+            lambda: pipeline.run(_full_pipeline_payload(payload)),
+            timeout=float(NLP_REQUEST_TIMEOUT_SECONDS),
+        )
+    except queue_module.Full:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="busy",
+        )
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            detail=f"exceeded budget ({NLP_REQUEST_TIMEOUT_SECONDS}s)",
+        ) from exc
 
 
 @app.post("/nlp/analyze", response_model=AnalyzeResponse)
 def analyze(payload: AnalyzeRequest):
     try:
-        with _INFERENCE_SEM:
-            return pipeline.run(_full_pipeline_payload(payload))
+        return _run_analysis(payload)
     except HTTPException:
         raise
     except Exception as exc:
@@ -138,12 +163,36 @@ def analyze(payload: AnalyzeRequest):
         )
 
 
+@app.post("/nlp/analyze/jobs")
+def analyze_jobs(payload: AnalyzeRequest):
+    """Accept Full NLP without waiting for worker A/B to finish."""
+    job_id = POOL.submit(lambda: pipeline.run(_full_pipeline_payload(payload)))
+    if job_id is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="busy")
+    return {"job_id": job_id, "status": "queued", "inference": POOL.snapshot()}
+
+
+@app.get("/nlp/jobs/{job_id}")
+def analyze_job_status(job_id: str):
+    row = POOL.get(job_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown job")
+    payload = {
+        "job_id": job_id,
+        "status": row.get("status"),
+        "worker": row.get("worker"),
+        "error": row.get("error"),
+    }
+    if row.get("status") == "done":
+        payload["result"] = row.get("result")
+    return payload
+
+
 @app.post("/nlp/analyze/raw", response_model=AnalyzeResponse)
 def analyze_raw(payload: AnalyzeRequest):
     """Dedicated endpoint for raw news/unstructured text analysis."""
     try:
-        with _INFERENCE_SEM:
-            return pipeline.run(_full_pipeline_payload(payload))
+        return _run_analysis(payload)
     except HTTPException:
         raise
     except Exception as exc:
@@ -169,7 +218,9 @@ def analyze_surveillance(payload: AnalyzeRequest):
     try:
         # Compatibility adapter for collector consumers. Extraction, relation
         # attribution, and event composition happen in the shared pipeline.
-        return surveillance_from_analysis(pipeline.run(_full_pipeline_payload(payload)))
+        return surveillance_from_analysis(_run_analysis(payload))
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Failed to build structured surveillance output: %s", exc)
         raise HTTPException(

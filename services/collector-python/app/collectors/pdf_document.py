@@ -24,6 +24,22 @@ def is_pdf(url, content_type, prefix):
             or urlparse(url).path.lower().endswith(".pdf")
             or prefix.lstrip().startswith(b"%PDF-"))
 
+def flatten_pdf_tables(tables):
+    """Keep table cells in the article string the shared NLP core receives."""
+    lines = []
+    for table in tables or []:
+        rows = table.get("rows") if isinstance(table, dict) else table
+        if not rows:
+            continue
+        for row in rows:
+            cells = [re.sub(r"\s+", " ", str(cell or "")).strip() for cell in (row or [])]
+            if any(cells):
+                lines.append(" | ".join(cells))
+        if lines and lines[-1] != "":
+            lines.append("")
+    return "\n".join(lines).strip()
+
+
 def _clean_title(raw_title, url):
     if raw_title and str(raw_title).strip() and not str(raw_title).strip().lower().endswith((".docx", ".doc", ".pdf", ".tmp")):
         return str(raw_title).strip()
@@ -114,10 +130,14 @@ def extract_pdf(data, url, upload):
             raise ValueError("Tidak ditemukan teks digital pada PDF; kemungkinan dokumen hasil scan (memerlukan OCR review)")
         upload(key + ".tables.json", json.dumps(tables, ensure_ascii=False).encode(), "application/json")
         sections = _detect_sections(texts)
+        content = "\n\n".join(texts)
+        table_text = flatten_pdf_tables(tables)
+        if table_text and table_text not in content:
+            content = f"{content}\n\n{table_text}".strip()
         return {
             "url": url,
             "title": title,
-            "content": "\n\n".join(texts),
+            "content": content,
             "sections": sections,
             "document_type": "pdf",
             "object_path": key,

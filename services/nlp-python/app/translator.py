@@ -4,7 +4,6 @@ import logging
 import os
 import re
 from functools import lru_cache
-from pathlib import Path
 from threading import Lock
 from typing import Any
 
@@ -118,7 +117,8 @@ def _nllb_model():
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
     model_name = os.getenv("TRANSLATION_LOCAL_MODEL", "facebook/nllb-200-distilled-600M")
-    model_path = _resolve_cached_model_path(model_name)
+    from .model_cache import resolve_local_model_path
+    model_path = resolve_local_model_path(model_name)
     load_kwargs = {"local_files_only": True} if model_path != model_name else {}
     return (
         AutoTokenizer.from_pretrained(model_path, **load_kwargs),
@@ -127,31 +127,8 @@ def _nllb_model():
 
 
 def _resolve_cached_model_path(model_name: str) -> str:
-    """Use an existing local HF snapshot when the cache layout is legacy."""
-    candidate = Path(model_name)
-    if candidate.is_dir():
-        return str(candidate)
-    if "/" not in model_name:
-        return model_name
-
-    cache_roots = []
-    for value in (os.getenv("HF_HUB_CACHE"), os.getenv("HF_HOME"), os.getenv("TRANSFORMERS_CACHE")):
-        if value and value not in cache_roots:
-            cache_roots.append(value)
-    for root_value in cache_roots:
-        repo_dir = Path(root_value) / ("models--" + model_name.replace("/", "--"))
-        snapshot_root = repo_dir / "snapshots"
-        if not snapshot_root.is_dir():
-            continue
-        snapshots = sorted(snapshot_root.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True)
-        for snapshot in snapshots:
-            if (snapshot / "config.json").is_file() and any(
-                (snapshot / filename).is_file()
-                for filename in ("pytorch_model.bin", "model.safetensors", "model.safetensors.index.json")
-            ):
-                logger.info("Using cached local model snapshot for %s: %s", model_name, snapshot)
-                return str(snapshot)
-    return model_name
+    from .model_cache import resolve_local_model_path
+    return resolve_local_model_path(model_name)
 
 
 def _translation_chunks(
@@ -224,7 +201,8 @@ def _nllb(
     # transformers perform a network lookup for a missing snapshot; that
     # turns an optional enrichment task into a long request timeout.
     model_name = os.getenv("TRANSLATION_LOCAL_MODEL", "facebook/nllb-200-distilled-600M")
-    model_path = _resolve_cached_model_path(model_name)
+    from .model_cache import resolve_local_model_path
+    model_path = resolve_local_model_path(model_name)
     offline = os.getenv("HF_HUB_OFFLINE", "0").lower() in {"1", "true", "yes", "on"} or os.getenv(
         "TRANSFORMERS_OFFLINE", "0"
     ).lower() in {"1", "true", "yes", "on"}

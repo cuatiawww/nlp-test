@@ -228,8 +228,11 @@ def _materialize_cached_snapshot(model_id: str) -> str | None:
 
 
 def _get_pipe(model_key: str):
+    from ..model_cache import resolve_local_model_path
     model_id = _get_model_id(model_key)
-    resolved_model_id = _materialize_cached_snapshot(model_id) or model_id
+    resolved_model_id = resolve_local_model_path(model_id)
+    if resolved_model_id == model_id:
+        resolved_model_id = _materialize_cached_snapshot(model_id) or model_id
     failed_at = _pipe_failures.get(model_key)
     if failed_at and time.time() - failed_at < int(os.getenv("MODEL_FAILURE_COOLDOWN_SECONDS", "300")):
         raise RuntimeError(f"model {model_key} unavailable; retry after cooldown")

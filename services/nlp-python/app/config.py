@@ -29,7 +29,7 @@ def _repair_legacy_lexicon_text(value: str) -> str:
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.batch1-analyze")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.27.batch1-analyze-sitrep")
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
@@ -541,6 +541,18 @@ def apply_curated_localities() -> None:
         LOCATION_ALIASES["jogja"] = "Yogyakarta"
     if "ha noi" not in alias_keys and "Hanoi" in LOCATION_COORDS:
         LOCATION_ALIASES["ha noi"] = "Hanoi"
+    from .admin_abbreviations import apply_admin_abbreviations
+    apply_admin_abbreviations()
+
+
+def _location_pattern_names() -> set[str]:
+    """Gazetteer names plus aliases whose canonical row is already loaded."""
+    names = set(LOCATION_COORDS.keys())
+    coords_fold = {str(key).casefold() for key in LOCATION_COORDS}
+    for alias, canon in LOCATION_ALIASES.items():
+        if str(canon).casefold() in coords_fold:
+            names.add(alias)
+    return names
 
 
 def build_location_patterns():
@@ -551,7 +563,7 @@ def build_location_patterns():
                 char for char in unicodedata.normalize("NFKD", name.lower())
                 if not unicodedata.combining(char)
             )
-            for name in LOCATION_COORDS
+            for name in _location_pattern_names()
         ),
         key=len,
         reverse=True,
@@ -716,9 +728,7 @@ def load_locations_from_db():
             LOCATION_ISO3["Sumatra Selatan"] = "IDN"
         apply_curated_localities()
 
-        all_names_to_match = set(LOCATION_COORDS.keys()) | {
-            alias for alias, canon in LOCATION_ALIASES.items() if canon in LOCATION_COORDS
-        }
+        all_names_to_match = _location_pattern_names()
         alternatives = sorted(
             (
                 "".join(

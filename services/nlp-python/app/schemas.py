@@ -10,6 +10,8 @@ class AnalyzeRequest(BaseModel):
     source_language: Optional[str] = None
     source_country: Optional[str] = None
     source_url: Optional[str] = None
+    document_type: Optional[str] = None
+    pdf_tables: Optional[list[Any]] = None
     historical_fast: bool = False
     rules_only: bool = False
     interactive: bool = False

@@ -33,6 +33,9 @@ class LlmGateTests(unittest.TestCase):
         self.assertIn("same disease, place, and count", source)
         self.assertIn("10 people were infected", source)
         self.assertIn("tingkat kasus", source)
+        self.assertIn("Sumsel", source)
+        self.assertIn("Ogan Komering Ulu", source)
+        self.assertIn("1.426", source)
 
     def test_confidence_threshold_boundary(self):
         """Only health rows below 0.85 are eligible for review."""

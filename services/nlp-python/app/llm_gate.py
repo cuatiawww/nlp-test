@@ -97,6 +97,7 @@ def should_escalate_to_llm(
     publisher_country_conflict: bool = False,
     multi_fact: bool = False,
     cross_country_comparison: bool = False,
+    geo_uncertain: bool = False,
 ) -> bool:
     """Return True ONLY for valid outbreak candidates requiring rear-gate validation/correction."""
     # 1. Front-Gate Hard Rejections (Zero Token Waste):
@@ -142,6 +143,11 @@ def should_escalate_to_llm(
     # Australia and a case rate in another country last year. That relation
     # is still a rear-gate job after the rules pin one of the numbers.
     if cross_country_comparison:
+        return True
+    # A local admin short form (Sumsel, TP.HCM, OKU) survived extraction
+    # without its canonical province/country. High disease confidence is
+    # not enough; the rear gate still has to expand the abbreviation.
+    if geo_uncertain:
         return True
     # Already-high-confidence rows stay local, including official bulletins,
     # unless a carve-out above applied.

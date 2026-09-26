@@ -553,7 +553,12 @@ def nlp_text_from_message(msg: dict) -> str:
     body = str((msg or {}).get("text") or (msg or {}).get("content") or "")
     if title and body.lstrip().startswith(title):
         title = ""
-    return _prepare_text_for_nlp({"title": title, "content": body})
+    return _prepare_text_for_nlp({
+        "title": title,
+        "content": body,
+        "pdf_tables": (msg or {}).get("pdf_tables"),
+        "document_type": (msg or {}).get("document_type"),
+    })
 
 
 def call_nlp(text: str, source_type: str, source_name: str, published_at: str,

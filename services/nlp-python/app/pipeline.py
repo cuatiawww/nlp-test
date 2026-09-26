@@ -4,6 +4,7 @@ from functools import partial
 from typing import Optional, Any
 
 from . import config, extractors
+from .admin_abbreviations import extraction_geo_uncertain
 from .llm_gate import (
     distinct_case_figure_count,
     resolve_agent_invocation_status,
@@ -73,12 +74,11 @@ def _location_is_source_grounded(name: str | None, text: str) -> bool:
 def _interactive_analysis_text(text: str) -> str:
     """Keep interactive URL analysis on lede+body, not a full crawl dump."""
     from .multi_event_extractor import who_bulletin_char_limit
-
-    limit = who_bulletin_char_limit(
-        text,
-        int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000),
-    )
+    from .sitrep_matrix import looks_like_sitrep_matrix
     raw = text or ""
+    limit = int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000)
+    if looks_like_sitrep_matrix(raw):
+        limit = max(limit, 16000)
     if len(raw) <= limit:
         return raw
     # Prefer a clean sentence boundary near the cap so counts in the lede
@@ -209,6 +209,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     _location_resolution_token = extractors.begin_location_resolution_stats()
     original_text = payload.text or ""
     text = extractors.strip_embedded_markup(extractors.repair_mojibake(original_text))
+    from .sitrep_matrix import flatten_pdf_tables, looks_like_sitrep_matrix
+    table_text = flatten_pdf_tables(getattr(payload, "pdf_tables", None))
+    if table_text and table_text not in text:
+        text = f"{text}\n\n{table_text}".strip()
+    sitrep_matrix = looks_like_sitrep_matrix(
+        text,
+        source_url=payload.source_url,
+        source_name=payload.source_name,
+        document_type=getattr(payload, "document_type", None),
+        pdf_tables=getattr(payload, "pdf_tables", None),
+    )
     if payload.interactive or payload.rules_only:
         before = len(text)
         text = _interactive_analysis_text(text)
@@ -600,10 +611,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             )
         )
         or re.search(
-            r"\b(?:disease outbreak news|situational report|sitrep|laporan situasi klb)\b",
-            text[:400],
+            r"\b(?:disease outbreak news|situational report|sitrep|laporan situasi klb|"
+            r"minggu epidemiologi|epidemiological week|e-week|penambahan kasus)\b",
+            text[:2500],
             re.IGNORECASE,
         )
+        or sitrep_matrix
     )
 
     # Preliminary metric counts for gate evaluation
@@ -660,6 +673,21 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     )
     if multi_fact:
         review_focus.append("multi-fact")
+    geo_uncertain = extraction_geo_uncertain(
+        text,
+        resolved_names=[
+            location,
+            raw_country,
+            location_country,
+            *(item.get("name") for item in all_locations),
+            *(item.get("country") for item in all_locations),
+            *(item.get("admin1") for item in all_locations if item.get("admin1")),
+        ],
+        case_count=prelim_cases,
+        death_count=prelim_deaths,
+    )
+    if geo_uncertain and "location" not in review_focus:
+        review_focus.append("location")
     gate_confidence = confidence
     if is_policy_content and (prelim_cases > 0 or prelim_deaths > 0):
         # Entity extraction promotes a source-grounded disease to 0.85 before
@@ -713,7 +741,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 or str(facts.get("country")).casefold() == str(source_country).casefold()
             )
         ),
+        geo_uncertain=geo_uncertain,
     )
+    if sitrep_matrix:
+        should_use_deepseek = False
     llm_verified_sub_events = []
     llm_review_applied = False
     llm_review_cleared_events = False
@@ -1258,7 +1289,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
 
     # --- Multi-event extraction (locations AND diseases) ---
     try:
-        from .multi_event_extractor import compose_structured_events, _collapse_same_country_events
+        from .multi_event_extractor import compose_structured_events
         from .stage_budget import bounded_call
         multi_events = bounded_call(
             partial(
@@ -1279,10 +1310,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             config.MULTI_EVENT_STAGE_TIMEOUT_SECONDS,
             isolation="process",
         )
-        # Preserve evidence-backed regional events as the source of truth.
-        # Country-level aggregation belongs in compatibility adapters, not in
-        # the shared event list.
-        multi_events = _collapse_same_country_events(multi_events)
+        # compose_structured_events already folded namelist-only places.
+        # Do not collapse again without the article text: that dropped a
+        # stated province total and kept only kabupaten rows.
         _stage_t0 = _stage_mark(_stages, "multi_event", _stage_t0)
         sub_events = [
             SubEvent(

@@ -22,7 +22,7 @@ import logging
 import os
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from functools import lru_cache
 from typing import Any, Iterable, Optional, Protocol
@@ -675,11 +675,21 @@ class GazetteerLinker:
             return []
         mentions: list[tuple[int, int, LinkedLocation]] = []
         for match in self._mention_pattern.finditer(text or ""):
-            context = text[max(0, match.start() - 80):min(len(text), match.end() + 80)]
+            context = text[max(0, match.start() - 400):min(len(text), match.end() + 120)]
             linked = self.link(match.group(0), context=context)
             if linked:
                 mentions.append((match.start(), match.end(), linked))
-        return mentions
+        kept: list[tuple[int, int, LinkedLocation]] = []
+        for start, end, linked in mentions:
+            nested = any(
+                other_start <= start
+                and end <= other_end
+                and (other_end - other_start) > (end - start)
+                for other_start, other_end, _ in mentions
+            )
+            if not nested:
+                kept.append((start, end, linked))
+        return kept
 
     def link(self, value: str, context: str = "", evidence: str = "") -> Optional[LinkedLocation]:
         value = re.sub(r"\s+", " ", (value or "").strip(" ,.;:()[]{}"))
@@ -687,6 +697,18 @@ class GazetteerLinker:
             return None
         if not extractors.is_usable_place_name(value, f"{value} {context} {evidence}"):
             return None
+        from .admin_abbreviations import resolve_admin_place
+        scoped = resolve_admin_place(value, context=f"{context} {evidence}")
+        if scoped:
+            return LinkedLocation(
+                name=scoped.canonical,
+                country=scoped.country,
+                latitude=scoped.latitude,
+                longitude=scoped.longitude,
+                is_province=scoped.admin_level == 1,
+                is_city=scoped.admin_level >= 2,
+                evidence=evidence,
+            )
         canonical = self._canonical_local(value)
         if canonical:
             country = extractors.COUNTRY_ALIASES.get(canonical.casefold()) or self.countries.get(canonical)
@@ -1158,6 +1180,65 @@ def _location_time_frame(text: str, location: LinkedLocation) -> str:
     return ""
 
 
+_WEEK_MARK = re.compile(
+    r"\b(?:minggu|pekan|week)\s+(?:ke-?\s*)?(?P<week>pertama|kedua|ketiga|keempat|\d{1,2})"
+    r"(?:\s+(?:tahun\s+)?(?P<year>20\d{2}))?",
+    re.IGNORECASE,
+)
+_WEEK_WORDS = {"pertama": 1, "kedua": 2, "ketiga": 3, "keempat": 4}
+
+
+def _week_number(raw: str | None) -> Optional[int]:
+    token = str(raw or "").strip().casefold()
+    if token in _WEEK_WORDS:
+        return _WEEK_WORDS[token]
+    if token.isdigit():
+        value = int(token)
+        if 1 <= value <= 53:
+            return value
+    return None
+
+
+def _weekly_frame(week: int, year: Optional[int]) -> str:
+    if year:
+        try:
+            start = date.fromisocalendar(year, week, 1)
+            end = date.fromisocalendar(year, week, 7)
+            return f"{start.isoformat()} to {end.isoformat()}"
+        except ValueError:
+            pass
+    return f"Weekly M{week}"
+
+
+def _nearest_week_frame(
+    text: str,
+    start: int,
+    end: int,
+    published_date: Optional[str] = None,
+) -> str:
+    """Bind a count to the minggu/pekan marker that introduces it."""
+
+    source = text or ""
+    window = source[max(0, start - 200):start]
+    match = next(reversed(list(_WEEK_MARK.finditer(window))), None)
+    if match is None:
+        return ""
+    week = _week_number(match.group("week"))
+    if week is None:
+        return ""
+    year = int(match.group("year")) if match.group("year") else None
+    if year is None and published_date:
+        try:
+            year = int(published_date[:4])
+        except (TypeError, ValueError):
+            year = None
+    if year is None:
+        year_hit = re.search(r"\b(20\d{2})\b", source)
+        if year_hit:
+            year = int(year_hit.group(1))
+    return _weekly_frame(week, year)
+
+
 def _relation_time_frame(text: str, location: LinkedLocation, published_date: Optional[str]) -> str:
     """Prefer a location-bound week, then a document-wide explicit period."""
 
@@ -1178,6 +1259,9 @@ def _relation_time_frame_for_span(
 
     source = text or ""
     context = _metric_context(source, start, end)
+    week_frame = _nearest_week_frame(source, start, end, published_date)
+    if week_frame:
+        return week_frame
     years = _YEAR_TOKEN.findall(context)
     local_period = extract_event_period(context, published_at=published_date)
     if local_period.get("event_date_start"):
@@ -1567,7 +1651,46 @@ def _metric_is_valid(text: str, start: int, end: int) -> bool:
         # Hospital utilization is a separate metric. It must not inflate the
         # incident-case total merely because ``patients`` is a case alias.
         return False
+    if _is_calendar_day_token(text, start, end):
+        return False
+    if _is_age_token(text, start, end):
+        return False
     return not _looks_like_calendar_year(text, start, end)
+
+
+_MONTH_NAME = (
+    r"januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|"
+    r"january|february|march|april|may|june|july|august|september|october|november|december"
+)
+
+
+def _is_calendar_day_token(text: str | None, start: int, end: int) -> bool:
+    """Reject 1/23 in ``1 Januari-23 April 2026`` as case counts."""
+    token = (text or "")[start:end]
+    if not re.fullmatch(r"0?\d{1,2}", token):
+        return False
+    source = text or ""
+    after = source[end:end + 28]
+    before = source[max(0, start - 28):start]
+    if re.match(rf"\s*-?\s*(?:{_MONTH_NAME})\b", after, re.IGNORECASE):
+        return True
+    if re.search(rf"(?:{_MONTH_NAME})\s+$", before, re.IGNORECASE) and re.match(
+        r"\s+\d{4}\b", after
+    ):
+        return True
+    return False
+
+
+def _is_age_token(text: str | None, start: int, end: int) -> bool:
+    """Reject ``berusia 25 tahun`` so an age is not a case total."""
+    source = text or ""
+    after = source[end:end + 20]
+    before = source[max(0, start - 48):start]
+    if re.match(r"\s+tahun\s+20\d{2}\b", after, re.IGNORECASE):
+        return False
+    if re.match(r"\s*(?:tahun|thn|th)\b", after, re.IGNORECASE):
+        return True
+    return bool(re.search(r"\b(?:berusia|berumur|umur|usia|aged)\s*$", before, re.IGNORECASE))
 
 
 def _is_prior_case_total_for_death(text: str, match: re.Match) -> bool:
@@ -2238,15 +2361,11 @@ def _link_surface_place(
                 evidence=context,
             )
     # "Disease Prevention" inside an organization name is not a city.
-    # A one-word unknown place can still carry the count when a locative
-    # names it ("di Banyuwangi") or the window calls it a city or province
-    # ("Lampang became the city"). Multi-word admin names use the admin matcher.
+    # A gazetteer miss still carries the count when a locative names it
+    # ("di Banyuwangi") or the clause calls it kabupaten/kota/provinsi
+    # ("Kabupaten Ogan Ilir 141 kasus"). Multi-word admin names are valid
+    # here; the previous early-return dropped every "Ogan Ilir".
     stripped = name.strip()
-    if " " in stripped:
-        return None
-    # "907 kasus di Banyuwangi" names a place the gazetteer may not list.
-    # The locative has to sit on this name. A city word anywhere in the
-    # window is a separate cue ("Lampang became the city").
     locative = re.search(
         rf"(?:{_locative_pattern()})\s*{re.escape(stripped)}(?![A-Za-zÀ-ÿ0-9_])",
         context or "",
@@ -2260,10 +2379,13 @@ def _link_surface_place(
     )
     if not locative and not named_admin:
         return None
+    admin_kind = (named_admin.group(0).casefold() if named_admin else "")
+    is_province = admin_kind in {"province", "provinsi", "tỉnh"}
     return LinkedLocation(
-        name=name.strip(),
+        name=stripped,
         country=country_hint or "",
-        is_city=True,
+        is_province=is_province,
+        is_city=not is_province,
         evidence=context,
     )
 
@@ -2540,6 +2662,11 @@ def _bind_counts_to_clause_places(
     Global averages and related-link figures stay labeled and carry no local case total.
     """
 
+    protected = [
+        relation for relation in relations
+        if relation.qualifier in {"monthly", "admin_list", "weekly"}
+    ]
+    relations = [relation for relation in relations if relation not in protected]
     pattern = _clause_case_pattern()
     matches = []
     for match in pattern.finditer(source or ""):
@@ -2726,7 +2853,7 @@ def _bind_counts_to_clause_places(
             country_scope=place.country or None,
             source_scope="article_local",
         ))
-    return [*kept, *labeled]
+    return [*kept, *labeled, *protected]
 
 
 def promote_country_total(events: list) -> tuple[list, Any]:
@@ -2773,6 +2900,399 @@ def promote_country_total(events: list) -> tuple[list, Any]:
     return kept, country_row
 
 
+_ENUM_REPORT_VERB = r"(?:mencatat|melaporkan|mencapai|catat|tercatat|dilaporkan)"
+_ENUM_PLACE_COUNT = re.compile(
+    rf"(?P<place>(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]+){{0,3}})"
+    rf"(?:\s+{_ENUM_REPORT_VERB})?"
+    rf"\s+(?P<count>{_NUMBER})",
+    re.UNICODE,
+)
+_MONTH_SERIES_ITEM = re.compile(
+    rf"(?:pada\s+|lalu\s+)?(?P<month>{_MONTH_NAME})"
+    rf"(?:\s*\([^)]*\))*\s+"
+    rf"(?:(?:itu|ada|tercatat|mencatat|dilaporkan|berjalan)\s+)*"
+    rf"(?P<count>{_NUMBER})",
+    re.IGNORECASE,
+)
+_ENUM_SKIP_PLACES = frozenset({
+    "januari", "februari", "maret", "april", "mei", "juni", "juli",
+    "agustus", "september", "oktober", "november", "desember",
+    "january", "february", "march", "may", "june", "july", "august",
+    "october", "november", "december",
+    "senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "suku", "dinas", "kepala", "seksi", "sudinkes", "dinkes", "antara",
+    "kasus", "kematian", "wib", "wita", "wit",
+})
+
+
+def _linked_from_admin(place: Any, evidence: str = "") -> LinkedLocation:
+    return LinkedLocation(
+        name=place.canonical,
+        country=place.country,
+        latitude=place.latitude,
+        longitude=place.longitude,
+        is_province=place.admin_level == 1,
+        is_city=place.admin_level >= 2,
+        evidence=evidence,
+    )
+
+
+def _year_like_count(value: int) -> bool:
+    return 1900 <= value <= 2099 or 2500 <= value <= 2599
+
+
+def _replace_place_count(
+    relations: dict[tuple[str, str, str], MetricRelation],
+    relation: MetricRelation,
+) -> None:
+    """An adjacent list count owns the place; drop a stolen parent total."""
+
+    stale = [
+        key for key, current in relations.items()
+        if current.location.country.casefold() == relation.location.country.casefold()
+        and current.location.name.casefold() == relation.location.name.casefold()
+        and current.metric_type != "deaths"
+        and current.cases != relation.cases
+    ]
+    for key in stale:
+        del relations[key]
+    _upsert_relation(relations, relation)
+
+
+def _link_admin_surface(name: str, source: str, linker: GazetteerLinker) -> Optional[LinkedLocation]:
+    from .admin_abbreviations import resolve_admin_place
+    scoped = resolve_admin_place(name, context=source)
+    if scoped:
+        return _linked_from_admin(scoped, source)
+    return linker.link(name, context=source, evidence=source)
+
+
+def _enumerated_admin_counts(
+    source: str,
+    linker: GazetteerLinker,
+    published_date: Optional[str],
+) -> list[MetricRelation]:
+    """Bind ``Cengkareng 327, Kalideres 188, … Tambora 47 kasus`` to each place."""
+
+    text = source or ""
+    if not text.strip():
+        return []
+    grouped: dict[tuple[int, int], list[tuple[int, int, int, str, int]]] = {}
+    for match in _ENUM_PLACE_COUNT.finditer(text):
+        place = match.group("place").strip()
+        if place.casefold() in _ENUM_SKIP_PLACES or not _place_is_usable(place):
+            continue
+        if re.search(r"\d", place):
+            continue
+        count_start, count_end = match.start("count"), match.end("count")
+        if not _metric_is_valid(text, count_start, count_end):
+            continue
+        value = _number(match.group("count"))
+        if value <= 0 or _year_like_count(value):
+            continue
+        bounds = extractors._metric_sentence_bounds(text, count_start, count_end)
+        grouped.setdefault(bounds, []).append(
+            (match.start("place"), match.end("count"), count_end, place, value)
+        )
+    relations: list[MetricRelation] = []
+    for (sentence_start, sentence_end), items in grouped.items():
+        if len(items) < 2:
+            continue
+        sentence = text[sentence_start:sentence_end]
+        if not re.search(
+            r"\b(?:kasus|kes|cases?|kematian|meninggal|deaths?)\b",
+            sentence,
+            re.IGNORECASE,
+        ):
+            continue
+        for start, end, _count_end, place, value in items:
+            linked = _link_admin_surface(place, text, linker)
+            if linked is None:
+                continue
+            relations.append(MetricRelation(
+                location=linked,
+                cases=value,
+                time_frame=_relation_time_frame_for_span(
+                    text, linked, published_date, start, end
+                ),
+                evidence=re.sub(r"\s+", " ", text[start:end]).strip(" ,;."),
+                disease=_relation_disease(text, start, end),
+                metric_type="cases",
+                qualifier="admin_list",
+                value=value,
+                evidence_offset_start=start,
+                evidence_offset_end=end,
+                source_sentence_id=_source_sentence_id(text, start),
+                country_scope=linked.country or None,
+            ))
+    return relations
+
+
+def _month_series_counts(
+    source: str,
+    linker: GazetteerLinker,
+    published_date: Optional[str],
+    fallback_location: Optional[LinkedLocation],
+) -> list[MetricRelation]:
+    """A month series without a new place inherits the article's kabupaten/kota."""
+
+    text = source or ""
+    if not text.strip():
+        return []
+    from .admin_abbreviations import document_admin_scope
+    scope = document_admin_scope(text)
+    parent = fallback_location
+    if parent is None and scope:
+        parent = _link_admin_surface(scope.canonical, text, linker)
+    if parent is None:
+        return []
+    hits: list[re.Match[str]] = []
+    for match in _MONTH_SERIES_ITEM.finditer(text):
+        count_start, count_end = match.start("count"), match.end("count")
+        if not _metric_is_valid(text, count_start, count_end):
+            continue
+        value = _number(match.group("count"))
+        if value <= 0 or _year_like_count(value):
+            continue
+        hits.append(match)
+    clusters: list[list[re.Match[str]]] = []
+    for match in hits:
+        if clusters and match.start() - clusters[-1][-1].end() <= 280:
+            clusters[-1].append(match)
+        else:
+            clusters.append([match])
+    month_map = config.get_temporal_month_map()
+    relations: list[MetricRelation] = []
+    for matches in clusters:
+        if len(matches) < 2:
+            continue
+        window_start = matches[0].start()
+        window_end = matches[-1].end()
+        sentence = text[max(0, window_start - 40):min(len(text), window_end + 40)]
+        if not re.search(r"\b(?:kasus|kes|cases?)\b", sentence, re.IGNORECASE):
+            continue
+        year_match = re.search(r"\b(20\d{2}|25\d{2})\b", sentence) or re.search(
+            r"\b(20\d{2}|25\d{2})\b", text
+        )
+        year = _calendar_year(year_match.group(1)) if year_match else None
+        if year is None and published_date:
+            try:
+                year = int(published_date[:4])
+            except (TypeError, ValueError):
+                year = None
+        if year is None:
+            continue
+        from calendar import monthrange
+        for match in matches:
+            month_number = month_map.get(match.group("month").casefold())
+            if not month_number:
+                continue
+            value = _number(match.group("count"))
+            last = monthrange(year, month_number)[1]
+            window = text[max(0, match.start() - 12):match.end() + 24]
+            if re.search(r"berjalan", window, re.IGNORECASE):
+                day_hit = re.search(
+                    rf"\b(\d{{1,2}})\s+{re.escape(match.group('month'))}\b",
+                    text,
+                    re.IGNORECASE,
+                )
+                if day_hit:
+                    last = min(last, int(day_hit.group(1)))
+            frame = (
+                f"{date(year, month_number, 1).isoformat()} to "
+                f"{date(year, month_number, last).isoformat()}"
+            )
+            relations.append(MetricRelation(
+                location=parent,
+                cases=value,
+                time_frame=frame,
+                evidence=re.sub(r"\s+", " ", text[match.start():match.end()]).strip(" ,;."),
+                disease=_relation_disease(text, match.start(), match.end()),
+                metric_type="cases",
+                qualifier="monthly",
+                value=value,
+                evidence_offset_start=match.start(),
+                evidence_offset_end=match.end(),
+                source_sentence_id=_source_sentence_id(text, match.start()),
+                country_scope=parent.country or None,
+            ))
+    return relations
+
+
+def _national_sitrep_location(
+    source: str,
+    linker: GazetteerLinker,
+) -> Optional[LinkedLocation]:
+    """Kemenkes weekly sitrep is national, not the last kabupaten in the article."""
+
+    text = source or ""
+    office = re.search(
+        r"\b(?:kementerian kesehatan|kemenkes|kementerian kesihatan|ministry of health)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if not office:
+        return None
+    national = re.search(
+        r"\b(?:nasional|se-?indonesia|seluruh indonesia|di indonesia|indonesia)\b",
+        text,
+        re.IGNORECASE,
+    )
+    provinces = re.findall(
+        r"\b(?:sumatera|jawa|banten|yogyakarta|kalimantan|sulawesi|bali|"
+        r"papua|nusa tenggara|maluku|aceh|riau|jambi|bengkulu|lampung|gorontalo)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if not national and len({item.casefold() for item in provinces}) < 2:
+        return None
+    return linker.link("Indonesia", context=text, evidence=text)
+
+
+def _week_series_counts(
+    source: str,
+    linker: GazetteerLinker,
+    published_date: Optional[str],
+    fallback_location: Optional[LinkedLocation],
+) -> list[MetricRelation]:
+    """Bind ``minggu ke-12 … 146 kasus`` to the sitrep country, one week each."""
+
+    text = source or ""
+    if not text.strip():
+        return []
+    parent = _national_sitrep_location(text, linker) or fallback_location
+    if parent is None:
+        return []
+    relations: list[MetricRelation] = []
+    marks = list(_WEEK_MARK.finditer(text))
+    for index, mark in enumerate(marks):
+        week = _week_number(mark.group("week"))
+        if week is None:
+            continue
+        stop = mark.end() + 140
+        if index + 1 < len(marks):
+            stop = min(stop, marks[index + 1].start())
+        for boundary in re.finditer(r"[.!?]", text[mark.end():stop]):
+            idx = mark.end() + boundary.start()
+            if idx > 0 and text[idx - 1].isdigit():
+                continue
+            stop = idx
+            break
+        clause = text[mark.end():stop]
+        count_match = re.search(
+            rf"(?P<count>{_NUMBER})\s+(?:kasus|kes|cases?)\b",
+            clause,
+            re.IGNORECASE,
+        )
+        if not count_match:
+            count_match = re.search(
+                rf"(?:jumlah\s+kasusnya\s+(?:itu\s+)?)(?P<count>{_NUMBER})",
+                clause,
+                re.IGNORECASE,
+            )
+        if not count_match:
+            continue
+        abs_start = mark.end() + count_match.start("count")
+        abs_end = mark.end() + count_match.end("count")
+        if not _metric_is_valid(text, abs_start, abs_end):
+            continue
+        value = _number(count_match.group("count"))
+        if value <= 0 or value == week or _year_like_count(value):
+            continue
+        year = int(mark.group("year")) if mark.group("year") else None
+        if year is None and published_date:
+            try:
+                year = int(published_date[:4])
+            except (TypeError, ValueError):
+                year = None
+        if year is None:
+            year_hit = re.search(r"\b(20\d{2})\b", text[max(0, mark.start() - 80):mark.end() + 80])
+            year = int(year_hit.group(1)) if year_hit else None
+        relations.append(MetricRelation(
+            location=parent,
+            cases=value,
+            time_frame=_weekly_frame(week, year),
+            evidence=re.sub(r"\s+", " ", text[mark.start():abs_end + 6]).strip(" ,;."),
+            disease=_relation_disease(text, mark.start(), abs_end),
+            metric_type="cases",
+            qualifier="weekly",
+            value=value,
+            evidence_offset_start=mark.start(),
+            evidence_offset_end=abs_end,
+            source_sentence_id=_source_sentence_id(text, mark.start()),
+            country_scope=parent.country or None,
+        ))
+    return relations
+
+
+def _article_countries(source: str) -> set[str]:
+    named = {
+        extractors.normalize_country(item)
+        for item in extractors.extract_named_countries(source)
+    }
+    named.update(
+        extractors.normalize_country(item)
+        for item in extractors.extract_all_mentioned_countries(source)
+    )
+    from .admin_abbreviations import document_admin_scope
+    scope = document_admin_scope(source)
+    if scope:
+        named.add(scope.country)
+    return {item for item in named if item}
+
+
+def _rebind_unmentioned_foreign_places(
+    relations: list[MetricRelation],
+    source: str,
+    linker: GazetteerLinker,
+) -> list[MetricRelation]:
+    """A namesake abroad is not an event country unless the article names it."""
+
+    named = _article_countries(source)
+    from .admin_abbreviations import document_admin_scope, resolve_admin_place
+    scope = document_admin_scope(source)
+    rebound: list[MetricRelation] = []
+    for relation in relations:
+        if getattr(relation, "source_scope", "article_local") != "article_local":
+            rebound.append(relation)
+            continue
+        country = extractors.normalize_country(relation.location.country)
+        if extractors.is_global_scope_country(country):
+            rebound.append(relation)
+            continue
+        if (
+            not country
+            or country in named
+            or extractors.country_alias_in_text(country, source)
+        ):
+            rebound.append(relation)
+            continue
+        scoped = resolve_admin_place(
+            relation.location.name,
+            context=source,
+            country_hint=scope.country if scope else None,
+        )
+        if scoped and scoped.country.casefold() != country.casefold():
+            rebound.append(replace(
+                relation,
+                location=_linked_from_admin(scoped, relation.evidence),
+                country_scope=scoped.country,
+            ))
+            continue
+        if scope:
+            fallback = linker.link(scope.canonical, context=source, evidence=relation.evidence)
+            if fallback:
+                rebound.append(replace(
+                    relation,
+                    location=fallback,
+                    country_scope=scope.country,
+                ))
+                continue
+        rebound.append(relation)
+    return rebound
+
+
 def extract_metric_relations(
     text: str,
     linker: Optional[GazetteerLinker] = None,
@@ -2783,13 +3303,20 @@ def extract_metric_relations(
 
     source = text or ""
     working = normalize_local_digits(source)
+    from .admin_abbreviations import bind_document_admin_scope, document_admin_scope
+    bind_document_admin_scope(source)
     linker = linker or GazetteerLinker()
     locations = _location_spans(source, linker)
+    scope = document_admin_scope(source)
+    fallback_location = _national_sitrep_location(source, linker)
+    if fallback_location is None and scope:
+        fallback_location = linker.link(scope.canonical, context=source, evidence=source)
     # Keep a verified domestic-scope fallback even when the article also
     # mentions a country later in a historical comparison. The nearest
     # location still wins; the fallback is used only when a metric has no
     # nearby explicit location.
-    fallback_location = _source_scope_location(source, linker, source_country)
+    if fallback_location is None:
+        fallback_location = _source_scope_location(source, linker, source_country)
     relations: dict[tuple[str, str, str], MetricRelation] = {}
 
     for relation in _extract_range_relations(
@@ -3053,13 +3580,31 @@ def extract_metric_relations(
         linked = linker.link(raw, context=context)
         if linked and not any(r.location.name.casefold() == linked.name.casefold() for r in relations.values()):
             continue
-    return _bind_counts_to_clause_places(
+    for relation in _enumerated_admin_counts(source, linker, published_date):
+        _replace_place_count(relations, relation)
+    for relation in _month_series_counts(source, linker, published_date, fallback_location):
+        _upsert_relation(relations, relation)
+    for relation in _week_series_counts(source, linker, published_date, fallback_location):
+        _upsert_relation(relations, relation)
+    from .sitrep_matrix import drop_stolen_sitrep_counts, extract_sitrep_matrix_relations
+    sitrep_relations = extract_sitrep_matrix_relations(
+        source,
+        linker=linker,
+        published_date=published_date,
+        fallback_location=fallback_location,
+        source_country=source_country,
+    )
+    for relation in sitrep_relations:
+        _upsert_relation(relations, relation)
+    bound = _bind_counts_to_clause_places(
         source,
         list(relations.values()),
         locations,
         linker,
         published_date,
     )
+    bound = drop_stolen_sitrep_counts(bound, sitrep_relations)
+    return _rebind_unmentioned_foreign_places(bound, source, linker)
 
 
 # ---------------------------------------------------------------------------

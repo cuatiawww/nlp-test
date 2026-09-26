@@ -13,7 +13,6 @@ import {
   Clock,
   Globe2,
   LayoutDashboard,
-  MapPin,
   Radio,
   RefreshCw,
   Search,
@@ -55,7 +54,6 @@ interface CountryCoverageCard {
   deaths: string
   diseases: string
   dateRange: string
-  status?: string
 }
 
 const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
@@ -215,7 +213,7 @@ export default function HomePage() {
     return permittedItems.slice(0, 7)
   }, [permittedItems])
 
-  // Overview metric totals
+  // Overview metric totals (Showing all master data monitored countries)
   const overviewMetrics = useMemo(() => {
     const totalSources =
       crawlStats?.enabled_sources ||
@@ -231,7 +229,7 @@ export default function HomePage() {
       crawlStats?.total_processed ||
       crawlStats?.total ||
       320
-    const totalCountries = stats?.total_countries || 11
+    const totalCountries = stats?.total_countries || stats?.countries_count || 195
     const totalRegions =
       stats?.total_locations || stats?.outbreak_locations?.length || 140
     const totalDiseases = stats?.total_diseases || 12
@@ -257,7 +255,7 @@ export default function HomePage() {
         id: 'countries',
         label: 'Monitored Countries',
         value: totalCountries,
-        description: 'ASEAN Member States',
+        description: 'Global & Master Data Countries',
         icon: Globe2,
         bg: 'bg-sky-50 text-sky-600 border-sky-200/70',
       },
@@ -266,7 +264,7 @@ export default function HomePage() {
         label: 'Subnational Regions',
         value: totalRegions,
         description: 'Provinces & districts tracked',
-        icon: MapPin,
+        icon: Globe2,
         bg: 'bg-purple-50 text-purple-600 border-purple-200/70',
       },
       {
@@ -280,7 +278,7 @@ export default function HomePage() {
     ]
   }, [stats, crawlStats])
 
-  // High-coverage places (2-column card grid)
+  // High-coverage places (2-column card grid, no status badge, flag icon next to country name)
   const highCoveragePlaces: CountryCoverageCard[] = useMemo(() => {
     return [
       {
@@ -291,7 +289,6 @@ export default function HomePage() {
         deaths: '840',
         diseases: '11',
         dateRange: '2014-03-10 – 2026-09-25',
-        status: 'High Coverage',
       },
       {
         code: 'ID',
@@ -301,7 +298,6 @@ export default function HomePage() {
         deaths: '1.2K',
         diseases: '12',
         dateRange: '2015-01-01 – 2026-09-26',
-        status: 'High Coverage',
       },
       {
         code: 'SG',
@@ -311,7 +307,6 @@ export default function HomePage() {
         deaths: '-',
         diseases: '12',
         dateRange: '2018-01-01 – 2026-09-26',
-        status: 'Active',
       },
       {
         code: 'MY',
@@ -321,7 +316,6 @@ export default function HomePage() {
         deaths: '312',
         diseases: '10',
         dateRange: '2016-06-01 – 2026-09-20',
-        status: 'Active',
       },
       {
         code: 'VN',
@@ -331,7 +325,6 @@ export default function HomePage() {
         deaths: '420',
         diseases: '11',
         dateRange: '2015-08-15 – 2026-09-22',
-        status: 'High Coverage',
       },
       {
         code: 'PH',
@@ -341,7 +334,6 @@ export default function HomePage() {
         deaths: '650',
         diseases: '12',
         dateRange: '2016-01-01 – 2026-09-24',
-        status: 'Active',
       },
     ]
   }, [])
@@ -349,7 +341,7 @@ export default function HomePage() {
   return (
     <div className="w-full space-y-6 bg-[#f8fafc] px-4 py-6 sm:px-6 lg:px-8">
       {/* ─────────────────────────────────────────────────────────────
-          1. FULL-WIDTH HERO BANNER WITH MATCHING HEADER BG GRADIENT (#102f78 -> #0060A9)
+          1. FULL-WIDTH HERO BANNER WITH HEADER BG GRADIENT (#102f78 -> #0060A9)
           ───────────────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden rounded-3xl bg-[#102f78] bg-gradient-to-r from-[#092257] via-[#102f78] to-[#0060A9] p-6 sm:p-8 text-white shadow-xl w-full flex flex-col justify-between min-h-[320px] border border-blue-900/40">
         {/* Decorative background glow & mesh overlay matching DashboardHeader */}
@@ -477,7 +469,7 @@ export default function HomePage() {
             Welcome, {userGreetingName}.
           </h1>
           <p className="mt-2 text-xs sm:text-sm text-blue-100/90 leading-relaxed max-w-2xl">
-            Real-time disease intelligence and situational monitoring across 11 ASEAN member nations.
+            Real-time disease intelligence and situational monitoring across global and regional health surveillance streams.
           </p>
         </div>
 
@@ -562,25 +554,24 @@ export default function HomePage() {
       </section>
 
       {/* ─────────────────────────────────────────────────────────────
-          3. HIGH-COVERAGE PLACES (2-COLUMN CARDS WITH CLEAN STYLING)
+          3. HIGH-COVERAGE PLACES (2-COLUMN CARDS WITH NO BADGES, FLAG NEXT TO COUNTRY NAME)
           ───────────────────────────────────────────────────────────── */}
       <section className="space-y-4">
-        {/* Section Header */}
+        {/* Section Header: Larger font, no icon beside title */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="text-base font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-[#0060A9]" />
+            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
               High-coverage places
             </h2>
-            <p className="text-xs text-slate-500">
-              Active epidemiological surveillance and disease metrics across key ASEAN member states
+            <p className="text-xs text-slate-500 mt-0.5">
+              Active epidemiological surveillance and disease metrics across monitored countries
             </p>
           </div>
           <Link
             href="/asean-countries"
             className="inline-flex items-center gap-1 text-xs font-extrabold text-[#0060A9] hover:text-[#003865] hover:underline transition-colors"
           >
-            View all 11 ASEAN nations
+            View all monitored countries
             <ArrowUpRight className="h-3.5 w-3.5" />
           </Link>
         </div>
@@ -593,27 +584,14 @@ export default function HomePage() {
               href={`/asean-countries?country=${place.code}`}
               className="group relative rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-[#0060A9] hover:shadow-md flex flex-col justify-between"
             >
-              {/* Header: Flag + Country Name + ISO code */}
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl leading-none" role="img" aria-label={place.name}>
-                    {place.flag}
-                  </span>
-                  <div>
-                    <h3 className="text-base font-extrabold text-slate-900 group-hover:text-[#0060A9] transition-colors">
-                      {place.name}
-                    </h3>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                      {place.code}
-                    </span>
-                  </div>
-                </div>
-                {place.status && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-[#0060A9] border border-blue-100">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#0060A9] animate-pulse" />
-                    {place.status}
-                  </span>
-                )}
+              {/* Header: Flag Icon + Country Name (No initials, No status badge) */}
+              <div className="flex items-center gap-3">
+                <span className="text-3xl leading-none" role="img" aria-label={place.name}>
+                  {place.flag}
+                </span>
+                <h3 className="text-lg font-extrabold text-slate-900 group-hover:text-[#0060A9] transition-colors">
+                  {place.name}
+                </h3>
               </div>
 
               {/* 3-Column Stats Divider Box (Cases | Deaths | Diseases) */}

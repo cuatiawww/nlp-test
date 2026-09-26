@@ -199,6 +199,11 @@ def prepare_article_text(article: dict, max_chars: int = 35000) -> str:
     content = str(article.get("content") or article.get("text") or "").strip()
     if title and content.startswith(title):
         title = ""
+    if article.get("pdf_tables"):
+        from .collectors.pdf_document import flatten_pdf_tables
+        table_text = flatten_pdf_tables(article.get("pdf_tables"))
+        if table_text and table_text not in content:
+            content = f"{content}\n\n{table_text}".strip()
     combined = f"{title}\n\n{content}".strip() if title else content
     return combined[:max_chars]
 
@@ -213,6 +218,8 @@ def analyze_article(article: dict) -> dict:
             "source_name": article.get("source_name"),
             "published_at": article.get("published_at"),
             "source_url": article.get("url"),
+            "document_type": article.get("document_type"),
+            "pdf_tables": article.get("pdf_tables") or [],
             "rules_only": False,
             "historical_fast": False,
         },

@@ -996,6 +996,8 @@ def compose_structured_events(
     collapsed Disease column can show ``Influenza; RSV`` instead of the
     primary label alone. NCD-only articles must not reach this helper.
     """
+    from .admin_abbreviations import bind_document_admin_scope
+    bind_document_admin_scope(text)
     atomic_events: Optional[list[dict[str, Any]]] = None
     atomic_started = time.perf_counter()
     try:
@@ -1135,14 +1137,16 @@ def compose_structured_events(
     for evt in events:
         loc = evt.get("location_name")
         hierarchy_key = (str(loc or ""), str(evt.get("country") or ""))
-        if loc:
+        if str(evt.get("metric_qualifier") or "").startswith("sitrep"):
+            hier = {}
+        elif loc:
             hier = hierarchy_cache.get(hierarchy_key)
             if hier is None:
                 hier = ext.resolve_event_location_hierarchy(loc, country_hint=evt.get("country"))
                 hierarchy_cache[hierarchy_key] = hier
         else:
             hier = {}
-        if hier.get("canonical_name"):
+        if hier.get("canonical_name") and not str(evt.get("metric_qualifier") or "").startswith("sitrep"):
             evt["location_name"] = hier["canonical_name"]
         evt["admin1"] = evt.get("admin1") or hier.get("admin1_name")
         evt["admin2"] = evt.get("admin2") or hier.get("admin2_name")
@@ -1595,6 +1599,15 @@ def _event_time_bucket(event: dict[str, Any]) -> str:
         return f"historical:{year or 'unknown'}"
     if period == "monthly":
         return f"monthly:{start or 'open'}"
+    frame = str(event.get("time_frame") or "")
+    if period == "weekly" or frame.startswith("Weekly"):
+        return f"weekly:{frame or start or 'open'}"
+    if period == "daily" or frame.startswith("Daily"):
+        return f"daily:{frame or start or 'open'}"
+    if period == "cumulative":
+        return f"cumulative:{frame or start or 'open'}"
+    if " to " in frame:
+        return f"{period}:{frame}"
     return "current"
 
 
@@ -1669,7 +1682,7 @@ def _collapse_same_country_events(
         country_cases = int(best_country.get("case_count") or 0)
         country_deaths = int(best_country.get("death_count") or 0)
 
-        regional_labels: list[str] = []
+        mention_labels: list[str] = []
         distinct_regional = []
         relation_rows = list(best_country.get("relations") or [])
         metric_rows = list(best_country.get("metrics") or [])
@@ -1678,18 +1691,13 @@ def _collapse_same_country_events(
             cases = int(item.get("case_count") or 0)
             deaths = int(item.get("death_count") or 0)
             leaked_total = bool(country_cases and cases == country_cases and deaths == country_deaths)
-            if (
-                label
-                and label.casefold() != country.casefold()
-                and not leaked_total
-                and (
-                    cases > 0
-                    or deaths > 0
-                    or _place_tied_to_disease_narrative(text, label, disease)
-                )
-            ):
-                regional_labels.append(label)
             if cases <= 0 and deaths <= 0:
+                if (
+                    label
+                    and label.casefold() != country.casefold()
+                    and _place_tied_to_disease_narrative(text, label, disease)
+                ):
+                    mention_labels.append(label)
                 continue
             if leaked_total:
                 continue
@@ -1706,11 +1714,12 @@ def _collapse_same_country_events(
                 "source_text": "original",
             })
             metric_rows.extend(item.get("metrics") or [])
-        joined_places = join_unique_labels(regional_labels)
-        if (country_cases > 0 or country_deaths > 0) and (joined_places or distinct_regional):
+        joined_places = join_unique_labels(mention_labels)
+        if country_cases > 0 or country_deaths > 0:
             folded = best_country.copy()
-            folded["admin1"] = joined_places or folded.get("admin1")
-            folded["admin2"] = None
+            if joined_places:
+                folded["admin1"] = joined_places
+                folded["admin2"] = None
             folded["relations"] = relation_rows
             folded["metrics"] = metric_rows
             provenance = dict(folded.get("provenance") or {})

@@ -368,7 +368,25 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
     "russia": "Russia",
     "rusia": "Russia",
     "china": "China",
+    "cina": "China",
     "tiongkok": "China",
+    "madagascar": "Madagascar",
+    "madagaskar": "Madagascar",
+    "hungary": "Hungary",
+    "hungaria": "Hungary",
+    "croatia": "Croatia",
+    "kroasia": "Croatia",
+    "cyprus": "Cyprus",
+    "siprus": "Cyprus",
+    "yunani": "Greece",
+    "romania": "Romania",
+    "rumania": "Romania",
+    "north macedonia": "North Macedonia",
+    "makedonia utara": "North Macedonia",
+    "guinea": "Guinea",
+    "mali": "Mali",
+    "serbia": "Serbia",
+    "austria": "Austria",
     "india": "India",
     "japan": "Japan",
     "jepang": "Japan",
@@ -737,13 +755,16 @@ _PUBLISHER_ADMIN = re.compile(
 )
 _PLACE_CUE_BEFORE = re.compile(
     r"(?:di|ke|dari|in|at|from|of|kabupaten|kota|provinsi|province|city|regency|district|"
-    r"tại|ở|sa|em|no|na|pada|tỉnh|thành phố)\s+$|"
+    r"tại|ở|sa|em|no|na|pada|tỉnh|thành phố|"
+    r"dinkes(?:prov)?|dinas\s+kesehatan|pemprov|pemkab|pemkot|diskes|kemenkes|"
+    r"jabatan\s+kesihatan|\bkkm\b|sở\s+y\s+tế)\s+$|"
     r"(?:ใน|ที่|อยู่|នៅ|ក្នុង|ໃນ|ທີ່|တွင်|จังหวัด|ខេត្ត|ແຂວງ)$",
     re.IGNORECASE | re.UNICODE,
 )
 _PLACE_CUE_AFTER = re.compile(
-    r"^\s*[,:]?\s*(?:[0-9]+|mencatat|melaporkan|mencatatkan|memiliki|menjadi|became|"
-    r"recorded|report(?:ed|s)?|confirm(?:ed|s)?|mengonfirmasi|ghi\s+nhận)\b",
+    r"^\s*[,:]?\s*(?:[0-9]+|mencatat|melaporkan|mencatatkan|catat(?:kan)?|laporkan|"
+    r"sebut|imbau|umumkan|sampaikan|memiliki|menjadi|became|"
+    r"recorded|report(?:ed|s)?|confirm(?:ed|s)?|mengonfirmasi|ghi\s+nhận|dicatatkan)\b",
     re.IGNORECASE,
 )
 
@@ -777,6 +798,9 @@ def place_mention_is_event(text: str, name: str, start: int) -> bool:
     if country and folded == country.casefold():
         return True
     if _is_country_canonical(raw):
+        return True
+    from .admin_abbreviations import is_admin_abbreviation
+    if is_admin_abbreviation(folded) and len(folded) >= 4:
         return True
     before = text[max(0, start - 32): start]
     after = text[end: end + 40]
@@ -821,10 +845,13 @@ def is_usable_place_name(name: str, surrounding_text: str = "", start: int = 0) 
         if not _has_admin_place_cue(raw, surrounding_text, start):
             return False
     # Bare 1–3 letter Latin tokens ("Tak", "Ulu") collide with function words.
+    # Known ASEAN admin codes (OKU, KL, BKK, NCR) are the exception.
     if " " not in folded and folded.isascii() and len(folded) <= 3:
-        if folded not in {item.casefold() for item in config.ASEAN_COUNTRIES}:
-            if not _has_admin_place_cue(raw, surrounding_text, start):
-                return False
+        from .admin_abbreviations import is_admin_abbreviation
+        if not is_admin_abbreviation(folded):
+            if folded not in {item.casefold() for item in config.ASEAN_COUNTRIES}:
+                if not _has_admin_place_cue(raw, surrounding_text, start):
+                    return False
     if surrounding_text:
         after = surrounding_text[start + len(raw): start + len(raw) + 48]
         if _PUBLISHER_FOLLOWER.match(after):
@@ -1021,11 +1048,40 @@ def resolve_location_hierarchy(
         })
 
     raw = str(location_name).strip()
-    folded = _fold_location_text(raw)
-    cache_key = (folded, _fold_location_text(str(country_hint or "")))
+    from .admin_abbreviations import document_admin_scope, resolve_admin_place
+    scoped = resolve_admin_place(raw, country_hint=country_hint)
+    scope = document_admin_scope()
+    folded = _fold_location_text(scoped.canonical if scoped else raw)
+    cache_key = (
+        folded,
+        _fold_location_text(str(country_hint or (scoped.country if scoped else ""))),
+        (scope.canonical.casefold() if scope else ""),
+    )
     cached = _LOCATION_HIERARCHY_CACHE.get(cache_key)
     if cached is not None:
         return finish(dict(cached), cache_hit=True)
+    if scoped:
+        admin1 = scoped.admin1 if scoped.admin_level >= 1 else None
+        admin2 = scoped.admin2 or (scoped.canonical if scoped.admin_level >= 2 else None)
+        if scoped.admin_level == 1:
+            admin1 = scoped.canonical
+            admin2 = None
+        result = {
+            "canonical_name": scoped.canonical,
+            "country": scoped.country,
+            "country_iso3": scoped.iso3,
+            "admin1_name": admin1,
+            "admin2_name": admin2,
+            "admin_level": scoped.admin_level,
+            "latitude": scoped.latitude,
+            "longitude": scoped.longitude,
+            "country_conflict": False,
+            "needs_review": False,
+        }
+        if len(_LOCATION_HIERARCHY_CACHE) >= 8192:
+            _LOCATION_HIERARCHY_CACHE.clear()
+        _LOCATION_HIERARCHY_CACHE[cache_key] = dict(result)
+        return finish(result)
 
     aliases = active_location_aliases()
 
@@ -1812,6 +1868,8 @@ def extract_location(
     # lazy loading.
     if not config.LOCATION_PATTERNS:
         config.ensure_location_registry_loaded()
+    from .admin_abbreviations import bind_document_admin_scope
+    bind_document_admin_scope(text)
     text = repair_mojibake(text or "")
     compact_text = re.sub(r"\s+", " ", text)
     lower_text, folded_positions = _fold_with_positions(compact_text)

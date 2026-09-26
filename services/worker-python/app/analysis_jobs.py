@@ -23,6 +23,21 @@ logger = logging.getLogger(__name__)
 NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.deepseek-multi-fact")
 
 
+def flatten_pdf_tables(tables):
+    lines = []
+    for table in tables or []:
+        rows = table.get("rows") if isinstance(table, dict) else table
+        if not rows:
+            continue
+        for row in rows:
+            cells = [re.sub(r"\s+", " ", str(cell or "")).strip() for cell in (row or [])]
+            if any(cells):
+                lines.append(" | ".join(cells))
+        if lines and lines[-1] != "":
+            lines.append("")
+    return "\n".join(lines).strip()
+
+
 def _pipeline_version_matches(row) -> bool:
     """Stale disease_events (missing or older pipeline version) are cache misses."""
     version = (row or {}).get("nlp_pipeline_version")
@@ -48,6 +63,10 @@ NLP_REQUEST_TIMEOUT_SECONDS = max(
 
 class UnknownAnalysisJob(ValueError):
     """The message references no durable analysis job."""
+
+
+class NlpBusy(RuntimeError):
+    """NLP A/B are full; the analysis job should be requeued."""
 
 
 class ArticleFetchError(RuntimeError):
@@ -206,6 +225,16 @@ def analyze_stages(
                     url,
                 )
             break
+    if analysis is None and last_error is not None and (
+        isinstance(last_error, NlpBusy) or "nlp http 503" in str(last_error).lower()
+    ):
+        warnings.append(str(last_error))
+        return {
+            "status": "waiting_nlp",
+            "error": "NLP workers are busy; analysis remains queued",
+            "result": {**extracted, "url": url},
+            "warnings": warnings,
+        }
     if analysis is None:
         reason = str(last_error or "unknown error").replace("\n", " ").strip()[:240]
         warning = "Full NLP failed"
@@ -402,6 +431,11 @@ def _prepare_text_for_nlp(extracted, max_chars=None):
     content = _strip_embedded_anchors(extracted.get("content") or extracted.get("text") or "")
     if title and content.startswith(title):
         title = ""
+    tables = extracted.get("pdf_tables")
+    if tables:
+        table_text = flatten_pdf_tables(tables)
+        if table_text and table_text not in content:
+            content = f"{content}\n\n{table_text}".strip()
     if len(content) <= max_chars:
         combined = f"{title}\n\n{content}".strip() if title else content
         return combined[:max_chars]
@@ -457,6 +491,8 @@ def post_full_nlp(payload: dict, timeout, source_name: str = "URL Analyzer") -> 
         "published_at": payload.get("published_at"),
         "source_language": payload.get("source_language") or "",
         "source_url": payload.get("source_url") or "",
+        "document_type": payload.get("document_type") or "",
+        "pdf_tables": payload.get("pdf_tables") or [],
         "text": payload.get("text") or "",
         "rules_only": False,
         "historical_fast": False,
@@ -468,6 +504,8 @@ def post_full_nlp(payload: dict, timeout, source_name: str = "URL Analyzer") -> 
         if response.status_code in {404, 405} and path != "/nlp/analyze":
             last = response
             continue
+        if response.status_code == 503:
+            raise NlpBusy(f"NLP HTTP 503 {path}: busy")
         if not response.ok:
             detail = response.text.replace("\n", " ").strip()[:240]
             raise RuntimeError(f"NLP HTTP {response.status_code} {path}: {detail or response.reason}")
@@ -476,11 +514,58 @@ def post_full_nlp(payload: dict, timeout, source_name: str = "URL Analyzer") -> 
     raise RuntimeError(f"NLP HTTP {getattr(last, 'status_code', 405)} /nlp/analyze/raw: {detail or 'Method Not Allowed'}")
 
 
+def post_async_nlp(payload: dict, timeout, source_name: str = "URL Analyzer") -> dict:
+    """Queue Full NLP and poll so URL analysis does not hold a worker slot."""
+    import requests
+
+    body = {
+        "source_type": payload.get("source_type") or "web",
+        "source_name": payload.get("source_name") or source_name,
+        "source_country": payload.get("source_country") or "",
+        "published_at": payload.get("published_at"),
+        "source_language": payload.get("source_language") or "",
+        "source_url": payload.get("source_url") or "",
+        "document_type": payload.get("document_type") or "",
+        "pdf_tables": payload.get("pdf_tables") or [],
+        "text": payload.get("text") or "",
+        "rules_only": False,
+        "historical_fast": False,
+    }
+    base = nlp_service_base()
+    read_timeout = timeout[1] if isinstance(timeout, tuple) else timeout
+    created = _post_nlp(base + "/nlp/analyze/jobs", body, (5, 8))
+    if created.status_code in {404, 405}:
+        return post_full_nlp(payload, timeout, source_name)
+    if created.status_code == 503:
+        raise NlpBusy("NLP HTTP 503 /nlp/analyze/jobs: busy")
+    if not created.ok:
+        detail = created.text.replace("\n", " ").strip()[:240]
+        raise RuntimeError(f"NLP HTTP {created.status_code} /nlp/analyze/jobs: {detail or created.reason}")
+    job_id = (created.json() or {}).get("job_id")
+    if not job_id:
+        raise RuntimeError("NLP HTTP 502 /nlp/analyze/jobs: missing job_id")
+    deadline = time.time() + float(read_timeout)
+    while time.time() < deadline:
+        response = requests.get(base + f"/nlp/jobs/{job_id}", timeout=5)
+        if response.status_code == 404:
+            raise RuntimeError(f"NLP HTTP 404 /nlp/jobs/{job_id}: unknown job")
+        if not response.ok:
+            raise RuntimeError(f"NLP HTTP {response.status_code} /nlp/jobs/{job_id}")
+        data = response.json() or {}
+        status = data.get("status")
+        if status == "done":
+            return data.get("result") or {}
+        if status == "error":
+            raise RuntimeError(f"NLP job failed: {data.get('error') or 'unknown error'}")
+        time.sleep(1)
+    raise RuntimeError(f"NLP HTTP 408 /nlp/jobs/{job_id}: exceeded budget ({int(read_timeout)}s)")
+
+
 def analyze_article(extracted):
     # URL analysis uses the same full NLP contract as bulk and matrix workers.
 
     text_payload = _prepare_text_for_nlp(extracted)
-    return post_full_nlp(
+    return post_async_nlp(
         {
             "text": text_payload,
             "source_type": "web",
@@ -488,6 +573,8 @@ def analyze_article(extracted):
             "source_country": extracted.get("source_country"),
             "published_at": extracted.get("published_at"),
             "source_url": extracted.get("url"),
+            "document_type": extracted.get("document_type"),
+            "pdf_tables": extracted.get("pdf_tables") or [],
         },
         (5, NLP_REQUEST_TIMEOUT_SECONDS),
     )
@@ -1065,6 +1152,18 @@ def process_job(job_id):
                 outcome = analyze_stages(
                     row["url"], fetch_for_job, analyze_article, progress, before_nlp=before_nlp
                 )
+                if outcome.get("status") == "waiting_nlp":
+                    lock_conn.execute(
+                        """UPDATE analysis_jobs
+                           SET status='queued', stage='waiting_nlp', error=%s, warnings=%s, updated_at=NOW()
+                           WHERE id=%s""",
+                        (
+                            outcome.get("error") or "NLP workers are busy",
+                            Jsonb(outcome.get("warnings") or []),
+                            job_id,
+                        ),
+                    )
+                    raise NlpBusy(outcome.get("error") or "NLP workers are busy")
                 with connect() as conn:
                     result = outcome.get("result")
                     # Persist only results from the shared Full NLP contract.
@@ -1174,6 +1273,10 @@ def _handle_analysis_message(channel, method, _properties, body):
         processed = process_job(job_id)
         if processed is not True:
             raise RuntimeError("Analysis job did not reach a durable terminal or active state")
+    except NlpBusy:
+        logger.info("NLP workers busy; requeueing analysis job %s", job_id)
+        settle_transient_delivery(channel, method, _properties, body, QUEUE, "nlp busy")
+        return
     except UnknownAnalysisJob:
         logger.warning("Rejecting analysis message for unknown durable job: %s", job_id)
         settle_malformed_delivery(channel, method, _properties, body, QUEUE)
