@@ -109,6 +109,9 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
     if path == "/health" || path == "/api/auth/login" || path == "/api/auth/logout" {
         return true;
     }
+    if is_nlp_internal_write(method, path) {
+        return true;
+    }
     if *method != Method::GET {
         return false;
     }
@@ -156,10 +159,26 @@ pub fn is_public_route(method: &Method, path: &str) -> bool {
         "/api/v1/public/report-issues",
         "/api/v1/epiweeks",
         "/api/v1/data/cleanup-stats",
+        "/api/v1/nlp/translation-cache",
+        "/api/v1/nlp-training-examples",
     ];
     PUBLIC_GET
         .iter()
         .any(|prefix| path == *prefix || path.starts_with(&format!("{prefix}/")))
+}
+
+fn is_nlp_internal_write(method: &Method, path: &str) -> bool {
+    // nlp-python calls these without a user session, same as the public GET
+    // registry snapshots. Writes stay on these exact paths.
+    matches!(
+        (method, path),
+        (&Method::PUT, "/api/v1/nlp/translation-cache")
+            | (&Method::POST, "/api/v1/disease-concepts/upsert")
+            | (&Method::POST, "/api/v1/disease-discovery-candidates")
+            | (&Method::POST, "/api/v1/nlp-corrections")
+            | (&Method::POST, "/api/v1/nlp/reviews")
+            | (&Method::POST, "/api/v1/locations/upsert-reviewed")
+    )
 }
 
 pub fn is_admin_route(method: &Method, path: &str) -> bool {
@@ -358,6 +377,16 @@ mod tests {
         assert!(is_public_route(&Method::GET, "/api/v1/public/report-issues"));
         assert!(is_public_route(&Method::GET, "/api/v1/public/report-issues/sitrep-2026-w37"));
         assert!(!is_public_route(&Method::POST, "/api/v1/report-issues"));
+        assert!(is_public_route(&Method::GET, "/api/v1/nlp/translation-cache/abc"));
+        assert!(is_public_route(&Method::PUT, "/api/v1/nlp/translation-cache"));
+        assert!(is_public_route(&Method::POST, "/api/v1/nlp-corrections"));
+        assert!(is_public_route(&Method::POST, "/api/v1/nlp/reviews"));
+        assert!(is_public_route(&Method::GET, "/api/v1/nlp-training-examples"));
+        assert!(is_public_route(&Method::POST, "/api/v1/disease-concepts/upsert"));
+        assert!(is_public_route(&Method::POST, "/api/v1/disease-discovery-candidates"));
+        assert!(!is_public_route(&Method::POST, "/api/v1/disease-concepts"));
+        assert!(is_public_route(&Method::POST, "/api/v1/locations/upsert-reviewed"));
+        assert!(!is_public_route(&Method::POST, "/api/v1/locations"));
         assert!(!is_public_route(&Method::GET, "/api/v1/report-issues"));
         assert!(is_public_route(&Method::GET, "/api/v1/crawl-history/rows"));
         assert!(is_public_route(&Method::GET, "/api/v1/crawl-history/rows/abc"));

@@ -2049,6 +2049,8 @@ struct KeywordQuery {
     per_page: Option<i64>,
     q: Option<String>,
     is_active: Option<bool>,
+    /// Return every matching row. NLP startup uses this so pagination cannot truncate the lexicon.
+    snapshot: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2208,6 +2210,8 @@ struct RulesQuery {
     per_page: Option<i64>,
     q: Option<String>,
     is_active: Option<bool>,
+    /// Return every matching outbreak rule. NLP startup cannot use the 100-row page cap.
+    snapshot: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2270,6 +2274,11 @@ struct LocationsQuery {
     per_page: Option<i64>,
     q: Option<String>,
     country: Option<String>,
+    is_active: Option<bool>,
+    /// Full gazetteer dump, including hierarchy columns the admin page list omits.
+    snapshot: Option<bool>,
+    /// Comma-separated. `aliases` attaches location_aliases for the NLP gazetteer.
+    include: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -2279,6 +2288,10 @@ struct DiseaseConceptQuery {
     q: Option<String>,
     is_active: Option<bool>,
     category: Option<String>,
+    /// Return every matching concept. NLP startup cannot use the 100-row page cap.
+    snapshot: Option<bool>,
+    /// Comma-separated. `aliases` embeds active disease_aliases on each concept.
+    include: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2426,7 +2439,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/events/stats", get(dashboard_stats))
         .route(
             "/api/v1/disease-discovery-candidates",
-            get(list_disease_discovery_candidates),
+            get(list_disease_discovery_candidates).post(create_disease_discovery_candidate),
         )
         .route(
             "/api/v1/disease-discovery-candidates/metrics",
@@ -2505,6 +2518,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/nlp-keywords/:id", put(update_keyword).delete(delete_keyword))
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
         .route("/api/v1/data/cleanup-stats", get(get_cleanup_stats))
+        .route("/api/v1/locations/upsert-reviewed", post(upsert_reviewed_location))
         .route("/api/v1/locations", get(list_locations).post(create_location))
         .route("/api/v1/locations/:id", put(update_location).delete(delete_location))
         .route("/api/v1/master/countries", get(list_master_countries).post(create_master_country))
@@ -2546,6 +2560,12 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/language-models/:id",
             put(update_language_model).delete(delete_language_model),
         )
+        .route("/api/v1/disease-concepts/upsert", post(upsert_discovered_disease_concept))
+        .route("/api/v1/nlp/translation-cache", put(put_translation_cache))
+        .route("/api/v1/nlp/translation-cache/:content_hash", get(get_translation_cache))
+        .route("/api/v1/nlp-corrections", post(create_nlp_correction))
+        .route("/api/v1/nlp/reviews", post(mark_nlp_reviewed))
+        .route("/api/v1/nlp-training-examples", get(list_nlp_training_examples))
                 .route("/api/v1/console/settings", get(get_system_settings).put(update_system_settings))
         .route("/api/v1/console/audit-logs", get(list_audit_logs))
         .route("/api/v1/pipeline-health", get(pipeline_health))
@@ -4427,6 +4447,14 @@ fn page_params(page: Option<i64>, per_page: Option<i64>) -> (i64, i64, i64) {
 
 fn calc_total_pages(total: i64, per_page: i64) -> i64 {
     if total == 0 { 1 } else { (total as f64 / per_page as f64).ceil() as i64 }
+}
+
+fn query_include_flag(include: &Option<String>, flag: &str) -> bool {
+    include
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .any(|part| part.trim() == flag)
 }
 
 fn validate_candidate_review(
@@ -8310,20 +8338,47 @@ async fn list_rules(
     Query(query): Query<RulesQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
-    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
-
-    let rows = client
-        .query(
-            "SELECT id, disease_name, display_label, min_case_count, is_active, priority, created_at::text, updated_at::text
-             FROM disease_outbreak_rules
-             WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
-             AND ($2::bool IS NULL OR is_active = $2)
-             ORDER BY priority
-             LIMIT $3 OFFSET $4",
-            &[&query.q, &query.is_active, &per_page, &offset],
-        )
-        .await
-        .map_err(internal_error)?;
+    let snapshot = query.snapshot.unwrap_or(false);
+    let (rows, page, per_page, total) = if snapshot {
+        let rows = client
+            .query(
+                "SELECT id, disease_name, display_label, min_case_count, is_active, priority, created_at::text, updated_at::text
+                 FROM disease_outbreak_rules
+                 WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
+                 AND ($2::bool IS NULL OR is_active = $2)
+                 ORDER BY priority",
+                &[&query.q, &query.is_active],
+            )
+            .await
+            .map_err(internal_error)?;
+        let total = rows.len() as i64;
+        (rows, None, None, total)
+    } else {
+        let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+        let rows = client
+            .query(
+                "SELECT id, disease_name, display_label, min_case_count, is_active, priority, created_at::text, updated_at::text
+                 FROM disease_outbreak_rules
+                 WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
+                 AND ($2::bool IS NULL OR is_active = $2)
+                 ORDER BY priority
+                 LIMIT $3 OFFSET $4",
+                &[&query.q, &query.is_active, &per_page, &offset],
+            )
+            .await
+            .map_err(internal_error)?;
+        let total: i64 = client
+            .query_one(
+                "SELECT COUNT(*) FROM disease_outbreak_rules
+                 WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
+                 AND ($2::bool IS NULL OR is_active = $2)",
+                &[&query.q, &query.is_active],
+            )
+            .await
+            .map_err(internal_error)?
+            .get(0);
+        (rows, Some(page), Some(per_page), total)
+    };
 
     let data: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.get::<_, Uuid>(0),
@@ -8336,19 +8391,13 @@ async fn list_rules(
         "updated_at": r.get::<_, Option<String>>(7),
     })).collect();
 
-    let total: i64 = client
-        .query_one(
-            "SELECT COUNT(*) FROM disease_outbreak_rules
-             WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
-             AND ($2::bool IS NULL OR is_active = $2)",
-            &[&query.q, &query.is_active],
-        )
-        .await
-        .map_err(internal_error)?
-        .get(0);
-
     Ok(Json(ApiResponse {
-        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+        success: true,
+        data,
+        total: Some(total),
+        page,
+        per_page,
+        total_pages: per_page.map(|size| calc_total_pages(total, size)),
     }))
 }
 
@@ -8581,15 +8630,49 @@ async fn list_keywords(
     Query(query): Query<KeywordQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
-    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
-
-    let sql = "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords
-               WHERE ($1::text IS NULL OR category = $1)
-               AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
-               AND ($3::bool IS NULL OR is_active = $3)
-               ORDER BY category, priority
-               LIMIT $4 OFFSET $5";
-    let rows = client.query(sql, &[&query.category, &query.q, &query.is_active, &per_page, &offset]).await.map_err(internal_error)?;
+    let snapshot = query.snapshot.unwrap_or(false);
+    let (rows, page, per_page, total) = if snapshot {
+        // Priority order matches the NLP loader: a later row with the same keyword wins.
+        let rows = client
+            .query(
+                "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords
+                 WHERE ($1::text IS NULL OR category = $1)
+                 AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
+                 AND ($3::bool IS NULL OR is_active = $3)
+                 ORDER BY priority, category, keyword",
+                &[&query.category, &query.q, &query.is_active],
+            )
+            .await
+            .map_err(internal_error)?;
+        let total = rows.len() as i64;
+        (rows, None, None, total)
+    } else {
+        let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+        let rows = client
+            .query(
+                "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords
+                 WHERE ($1::text IS NULL OR category = $1)
+                 AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
+                 AND ($3::bool IS NULL OR is_active = $3)
+                 ORDER BY category, priority
+                 LIMIT $4 OFFSET $5",
+                &[&query.category, &query.q, &query.is_active, &per_page, &offset],
+            )
+            .await
+            .map_err(internal_error)?;
+        let total: i64 = client
+            .query_one(
+                "SELECT COUNT(*) FROM nlp_keywords
+                 WHERE ($1::text IS NULL OR category = $1)
+                 AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
+                 AND ($3::bool IS NULL OR is_active = $3)",
+                &[&query.category, &query.q, &query.is_active],
+            )
+            .await
+            .map_err(internal_error)?
+            .get(0);
+        (rows, Some(page), Some(per_page), total)
+    };
 
     let data: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.get::<_, Uuid>(0),
@@ -8601,20 +8684,13 @@ async fn list_keywords(
         "created_at": r.get::<_, Option<String>>(6),
     })).collect();
 
-    let total: i64 = client
-        .query_one(
-            "SELECT COUNT(*) FROM nlp_keywords
-             WHERE ($1::text IS NULL OR category = $1)
-             AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
-             AND ($3::bool IS NULL OR is_active = $3)",
-            &[&query.category, &query.q, &query.is_active],
-        )
-        .await
-        .map_err(internal_error)?
-        .get(0);
-
     Ok(Json(ApiResponse {
-        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+        success: true,
+        data,
+        total: Some(total),
+        page,
+        per_page,
+        total_pages: per_page.map(|size| calc_total_pages(total, size)),
     }))
 }
 
@@ -8933,6 +9009,56 @@ async fn list_locations(
     Query(query): Query<LocationsQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    if query.snapshot.unwrap_or(false) {
+        let include_aliases = query_include_flag(&query.include, "aliases");
+        let rows = client
+            .query(
+                "SELECT id, name, latitude, longitude, country, country_iso3,
+                        admin1_name, admin2_name, admin_level, is_active,
+                        CASE WHEN $4::bool THEN COALESCE(
+                            (SELECT json_agg(json_build_object(
+                                'alias_name', a.alias_name,
+                                'canonical_name', locations.name,
+                                'country', locations.country,
+                                'admin_level', locations.admin_level
+                             ) ORDER BY a.alias_name)
+                             FROM location_aliases a
+                             WHERE a.location_id = locations.id),
+                            '[]'::json)
+                        ELSE '[]'::json END
+                 FROM locations
+                 WHERE ($1::text IS NULL OR name ILIKE '%'||$1||'%' OR country ILIKE '%'||$1||'%')
+                   AND ($2::text IS NULL OR country = $2)
+                   AND ($3::bool IS NULL OR is_active = $3)
+                 ORDER BY country, name",
+                &[&query.q, &query.country, &query.is_active, &include_aliases],
+            )
+            .await
+            .map_err(internal_error)?;
+        let data: Vec<Value> = rows.iter().map(|r| json!({
+            "id": r.get::<_, Uuid>(0),
+            "name": r.get::<_, String>(1),
+            "latitude": r.get::<_, f64>(2),
+            "longitude": r.get::<_, f64>(3),
+            "country": r.get::<_, Option<String>>(4),
+            "country_iso3": r.get::<_, Option<String>>(5),
+            "admin1_name": r.get::<_, Option<String>>(6),
+            "admin2_name": r.get::<_, Option<String>>(7),
+            "admin_level": r.get::<_, Option<i16>>(8),
+            "is_active": r.get::<_, bool>(9),
+            "aliases": r.get::<_, Value>(10),
+        })).collect();
+        let total = data.len() as i64;
+        return Ok(Json(ApiResponse {
+            success: true,
+            data,
+            total: Some(total),
+            page: None,
+            per_page: None,
+            total_pages: None,
+        }));
+    }
+
     let (page, per_page, offset) = build_pagination(query.page, query.per_page);
 
     let rows = client
@@ -8971,6 +9097,101 @@ async fn list_locations(
         .get(0);
 
     Ok(Json(ApiResponse { success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)) }))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpsertReviewedLocationRequest {
+    name: String,
+    country: String,
+    alias: Option<String>,
+    language: Option<String>,
+    country_iso3: Option<String>,
+}
+
+fn collapse_ws(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+async fn upsert_reviewed_location(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<UpsertReviewedLocationRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let name = collapse_ws(&payload.name);
+    let country = collapse_ws(&payload.country);
+    if name.is_empty()
+        || country.is_empty()
+        || name.chars().count() > 180
+        || country.chars().count() > 120
+        || matches!(
+            name.to_lowercase().as_str(),
+            "unknown" | "multi_country" | "multiple countries"
+        )
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "location name and country are required"})),
+        ));
+    }
+    let iso3 = payload
+        .country_iso3
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    let tx = client.transaction().await.map_err(internal_error)?;
+    let existing = tx
+        .query_opt(
+            "SELECT id, name FROM locations
+             WHERE lower(name) = lower($1) AND lower(country) = lower($2)
+             LIMIT 1",
+            &[&name, &country],
+        )
+        .await
+        .map_err(internal_error)?;
+    let (location_id, stored_name): (Uuid, String) = if let Some(row) = existing {
+        (row.get(0), row.get(1))
+    } else {
+        let row = tx
+            .query_one(
+                "INSERT INTO locations
+                    (id, name, country, is_active, country_iso3, admin_level)
+                 VALUES (gen_random_uuid(), $1, $2, true, $3, 3)
+                 RETURNING id, name",
+                &[&name, &country, &iso3],
+            )
+            .await
+            .map_err(internal_error)?;
+        (row.get(0), row.get(1))
+    };
+    let alias = collapse_ws(payload.alias.as_deref().unwrap_or(""));
+    let mut language: String = payload
+        .language
+        .unwrap_or_else(|| "und".to_string())
+        .chars()
+        .take(12)
+        .collect();
+    if language.is_empty() {
+        language = "und".to_string();
+    }
+    if !alias.is_empty() && !alias.eq_ignore_ascii_case(&stored_name) {
+        tx.execute(
+            "INSERT INTO location_aliases
+                (location_id, alias_name, language, is_preferred)
+             VALUES ($1, $2, $3, false)
+             ON CONFLICT (location_id, alias_name, language) DO NOTHING",
+            &[&location_id, &alias, &language],
+        )
+        .await
+        .map_err(internal_error)?;
+    }
+    tx.commit().await.map_err(internal_error)?;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({"name": stored_name}),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
 }
 
 async fn create_location(
@@ -9357,6 +9578,89 @@ async fn list_disease_concepts(
     Query(query): Query<DiseaseConceptQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    if query.snapshot.unwrap_or(false) {
+        let include_aliases = query_include_flag(&query.include, "aliases");
+        let alias_sql = if include_aliases {
+            "COALESCE(
+                json_agg(
+                    json_build_object('alias', a.alias, 'language', a.language)
+                    ORDER BY a.confidence DESC, a.alias
+                ) FILTER (WHERE a.id IS NOT NULL),
+                '[]'::json
+             )"
+        } else {
+            "'[]'::json"
+        };
+        let join_sql = if include_aliases {
+            "LEFT JOIN disease_aliases a ON a.concept_id = c.id AND a.is_active = TRUE"
+        } else {
+            ""
+        };
+        let group_sql = if include_aliases { "GROUP BY c.id" } else { "" };
+        let sql = format!(
+            "SELECT c.id, c.disease_id, c.canonical_name, c.english_name, c.category, c.is_zoonotic,
+                    c.description, c.is_public, c.allow_engine, c.ontology_system, c.ontology_code,
+                    c.ontology_uri, c.ontology_release, c.source, c.confidence, c.is_active,
+                    {alias_sql} AS aliases,
+                    (SELECT COUNT(*) FROM disease_aliases ac WHERE ac.concept_id = c.id AND ac.is_active = TRUE)::bigint,
+                    c.created_at::text, c.updated_at::text
+             FROM disease_concepts c
+             {join_sql}
+             WHERE ($1::text IS NULL OR c.canonical_name ILIKE '%'||$1||'%'
+                    OR COALESCE(c.disease_id, '') ILIKE '%'||$1||'%'
+                    OR COALESCE(c.category, '') ILIKE '%'||$1||'%'
+                    OR COALESCE(c.ontology_code, '') ILIKE '%'||$1||'%'
+                    OR c.source ILIKE '%'||$1||'%' OR EXISTS (
+                        SELECT 1 FROM disease_aliases ax
+                        WHERE ax.concept_id = c.id
+                          AND ax.is_active = TRUE
+                          AND ax.alias ILIKE '%'||$1||'%'
+                    ))
+               AND ($2::bool IS NULL OR c.is_active = $2)
+             {group_sql}
+             ORDER BY c.canonical_name"
+        );
+        let rows = client
+            .query(&sql, &[&query.q, &query.is_active])
+            .await
+            .map_err(internal_error)?;
+        let data: Vec<Value> = rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "id": r.get::<_, Uuid>(0),
+                    "disease_id": r.get::<_, Option<String>>(1),
+                    "canonical_name": r.get::<_, String>(2),
+                    "english_name": r.get::<_, Option<String>>(3),
+                    "category": r.get::<_, Option<String>>(4),
+                    "is_zoonotic": r.get::<_, Option<bool>>(5).unwrap_or(false),
+                    "description": r.get::<_, Option<String>>(6),
+                    "is_public": r.get::<_, Option<bool>>(7).unwrap_or(true),
+                    "allow_engine": r.get::<_, Option<bool>>(8).unwrap_or(true),
+                    "ontology_system": r.get::<_, Option<String>>(9),
+                    "ontology_code": r.get::<_, Option<String>>(10),
+                    "ontology_uri": r.get::<_, Option<String>>(11),
+                    "ontology_release": r.get::<_, Option<String>>(12),
+                    "source": r.get::<_, String>(13),
+                    "confidence": r.get::<_, f64>(14),
+                    "is_active": r.get::<_, bool>(15),
+                    "aliases": r.get::<_, Value>(16),
+                    "alias_count": r.get::<_, i64>(17),
+                    "created_at": r.get::<_, Option<String>>(18),
+                    "updated_at": r.get::<_, Option<String>>(19),
+                })
+            })
+            .collect();
+        let total = data.len() as i64;
+        return Ok(Json(ApiResponse {
+            success: true,
+            data,
+            total: Some(total),
+            page: None,
+            per_page: None,
+            total_pages: None,
+        }));
+    }
     let (page, per_page, offset) = build_pagination(query.page, query.per_page);
     let rows = client
         .query(
@@ -10304,6 +10608,632 @@ async fn delete_language_model(
         .map_err(|_| (StatusCode::NOT_FOUND, Json(json!({"success": false, "error": "Not found"}))))?;
     reload_nlp_runtime(&state).await;
     Ok(Json(ApiResponse { success: true, data: "deleted".to_string(), total: None, page: None, per_page: None, total_pages: None }))
+}
+
+fn valid_content_hash(value: &str) -> bool {
+    value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn normalize_discovery_form(value: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .map(|ch| {
+            if ch.is_alphanumeric() || ch == '_' || ch == '-' || ch.is_whitespace() {
+                ch
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+fn parse_optional_uuid(value: &Option<String>) -> Result<Option<Uuid>, (StatusCode, Json<Value>)> {
+    match value.as_deref().map(str::trim).filter(|item| !item.is_empty()) {
+        None => Ok(None),
+        Some(raw) => Uuid::parse_str(raw).map(Some).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"success": false, "error": "invalid uuid"})),
+            )
+        }),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct TranslationCacheWrite {
+    content_hash: String,
+    source_language: String,
+    provider: String,
+    translated_text: String,
+    #[serde(default)]
+    structured_result: Value,
+}
+
+async fn get_translation_cache(
+    State(state): State<Arc<AppState>>,
+    Path(content_hash): Path<String>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    if !valid_content_hash(&content_hash) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "content_hash must be 64 hex characters"})),
+        ));
+    }
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_opt(
+            "UPDATE translation_cache SET last_used_at = NOW()
+             WHERE content_hash = $1
+             RETURNING source_language, provider, translated_text, structured_result",
+            &[&content_hash],
+        )
+        .await
+        .map_err(internal_error)?;
+    let data = match row {
+        Some(row) => {
+            let structured: Value = row.get(3);
+            json!({
+                "source_language": row.get::<_, String>(0),
+                "provider": row.get::<_, String>(1),
+                "translated_text": row.get::<_, String>(2),
+                "structured_result": structured,
+            })
+        }
+        None => Value::Null,
+    };
+    Ok(Json(ApiResponse {
+        success: true,
+        data,
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+async fn put_translation_cache(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<TranslationCacheWrite>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    if !valid_content_hash(&payload.content_hash) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "content_hash must be 64 hex characters"})),
+        ));
+    }
+    let structured = if payload.structured_result.is_null() {
+        json!({})
+    } else {
+        payload.structured_result
+    };
+    let client = state.db.get().await.map_err(internal_error)?;
+    client
+        .execute(
+            "INSERT INTO translation_cache
+                (content_hash, source_language, provider, translated_text, structured_result)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (content_hash) DO UPDATE SET last_used_at = NOW()",
+            &[
+                &payload.content_hash,
+                &payload.source_language,
+                &payload.provider,
+                &payload.translated_text,
+                &structured,
+            ],
+        )
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({"content_hash": payload.content_hash}),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveredConceptAlias {
+    surface_form: Option<String>,
+    language: Option<String>,
+    confidence: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveredConceptWrite {
+    canonical_name: String,
+    english_name: Option<String>,
+    ontology_code: String,
+    ontology_uri: Option<String>,
+    ontology_release: Option<String>,
+    min_case_count: Option<i32>,
+    aliases: Option<Vec<DiscoveredConceptAlias>>,
+}
+
+async fn upsert_discovered_disease_concept(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<DiscoveredConceptWrite>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let canonical_name = payload.canonical_name.trim().to_string();
+    let ontology_code = payload.ontology_code.trim().to_string();
+    if canonical_name.is_empty() || ontology_code.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "canonical_name and ontology_code are required"})),
+        ));
+    }
+    let english_name = payload
+        .english_name
+        .unwrap_or_else(|| canonical_name.clone());
+    let ontology_uri = payload.ontology_uri.unwrap_or_default();
+    let ontology_release = payload
+        .ontology_release
+        .unwrap_or_else(|| "11/2026-01/mms".to_string());
+    let min_case_count = payload.min_case_count.unwrap_or(25);
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    let tx = client.transaction().await.map_err(internal_error)?;
+    let existing = tx
+        .query_opt(
+            "SELECT id, canonical_name
+             FROM disease_concepts
+             WHERE ontology_code = $1 AND is_active = TRUE
+             ORDER BY created_at ASC
+             LIMIT 1",
+            &[&ontology_code],
+        )
+        .await
+        .map_err(internal_error)?;
+    let (concept_id, concept_name): (Uuid, String) = if let Some(row) = existing {
+        let concept_id: Uuid = row.get(0);
+        let concept_name: String = row.get(1);
+        tx.execute(
+            "UPDATE disease_concepts
+             SET english_name = COALESCE(NULLIF($1, ''), english_name),
+                 ontology_system = 'WHO ICD-11 MMS',
+                 ontology_uri = COALESCE(NULLIF($2, ''), ontology_uri),
+                 ontology_release = COALESCE(NULLIF($3, ''), ontology_release),
+                 canonicalization_status = 'validated',
+                 is_active = TRUE,
+                 updated_at = NOW()
+             WHERE id = $4",
+            &[&english_name, &ontology_uri, &ontology_release, &concept_id],
+        )
+        .await
+        .map_err(internal_error)?;
+        (concept_id, concept_name)
+    } else {
+        let conflict = tx
+            .query_opt(
+                "SELECT ontology_code FROM disease_concepts WHERE canonical_name = $1 LIMIT 1",
+                &[&canonical_name],
+            )
+            .await
+            .map_err(internal_error)?;
+        if let Some(row) = conflict {
+            let existing_code: Option<String> = row.get(0);
+            if existing_code.as_deref().unwrap_or("").trim() != ontology_code
+                && existing_code.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some()
+            {
+                return Err((
+                    StatusCode::CONFLICT,
+                    Json(json!({"success": false, "error": "canonical name belongs to another ontology code"})),
+                ));
+            }
+        }
+        let row = tx
+            .query_one(
+                "INSERT INTO disease_concepts
+                   (canonical_name, english_name, ontology_system, ontology_code,
+                    ontology_uri, ontology_release, source, confidence, is_active,
+                    canonicalization_status, disease_id, updated_at)
+                 VALUES ($1, $2, 'WHO ICD-11 MMS', $3, $4, $5, 'who_icd11_discovery', 1.0, TRUE,
+                         'validated', $3, NOW())
+                 ON CONFLICT (canonical_name) DO UPDATE SET
+                   english_name = EXCLUDED.english_name,
+                   ontology_system = 'WHO ICD-11 MMS',
+                   ontology_code = COALESCE(disease_concepts.ontology_code, EXCLUDED.ontology_code),
+                   ontology_uri = COALESCE(disease_concepts.ontology_uri, EXCLUDED.ontology_uri),
+                   ontology_release = COALESCE(disease_concepts.ontology_release, EXCLUDED.ontology_release),
+                   is_active = TRUE,
+                   updated_at = NOW()
+                 RETURNING id, canonical_name",
+                &[
+                    &canonical_name,
+                    &english_name,
+                    &ontology_code,
+                    &ontology_uri,
+                    &ontology_release,
+                ],
+            )
+            .await
+            .map_err(internal_error)?;
+        (row.get(0), row.get(1))
+    };
+
+    let mut aliases = payload.aliases.unwrap_or_default();
+    aliases.push(DiscoveredConceptAlias {
+        surface_form: Some(concept_name.clone()),
+        language: Some("en".to_string()),
+        confidence: Some(1.0),
+    });
+    if english_name != concept_name {
+        aliases.push(DiscoveredConceptAlias {
+            surface_form: Some(english_name.clone()),
+            language: Some("en".to_string()),
+            confidence: Some(1.0),
+        });
+    }
+    for item in aliases {
+        let Some(surface) = item.surface_form.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let language = item.language.unwrap_or_else(|| "unknown".to_string());
+        let confidence = item.confidence.unwrap_or(1.0);
+        let normalized = normalize_discovery_form(&surface);
+        if normalized.is_empty() {
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO disease_aliases
+               (concept_id, alias, normalized_alias, language, source, confidence, is_active, updated_at)
+             VALUES ($1, $2, $3, $4, 'who_icd11_discovery', $5, TRUE, NOW())
+             ON CONFLICT (concept_id, normalized_alias, language) DO UPDATE SET
+               confidence = GREATEST(disease_aliases.confidence, EXCLUDED.confidence),
+               is_active = TRUE,
+               updated_at = NOW()",
+            &[&concept_id, &surface, &normalized, &language, &confidence],
+        )
+        .await
+        .map_err(internal_error)?;
+        tx.execute(
+            "INSERT INTO nlp_keywords (category, keyword, target_label, priority, is_active, updated_at)
+             VALUES ('disease', $1, $2, 350, TRUE, NOW())
+             ON CONFLICT (category, keyword) DO UPDATE SET
+               target_label = EXCLUDED.target_label,
+               is_active = TRUE,
+               priority = LEAST(nlp_keywords.priority, EXCLUDED.priority),
+               updated_at = NOW()",
+            &[&normalized, &concept_name],
+        )
+        .await
+        .map_err(internal_error)?;
+    }
+    tx.execute(
+        "INSERT INTO nlp_labels (category, label, priority, is_active, updated_at)
+         VALUES ('disease', $1, 50, TRUE, NOW())
+         ON CONFLICT (category, label) DO UPDATE SET is_active = TRUE, updated_at = NOW()",
+        &[&concept_name],
+    )
+    .await
+    .map_err(internal_error)?;
+    let disease_name = concept_name.to_uppercase();
+    tx.execute(
+        "INSERT INTO disease_outbreak_rules
+           (disease_name, display_label, min_case_count, priority, is_active, updated_at)
+         VALUES ($1, $2, $3, 50, TRUE, NOW())
+         ON CONFLICT (disease_name) DO NOTHING",
+        &[&disease_name, &concept_name, &min_case_count],
+    )
+    .await
+    .map_err(internal_error)?;
+    tx.commit().await.map_err(internal_error)?;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "id": concept_id.to_string(),
+            "canonical_name": concept_name,
+        }),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryCandidateWrite {
+    surface_form: String,
+    language: Option<String>,
+    sample_text: Option<String>,
+    provider: Option<String>,
+    confidence: Option<f64>,
+}
+
+async fn create_disease_discovery_candidate(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<DiscoveryCandidateWrite>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let surface = payload.surface_form.trim().to_string();
+    let normalized = normalize_discovery_form(&surface);
+    if surface.is_empty() || normalized.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "surface_form is required"})),
+        ));
+    }
+    let language = payload
+        .language
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let sample = payload
+        .sample_text
+        .unwrap_or_default()
+        .chars()
+        .take(5000)
+        .collect::<String>();
+    let provider = payload.provider.unwrap_or_default();
+    let confidence = payload.confidence.unwrap_or(0.0);
+    let client = state.db.get().await.map_err(internal_error)?;
+    let row = client
+        .query_one(
+            "INSERT INTO disease_discovery_candidates
+               (surface_form, normalized_form, language, sample_text, provider, confidence)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (normalized_form) DO UPDATE SET
+               occurrences = disease_discovery_candidates.occurrences + 1,
+               sample_text = COALESCE(EXCLUDED.sample_text, disease_discovery_candidates.sample_text),
+               provider = COALESCE(NULLIF(EXCLUDED.provider, ''), disease_discovery_candidates.provider),
+               confidence = GREATEST(COALESCE(disease_discovery_candidates.confidence, 0), EXCLUDED.confidence),
+               updated_at = NOW()
+             RETURNING id, normalized_form, occurrences",
+            &[&surface, &normalized, &language, &sample, &provider, &confidence],
+        )
+        .await
+        .map_err(internal_error)?;
+    let id: Uuid = row.get(0);
+    let occurrences: i32 = row.get(2);
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "id": id.to_string(),
+            "normalized_form": row.get::<_, String>(1),
+            "occurrences": occurrences,
+        }),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct NlpCorrectionWrite {
+    event_id: Option<String>,
+    raw_report_id: Option<String>,
+    field_name: String,
+    original_value: Option<String>,
+    corrected_value: String,
+    correction_source: Option<String>,
+    text_snippet: Option<String>,
+    language: Option<String>,
+    corrected_by: Option<String>,
+    review_reason: Option<String>,
+    evidence_offset_start: Option<i32>,
+    evidence_offset_end: Option<i32>,
+    prediction_version: Option<String>,
+    review_action: Option<String>,
+}
+
+async fn create_nlp_correction(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<NlpCorrectionWrite>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let event_id = parse_optional_uuid(&payload.event_id)?;
+    let raw_report_id = parse_optional_uuid(&payload.raw_report_id)?;
+    let correction_source = payload
+        .correction_source
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "user_ui".to_string());
+    let corrected_by = payload
+        .corrected_by
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "operator".to_string());
+    let review_action = payload
+        .review_action
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "corrected".to_string());
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    let tx = client.transaction().await.map_err(internal_error)?;
+    let row = tx
+        .query_one(
+            "INSERT INTO nlp_corrections (
+                event_id, raw_report_id, field_name, original_value,
+                corrected_value, correction_source, text_snippet, language, corrected_by,
+                review_reason, evidence_offset_start, evidence_offset_end,
+                prediction_version, review_action, updated_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+             RETURNING id",
+            &[
+                &event_id,
+                &raw_report_id,
+                &payload.field_name,
+                &payload.original_value,
+                &payload.corrected_value,
+                &correction_source,
+                &payload.text_snippet,
+                &payload.language,
+                &corrected_by,
+                &payload.review_reason,
+                &payload.evidence_offset_start,
+                &payload.evidence_offset_end,
+                &payload.prediction_version,
+                &review_action,
+            ],
+        )
+        .await
+        .map_err(internal_error)?;
+    let correction_id: Uuid = row.get(0);
+    if payload.field_name == "country" {
+        let country = payload.corrected_value.trim().to_string();
+        if let Some(event_id) = event_id {
+            tx.execute(
+                "UPDATE disease_events SET source_country = $1 WHERE id = $2",
+                &[&country, &event_id],
+            )
+            .await
+            .map_err(internal_error)?;
+        } else if let Some(raw_report_id) = raw_report_id {
+            tx.execute(
+                "UPDATE disease_events SET source_country = $1 WHERE raw_report_id = $2",
+                &[&country, &raw_report_id],
+            )
+            .await
+            .map_err(internal_error)?;
+        }
+    }
+    tx.commit().await.map_err(internal_error)?;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({"correction_id": correction_id.to_string()}),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct NlpReviewWrite {
+    event_id: Option<String>,
+    raw_report_id: Option<String>,
+    reviewed: Option<bool>,
+    reviewed_by: Option<String>,
+    notes: Option<String>,
+}
+
+async fn mark_nlp_reviewed(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<NlpReviewWrite>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let event_id = parse_optional_uuid(&payload.event_id)?;
+    let raw_report_id = parse_optional_uuid(&payload.raw_report_id)?;
+    let reviewed = payload.reviewed.unwrap_or(true);
+    let needs_review = !reviewed;
+    let status_val = if reviewed { "reviewed" } else { "processed" };
+    let reviewed_by = payload
+        .reviewed_by
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "operator".to_string());
+    let original_value = if reviewed {
+        "needs_review"
+    } else {
+        "reviewed"
+    };
+    let corrected_value = if reviewed { "reviewed" } else { "needs_review" };
+    let review_action = if reviewed { "confirmed" } else { "reopened" };
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    let tx = client.transaction().await.map_err(internal_error)?;
+    if let Some(event_id) = event_id {
+        tx.execute(
+            "UPDATE disease_events SET needs_review = $1 WHERE id = $2",
+            &[&needs_review, &event_id],
+        )
+        .await
+        .map_err(internal_error)?;
+    }
+    if let Some(raw_report_id) = raw_report_id {
+        tx.execute(
+            "UPDATE disease_events SET needs_review = $1 WHERE raw_report_id = $2",
+            &[&needs_review, &raw_report_id],
+        )
+        .await
+        .map_err(internal_error)?;
+        tx.execute(
+            "UPDATE raw_reports SET processing_status = $1 WHERE id = $2",
+            &[&status_val, &raw_report_id],
+        )
+        .await
+        .map_err(internal_error)?;
+    }
+    tx.execute(
+        "INSERT INTO nlp_corrections (
+            event_id, raw_report_id, field_name, original_value,
+            corrected_value, correction_source, text_snippet,
+            corrected_by, review_reason, review_action, updated_at
+         ) VALUES ($1, $2, 'review_status', $3, $4, 'review_ui', $5, $6, $5, $7, NOW())",
+        &[
+            &event_id,
+            &raw_report_id,
+            &original_value,
+            &corrected_value,
+            &payload.notes,
+            &reviewed_by,
+            &review_action,
+        ],
+    )
+    .await
+    .map_err(internal_error)?;
+    tx.commit().await.map_err(internal_error)?;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "reviewed": reviewed,
+            "needs_review": needs_review,
+            "event_id": payload.event_id,
+            "raw_report_id": payload.raw_report_id,
+        }),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct TrainingExamplesQuery {
+    limit: Option<i64>,
+}
+
+async fn list_nlp_training_examples(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<TrainingExamplesQuery>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let limit = query.limit.unwrap_or(5000).clamp(1, 20000);
+    let client = state.db.get().await.map_err(internal_error)?;
+    let rows = client
+        .query(
+            "SELECT id, text, disease_label, case_count, death_count, confidence, source, language
+             FROM nlp_training_examples
+             WHERE text IS NOT NULL AND length(text) > 20
+             ORDER BY (CASE WHEN source = 'human_corrected' THEN 1 ELSE 2 END), confidence DESC, created_at DESC
+             LIMIT $1",
+            &[&limit],
+        )
+        .await
+        .map_err(internal_error)?;
+    let mut items = Vec::with_capacity(rows.len());
+    let mut human_corrected = 0i64;
+    for row in rows {
+        let id: Uuid = row.get(0);
+        let source: String = row.get(6);
+        if source == "human_corrected" {
+            human_corrected += 1;
+        }
+        items.push(json!({
+            "id": id.to_string(),
+            "text": row.get::<_, String>(1),
+            "disease_label": row.get::<_, Option<String>>(2),
+            "case_count": row.get::<_, Option<i32>>(3),
+            "death_count": row.get::<_, Option<i32>>(4),
+            "confidence": row.get::<_, f64>(5),
+            "source": source,
+            "language": row.get::<_, Option<String>>(7),
+        }));
+    }
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({
+            "total_examples": items.len(),
+            "human_corrected_count": human_corrected,
+            "data": items,
+        }),
+        total: Some(items.len() as i64),
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
 }
 
 fn parse_date(input: Option<&str>) -> Option<NaiveDate> {

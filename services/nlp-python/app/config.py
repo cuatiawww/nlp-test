@@ -363,52 +363,52 @@ OUTSIDE_ASEAN_COUNTRY = "OUTSIDE ASEAN"
 
 
 def load_keywords_from_db():
+    """Refresh symptom/disease keywords from GET /api/v1/nlp-keywords?snapshot=true."""
     global SYMPTOM_DICT, DISEASE_DICT, KEYWORDS_LOAD_ATTEMPTED
     KEYWORDS_LOAD_ATTEMPTED = True
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT category, keyword, target_label FROM nlp_keywords WHERE is_active = TRUE ORDER BY priority"
-        ).fetchall()
-        conn.close()
+        from .registry_client import load_rows
+        rows = load_rows(
+            "/api/v1/nlp-keywords?is_active=true&snapshot=true",
+            "SELECT category, keyword, target_label, is_active FROM nlp_keywords "
+            "WHERE is_active = TRUE ORDER BY priority",
+        )
         symptom = {}
         disease = {}
         for r in rows:
+            if not r.get("is_active", True):
+                continue
             if r["category"] not in {"symptom", "disease"}:
                 logging.getLogger(__name__).warning(
-                    "Ignoring unsupported keyword category from DB: %s", r["category"]
+                    "Ignoring unsupported keyword category from app API: %s", r["category"]
                 )
                 continue
             d = symptom if r["category"] == "symptom" else disease
             d[r["keyword"]] = r["target_label"]
         SYMPTOM_DICT = symptom
         DISEASE_DICT = disease
-        import logging
         logging.getLogger(__name__).info(
-            "Loaded %d symptom keywords and %d disease keywords from DB",
+            "Loaded %d symptom keywords and %d disease keywords from app API",
             len(symptom), len(disease),
         )
     except Exception as e:
         SYMPTOM_DICT = {}
         DISEASE_DICT = {}
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load keywords from DB, using empty dicts: %s", e
+            "Failed to load keywords from app API, using empty dicts: %s", e
         )
 
 
 def load_disease_master_from_db():
+    """Refresh disease concepts and aliases from GET /api/v1/disease-concepts?snapshot=true."""
     global DISEASE_MASTER_CONCEPTS, DISEASE_MASTER_LOAD_ATTEMPTED
     DISEASE_MASTER_LOAD_ATTEMPTED = True
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
+        from .registry_client import load_rows
+        rows = load_rows(
+            "/api/v1/disease-concepts?is_active=true&snapshot=true&include=aliases",
             """SELECT c.disease_id, c.canonical_name, c.english_name, c.ontology_system,
-                      c.source,
+                      c.source, c.is_active,
                       COALESCE(
                         json_agg(
                           json_build_object('alias', a.alias, 'language', a.language)
@@ -420,11 +420,18 @@ def load_disease_master_from_db():
                LEFT JOIN disease_aliases a
                  ON a.concept_id = c.id AND a.is_active = TRUE
                WHERE c.is_active = TRUE
-               GROUP BY c.id, c.disease_id, c.canonical_name, c.english_name, c.ontology_system, c.source
-               ORDER BY c.canonical_name"""
-        ).fetchall()
-        conn.close()
-        DISEASE_MASTER_CONCEPTS = list(rows)
+               GROUP BY c.id
+               ORDER BY c.canonical_name""",
+        )
+        DISEASE_MASTER_CONCEPTS = [row for row in rows if row.get("is_active", True)]
+        import json as _json
+        for concept in DISEASE_MASTER_CONCEPTS:
+            aliases = concept.get("aliases")
+            if isinstance(aliases, str):
+                try:
+                    concept["aliases"] = _json.loads(aliases)
+                except _json.JSONDecodeError:
+                    concept["aliases"] = []
         # The database concept/alias catalog is authoritative when it knows a
         # surface form. Keep the legacy map as a fallback for concepts that
         # have not been migrated yet, but let DB aliases win on collisions.
@@ -443,33 +450,35 @@ def load_disease_master_from_db():
             # Import order during isolated unit tests must not prevent the DB
             # catalog itself from loading.
             pass
-        import logging
-        logging.getLogger(__name__).info("Loaded %d local disease-master concepts", len(rows))
+        logging.getLogger(__name__).info(
+            "Loaded %d local disease-master concepts from app API", len(DISEASE_MASTER_CONCEPTS)
+        )
     except Exception as e:
         DISEASE_MASTER_CONCEPTS = []
-        import logging
         logging.getLogger(__name__).warning("Failed to load local disease-master concepts: %s", e)
 
 
 def load_outbreak_rules_from_db():
+    """Refresh outbreak thresholds from GET /api/v1/outbreak-rules?snapshot=true."""
     global OUTBREAK_RULES
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT disease_name, min_case_count FROM disease_outbreak_rules WHERE is_active = TRUE"
-        ).fetchall()
-        conn.close()
-        OUTBREAK_RULES = {r["disease_name"].upper(): r["min_case_count"] for r in rows}
-        import logging
+        from .registry_client import load_rows
+        rows = load_rows(
+            "/api/v1/outbreak-rules?is_active=true&snapshot=true",
+            "SELECT disease_name, min_case_count, is_active FROM disease_outbreak_rules "
+            "WHERE is_active = TRUE",
+        )
+        OUTBREAK_RULES = {
+            r["disease_name"].upper(): r["min_case_count"]
+            for r in rows
+            if r.get("is_active", True)
+        }
         logging.getLogger(__name__).info(
-            "Loaded %d outbreak rules from DB", len(OUTBREAK_RULES),
+            "Loaded %d outbreak rules from app API", len(OUTBREAK_RULES),
         )
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load outbreak rules from DB, using defaults: %s", e
+            "Failed to load outbreak rules from app API, using defaults: %s", e
         )
 
 
@@ -496,6 +505,58 @@ def build_location_patterns():
         LOCATION_PATTERNS = []
 
 
+def _flatten_location_aliases(rows: list[dict]) -> list[dict]:
+    alias_rows = []
+    for row in rows:
+        for alias in row.get("aliases") or []:
+            if not isinstance(alias, dict):
+                continue
+            alias_name = alias.get("alias_name")
+            if not alias_name:
+                continue
+            alias_rows.append({
+                "alias_name": str(alias_name),
+                "canonical_name": alias.get("canonical_name") or row.get("name"),
+                "country": alias.get("country", row.get("country")),
+                "admin_level": alias.get("admin_level", row.get("admin_level")),
+            })
+    return alias_rows
+
+
+def _fetch_location_rows() -> tuple[list[dict], list[dict]]:
+    from .registry_client import fetch_collection, http_registry_enabled, query_db
+
+    path = "/api/v1/locations?is_active=true&snapshot=true&include=aliases"
+    if http_registry_enabled():
+        try:
+            rows = [
+                row for row in fetch_collection(path)
+                if row.get("is_active", True)
+            ]
+            return rows, _flatten_location_aliases(rows)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Location API failed, using database: %s", exc
+            )
+    rows = query_db(
+        """SELECT name, latitude, longitude, country, country_iso3,
+                  admin1_name, admin2_name, admin_level
+           FROM locations
+           WHERE is_active = TRUE"""
+    )
+    alias_rows: list[dict] = []
+    try:
+        alias_rows = query_db(
+            """SELECT a.alias_name, l.name as canonical_name, l.country, l.admin_level
+               FROM location_aliases a
+               JOIN locations l ON a.location_id = l.id
+               WHERE l.is_active = TRUE"""
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not load location_aliases: %s", exc)
+    return rows, alias_rows
+
+
 def load_locations_from_db():
     global LOCATION_LOAD_ATTEMPTED, LOCATION_REGISTRY_REFERENCE_ID
     LOCATION_LOAD_ATTEMPTED = True
@@ -510,29 +571,7 @@ def load_locations_from_db():
     except Exception:
         extractors = None
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            """SELECT name, latitude, longitude, country, country_iso3,
-                      admin1_name, admin2_name, admin_level
-               FROM locations
-               WHERE is_active = TRUE"""
-        ).fetchall()
-
-        alias_rows = []
-        try:
-            alias_rows = conn.execute(
-                """SELECT a.alias_name, l.name as canonical_name, l.country, l.admin_level
-                   FROM location_aliases a
-                   JOIN locations l ON a.location_id = l.id
-                   WHERE l.is_active = TRUE"""
-            ).fetchall()
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("Could not load location_aliases: %s", e)
-
-        conn.close()
+        rows, alias_rows = _fetch_location_rows()
         usable_rows = [
             r for r in rows
             if r["name"].strip().casefold() not in LOCATION_STOPWORDS
@@ -638,9 +677,8 @@ def load_locations_from_db():
             LOCATION_PATTERNS = [(combined.pattern, combined)]
         else:
             LOCATION_PATTERNS = []
-        import logging
         logging.getLogger(__name__).info(
-            "Loaded %d locations, %d aliases from DB", len(LOCATION_COORDS), len(LOCATION_ALIASES),
+            "Loaded %d locations, %d aliases from app API", len(LOCATION_COORDS), len(LOCATION_ALIASES),
         )
         LOCATION_REGISTRY_REFERENCE_ID = id(LOCATION_COORDS)
         try:
@@ -653,7 +691,6 @@ def load_locations_from_db():
         LOCATION_COUNTRIES = {}
         LOCATION_ALIASES = {}
         LOCATION_REGISTRY_REFERENCE_ID = None
-        import logging
         logging.getLogger(__name__).warning(
             "Location registry unavailable; location alias matching is disabled: %s", e
         )
@@ -673,47 +710,83 @@ def upsert_reviewed_location(
         return None
     if name.casefold() in {"unknown", "multi_country", "multiple countries"}:
         return None
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
+    alias_value = " ".join(str(alias or "").split()).strip()
+    lang = (language or "und")[:12] or "und"
+    iso3 = COUNTRY_TO_ISO3.get(nation.casefold())
+    from .registry_client import http_registry_enabled, request_json
 
-        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
-            row = conn.execute(
-                """
-                SELECT id, name FROM locations
-                WHERE lower(name) = lower(%s) AND lower(country) = lower(%s)
-                LIMIT 1
-                """,
-                (name, nation),
-            ).fetchone()
-            if row is None:
-                row = conn.execute(
-                    """
-                    INSERT INTO locations
-                        (id, name, country, is_active, country_iso3, admin_level)
-                    VALUES
-                        (gen_random_uuid(), %s, %s, true, %s, 3)
-                    RETURNING id, name
-                    """,
-                    (name, nation, COUNTRY_TO_ISO3.get(nation.casefold())),
-                ).fetchone()
-            alias_value = " ".join(str(alias or "").split()).strip()
-            if alias_value and alias_value.casefold() != str(row["name"]).casefold():
-                conn.execute(
-                    """
-                    INSERT INTO location_aliases
-                        (location_id, alias_name, language, is_preferred)
-                    VALUES (%s, %s, %s, false)
-                    ON CONFLICT (location_id, alias_name, language) DO NOTHING
-                    """,
-                    (row["id"], alias_value, language[:12] or "und"),
-                )
-            conn.commit()
+    if http_registry_enabled():
+        try:
+            result = request_json(
+                "POST",
+                "/api/v1/locations/upsert-reviewed",
+                {
+                    "name": name,
+                    "country": nation,
+                    "alias": alias_value or None,
+                    "language": lang,
+                    "country_iso3": iso3,
+                },
+            )
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            stored = str(data.get("name") or name)
             load_locations_from_db()
-            return str(row["name"])
+            return stored
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Reviewed location API failed, using database: %s", exc
+            )
+    try:
+        stored = _upsert_reviewed_location_db(name, nation, alias_value, lang, iso3)
+        load_locations_from_db()
+        return stored
     except Exception as exc:
         logging.getLogger(__name__).warning("Reviewed location upsert skipped: %s", exc)
         return name
+
+
+def _upsert_reviewed_location_db(
+    name: str,
+    nation: str,
+    alias_value: str,
+    language: str,
+    iso3: str | None,
+) -> str:
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        row = conn.execute(
+            """
+            SELECT id, name FROM locations
+            WHERE lower(name) = lower(%s) AND lower(country) = lower(%s)
+            LIMIT 1
+            """,
+            (name, nation),
+        ).fetchone()
+        if row is None:
+            row = conn.execute(
+                """
+                INSERT INTO locations
+                    (id, name, country, is_active, country_iso3, admin_level)
+                VALUES
+                    (gen_random_uuid(), %s, %s, true, %s, 3)
+                RETURNING id, name
+                """,
+                (name, nation, iso3),
+            ).fetchone()
+        if alias_value and alias_value.casefold() != str(row["name"]).casefold():
+            conn.execute(
+                """
+                INSERT INTO location_aliases
+                    (location_id, alias_name, language, is_preferred)
+                VALUES (%s, %s, %s, false)
+                ON CONFLICT (location_id, alias_name, language) DO NOTHING
+                """,
+                (row["id"], alias_value, language),
+            )
+        conn.commit()
+        return str(row["name"])
 
 
 def ensure_location_registry_loaded() -> None:
@@ -735,24 +808,50 @@ def ensure_location_registry_loaded() -> None:
 
 
 def load_credibility_from_db():
+    """Refresh source scores from GET /api/v1/source-credibility."""
     global SOURCE_CREDIBILITY_MAP
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT source_type, score FROM source_credibility WHERE is_active = TRUE"
-        ).fetchall()
-        conn.close()
-        SOURCE_CREDIBILITY_MAP = {r["source_type"]: r["score"] for r in rows}
-        import logging
+        from .registry_client import load_rows
+        rows = load_rows(
+            "/api/v1/source-credibility",
+            "SELECT source_type, score, is_active FROM source_credibility WHERE is_active = TRUE",
+        )
+        SOURCE_CREDIBILITY_MAP = {
+            r["source_type"]: r["score"]
+            for r in rows
+            if r.get("is_active", True)
+        }
         logging.getLogger(__name__).info(
-            "Loaded %d credibility scores from DB", len(SOURCE_CREDIBILITY_MAP),
+            "Loaded %d credibility scores from app API", len(SOURCE_CREDIBILITY_MAP),
         )
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load credibility from DB: %s", e
+            "Failed to load credibility from app API: %s", e
+        )
+
+
+def _fetch_language_marker_rows() -> list[dict]:
+    from .registry_client import fetch_collection, http_registry_enabled, query_db
+
+    if http_registry_enabled():
+        try:
+            return fetch_collection("/api/v1/language-markers")
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Language marker API failed, using database: %s", exc
+            )
+    try:
+        return query_db(
+            """SELECT word, language, marker_type, canonical_value, priority, is_active
+               FROM language_markers
+               WHERE is_active = TRUE
+               ORDER BY marker_type, language, priority, word"""
+        )
+    except Exception:
+        # Databases that predate migration 095 only have word and language.
+        return query_db(
+            "SELECT word, language, is_active FROM language_markers "
+            "WHERE is_active = TRUE ORDER BY language, word"
         )
 
 
@@ -760,24 +859,16 @@ def load_language_markers_from_db():
     global LANGUAGE_MARKERS, LEXICON_TERMS, LEXICON_VALUES, TEMPORAL_MONTH_MAP, LEXICON_READY, LEXICON_LOAD_ATTEMPTED
     LEXICON_LOAD_ATTEMPTED = True
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        try:
-            rows = conn.execute(
-                """SELECT word, language, marker_type, canonical_value
-                   FROM language_markers
-                   WHERE is_active = TRUE
-                   ORDER BY marker_type, language, priority, word"""
-            ).fetchall()
-        except Exception:
-            # Keep older development databases usable until migration 095 is
-            # applied. They expose the original two-column marker contract.
-            conn.rollback()
-            rows = conn.execute(
-                "SELECT word, language FROM language_markers WHERE is_active = TRUE ORDER BY language, word"
-            ).fetchall()
-        conn.close()
+        rows = [
+            row for row in _fetch_language_marker_rows()
+            if row.get("is_active", True)
+        ]
+        rows.sort(key=lambda row: (
+            str(row.get("marker_type") or ""),
+            str(row.get("language") or ""),
+            int(row.get("priority") or 0),
+            str(row.get("word") or ""),
+        ))
         markers: dict[str, list[str]] = {}
         lexicon: dict[str, dict[str, list[str]]] = {}
         lexicon_values: dict[str, dict[str, int]] = {}
@@ -817,9 +908,8 @@ def load_language_markers_from_db():
         LEXICON_VALUES = lexicon_values
         TEMPORAL_MONTH_MAP = month_map
         LEXICON_READY = bool(lexicon)
-        import logging
         logging.getLogger(__name__).info(
-            "Loaded %d lexicon terms (%d language markers, %d languages) from DB",
+            "Loaded %d lexicon terms (%d language markers, %d languages) from app API",
             sum(len(items) for by_language in lexicon.values() for items in by_language.values()),
             sum(len(v) for v in markers.values()), len(markers),
         )
@@ -829,7 +919,6 @@ def load_language_markers_from_db():
         LEXICON_VALUES = {}
         TEMPORAL_MONTH_MAP = {}
         LEXICON_READY = False
-        import logging
         logging.getLogger(__name__).warning(
             "Lexicon registry unavailable; lexical metric/date extraction is disabled: %s", e
         )
@@ -909,15 +998,22 @@ def get_temporal_month_pattern() -> str:
 
 
 def load_extraction_rules_from_db():
+    """Refresh regex rules from GET /api/v1/extraction-rules."""
     global EXTRACTION_RULES
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT field_name, regex_pattern FROM extraction_rules WHERE is_active = TRUE ORDER BY field_name, priority"
-        ).fetchall()
-        conn.close()
+        from .registry_client import load_rows
+        rows = [
+            row for row in load_rows(
+                "/api/v1/extraction-rules",
+                "SELECT field_name, regex_pattern, priority, is_active FROM extraction_rules "
+                "WHERE is_active = TRUE ORDER BY field_name, priority",
+            )
+            if row.get("is_active", True)
+        ]
+        rows.sort(key=lambda row: (
+            str(row.get("field_name") or ""),
+            int(row.get("priority") or 0),
+        ))
         rules: dict[str, list[str]] = {}
         for r in rows:
             field = r["field_name"]
@@ -932,35 +1028,298 @@ def load_extraction_rules_from_db():
                 rules[field] = []
             rules[field].append(r["regex_pattern"])
         EXTRACTION_RULES = rules
-        import logging
         logging.getLogger(__name__).info(
-            "Loaded %d extraction rules (%d fields) from DB",
+            "Loaded %d extraction rules (%d fields) from app API",
             sum(len(v) for v in rules.values()), len(rules),
         )
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load extraction rules from DB, using defaults: %s", e
+            "Failed to load extraction rules from app API, using defaults: %s", e
         )
 
 
 def load_language_models_from_db():
+    """Refresh per-language model keys from GET /api/v1/language-models."""
     global LANGUAGE_MODEL_MAP
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT language, model_key FROM language_models WHERE is_active = TRUE ORDER BY language"
-        ).fetchall()
-        conn.close()
-        LANGUAGE_MODEL_MAP = {r["language"]: r["model_key"] for r in rows}
-        import logging
+        from .registry_client import load_rows
+        rows = load_rows(
+            "/api/v1/language-models",
+            "SELECT language, model_key, is_active FROM language_models "
+            "WHERE is_active = TRUE ORDER BY language",
+        )
+        LANGUAGE_MODEL_MAP = {
+            r["language"]: r["model_key"]
+            for r in rows
+            if r.get("is_active", True)
+        }
         logging.getLogger(__name__).info(
-            "Loaded %d language-to-model mappings from DB", len(LANGUAGE_MODEL_MAP),
+            "Loaded %d language-to-model mappings from app API", len(LANGUAGE_MODEL_MAP),
         )
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load language models from DB: %s", e
+            "Failed to load language models from app API: %s", e
         )
+
+
+def _normalize_discovery_form(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s-]", " ", (value or "").lower())).strip()
+
+
+def _reload_discovery_caches() -> None:
+    load_keywords_from_db()
+    load_disease_master_from_db()
+    load_outbreak_rules_from_db()
+    try:
+        from .models.classifier import refresh_labels_from_db
+        refresh_labels_from_db()
+    except Exception:
+        pass
+
+
+def upsert_discovered_disease_concept(
+    canonical_name: str,
+    english_name: str,
+    ontology_code: str,
+    ontology_uri: str,
+    ontology_release: str | None = None,
+    aliases: list[dict[str, Any]] | None = None,
+) -> bool:
+    """Persist a validated concept plus aliases, keywords, and an outbreak rule.
+
+    Not called by the rules-first extract path. HTTP when ``NLP_SERVICE_URL``
+    is set, otherwise the same write against Postgres.
+    """
+    if not canonical_name or not ontology_code:
+        return False
+    release = (ontology_release or os.getenv("WHO_ICD_RELEASE", "11/2026-01/mms")).strip("/")
+    body = {
+        "canonical_name": canonical_name,
+        "english_name": english_name,
+        "ontology_code": ontology_code,
+        "ontology_uri": ontology_uri,
+        "ontology_release": release,
+        "min_case_count": EXPLICIT_KNOWN_DISEASE_MIN_CASES,
+        "aliases": aliases or [],
+    }
+    from .registry_client import RegistryApiError, http_registry_enabled, request_json
+
+    if http_registry_enabled():
+        try:
+            request_json("POST", "/api/v1/disease-concepts/upsert", body)
+            _reload_discovery_caches()
+            return True
+        except RegistryApiError as exc:
+            if exc.status == 409:
+                return False
+            logging.getLogger(__name__).warning(
+                "Disease concept upsert API failed, using database: %s", exc
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Disease concept upsert API failed, using database: %s", exc
+            )
+    try:
+        return _upsert_discovered_disease_concept_db(
+            canonical_name, english_name, ontology_code, ontology_uri, release, aliases or []
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Failed to upsert discovered disease concept '%s': %s", canonical_name, exc
+        )
+        return False
+
+
+def _upsert_discovered_disease_concept_db(
+    canonical_name: str,
+    english_name: str,
+    ontology_code: str,
+    ontology_uri: str,
+    ontology_release: str,
+    aliases: list[dict[str, Any]],
+) -> bool:
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        with conn.transaction():
+            row = conn.execute(
+                """
+                SELECT id, canonical_name
+                FROM disease_concepts
+                WHERE ontology_code = %s AND is_active = TRUE
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (ontology_code,),
+            ).fetchone()
+            if row:
+                concept_id = row["id"]
+                concept_name = row["canonical_name"]
+                conn.execute(
+                    """
+                    UPDATE disease_concepts
+                    SET english_name = COALESCE(NULLIF(%s, ''), english_name),
+                        ontology_system = 'WHO ICD-11 MMS',
+                        ontology_uri = COALESCE(NULLIF(%s, ''), ontology_uri),
+                        ontology_release = COALESCE(NULLIF(%s, ''), ontology_release),
+                        canonicalization_status = 'validated',
+                        is_active = TRUE,
+                        updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (english_name or concept_name, ontology_uri, ontology_release, concept_id),
+                )
+            else:
+                name_conflict = conn.execute(
+                    """
+                    SELECT id, ontology_code
+                    FROM disease_concepts
+                    WHERE canonical_name = %s
+                    LIMIT 1
+                    """,
+                    (canonical_name,),
+                ).fetchone()
+                if name_conflict and name_conflict["ontology_code"] not in (None, ontology_code):
+                    logging.getLogger(__name__).warning(
+                        "Disease canonical name conflict requires review: name=%s existing_code=%s new_code=%s",
+                        canonical_name, name_conflict["ontology_code"], ontology_code,
+                    )
+                    return False
+                row = conn.execute(
+                    """
+                    INSERT INTO disease_concepts
+                      (canonical_name, english_name, ontology_system, ontology_code,
+                       ontology_uri, ontology_release, source, confidence, is_active,
+                       canonicalization_status, disease_id, updated_at)
+                    VALUES (%s, %s, 'WHO ICD-11 MMS', %s, %s, %s, 'who_icd11_discovery', 1.0, TRUE,
+                            'validated', %s, NOW())
+                    ON CONFLICT (canonical_name) DO UPDATE SET
+                      english_name = EXCLUDED.english_name,
+                      ontology_system = 'WHO ICD-11 MMS',
+                      ontology_code = COALESCE(disease_concepts.ontology_code, EXCLUDED.ontology_code),
+                      ontology_uri = COALESCE(disease_concepts.ontology_uri, EXCLUDED.ontology_uri),
+                      ontology_release = COALESCE(disease_concepts.ontology_release, EXCLUDED.ontology_release),
+                      is_active = TRUE,
+                      updated_at = NOW()
+                    RETURNING id, canonical_name
+                    """,
+                    (
+                        canonical_name,
+                        english_name or canonical_name,
+                        ontology_code,
+                        ontology_uri,
+                        ontology_release,
+                        ontology_code,
+                    ),
+                ).fetchone()
+                concept_id = row["id"]
+                concept_name = row["canonical_name"]
+
+            all_aliases = list(aliases)
+            all_aliases.append({"surface_form": concept_name, "language": "en", "confidence": 1.0})
+            if english_name and english_name != canonical_name:
+                all_aliases.append({"surface_form": english_name, "language": "en", "confidence": 1.0})
+            for item in all_aliases:
+                surface = str(item.get("surface_form") or "").strip()
+                if not surface:
+                    continue
+                lang = str(item.get("language") or "unknown")
+                conf = float(item.get("confidence") or 1.0)
+                norm_alias = _normalize_discovery_form(surface)
+                conn.execute(
+                    """
+                    INSERT INTO disease_aliases
+                      (concept_id, alias, normalized_alias, language, source, confidence, is_active, updated_at)
+                    VALUES (%s, %s, %s, %s, 'who_icd11_discovery', %s, TRUE, NOW())
+                    ON CONFLICT (concept_id, normalized_alias, language) DO UPDATE SET
+                      confidence = GREATEST(disease_aliases.confidence, EXCLUDED.confidence),
+                      is_active = TRUE,
+                      updated_at = NOW()
+                    """,
+                    (concept_id, surface, norm_alias, lang, conf),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO nlp_keywords (category, keyword, target_label, priority, is_active, updated_at)
+                    VALUES ('disease', %s, %s, 350, TRUE, NOW())
+                    ON CONFLICT (category, keyword) DO UPDATE SET
+                      target_label = EXCLUDED.target_label,
+                      is_active = TRUE,
+                      priority = LEAST(nlp_keywords.priority, EXCLUDED.priority),
+                      updated_at = NOW()
+                    """,
+                    (norm_alias, concept_name),
+                )
+            conn.execute(
+                """
+                INSERT INTO nlp_labels (category, label, priority, is_active, updated_at)
+                VALUES ('disease', %s, 50, TRUE, NOW())
+                ON CONFLICT (category, label) DO UPDATE SET is_active = TRUE, updated_at = NOW()
+                """,
+                (concept_name,),
+            )
+            conn.execute(
+                """
+                INSERT INTO disease_outbreak_rules
+                  (disease_name, display_label, min_case_count, priority, is_active, updated_at)
+                VALUES (%s, %s, %s, 50, TRUE, NOW())
+                ON CONFLICT (disease_name) DO NOTHING
+                """,
+                (concept_name.upper(), concept_name, EXPLICIT_KNOWN_DISEASE_MIN_CASES),
+            )
+    _reload_discovery_caches()
+    return True
+
+
+def upsert_disease_discovery_candidate(
+    surface_form: str,
+    sample_text: str = "",
+    language: str = "unknown",
+    provider: str = "",
+    confidence: float = 0.0,
+) -> bool:
+    """Quarantine an unresolved disease term. Not used by rules-first extract."""
+    if not surface_form or not surface_form.strip():
+        return False
+    normalized = _normalize_discovery_form(surface_form)
+    if not normalized:
+        return False
+    body = {
+        "surface_form": surface_form.strip(),
+        "language": language or "unknown",
+        "sample_text": sample_text[:5000],
+        "provider": provider,
+        "confidence": confidence,
+    }
+    from .registry_client import http_registry_enabled, request_json
+
+    if http_registry_enabled():
+        try:
+            request_json("POST", "/api/v1/disease-discovery-candidates", body)
+            return True
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Discovery candidate API failed, using database: %s", exc
+            )
+    try:
+        import psycopg
+        with psycopg.connect(DATABASE_URL) as conn:
+            conn.execute(
+                """INSERT INTO disease_discovery_candidates
+                   (surface_form, normalized_form, language, sample_text, provider, confidence)
+                   VALUES (%s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (normalized_form) DO UPDATE SET
+                     occurrences = disease_discovery_candidates.occurrences + 1,
+                     sample_text = COALESCE(EXCLUDED.sample_text, disease_discovery_candidates.sample_text),
+                     provider = COALESCE(NULLIF(EXCLUDED.provider, ''), disease_discovery_candidates.provider),
+                     confidence = GREATEST(COALESCE(disease_discovery_candidates.confidence, 0), EXCLUDED.confidence),
+                     updated_at = NOW()""",
+                (surface_form.strip(), normalized, language or "unknown", sample_text[:5000], provider, confidence),
+            )
+        return True
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Failed to store unresolved disease candidate '%s': %s", surface_form, exc
+        )
+        return False

@@ -246,7 +246,7 @@ def resolve_legacy_disease(payload: DiseaseResolveRequest):
 
 @app.post("/reload")
 def reload_runtime_data():
-    """Reload DB-backed concepts, aliases, locations, and extraction rules."""
+    """Reload registry concepts, aliases, locations, and extraction rules from the app API."""
     from .config import (
         load_keywords_from_db, load_outbreak_rules_from_db, load_locations_from_db,
         load_credibility_from_db, load_language_markers_from_db,
@@ -321,6 +321,11 @@ class NLPCorrectionRequest(BaseModel):
 @app.post("/api/nlp/correct")
 def submit_nlp_correction(payload: NLPCorrectionRequest):
     """Record a human correction without discarding the original prediction."""
+    from .operator_http import post_correction
+
+    recorded = post_correction(payload.model_dump())
+    if recorded is not None:
+        return recorded
     import psycopg
     from . import config
     try:
@@ -390,6 +395,11 @@ class MarkReviewedRequest(BaseModel):
 @app.post("/nlp/mark-reviewed")
 def mark_article_reviewed(payload: MarkReviewedRequest):
     """Mark an article / disease event as reviewed or unreviewed."""
+    from .operator_http import post_review
+
+    recorded = post_review(payload.model_dump())
+    if recorded is not None:
+        return recorded
     import psycopg
     from . import config
     try:
@@ -462,6 +472,12 @@ def mark_article_reviewed(payload: MarkReviewedRequest):
 @app.get("/api/nlp/export-dataset")
 def export_training_dataset(limit: int = 5000):
     """Export training data for Google Colab fine-tuning, prioritizing human corrections."""
+    from .operator_http import get_training_export
+
+    bounded = max(1, min(int(limit), 20000))
+    exported = get_training_export(bounded)
+    if exported is not None:
+        return exported
     import psycopg
     from psycopg.rows import dict_row
     from . import config
@@ -474,7 +490,7 @@ def export_training_dataset(limit: int = 5000):
                WHERE text IS NOT NULL AND length(text) > 20
                ORDER BY (CASE WHEN source = 'human_corrected' THEN 1 ELSE 2 END), confidence DESC, created_at DESC
                LIMIT %s;""",
-            (limit,)
+            (bounded,)
         )
         rows = cur.fetchall()
         # Convert UUID to str

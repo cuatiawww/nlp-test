@@ -40,7 +40,33 @@ def _hash(text: str, lang: str) -> str:
     return hashlib.sha256(f"v2-chunked\0{lang}\0{text}".encode()).hexdigest()
 
 
+def _cache_row(data: dict) -> dict[str, Any]:
+    structured = data.get("structured_result") or {}
+    if isinstance(structured, str):
+        try:
+            structured = json.loads(structured)
+        except json.JSONDecodeError:
+            structured = {}
+    return {
+        "source_language": data.get("source_language"),
+        "provider": data.get("provider"),
+        "translated_text": data.get("translated_text") or "",
+        "structured_result": structured if isinstance(structured, dict) else {},
+    }
+
+
 def _cached(key: str):
+    from .registry_client import http_registry_enabled, request_json
+
+    if http_registry_enabled():
+        try:
+            payload = request_json("GET", f"/api/v1/nlp/translation-cache/{key}")
+            data = payload.get("data")
+            if isinstance(data, dict) and data.get("translated_text") is not None:
+                return _cache_row(data)
+            return None
+        except Exception as exc:
+            logger.warning("Translation cache HTTP read failed, using database: %s", exc)
     try:
         import psycopg
         from psycopg.rows import dict_row
@@ -51,13 +77,28 @@ def _cached(key: str):
                 "RETURNING source_language,provider,translated_text,structured_result",
                 (key,),
             ).fetchone()
-        return dict(row) if row else None
+        return _cache_row(dict(row)) if row else None
     except Exception as exc:
         logger.warning("Translation cache read failed: %s", exc)
         return None
 
 
 def _store(key: str, lang: str, provider: str, translated: str, structured: dict):
+    from .registry_client import http_registry_enabled, request_json
+
+    body = {
+        "content_hash": key,
+        "source_language": lang,
+        "provider": provider,
+        "translated_text": translated,
+        "structured_result": structured,
+    }
+    if http_registry_enabled():
+        try:
+            request_json("PUT", "/api/v1/nlp/translation-cache", body)
+            return
+        except Exception as exc:
+            logger.warning("Translation cache HTTP write failed, using database: %s", exc)
     try:
         import psycopg
 
