@@ -40,7 +40,7 @@ def _json_safe(value):
     return value
 QUEUE = os.getenv("RABBITMQ_ANALYSIS_URL_QUEUE", "disease.analysis-url")
 TRANSLATION_QUEUE = os.getenv("RABBITMQ_TRANSLATION_QUEUE", "disease.translation")
-TRANSLATION_NLP_URL = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000")
+TRANSLATION_NLP_URL = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000").rstrip("/")
 NLP_REQUEST_TIMEOUT_SECONDS = max(
     120, int(os.getenv("NLP_REQUEST_TIMEOUT_SECONDS", "270"))
 )
@@ -423,7 +423,7 @@ def _prepare_text_for_nlp(extracted, max_chars=None):
 def analyze_article(extracted):
     import requests
     # URL analysis uses the same full NLP contract as bulk and matrix workers.
-    endpoint = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000")
+    endpoint = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000").rstrip("/")
     text_payload = _prepare_text_for_nlp(extracted)
     response = requests.post(
         endpoint + "/nlp/analyze/raw",
