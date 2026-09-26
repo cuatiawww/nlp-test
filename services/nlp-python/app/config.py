@@ -345,6 +345,7 @@ LANGUAGE_MARKERS: dict[str, list[str]] = {k: list(v) for k, v in DEFAULT_LANGUAG
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
 DISEASE_MASTER_CONCEPTS: list[dict[str, Any]] = []
+DISEASE_MASTER_LOAD_ATTEMPTED = False
 # Shared DB-backed lexical registry.  The legacy language_markers name is
 # retained for API compatibility, but its marker_type now separates language
 # detection from metric and temporal vocabulary.
@@ -399,7 +400,8 @@ def load_keywords_from_db():
 
 
 def load_disease_master_from_db():
-    global DISEASE_MASTER_CONCEPTS
+    global DISEASE_MASTER_CONCEPTS, DISEASE_MASTER_LOAD_ATTEMPTED
+    DISEASE_MASTER_LOAD_ATTEMPTED = True
     try:
         import psycopg
         from psycopg.rows import dict_row
@@ -444,6 +446,7 @@ def load_disease_master_from_db():
         import logging
         logging.getLogger(__name__).info("Loaded %d local disease-master concepts", len(rows))
     except Exception as e:
+        DISEASE_MASTER_CONCEPTS = []
         import logging
         logging.getLogger(__name__).warning("Failed to load local disease-master concepts: %s", e)
 
@@ -646,6 +649,10 @@ def load_locations_from_db():
         except Exception:
             pass
     except Exception as e:
+        LOCATION_COORDS = {}
+        LOCATION_COUNTRIES = {}
+        LOCATION_ALIASES = {}
+        LOCATION_REGISTRY_REFERENCE_ID = None
         import logging
         logging.getLogger(__name__).warning(
             "Location registry unavailable; location alias matching is disabled: %s", e

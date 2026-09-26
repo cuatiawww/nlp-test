@@ -101,6 +101,14 @@ def startup():
     # for source-first surveillance extraction.
 
 
+@app.get("/registry/audit")
+def registry_audit_endpoint():
+    """Fase 1: read-only registry counts, readiness, and sentinel checks."""
+    from .registry_audit import registry_audit
+
+    return registry_audit()
+
+
 @app.get("/health")
 def health():
     # Do not call classifier.get_labels() here: it refreshes labels through

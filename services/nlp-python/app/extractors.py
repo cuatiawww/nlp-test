@@ -2368,7 +2368,9 @@ def _runtime_number_word_pattern() -> str:
 
     words = sorted(config.get_lexicon_values("number_word"), key=len, reverse=True)
     alternatives = [re.escape(word) for word in words]
-    alternatives.append(r"[0-9]{1,3}(?:[,\.\s]\d{3})+\.?")
+    # Spaced thousands are normalized by ``_compact_spaced_thousands`` first.
+    # Keep only comma/dot here so "September 18 250 cases" cannot tokenize as 18250.
+    alternatives.append(r"[0-9]{1,3}(?:[,.]\d{3})+\.?")
     alternatives.append(r"[0-9]+(?:[.,]\d+)?\.?")
     return "(?:" + "|".join(alternatives) + ")"
 
@@ -2404,6 +2406,9 @@ _FOCAL_SINGULAR = re.compile(
     r"(?:reported|reports|confirms?)\s+(?:a|another|one)\s+(?:severe\s+)?"
     r"(?:human\s+)?(?:h5n1\s+)?(?:avian\s+(?:influenza|flu)\s+)?"
     r"(?:infection|case)\b|"
+    # Short confirm headlines omit the article: confirms human H5N1 avian flu case
+    r"(?:reported|reports|confirms?)\s+(?:human\s+)?(?:h5n1\s+)?(?:avian\s+(?:influenza|flu)\s+)?"
+    r"(?:infection|case)\b(?!s\b)|"
     # Indonesian / Malay single individual
     r"seorang\s+(?:wanita|pria|anak|pasien|warga|balita|bayi|ibu|bapak|orang|lansia|santri|siswi|siswa|korban|perawat|dokter)\b|"
     r"seekor\s+(?:anjing|kucing|kera|monyet|unggas|burung|ayam)\b|"
@@ -2515,13 +2520,50 @@ _ANIMAL_OUTBREAK = re.compile(
 )
 
 
+# Unicode spaces commonly used as thousands separators in WHO/ASEAN copy.
+_THOUSANDS_SPACE_RE = re.compile(r"[\u0020\u00a0\u202f\u2007\u2009\u2008]")
+# Month name immediately before a digit group → day-of-month, not thousands.
+_MONTH_BEFORE_SPACED_NUMBER = re.compile(
+    r"(?i)(?:^|(?<!\w))(?:"
+    r"January|Jan(?:uary)?|February|Feb(?:ruary)?|March|Mar(?:ch)?|"
+    r"April|Apr(?:il)?|May|June|Jun(?:e)?|July|Jul(?:y)?|"
+    r"August|Aug(?:ust)?|September|Sep(?:t(?:ember)?)?|"
+    r"October|Oct(?:ober)?|November|Nov(?:ember)?|December|Dec(?:ember)?|"
+    r"Januari|Februari|Maret|Mei|Juni|Juli|Agustus|Oktober|Desember|Des"
+    r")\.?\s+$"
+)
+_SPACED_THOUSANDS_TOKEN = re.compile(
+    r"\b(\d{1,3}(?:[\u0020\u00a0\u202f\u2007\u2009\u2008]\d{3})+)\b"
+)
+
+
 def _compact_spaced_thousands(text: str) -> str:
-    """WHO WPRO style: '40 915' / '3 029' / '73 828' → compact integers."""
-    return re.sub(
-        r"\b(\d{1,3}(?:[ \u00a0]\d{3})+)\b",
-        lambda match: re.sub(r"[ \u00a0]", "", match.group(1)),
-        text or "",
-    )
+    """Normalize WHO/ASEAN spaced thousands without gluing month/day counts.
+
+    Compacts digit groups such as ``40 915``, ``1 234 567``, and NBSP/thin-space
+    variants into plain integers (``40915``, ``1234567``).
+
+    Leaves day-of-month + count alone: ``September 18 250 cases`` must stay
+    day=18 / count=250, not 18250. Gluing requires the thousands shape
+    (1–3 digit groups, rightmost group exactly 3 digits).
+    """
+    source = text or ""
+    if not source:
+        return ""
+
+    def _repl(match: re.Match) -> str:
+        start = match.start(1)
+        prefix = source[max(0, start - 32):start]
+        if _MONTH_BEFORE_SPACED_NUMBER.search(prefix):
+            return match.group(1)
+        return _THOUSANDS_SPACE_RE.sub("", match.group(1))
+
+    return _SPACED_THOUSANDS_TOKEN.sub(_repl, source)
+
+
+def normalize_spaced_thousands(text: str) -> str:
+    """Public wrapper for shared spaced-thousands normalization."""
+    return _compact_spaced_thousands(text)
 
 
 def _years_in(text: str) -> list[int]:
@@ -2590,6 +2632,26 @@ def _period_score(window: str, full_text: str) -> int:
         window_l,
     ):
         score += 4
+    # When the same article carries both a monthly slice and a cumulative
+    # total, prefer the cumulative number over the narrower month-only report.
+    if re.search(
+        r"\b(?:bringing\s+the\s+cumulative\s+total|cumulativ(?:e|ely)|a\s+total\s+of)\b",
+        (full_text or "").lower(),
+    ):
+        if re.search(
+            r"\b(?:reported\s+in|in)\s+(?:january|february|march|april|may|june|july|"
+            r"august|september|october|november|december)\s+20\d{2}\b",
+            window_l,
+        ) and not re.search(
+            r"\b(?:cumulativ(?:e|ely)|bringing\s+the\s+cumulative|a\s+total\s+of)\b",
+            window_l,
+        ):
+            score -= 25
+        if re.search(
+            r"\b(?:bringing\s+the\s+cumulative\s+total|cumulativ(?:e|ely)|a\s+total\s+of)\b",
+            window_l,
+        ):
+            score += 15
     return score
 
 
@@ -2775,11 +2837,11 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     case_label = _runtime_metric_label_pattern("metric_case")
     localized_patterns = {
         "case_count": [
-            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z\u00C0-\u024F\u1EA0-\u1EFF(),/'-]+){{0,7}}\s*{case_label}(?!\w)"
+            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/,.'-]*){{0,7}}\s*{case_label}(?!\w)"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has|of)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
             rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({num_token})\s*\)",
-            rf"(?:with|logged|recorded|reported|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({num_token})\s+(?:[a-z\u00C0-\u024F\u1EA0-\u1EFF-]+\s+)?(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
+            rf"(?:with|logged|recorded|reported|confirms?|confirmed|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({num_token})\s+(?:[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/-]*\s+){{0,6}}(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
             rf"(?:cases?|infections?|kasus).{{0,90}}(?:rose|climbed|increased|jumped|naik).{{0,50}}to\s+({num_token})",
             rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({num_token})",
             rf"(?:cases?|infections?|kasus|pasien)\b[^.\n;:]{{0,100}}?\b(?:reached|recorded|reported|tercatat|mencatat|melaporkan|total(?:ed)?|stood at|of)\s+({num_token})",
@@ -2882,15 +2944,25 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         # A death clause may use the generic case unit (for example Malay
         # ``kematian ... terdapat 62 kes``). The number is a death metric,
         # not a second disease-incidence total. Only reject a case candidate
-        # when the death label is immediately to its left.
-        if field == "case_count" and re.search(
-            r"\b(?:death|deaths|fatalit(?:y|ies)|died|meninggal(?:\s+dunia)?|"
-            r"kematian|maut|korban\s+jiwa|tewas|tử\s+vong|เสียชีวิต|"
-            r"ស្លាប់|ເສຍຊີວິດ|သေဆုံး)\b[^.!?;:]{0,100}$",
-            search_text[max(0, match.start(1) - 180): match.start(1)],
-            re.IGNORECASE,
-        ):
-            return
+        # when a *positive* death label sits immediately to its left — not
+        # when an earlier ``no deaths`` shares the same long WHO sentence as
+        # a later cumulative case total.
+        if field == "case_count":
+            _left_for_death = search_text[max(0, match.start(1) - 180): match.start(1)]
+            _death_left = re.search(
+                r"\b(?:death|deaths|fatalit(?:y|ies)|died|meninggal(?:\s+dunia)?|"
+                r"kematian|maut|korban\s+jiwa|tewas|tử\s+vong|เสียชีวิต|"
+                r"ស្លាប់|ເສຍຊີວິດ|သေဆုံး)\b[^.!?;:]{0,100}$",
+                _left_for_death,
+                re.IGNORECASE,
+            )
+            if _death_left and not re.search(
+                r"(?i)\b(?:no|zero|tidak\s+ada|tanpa|belum\s+ada)\s+"
+                r"(?:deaths?|fatalit(?:y|ies)|kematian|korban\s+jiwa)\b"
+                r"[^.!?;:]{0,100}$",
+                _left_for_death,
+            ):
+                return
         # "10 patients were hospitalized/admitted and later discharged" is a
         # care-utilization fact, not ten new disease cases. Keep it available
         # to typed hospitalization extraction, but never promote it to a
@@ -2934,14 +3006,28 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         if field == "case_count" and article_states_zero_cases(search_text):
             return
         if field == "death_count" and re.search(r"\bno deaths?\b", window_l):
-            return
+            # ``no deaths`` in July must not erase a later cumulative ``203 deaths``
+            # in the same WHO sentence. Only skip the zero-death token itself.
+            token_ctx = search_text[max(0, match.start(1) - 12): match.end(1) + 12]
+            if re.search(r"(?i)\b(?:no|zero)\s+deaths?\b", token_ctx) or re.search(
+                r"(?i)\b(?:no|zero)\s+$",
+                search_text[max(0, match.start(1) - 8): match.start(1)],
+            ):
+                return
         if field == "death_count" and re.search(
             r"\b(?:cases?|infections?|kasus|kes|patients?)\b[^.!?;:]{0,30}\b(?:and|&|dan)\b",
             after,
             re.IGNORECASE,
         ):
-            # Do not let ``53,362 cases and one death`` attach the case total
-            # to the death metric while scanning the same sentence.
+            # Do not let ``53,362 cases and one death`` / ``75431 cases and 203
+            # deaths`` attach the case total to the death metric. When the
+            # number is immediately a case label, always reject — even if an
+            # earlier ``no deaths`` sits in the same WHO sentence.
+            if re.match(
+                r"(?i)\s*(?:cases?|infections?|kasus|kes|patients?)\b",
+                after,
+            ):
+                return
             if not re.search(
                 r"\b(?:death|deaths|fatalit(?:y|ies)|died|meninggal(?:\s+dunia)?|"
                 r"kematian|maut|korban\s+jiwa|tewas|tử\s+vong|เสียชีวิต|"
@@ -3158,7 +3244,22 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             )
         ]
         if cumulative_candidates:
-            candidates = cumulative_candidates
+            # Prefer the number attached to the cumulative / "a total of" phrase
+            # itself so a monthly slice earlier in the same sentence (``124 ...
+            # bringing the cumulative total ... to 75431``) does not win on
+            # earlier offset alone.
+            attached = []
+            for item in cumulative_candidates:
+                before = re.sub(r"\s+", " ", search_text[max(0, item[1] - 160): item[1]])
+                if re.search(
+                    r"(?i)(?:\ba\s+total\s+of|"
+                    r"\bbringing\s+the\s+cumulative\s+total\b(?:\s+\w+){0,20}\s+to|"
+                    r"\bcumulativ(?:e|ely)\b(?:\s+\w+){0,12}\s+(?:total\s+(?:of\s+)?)?|"
+                    r"\bcumulative\s+total\b(?:\s+\w+){0,16}\s+to)\s*$",
+                    before,
+                ):
+                    attached.append(item)
+            candidates = attached or cumulative_candidates
 
     if not candidates:
         if field == "death_count" and re.search(r"\bno deaths?\b", search_text, re.I):
@@ -3243,9 +3344,10 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         if multiplier == 1 and re.fullmatch(r"(?:19|20)\d{2}", val):
             return None
 
-        # Case 1: Standard thousands separator (e.g. 19,313 or 10.000 or 1,000,000 or 40 915)
-        if re.fullmatch(r"\d{1,3}(?:[,. ]\d{3})+", val):
-            clean_int = re.sub(r"[,. ]", "", val)
+        # Case 1: Standard thousands separator (e.g. 19,313 / 10.000 / 40 915 / NBSP)
+        if re.fullmatch(r"\d{1,3}(?:[,.\u0020\u00a0\u202f\u2007\u2009\u2008]\d{3})+", val):
+            clean_int = _THOUSANDS_SPACE_RE.sub("", val)
+            clean_int = re.sub(r"[,.]", "", clean_int)
             return _bounded(int(clean_int) * multiplier)
 
         # Case 2: Pure integer digits
@@ -3304,7 +3406,7 @@ def extract_disease_case_metrics(
     used only when one article has multiple diseases, so a country total is
     not duplicated across every disease merely because they share a sentence.
     """
-    source = str(text or "")
+    source = _compact_spaced_thousands(str(text or ""))
     if not source:
         return {}
     number = _runtime_number_word_pattern()
@@ -3401,6 +3503,10 @@ def extract_case_count(text: str, disease: Optional[str] = None) -> int:
                     continue
                 window = _sentence_window(source, match.start(), match.end())
                 window_l = window.casefold()
+                before = source[max(0, match.start("count") - 40): match.start("count")]
+                # ``China, an increase from 222 cases`` is a comparator, not the June total.
+                if re.search(r"(?i)\b(?:from|dari|daripada|increase from|down from)\s*$", before):
+                    continue
                 if re.search(
                     r"\b(?:last year|previous year|year before|a year earlier|same period|compared with|compared to|"
                     r"tahun lalu|tahun lepas|berbanding|berbanding dengan)\b",
@@ -3550,7 +3656,15 @@ def extract_death_count(text: str, disease: Optional[str] = None) -> int:
             r"zero\s+deaths?|belum\s+ada\s+kematian)(?:[^A-Za-z0-9]|$)",
             source,
         ):
-            return 0
+            # Monthly ``no deaths`` must not hide a later cumulative death total
+            # in the same article (Indonesia WHO: July no deaths → 203 cumulative).
+            has_positive_deaths = re.search(
+                r"(?i)(?:\b(?:and|,)\s+)?(?P<n>\d{1,3}(?:,\d{3})+|\d+)\s+"
+                r"(?:deaths?|fatalities|kematian|meninggal)\b",
+                source,
+            )
+            if not has_positive_deaths:
+                return 0
         parsed = _extract_count(text, "death_count", 0, disease=disease)
         max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
         if parsed is None or parsed > max_count:
@@ -4762,10 +4876,128 @@ def _mention_is_non_outbreak_context(pos: int, text: str, link_at: int) -> bool:
     return bool(_VACCINE_MENTION.search(window))
 
 
+
+_INCIDENTAL_DISEASE_CONTEXT = re.compile(
+    r"(?i)\b(?:"
+    r"glossary|abbreviations?|footnotes?|references?|"
+    r"related\s+(?:diseases?|articles?|stories|links?|syndromes?)|"
+    r"see\s+also|other\s+diseases?|list\s+of\s+diseases?|"
+    r"differential\s+diagnosis|diseases?\s+included|"
+    r"clinical\s+presentation|main\s+clinical|interchangeably|"
+    r"syndromic\s+(?:label|name|term)|glossary\s+term"
+    r")\b"
+)
+_DIARRHEA_FAMILY_LABELS = frozenset({
+    "acute diarrhea",
+    "acute diarrhoea",
+})
+_AWD_OR_WATERY = re.compile(
+    r"(?i)\b(?:acute\s+watery\s+diarrhoe?a|awd|watery\s+diarrhoe?a)\b"
+)
+
+
+def _disease_mentions_are_negated(name: str, text: str) -> bool:
+    """True when every textual mention of the disease is under negation."""
+    source = text or ""
+    token = (name or "").strip()
+    if not token:
+        return False
+    positions = list(disease_mention_positions(name, source) or [])
+    if not positions:
+        for match in re.finditer(re.escape(token), source, re.IGNORECASE):
+            positions.append(match.start())
+    if not positions:
+        return False
+    neg_re = re.compile(
+        rf"(?i)(?:\bno\s+(?:cases?\s+of\s+)?{re.escape(token)}\b|"
+        rf"\b{re.escape(token)}\s+(?:was\s+|were\s+|has\s+been\s+|have\s+been\s+)?"
+        rf"(?:not\s+(?:been\s+)?)?(?:detected|reported|confirmed|found|identified)|"
+        rf"\b(?:without|tanpa)\s+{re.escape(token)}\b)",
+    )
+    for pos in positions:
+        window = source[max(0, pos - 50): pos + len(token) + 60]
+        if not neg_re.search(window):
+            return False
+    return True
+
+
+def _collapse_cholera_diarrhea_family(pool: list[str], text: str) -> list[str]:
+    """Prefer Cholera over Acute diarrhea when cholera evidence is present.
+
+    Bare diarrhea without cholera stays Acute diarrhea. Negated cholera
+    (\"no cholera was detected\") is dropped so diarrhea is not co-tagged.
+    """
+    if len(pool) <= 1:
+        return pool
+    source = text or ""
+    labels = list(pool)
+    folded = {item: (item or "").casefold() for item in labels}
+
+    def _is_diarrhea(label: str) -> bool:
+        value = folded[label]
+        return value in _DIARRHEA_FAMILY_LABELS or "diarrhea" in value or "diarrhoea" in value
+
+    def _is_cholera(label: str) -> bool:
+        value = folded[label]
+        return value == "cholera" or value.startswith("cholera")
+
+    cholera_items = [item for item in labels if _is_cholera(item)]
+    diarrhea_items = [item for item in labels if _is_diarrhea(item)]
+
+    if cholera_items and all(_disease_mentions_are_negated(item, source) for item in cholera_items):
+        labels = [item for item in labels if item not in cholera_items]
+        cholera_items = []
+
+    if cholera_items and diarrhea_items:
+        labels = [item for item in labels if item not in diarrhea_items]
+
+    return labels
+_DEDICATED_DISEASE_SENTENCE = re.compile(
+    r"(?i)\b(?:"
+    r"cases?|case\s+fatality|outbreak|epidemic|pandemic|situation\s+update|"
+    r"surveillance|infected|infections?|reported|deaths?|fatalit|"
+    r"kasus|wabak|situasi|kematian|terjangkit|penularan|"
+    r"ca\s+mắc|ổ\s+dịch|dịch\s+bệnh"
+    r")\b"
+)
+
+
+def _mention_is_incidental_context(pos: int, text: str) -> bool:
+    """Glossary / related-disease footer mentions are not outbreak evidence."""
+    window = (text or "")[max(0, pos - 100): pos + 100]
+    return bool(_INCIDENTAL_DISEASE_CONTEXT.search(window))
+
+
+def _disease_has_outbreak_evidence(name: str, text: str, link_at: int) -> bool:
+    """True when the disease has nearby metrics or a dedicated outbreak sentence."""
+    source = text or ""
+    positions = list(disease_mention_positions(name, source) or [])
+    if not positions:
+        token = (name or "").strip()
+        if token:
+            for match in re.finditer(re.escape(token), source, re.IGNORECASE):
+                positions.append(match.start())
+    if not positions:
+        return False
+    for pos in positions:
+        if link_at >= 0 and pos >= link_at:
+            continue
+        if _mention_is_non_outbreak_context(pos, source, link_at):
+            continue
+        if _mention_is_incidental_context(pos, source):
+            continue
+        window = source[max(0, pos - 140): pos + 160]
+        if _DEDICATED_DISEASE_SENTENCE.search(window):
+            return True
+    return False
+
+
 def prefer_outbreak_diseases(candidates: list[str], text: str) -> list[str]:
     """Keep the disease named with the counts.
 
-    A vaccine phrase or a related-link headline must not replace that disease.
+    A vaccine phrase, related-link headline, or glossary/footer co-mention
+    (e.g. incidental TB on a dengue WHO bulletin) must not attach alongside
+    the disease that carries the article's metrics.
     Alias coverage is multilingual; the rule itself only looks at where the
     mention sits relative to the count, a vaccine word, or a related-link block.
     """
@@ -4783,10 +5015,23 @@ def prefer_outbreak_diseases(candidates: list[str], text: str) -> list[str]:
         positions = disease_mention_positions(name, source)
         if not positions:
             return False
-        return all(_mention_is_non_outbreak_context(pos, source, link_at) for pos in positions)
+        return all(
+            _mention_is_non_outbreak_context(pos, source, link_at)
+            or _mention_is_incidental_context(pos, source)
+            for pos in positions
+        )
 
     substantive = [item for item in unique if not context_only(item)]
     pool = substantive or unique
+
+    evidenced = [
+        item for item in pool
+        if _disease_has_outbreak_evidence(item, source, link_at)
+    ]
+    if evidenced:
+        pool = evidenced
+
+    pool = _collapse_cholera_diarrhea_family(pool, source)
 
     def sort_key(name: str) -> tuple[int, int]:
         positions = disease_mention_positions(name, source) or [10**9]
@@ -4795,6 +5040,8 @@ def prefer_outbreak_diseases(candidates: list[str], text: str) -> list[str]:
             if pos >= 10**9 or (link_at >= 0 and pos >= link_at):
                 continue
             if _mention_is_non_outbreak_context(pos, source, link_at):
+                continue
+            if _mention_is_incidental_context(pos, source):
                 continue
             window = source[max(0, pos - 120): pos + 120]
             if re.search(r"\d", window):

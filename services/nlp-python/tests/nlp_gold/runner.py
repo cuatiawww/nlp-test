@@ -366,6 +366,46 @@ def score_fixture(fixture: dict, prediction: dict | None = None) -> FixtureScore
     )
 
 
+
+def aggregate_dimension_scores(scores: list) -> dict[str, dict[str, float | int]]:
+    """Separate accuracy by dimension for Fase 4 gold reporting."""
+    dim_map = {
+        "disease": "disease",
+        "cases": "metric",
+        "deaths": "metric",
+        "country": "location",
+        "province_garbage": "location",
+        "location": "location",
+        "must_not_contain": "relation",
+        "asean_primary": "location",
+        "health": "health",
+        "outbreak": "outbreak",
+        "needs_review": "needs_review",
+        "relation": "relation",
+    }
+    tallies: dict[str, list[int]] = {}
+    for score in scores:
+        checks = getattr(score, "checks", None) or []
+        for check in checks:
+            name = getattr(check, "name", None)
+            passed = bool(getattr(check, "passed", False))
+            dim = dim_map.get(str(name))
+            if not dim:
+                continue
+            bucket = tallies.setdefault(dim, [0, 0])
+            bucket[1] += 1
+            if passed:
+                bucket[0] += 1
+    out: dict[str, dict[str, float | int]] = {}
+    for dim, (ok, total) in sorted(tallies.items()):
+        out[dim] = {
+            "passed": ok,
+            "total": total,
+            "accuracy": round((ok / total) if total else 0.0, 4),
+        }
+    return out
+
+
 def run_gold_set(fixtures: list[dict] | None = None) -> dict:
     seed_gold_gazetteer()
     rows = fixtures if fixtures is not None else load_fixtures()
@@ -381,6 +421,7 @@ def run_gold_set(fixtures: list[dict] | None = None) -> dict:
         "gold_size": GOLD_SIZE,
         "scores": scores,
         "failures": failed,
+        "dimension_scores": aggregate_dimension_scores(scores),
     }
 
 

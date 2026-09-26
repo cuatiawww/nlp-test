@@ -189,3 +189,6 @@ class AnalyzeResponse(BaseModel):
     # disabled | not_called_gate | failed | applied
     agent_enabled: bool = False
     agent_invocation_status: str = "disabled"
+    # Fase 2: rules-first disease resolution provenance (additive).
+    disease_resolution_source: str = "unknown"  # rule | model | unknown | rule_over_model
+    model_rule_conflict: bool = False
