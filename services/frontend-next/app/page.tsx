@@ -64,6 +64,7 @@ interface LaunchpadItem {
   badgeColor?: 'blue' | 'emerald' | 'amber' | 'purple' | 'rose' | 'cyan' | 'indigo' | 'slate' | 'sky'
   priority?: number
 }
+
 const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
   // ── 1. Surveillance Dashboards ───────────────────────────────────────────────
   {
@@ -579,7 +580,3 @@ export default function HomePage() {
 
   return (
     <div className=
-      {/* ─────────────────────────────────────────────────────────────
-          2. OVERVIEW METRIC CARDS (Sources, Crawled, Countries, Regions, Diseases)
-          ───────────────────────────────────────────────────────────── */}
-      <section className=
