@@ -2285,7 +2285,9 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
             c for c in extract_all_mentioned_countries(text or "")
             if c != norm_source
         ]
-        if national_scope and not conflicting:
+        # Also accept place-less national bulletins (DOH totals with no city).
+        no_local_place = not location and not all_locations
+        if (national_scope or no_local_place) and not conflicting:
             country = norm_source
             if not location:
                 location = country

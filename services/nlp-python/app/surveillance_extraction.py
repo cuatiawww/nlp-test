@@ -650,7 +650,14 @@ class GazetteerLinker:
             hit = folded_idx.get(cf) or self._folded_coords.get(cf)
         if not hit:
             country_aliases = extractors.get_folded_country_aliases()
-            hit = country_aliases.get(folded) or country_aliases.get(value.strip().casefold()) or self.countries.get(value.strip())
+            hit = country_aliases.get(folded) or country_aliases.get(value.strip().casefold())
+        if not hit:
+            # LOCATION_COUNTRIES maps place -> parent country. A hit here means
+            # the place is known; return the place name itself, never the country
+            # string (that collapsed Banyuwangi/Jombang into Indonesia).
+            raw = value.strip()
+            if raw in self.countries or folded in self._folded_coords:
+                hit = self._folded_coords.get(folded) or raw
         if hit:
             if hit.casefold() in NON_GEOGRAPHIC_TERMS:
                 return None
@@ -2253,8 +2260,18 @@ def _bind_counts_to_clause_places(
         ]
         kept = [relation for relation in kept if relation not in overlapping or relation in aligned or relation in already]
         if aligned or already:
+            place_spans = [start for start, end, linked in places if linked.name.casefold() == place.name.casefold()]
+            place_ends = [end for start, end, linked in places if linked.name.casefold() == place.name.casefold()]
+            evidence_start = min([match_start, *place_spans]) if place_spans else match_start
+            evidence_end = max([match_end, *place_ends]) if place_ends else match_end
+            # Early-pass evidence often spans into the next count
+            # ("2.001 ... Malang 215 kasus"); tighten to this clause so
+            # compose does not drop the row as an overlap conflict.
             for relation in [*aligned, *already]:
                 relation.source_scope = "article_local"
+                relation.evidence_offset_start = evidence_start
+                relation.evidence_offset_end = evidence_end
+                relation.evidence = source[evidence_start:evidence_end].strip()
             continue
         carried_deaths = next(
             (
