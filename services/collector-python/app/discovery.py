@@ -235,7 +235,12 @@ def source_country_value(source: dict) -> str:
     return str(source.get("country") or config.get("country") or "").strip()
 
 
-def source_matches_geography(source: dict, country: str | None, region: str | None) -> bool:
+def source_matches_geography(
+    source: dict,
+    country: str | None,
+    region: str | None,
+    member_countries: list[str] | None = None,
+) -> bool:
     """Keep catalog rows that belong to the manual-crawl country/region filter."""
     source_country = source_country_value(source).casefold()
     target = (country or "").strip().casefold()
@@ -245,6 +250,11 @@ def source_matches_geography(source: dict, country: str | None, region: str | No
         if target in source_country or source_country in target:
             return True
         return source_country in INTERNATIONAL_COUNTRIES
+    members = {str(name).strip().casefold() for name in (member_countries or []) if str(name).strip()}
+    if members:
+        if not source_country:
+            return False
+        return source_country in members or source_country in INTERNATIONAL_COUNTRIES
     if region and region.casefold() == "asean":
         if not source_country:
             return False
@@ -269,9 +279,17 @@ def source_rank(source: dict, country: str | None = None) -> tuple:
     return (country_match, official, main, enabled, str(source.get("name") or "").casefold())
 
 
-def select_manual_crawl_sources(sources: list[dict], country: str | None, region: str | None) -> list[dict]:
+def select_manual_crawl_sources(
+    sources: list[dict],
+    country: str | None,
+    region: str | None,
+    member_countries: list[str] | None = None,
+) -> list[dict]:
     """Use the stored catalog for manual crawl, including disabled scheduler rows."""
-    matched = [dict(row) for row in sources if source_matches_geography(row, country, region)]
+    matched = [
+        dict(row) for row in sources
+        if source_matches_geography(row, country, region, member_countries)
+    ]
     matched.sort(key=lambda row: source_rank(row, country))
     return matched
 
@@ -440,19 +458,26 @@ class DiscoveryEngine:
 
 def discover_urls(diseases: list[str], country: str | None, region: str | None,
                   date_from: str | None, date_to: str | None, max_urls: int,
-                  sources: list[dict]) -> tuple[list[dict], list[str]]:
+                  sources: list[dict], region_countries: list[str] | None = None,
+                  province_city: str | None = None) -> tuple[list[dict], list[str]]:
     engine = DiscoveryEngine(diseases, country, region, date_from, date_to, min(500, max(1, max_urls)))
     query_terms = [f'"{name}"' if " " in name else name for name in diseases if name]
     query = f"({' OR '.join(query_terms[:5])})"
     geography = (country or "").strip()
+    members = [str(name).strip() for name in (region_countries or []) if str(name).strip()]
+    if not geography and members:
+        geography = "(" + " OR ".join(members[:15]) + ")"
+    elif not geography and region and region.casefold() == "asean":
+        geography = "(Indonesia OR Malaysia OR Vietnam OR Thailand OR Philippines OR Singapore OR Cambodia OR Myanmar OR Laos OR Brunei)"
+    elif not geography and region and region.casefold() not in {"asean", "global"}:
+        geography = region.strip()
+    place = (province_city or "").strip()
+    if place:
+        geography = f'"{place}" {geography}'.strip()
     if geography:
         query += f" {geography}"
-    elif region and region.casefold() == "asean":
-        query += " (Indonesia OR Malaysia OR Vietnam OR Thailand OR Philippines OR Singapore OR Cambodia OR Myanmar OR Laos OR Brunei)"
-    elif region and region.casefold() not in {"asean", "global"}:
-        query += f" {region.strip()}"
     google_url = "https://news.google.com/rss/search?q=" + quote_plus(query) + "&hl=en&gl=US&ceid=US:en"
-    catalog_sources = select_manual_crawl_sources(sources, country, region)
+    catalog_sources = select_manual_crawl_sources(sources, country, region, members)
     # Leave room for catalog sites. Google News used to consume max_urls first,
     # so disabled ABVC homepage sources never ran even when they were loaded.
     if catalog_sources and engine.max_urls > 1:
