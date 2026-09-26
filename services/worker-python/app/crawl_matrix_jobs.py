@@ -35,7 +35,7 @@ from .geo import (
     st_makepoint_args,
 )
 from .document_identity import identity_lock_keys, identity_where_clause
-from .multi_event_persist import focused_place
+from .multi_event_persist import event_place_fields, focused_place
 from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
 from .queue_reliability import (
     declare_queue_topology,
@@ -691,57 +691,6 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
         )
         rows += 1
 
-    if rows == 0 and disease:
-        # Graceful fallback: article is relevant but lacks fine-grained metric pairs
-        text_content = article.get("content", "") + " " + article.get("title", "")
-        detected_country = None
-        for c_name in ASEAN_COUNTRIES:
-            if re.search(r"\b" + re.escape(c_name) + r"\b", text_content, re.I):
-                detected_country = c_name
-                break
-
-        if detected_country:
-            latitude, longitude = country_coordinates(conn, detected_country)
-            evidence = next(
-                (
-                    sentence.strip()[:1000]
-                    for sentence in re.split(r"(?<=[.!?])\s+|\n+", article.get("content", ""))
-                    if disease.casefold() in sentence.casefold()
-                ),
-                article.get("title", "")[:500],
-            )
-            cases = 0 if analysis.get("case_count_unknown") else int(analysis.get("case_count") or analysis.get("confirmed_cases") or 0)
-            deaths = int(analysis.get("death_count") or 0)
-            province_city_case = analysis.get("province")
-            date_case = analysis.get("time_frame") or analysis.get("event_date") or ""
-            if _matrix_row_exists(
-                conn, job_id, raw_id, disease, detected_country,
-                province_city_case, published, date_case,
-            ):
-                rows += 1
-                return rows
-            conn.execute(
-                """INSERT INTO crawl_matrix_rows
-                   (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
-                    crawling_date, region, country, province_city_case, province, city, article_date, date_case,
-                   number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name, source_country,
-                   source_url, article_title, evidence, confidence, processing_status)
-                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (
-                    job_id, raw_id, concept["id"] if concept else None, disease,
-                    None,
-                    matrix_region(detected_country, request),
-                    detected_country,
-                    province_city_case, analysis.get("city"), published, date_case,
-                    cases, deaths,
-                    latitude, longitude, "news", article.get("source_name"),
-                    analysis.get("source_country") or article.get("source_country"), article.get("url"),
-                    article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.65),
-                    "needs_review" if (not evidence or analysis.get("case_count_unknown") or analysis.get("needs_review")) else "processed",
-                ),
-            )
-            rows += 1
-
     return rows
 
 
@@ -828,15 +777,23 @@ def prepare_text_for_nlp(article: dict, max_chars: int = 35000) -> str:
 
 
 def analyze_article(article: dict) -> dict:
-    """Run the same NLP contract as bulk ingest (`/nlp/analyze/raw`)."""
+    """Run the same NLP contract as URL analysis (`/nlp/analyze/raw`).
+
+    DeepSeek is the rear gate inside that service. This caller does not
+    switch it off and does not send a second extraction profile.
+    """
+    from .analysis_jobs import _prepare_text_for_nlp
+
     response = requests.post(
         NLP_SERVICE_URL + "/nlp/analyze/raw",
         json={
-            "text": prepare_text_for_nlp(article),
+            "text": _prepare_text_for_nlp(article),
             "source_type": article.get("source_type") or "news",
             "source_name": article.get("source_name"),
             "source_country": article.get("source_country") or "",
             "published_at": article.get("published_at"),
+            "rules_only": False,
+            "historical_fast": False,
             "source_url": article.get("url"),
         },
         timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
@@ -878,9 +835,6 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
         for raw_place in [*(provinces or []), *(cities or [])]:
             place = focused_place(raw_place, name)
             if not place or place.casefold() in {item.casefold() for item in subplaces}:
-                continue
-            if place in ASEAN_COUNTRIES and place.casefold() != name.casefold():
-                name = place
                 continue
             subplaces.append(place)
         key = (
@@ -929,9 +883,11 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             confidence=out.get("confidence"),
         )
     for event in sub_events:
+        # Same place split URL analysis persists for this sub-event.
+        _location, province, city = event_place_fields(event, out)
         add(
             event.get("country"),
-            [event.get("location_name")],
+            [province, city],
             event.get("case_count"),
             event.get("death_count"),
             event.get("time_frame")
@@ -962,14 +918,6 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             evidence=item.get("evidence"),
             confidence=item.get("confidence"),
         )
-    counted = [
-        item for item in locations
-        if int(item.get("reported_cases") or 0) or int(item.get("deaths") or 0)
-    ]
-    # URL analysis focuses the rows that carry a case or death count.
-    # Zero-count gazetteer hits are what the manual matrix was listing beside them.
-    if counted:
-        locations = counted
     out["locations"] = locations
     out["source_country"] = out.get("source_country") or ""
     out["surveillance_scope"] = out.get("surveillance_scope") or (

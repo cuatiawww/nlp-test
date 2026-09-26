@@ -558,7 +558,8 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
         "source_language": source_language,
         "source_country": source_country,
         "source_url": source_url or "",
-        "historical_fast": HISTORICAL_FAST_NON_HEALTH,
+        "rules_only": False,
+        "historical_fast": False,
     }
     resp = requests.post(url, json=payload, timeout=NLP_REQUEST_TIMEOUT_SECONDS)
     resp.raise_for_status()

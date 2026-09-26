@@ -197,7 +197,7 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn(("Dengue", 12), disease_rows)
         self.assertIn(("Measles", 8), disease_rows)
 
-    def test_matrix_keeps_counted_events_and_one_place(self):
+    def test_matrix_keeps_the_same_sub_events_as_url_analysis(self):
         adapted = pipeline_analysis_to_matrix({
             "disease_classification": "Chikungunya",
             "country": "Philippines",
@@ -206,6 +206,7 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
                     "disease": "Chikungunya",
                     "country": "Philippines",
                     "location_name": "Basey; ; Gandara",
+                    "admin1": "Samar",
                     "case_count": 372,
                     "death_count": 0,
                     "latitude": 11.28,
@@ -231,9 +232,11 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
             (item["country"], item["provinces"], item["reported_cases"])
             for item in adapted["locations"]
         ]
-        self.assertIn(("Philippines", ["Basey"], 372), rows)
-        self.assertIn(("Thailand", [], 1), rows)
-        self.assertNotIn("Paranas", str(rows))
+        self.assertEqual(rows, [
+            ("Philippines", ["Samar", "Basey"], 372),
+            ("Philippines", ["Thailand"], 1),
+            ("Philippines", ["Paranas"], 0),
+        ])
         self.assertNotIn(";", str(rows))
         self.assertEqual(adapted["locations"][0]["latitude"], 11.28)
 
@@ -269,6 +272,8 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
         self.assertIn("Sharp dengue surge", payload["text"])
         self.assertEqual(payload["source_country"], "Malaysia")
+        self.assertFalse(payload["rules_only"])
+        self.assertFalse(payload["historical_fast"])
 
     def test_concept_resolution_keeps_full_label(self):
         label, concept = selected_concept(
