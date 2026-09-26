@@ -148,13 +148,54 @@ def _as_local_resolution(
     }
 
 
+# Code-only ASEAN surveillance sentinels (no DB migration). Fills ISPA/ARI
+# gaps until the master catalog is extended via a separate approved change.
+SURVEILLANCE_SENTINEL_ALIASES: dict[str, dict[str, Any]] = {
+    "ispa": {
+        "disease_id": "ISPA",
+        "canonical_name": "Acute Respiratory Infection (ISPA)",
+        "english_name": "Acute Respiratory Infection",
+        "source": "surveillance_sentinel",
+    },
+    "ari": {
+        "disease_id": "ISPA",
+        "canonical_name": "Acute Respiratory Infection (ISPA)",
+        "english_name": "Acute Respiratory Infection",
+        "source": "surveillance_sentinel",
+    },
+    "infeksi saluran pernapasan akut": {
+        "disease_id": "ISPA",
+        "canonical_name": "Acute Respiratory Infection (ISPA)",
+        "english_name": "Acute Respiratory Infection",
+        "source": "surveillance_sentinel",
+    },
+    "acute respiratory infection": {
+        "disease_id": "ISPA",
+        "canonical_name": "Acute Respiratory Infection (ISPA)",
+        "english_name": "Acute Respiratory Infection",
+        "source": "surveillance_sentinel",
+    },
+    "acute respiratory infections": {
+        "disease_id": "ISPA",
+        "canonical_name": "Acute Respiratory Infection (ISPA)",
+        "english_name": "Acute Respiratory Infection",
+        "source": "surveillance_sentinel",
+    },
+}
+
+
 def resolve_local_disease_term(term: str) -> dict[str, Any] | None:
     """Resolve a disease term against the active local database master."""
     raw = (term or "").strip()
     if not raw or raw.upper() == "UNKNOWN":
         return None
     concept = _match_local_concept(raw, config.DISEASE_MASTER_CONCEPTS)
-    return _as_local_resolution(concept, 0.99) if concept else None
+    if concept:
+        return _as_local_resolution(concept, 0.99)
+    sentinel = SURVEILLANCE_SENTINEL_ALIASES.get(raw.casefold())
+    if sentinel:
+        return _as_local_resolution(sentinel, 0.95, source="surveillance_sentinel")
+    return None
 
 
 def _resolve_local_only(term: str) -> dict[str, Any] | None:
