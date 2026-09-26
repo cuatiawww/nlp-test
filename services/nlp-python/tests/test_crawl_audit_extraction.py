@@ -214,6 +214,23 @@ class CrawlAuditExtractionTests(unittest.TestCase):
         self.assertNotEqual(facts["location"], "Jakarta")
         self.assertNotEqual(facts["location"], "Indonesia")
 
+    def test_other_countries_are_not_replaced_by_an_indonesian_wire(self):
+        samples = (
+            ("JAKARTA — Wabah kolera di Nigeria mencatat 80 kasus dan 4 kematian.", "Nigeria"),
+            ("JAKARTA — WHO mencatat 12 kematian akibat kolera di Sudan.", "Sudan"),
+            ("JAKARTA — Mozambik melaporkan 30 kasus kolera dan 2 kematian.", "Mozambique"),
+            ("JAKARTA — Wabah campak di Turki mencatat 15 kasus.", "Turkey"),
+        )
+        for text, expected in samples:
+            facts = extractors.predict_surveillance_facts(text, "Indonesia")
+            self.assertEqual(facts["country"], expected, text)
+            self.assertNotEqual(facts["location"], "Indonesia")
+
+    def test_comparison_mention_does_not_replace_the_home_country(self):
+        text = "Kasus DBD di Indonesia mencapai 100 kasus, lebih tinggi dibandingkan Thailand."
+        facts = extractors.predict_surveillance_facts(text, "Indonesia")
+        self.assertEqual(facts["country"], "Indonesia")
+
     def test_national_deixis_still_uses_the_publisher_country(self):
         text = "Kasus demam berdarah tercatat 100 kasus di seluruh tanah air."
         facts = extractors.predict_surveillance_facts(text, "Indonesia")

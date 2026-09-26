@@ -59,6 +59,7 @@ def should_escalate_to_llm(
     has_location_conflict: bool = False,
     is_health_related: bool = False,
     unbound_metrics: bool = False,
+    publisher_country_conflict: bool = False,
 ) -> bool:
     """Return True ONLY for valid outbreak candidates requiring rear-gate validation/correction."""
     # 1. Front-Gate Hard Rejections (Zero Token Waste):
@@ -77,6 +78,7 @@ def should_escalate_to_llm(
         and case_count <= 0
         and death_count <= 0
         and not unbound_metrics
+        and not publisher_country_conflict
     ):
         return False
     if not config.AGENT_ENABLED:
@@ -88,6 +90,11 @@ def should_escalate_to_llm(
     # is exactly what the rear gate is for: correct the miss, do not replace
     # the rules extractor.
     if unbound_metrics and not unknown and case_count <= 0 and death_count <= 0:
+        return True
+    # The same rear gate watches a publisher country that survived after the
+    # article named a different country. Rules stay first; this only fires
+    # when they still kept the outlet's country.
+    if publisher_country_conflict:
         return True
     # Already-high-confidence rows stay local, including official bulletins,
     # unless the unbound-metric carve-out above applied.

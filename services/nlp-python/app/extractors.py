@@ -389,7 +389,50 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
     "kongo": "Democratic Republic of the Congo",
     "republik demokratik kongo": "Democratic Republic of the Congo",
     "republik demokratik congo": "Democratic Republic of the Congo",
+    "mesir": "Egypt",
+    "afrika selatan": "South Africa",
+    "arab saudi": "Saudi Arabia",
+    "afganistan": "Afghanistan",
+    "afghanistan": "Afghanistan",
+    "iran": "Iran",
+    "irak": "Iraq",
+    "iraq": "Iraq",
+    "suriah": "Syria",
+    "syria": "Syria",
+    "turki": "Turkey",
+    "turkey": "Turkey",
+    "ukraina": "Ukraine",
+    "ukraine": "Ukraine",
+    "palestina": "Palestine",
+    "palestine": "Palestine",
+    "libanon": "Lebanon",
+    "lebanon": "Lebanon",
+    "mozambik": "Mozambique",
+    "mozambique": "Mozambique",
+    "angola": "Angola",
+    "kamerun": "Cameroon",
+    "cameroon": "Cameroon",
+    "nepal": "Nepal",
+    "sri lanka": "Sri Lanka",
+    "maroko": "Morocco",
+    "morocco": "Morocco",
+    "aljazair": "Algeria",
+    "algeria": "Algeria",
+    "tunisia": "Tunisia",
+    "libya": "Libya",
+    "libia": "Libya",
+    "senegal": "Senegal",
+    "rwanda": "Rwanda",
+    "malawi": "Malawi",
+    "zambia": "Zambia",
+    "zimbabwe": "Zimbabwe",
 }
+
+_OUTBREAK_COUNTRY_NEAR = re.compile(
+    r"\b(?:kasus|cases?|kematian|deaths?|meninggal|wabah|outbreak|epidemic|"
+    r"klb|ca\s+mắc|tử\s*vong|dịch|เสียชีวิต)\b",
+    re.IGNORECASE,
+)
 
 _NEWSROOM_DATELINES = frozenset({
     "hanoi", "ha noi", "jakarta", "manila", "bangkok", "phnom penh",
@@ -1077,7 +1120,7 @@ def normalize_country(value: Optional[str]) -> Optional[str]:
     return raw
 
 
-def extract_country_hint(text: str) -> Optional[str]:
+def extract_country_hint(text: str, publisher: Optional[str] = None) -> Optional[str]:
     config.ensure_location_registry_loaded()
     lower_text = _fold_location_text(text or "")
     if not lower_text.strip():
@@ -1114,6 +1157,9 @@ def extract_country_hint(text: str) -> Optional[str]:
             pos = m.start()
             if contextual.search(lower_text[max(0, pos - 80):pos]):
                 score -= 12.0
+            window = lower_text[max(0, pos - 90): min(len(lower_text), m.end() + 90)]
+            if _OUTBREAK_COUNTRY_NEAR.search(window):
+                score += 24.0
         # Accumulate score across aliases for the same country (do not clobber)
         country_scores[standard_country] = country_scores.get(standard_country, 0.0) + score
 
@@ -1131,6 +1177,16 @@ def extract_country_hint(text: str) -> Optional[str]:
 
     if not country_scores:
         return None
+    publisher_name = normalize_country(publisher) if publisher else None
+    if publisher_name and publisher_name in country_scores and len(country_scores) > 1:
+        best_other = max(
+            (name for name in country_scores if name != publisher_name),
+            key=lambda name: country_scores[name],
+        )
+        if country_scores[best_other] >= country_scores[publisher_name]:
+            # The outlet's country is not the outbreak when another country
+            # is tied to the cases or deaths.
+            country_scores[publisher_name] -= 50.0
 
     # ASEAN surveillance platform bonus: prioritize ASEAN member states
     # in the title/lede so a Utah/USA secondary clause cannot beat Cambodia.
@@ -2380,6 +2436,10 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
     country = extract_country_hint(opening)
     norm_source = normalize_country(source_country)
     mentioned_asean = extract_all_mentioned_countries(opening)
+    if norm_source and (not country or country == norm_source):
+        named = extract_country_hint(text, publisher=norm_source)
+        if named and named != norm_source:
+            country = named
 
     # Source metadata identifies the publisher, not the event geography. Do
     # not turn an Indonesian/Vietnamese outlet into a case country when the

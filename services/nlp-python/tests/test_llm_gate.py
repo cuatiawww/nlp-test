@@ -211,6 +211,26 @@ class LlmGateTests(unittest.TestCase):
                 is_health_related=True,
             ))
 
+    def test_publisher_country_conflict_still_escalates(self):
+        with patch.object(config, "AGENT_ENABLED", True):
+            self.assertTrue(should_escalate_to_llm(
+                disease="Cholera",
+                confidence=0.92,
+                extracted=["Cholera"],
+                case_count=80,
+                death_count=4,
+                is_health_related=True,
+                publisher_country_conflict=True,
+            ))
+            self.assertFalse(should_escalate_to_llm(
+                disease="Cholera",
+                confidence=0.92,
+                extracted=["Cholera"],
+                case_count=80,
+                death_count=4,
+                is_health_related=True,
+            ))
+
     def test_unbound_metrics_stay_off_without_agent(self):
         with patch.object(config, "AGENT_ENABLED", False):
             self.assertFalse(should_escalate_to_llm(

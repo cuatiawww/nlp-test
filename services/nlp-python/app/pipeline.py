@@ -655,6 +655,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         has_location_conflict=has_location_conflict,
         is_health_related=is_health_related,
         unbound_metrics=unbound_metrics,
+        publisher_country_conflict=bool(
+            source_country
+            and (named_foreign := extractors.extract_country_hint(text, publisher=source_country))
+            and named_foreign.casefold() != str(source_country).casefold()
+            and (
+                not facts.get("country")
+                or str(facts.get("country")).casefold() == str(source_country).casefold()
+            )
+        ),
     )
     llm_verified_sub_events = []
     llm_review_applied = False
