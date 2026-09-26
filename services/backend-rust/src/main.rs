@@ -124,12 +124,21 @@ fn asean11_fold_sql(expr: &str) -> String {
     )
 }
 
+/// ASEAN members stay on their canonical name. A named country outside ASEAN
+/// stays that country so RD Congo is not rewritten to one shared bucket.
+pub(crate) fn case_country_sql(expr: &str) -> String {
+    let folded = asean11_fold_sql(expr);
+    format!(
+        "CASE WHEN ({folded}) = 'OUTSIDE ASEAN' THEN NULLIF(BTRIM({expr}), '') ELSE ({folded}) END"
+    )
+}
+
 fn resolved_country_expr(event_alias: &str, loc_alias: &str) -> String {
-    let folded = asean11_fold_sql(&format!(
+    let country = case_country_sql(&format!(
         "COALESCE({loc_alias}.country, {event_alias}.location_name)"
     ));
     format!(
-        "CASE WHEN LOWER(COALESCE({event_alias}.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE {folded} END"
+        "CASE WHEN LOWER(COALESCE({event_alias}.source_type, '')) IN ('skdr', 'skdr_api') THEN 'Indonesia' ELSE {country} END"
     )
 }
 
@@ -139,10 +148,12 @@ fn country_scope_sql() -> String {
 
 /// `$N IS NULL` is Global (no country filter). `all` / `ASEAN` / `asean11` use the 11-member IN-list.
 fn country_scope_predicate(resolved_expr: &str, country_param: u32) -> String {
+    let folded = asean11_fold_sql(resolved_expr);
     format!(
-        "(${p}::text IS NULL OR (${p}::text IN ('ASEAN', 'asean11', 'all') AND {expr} IN ({list})) OR LOWER({expr}) = LOWER(${p}) OR (LOWER(${p}) IN ('laos', 'lao pdr') AND {expr} = 'Laos') OR (LOWER(${p}) IN ('vietnam', 'viet nam') AND {expr} = 'Vietnam'))",
+        "(${p}::text IS NULL OR (${p}::text IN ('ASEAN', 'asean11', 'all') AND {expr} IN ({list})) OR LOWER({expr}) = LOWER(${p}) OR (LOWER(${p}) IN ('outside asean', 'outside_asean') AND ({folded}) = 'OUTSIDE ASEAN') OR (LOWER(${p}) IN ('laos', 'lao pdr') AND {expr} = 'Laos') OR (LOWER(${p}) IN ('vietnam', 'viet nam') AND {expr} = 'Vietnam'))",
         p = country_param,
         expr = resolved_expr,
+        folded = folded,
         list = ASEAN11_SQL_IN,
     )
 }
@@ -1431,6 +1442,10 @@ mod analysis_contract_tests {
         assert!(folded.contains("viet nam"));
         assert!(folded.contains("lao pdr"));
         assert!(folded.contains("OUTSIDE ASEAN"));
+        let kept = case_country_sql("l.country");
+        assert!(kept.contains("NULLIF(BTRIM(l.country)"));
+        assert!(kept.contains("= 'OUTSIDE ASEAN'"));
+        assert!(resolved_country_expr("e", "l").contains("NULLIF(BTRIM("));
         let padded = pad_asean11_country_rows(vec![], "asean11");
         assert_eq!(padded.len(), 11);
         assert_eq!(padded[0]["name"], "Brunei");
@@ -3465,13 +3480,12 @@ async fn analyze_url(
                 "SELECT de.id, de.raw_report_id, de.original_text, rr.summary, de.language,
                         COALESCE(de.published_at, rr.published_at) AS published_at,
                         COALESCE(
-                            CASE WHEN LOWER(de.location_name) IN ('sudan', 'south sudan')
-                                 THEN 'OUTSIDE ASEAN' ELSE l.country END,
+                            NULLIF(BTRIM(l.country), ''),
                             CASE
                                 WHEN LOWER(de.location_name) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
                                 WHEN LOWER(de.location_name) IN ('cambodia', 'indonesia', 'laos', 'malaysia', 'myanmar', 'philippines', 'singapore', 'thailand', 'timor-leste', 'vietnam')
                                   THEN INITCAP(LOWER(de.location_name))
-                                ELSE 'OUTSIDE ASEAN'
+                                ELSE NULLIF(BTRIM(de.location_name), '')
                             END
                         ) AS country,
                         de.location_name, ST_X(de.geom) as longitude, ST_Y(de.geom) as latitude,
@@ -4904,7 +4918,7 @@ async fn crawling_stats(
                      WHEN LOWER(e.location_name) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
                      WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
                        THEN INITCAP(LOWER(e.location_name))
-                     ELSE 'OUTSIDE ASEAN'
+                     ELSE COALESCE(NULLIF(BTRIM(l.country), ''), NULLIF(BTRIM(e.location_name), ''))
                    END)
                  END
                ) = LOWER($1)
@@ -5008,7 +5022,7 @@ async fn crawling_stats(
                    WHEN LOWER(e.location_name) IN ('brunei', 'brunei darussalam') THEN 'Brunei'
                    WHEN LOWER(e.location_name) IN ('cambodia','indonesia','laos','malaysia','myanmar','philippines','singapore','thailand','timor-leste','vietnam')
                      THEN INITCAP(LOWER(e.location_name))
-                   ELSE 'OUTSIDE ASEAN' END) END
+                   ELSE COALESCE(NULLIF(BTRIM(l.country), ''), NULLIF(BTRIM(e.location_name), '')) END) END
                ) = LOWER($1)
              )
              SELECT COALESCE(source_type, 'unknown') AS source_type,

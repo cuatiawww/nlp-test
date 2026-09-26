@@ -386,9 +386,17 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
     "dr congo": "Democratic Republic of the Congo",
     "rd congo": "Democratic Republic of the Congo",
     "rd kongo": "Democratic Republic of the Congo",
+    "r.d. kongo": "Democratic Republic of the Congo",
+    "rd. kongo": "Democratic Republic of the Congo",
+    "dr kongo": "Democratic Republic of the Congo",
+    "drc": "Democratic Republic of the Congo",
+    "rdc": "Democratic Republic of the Congo",
     "kongo": "Democratic Republic of the Congo",
+    "congo kinshasa": "Democratic Republic of the Congo",
+    "congo-kinshasa": "Democratic Republic of the Congo",
     "republik demokratik kongo": "Democratic Republic of the Congo",
     "republik demokratik congo": "Democratic Republic of the Congo",
+    "republique democratique du congo": "Democratic Republic of the Congo",
     "mesir": "Egypt",
     "afrika selatan": "South Africa",
     "arab saudi": "Saudi Arabia",
@@ -1203,6 +1211,15 @@ def normalize_country(value: Optional[str]) -> Optional[str]:
     return raw
 
 
+def _alias_hit_is_disease_name(folded_text: str, start: int, alias: str) -> bool:
+    """Crimean-Congo / Krimea-Kongo names the fever, not the country."""
+    token = _fold_location_text(alias)
+    if token not in {"kongo", "congo"}:
+        return False
+    prefix = folded_text[max(0, start - 16):start]
+    return bool(re.search(r"(?:crimean|krim(?:ea)?|krimea)[\s\-]*$", prefix, re.IGNORECASE))
+
+
 def extract_country_hint(text: str, publisher: Optional[str] = None) -> Optional[str]:
     config.ensure_location_registry_loaded()
     lower_text = _fold_location_text(text or "")
@@ -1227,7 +1244,10 @@ def extract_country_hint(text: str, publisher: Optional[str] = None) -> Optional
             else rf"\b{re.escape(folded_alias)}\b",
             re.IGNORECASE,
         )
-        matches = list(pattern.finditer(lower_text))
+        matches = [
+            match for match in pattern.finditer(lower_text)
+            if not _alias_hit_is_disease_name(lower_text, match.start(), alias)
+        ]
         if not matches:
             continue
         score = float(len(matches) * 3)
@@ -1314,8 +1334,9 @@ def country_alias_in_text(canonical: str | None, text: str | None) -> bool:
     for alias, standard in _country_alias_view().items():
         if str(standard).casefold() != target or len(alias) < 4:
             continue
-        if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text, re.IGNORECASE):
-            return True
+        for match in re.finditer(rf"(?<!\w){re.escape(alias)}(?!\w)", text, re.IGNORECASE):
+            if not _alias_hit_is_disease_name(_fold_location_text(text), match.start(), alias):
+                return True
     return False
 
 
@@ -1330,7 +1351,7 @@ def _newsroom_dateline_only(compact_text: str, name: str, positions: list[int]) 
     )
 
 
-_SHORT_COUNTRY_ALIASES = frozenset({"uk", "usa", "drc"})
+_SHORT_COUNTRY_ALIASES = frozenset({"uk", "usa", "drc", "rdc"})
 
 
 def extract_named_countries(text: str) -> list[str]:
@@ -1352,7 +1373,7 @@ def extract_named_countries(text: str) -> list[str]:
             else rf"(?<!\w){re.escape(folded_alias)}(?!\w)"
         )
         match = re.search(pattern, folded_text, re.IGNORECASE)
-        if not match:
+        if not match or _alias_hit_is_disease_name(folded_text, match.start(), alias):
             continue
         previous = found.get(standard)
         if previous is None or match.start() < previous:
