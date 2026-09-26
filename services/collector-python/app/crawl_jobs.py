@@ -446,7 +446,7 @@ def status(job_id: str):
         if not job:
             raise HTTPException(404, "Manual crawler job was not found")
         rows = conn.execute("""SELECT id, disease_name, icd11_code, crawling_date::text, region, country,
-                    province_city_case, article_date::text, date_case, number_of_cases, number_of_deaths,
+                    province, city, province_city_case, article_date::text, date_case, number_of_cases, number_of_deaths,
                     latitude, longitude, source_type, source_name, source_url, article_title, evidence,
                     confidence, processing_status, raw_report_id, reprocessed_at::text
                     FROM crawl_matrix_rows WHERE crawl_job_id=%s ORDER BY article_date DESC NULLS LAST, country, disease_name""", (job_id,)).fetchall()
