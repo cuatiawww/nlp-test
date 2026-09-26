@@ -192,12 +192,27 @@ _UNCLOSED_ANCHOR = re.compile(
 )
 
 
+_FONT_SOURCE = re.compile(r"<font\b[^>]*>.*?</font>", re.IGNORECASE | re.DOTALL)
+_URL_TOKEN = re.compile(r"https?://\S+")
+
+
 def strip_embedded_markup(text: str) -> str:
-    """Drop anchor tags, including an unclosed ``<a href=`` left in a title."""
-    if not text or "<" not in text:
+    """Drop RSS chrome so a Google News snippet is not the article.
+
+    The source credit inside ``<font>`` is the republisher, not the outbreak.
+    Anchor text is kept. URLs are removed so a gazetteer name inside a token
+    cannot become the event location.
+    """
+    if not text:
         return text or ""
-    cleaned = _WELL_FORMED_ANCHOR.sub(" ", text)
+    cleaned = text.replace("&nbsp;", " ").replace("\u00a0", " ")
+    if "<" not in cleaned and "http" not in cleaned.casefold():
+        return re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = _FONT_SOURCE.sub(" ", cleaned)
+    cleaned = _WELL_FORMED_ANCHOR.sub(" ", cleaned)
     cleaned = _UNCLOSED_ANCHOR.sub(" ", cleaned)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = _URL_TOKEN.sub(" ", cleaned)
     return re.sub(r"[ \t]{2,}", " ", cleaned)
 
 
@@ -267,22 +282,7 @@ def _fold_with_positions(value: str) -> tuple[str, list[int]]:
 # country names are retained as a small offline safety registry so a Lao/Thai/
 # Khmer/Burmese article remains attributable before DB bootstrap completes.
 DEFAULT_COUNTRY_ALIASES: dict[str, str] = {
-    # Idiomatic homeland label used in Indonesian national totals.
-    "tanah air": "Indonesia",
-    "seluruh tanah air": "Indonesia",
-    # Publisher mastheads that encode event geography when the body only
-    # says "nationwide" / "the capital" (gold title+source meta path).
-    "jakarta post": "Indonesia",
-    "the jakarta post": "Indonesia",
-    "antaranews": "Indonesia",
-    "antara news": "Indonesia",
-    "bernama": "Malaysia",
-    "gma news": "Philippines",
-    "gmanetwork": "Philippines",
-    "philstar": "Philippines",
-    "philippine star": "Philippines",
-    "inquirer.net": "Philippines",
-    "philippine doh": "Philippines",
+    # A masthead or "tanah air" names the outlet, not the country of the cases.
     "ລາວ": "Laos",
     "ສປປ ລາວ": "Laos",
     "ประเทศไทย": "Thailand",
@@ -426,6 +426,31 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
     "malawi": "Malawi",
     "zambia": "Zambia",
     "zimbabwe": "Zimbabwe",
+    "inggris raya": "United Kingdom",
+    "denmark": "Denmark",
+    "lithuania": "Lithuania",
+    "latvia": "Latvia",
+    "estonia": "Estonia",
+    "belanda": "Netherlands",
+    "netherlands": "Netherlands",
+    "belgia": "Belgium",
+    "belgium": "Belgium",
+    "swedia": "Sweden",
+    "sweden": "Sweden",
+    "norwegia": "Norway",
+    "norway": "Norway",
+    "finlandia": "Finland",
+    "finland": "Finland",
+    "polandia": "Poland",
+    "poland": "Poland",
+    "austria": "Austria",
+    "swiss": "Switzerland",
+    "switzerland": "Switzerland",
+    "portugal": "Portugal",
+    "yunani": "Greece",
+    "greece": "Greece",
+    "irlandia": "Ireland",
+    "ireland": "Ireland",
 }
 
 _OUTBREAK_COUNTRY_NEAR = re.compile(
@@ -623,7 +648,7 @@ def folded_location_index() -> dict[str, str]:
 
 
 CONTINENT_AND_REGION_LABELS = {
-    "asia", "africa", "europe", "oceania", "antarctica",
+    "asia", "africa", "europe", "eropa", "oceania", "antarctica",
     "southeast asia", "south east asia", "east asia", "south asia",
     "west asia", "central asia", "north america", "south america",
     "central america", "middle east", "asean", "asean / asia",
@@ -679,6 +704,57 @@ _ORG_HQ_AFFILIATION = re.compile(
     r")",
     re.IGNORECASE,
 )
+
+
+_PUBLISHER_ADMIN = re.compile(
+    r"\bpemerintah\s+(?:kabupaten|kota|provinsi|kecamatan|daerah)\s+"
+    r"(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){0,4}",
+    re.UNICODE,
+)
+_PLACE_CUE_BEFORE = re.compile(
+    r"(?:di|ke|dari|in|at|from|of|kabupaten|kota|provinsi|province|city|regency|district)\s+$",
+    re.IGNORECASE,
+)
+_PLACE_CUE_AFTER = re.compile(
+    r"^\s*[,:]?\s*(?:[0-9]+|mencatat|melaporkan|mencatatkan|memiliki|menjadi|became|"
+    r"recorded|report(?:ed|s)?|confirm(?:ed|s)?|mengonfirmasi)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_country_canonical(name: str) -> bool:
+    folded = name.casefold()
+    if folded in {item.casefold() for item in config.ASEAN_COUNTRIES}:
+        return True
+    return any(str(value).casefold() == folded for value in COUNTRY_ALIASES.values())
+
+
+def place_mention_is_event(text: str, name: str, start: int) -> bool:
+    """A title-case village is not an outbreak place.
+
+    ``Pemerintah Kabupaten ...`` is the republisher. A one-word place still
+    counts when it is a country, or when the sentence ties it to a count or
+    a geographic cue (``di Bandung``, ``Bandung mencatat``, ``Lithuania 23``).
+    """
+
+    raw = str(name or "")
+    if not raw or not text:
+        return False
+    end = start + len(raw)
+    for match in _PUBLISHER_ADMIN.finditer(text):
+        if match.start() <= start and end <= match.end():
+            return False
+    if " " in raw:
+        return True
+    folded = raw.casefold()
+    country = str(config.LOCATION_COUNTRIES.get(raw) or "")
+    if country and folded == country.casefold():
+        return True
+    if _is_country_canonical(raw):
+        return True
+    before = text[max(0, start - 32): start]
+    after = text[end: end + 40]
+    return bool(_PLACE_CUE_BEFORE.search(before) or _PLACE_CUE_AFTER.search(after))
 
 
 def _mention_is_org_affiliation(text: str, start: int, end: int) -> bool:
@@ -829,7 +905,12 @@ def sanitize_event_coordinates(
     """
     country_norm = normalize_country(country) if country else None
     loc = str(location or "").strip()
-    if str(country_norm or "").upper() == "MULTI_COUNTRY" or loc.upper() == "MULTI_COUNTRY":
+    if (
+        str(country_norm or "").upper() == "MULTI_COUNTRY"
+        or loc.upper() == "MULTI_COUNTRY"
+        or is_global_scope_country(country)
+        or is_global_scope_country(loc)
+    ):
         return None, None
     subnational = bool(loc) and bool(country_norm) and loc.casefold() != str(country_norm).casefold()
     cleared = False
@@ -1083,6 +1164,8 @@ def geocode_place(
     needs_review=True rather than a wrong pin.
     """
     raw = (name or "").strip()
+    if is_global_scope_country(raw) or is_global_scope_country(country):
+        return None, None, 0.0, False
     if not raw or not is_usable_place_name(raw, surrounding_text):
         return None, None, 0.0, True
     mapped = normalize_country(country) or config.LOCATION_COUNTRIES.get(raw)
@@ -1247,6 +1330,36 @@ def _newsroom_dateline_only(compact_text: str, name: str, positions: list[int]) 
     )
 
 
+_SHORT_COUNTRY_ALIASES = frozenset({"uk", "usa", "drc"})
+
+
+def extract_named_countries(text: str) -> list[str]:
+    """Distinct countries spelled in the article, including countries outside ASEAN."""
+    config.ensure_location_registry_loaded()
+    folded_text = _fold_location_text(text or "")
+    if not folded_text.strip():
+        return []
+    found: dict[str, int] = {}
+    for alias, standard in _country_alias_view().items():
+        folded_alias = _fold_location_text(alias)
+        if folded_alias in {"as"}:
+            continue
+        if len(folded_alias) < 4 and folded_alias not in _SHORT_COUNTRY_ALIASES:
+            continue
+        pattern = (
+            re.escape(folded_alias)
+            if _is_native_script(alias)
+            else rf"(?<!\w){re.escape(folded_alias)}(?!\w)"
+        )
+        match = re.search(pattern, folded_text, re.IGNORECASE)
+        if not match:
+            continue
+        previous = found.get(standard)
+        if previous is None or match.start() < previous:
+            found[standard] = match.start()
+    return [name for name, _pos in sorted(found.items(), key=lambda item: item[1])]
+
+
 def extract_all_mentioned_countries(text: str) -> list[str]:
     """Extract all distinct ASEAN countries explicitly mentioned in text with positive evidence."""
     config.ensure_location_registry_loaded()
@@ -1334,12 +1447,8 @@ def validate_location_context(
     if article_country == city_country:
         return {"name": raw_name, "country": city_country, "score": 2, "is_valid": True}
         
-    # 3. Source Context / Standalone Unambiguous City (Score 1):
-    norm_source = normalize_country(source_country)
+    # 3. A city next to a case count. The publisher country is not evidence.
     if not mentioned_countries:
-        if norm_source and norm_source == city_country:
-            return {"name": raw_name, "country": city_country, "score": 1, "is_valid": True}
-        # Prominent city with health or case indicator
         for match in re.finditer(rf"\b{re.escape(name_lower)}\b", lower_text):
             start = max(0, match.start() - 100)
             end = min(len(lower_text), match.end() + 100)
@@ -1354,12 +1463,82 @@ def validate_location_context(
     return {"name": raw_name, "country": city_country, "score": 0, "is_valid": False}
 
 
+GLOBAL_SCOPE_COUNTRY = "Global"
+
+_GLOBAL_SCOPE_FOLDED = frozenset({
+    "global", "internasional", "international", "worldwide", "world",
+    "nasional", "national",
+})
+
+# Geographic scope with no country name. Facility phrases such as
+# "bandara internasional" are not this scope.
+_UNSPECIFIED_GEO_SCOPE = re.compile(
+    r"(?i)(?:"
+    r"\b(?:secara|tingkat|skala|level|cakupan)\s+(?:nasional|internasional|international|global)\b|"
+    r"\b(?:nationwide|nationally|countrywide|internationally|worldwide|globally)\b|"
+    r"\b(?:seluruh\s+(?:tanah\s+air|negeri|dunia|negara)|di\s+tanah\s+air|"
+    r"seluruh\s+dunia|secara\s+global|in\s+the\s+country|across\s+the\s+country|"
+    r"throughout\s+the\s+country)\b|"
+    r"\b(?:toàn\s+quốc|trong\s+nước|trên\s+cả\s+nước|sa\s+buong\s+bansa)\b|"
+    r"ทั่วประเทศ|ระดับประเทศ|"
+    r"\b(?:nasional|internasional|international|national)\b"
+    r")"
+)
+_SCOPE_FACILITY = re.compile(
+    r"(?i)(?:\b(?:bandara|airport|penerbangan|flight)\s+(?:internasional|international|nasional|national)\b|"
+    r"\b(?:internasional|international|nasional|national)\s+"
+    r"(?:airport|bandara|flight|penerbangan|committee|organization|organisation|"
+    r"agency|federation|health\s+regulations?)\b)"
+)
+
+
+def is_global_scope_country(value: Optional[str]) -> bool:
+    """True for nasional/internasional/global labels that are not a country."""
+    folded = _fold_location_text(str(value or "").strip())
+    return folded in _GLOBAL_SCOPE_FOLDED
+
+
+def article_has_unspecified_geo_scope(text: str) -> bool:
+    """True when the article says national or international and names no country."""
+    for match in _UNSPECIFIED_GEO_SCOPE.finditer(text or ""):
+        window = (text or "")[max(0, match.start() - 32): match.end() + 32]
+        if _SCOPE_FACILITY.search(window):
+            continue
+        return True
+    return False
+
+
+def event_country_name(value: Optional[str]) -> Optional[str]:
+    """Country written on the case. Nasional/internasional stay Global."""
+    if is_global_scope_country(value):
+        return GLOBAL_SCOPE_COUNTRY
+    return normalize_country(value)
+
+
+def surveillance_scope_label(country: Optional[str]) -> Optional[str]:
+    """KPI bucket. The case country itself stays on ``country``."""
+    value = str(country or "").strip()
+    if not value:
+        return None
+    if value == "MULTI_COUNTRY":
+        return "MULTI_COUNTRY"
+    if is_global_scope_country(value):
+        return "Global"
+    mapped = normalize_country(value) or value
+    if mapped in config.ASEAN_COUNTRIES:
+        return "ASEAN"
+    return "Outside ASEAN"
+
+
 def country_scope(country: Optional[str]) -> Optional[str]:
     """Return the display/filter country without relabeling known ASEAN data.
 
     Non-ASEAN labels (United States/Utah, India, DRC, ...) become OUTSIDE ASEAN
     so default asean11 KPIs cannot be inflated by secondary geographies.
+    Nasional/internasional stay Global and are not a publisher country.
     """
+    if is_global_scope_country(country):
+        return GLOBAL_SCOPE_COUNTRY
     mapped = normalize_country(country)
     value = (mapped or "").strip()
     if not value:
@@ -1568,6 +1747,8 @@ def extract_location(
             for match in re.finditer(pattern_str, compact_text, flags):
                 if not is_usable_place_name(canonical, compact_text, match.start()):
                     continue
+                if not place_mention_is_event(compact_text, canonical, match.start()):
+                    continue
                 hits.append((canonical, match.start()))
 
     location_index = folded_location_index()
@@ -1601,6 +1782,8 @@ def extract_location(
                 if loc.lower() == "mexico" and raw_position >= 4 and compact_text[raw_position - 4:raw_position].lower() == "new ":
                     continue
             if not is_usable_place_name(loc, compact_text, raw_position):
+                continue
+            if not place_mention_is_event(compact_text, loc, raw_position):
                 continue
             hits.append((loc, raw_position))
 
@@ -1733,6 +1916,8 @@ def extract_all_locations(
             for match in re.finditer(pattern_str, compact_text, flags):
                 if not is_usable_place_name(canonical, compact_text, match.start()):
                     continue
+                if not place_mention_is_event(compact_text, canonical, match.start()):
+                    continue
                 hits.append((canonical, match.start()))
 
     location_index = folded_location_index()
@@ -1762,6 +1947,8 @@ def extract_all_locations(
                 if loc.lower() == "mexico" and raw_position >= 4 and compact_text[raw_position - 4:raw_position].lower() == "new ":
                     continue
             if not is_usable_place_name(loc, compact_text, raw_position):
+                continue
+            if not place_mention_is_event(compact_text, loc, raw_position):
                 continue
             hits.append((loc, raw_position))
 
@@ -2499,31 +2686,41 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         location = country
     if not country and not location:
         country = extract_country_hint(text)
-    # National deixis ("nationwide", "seluruh tanah air") with no named
-    # foreign country: the publisher country is the event geography.
-    # A missing gazetteer hit is not enough. An Indonesian wire story about
-    # RD Kongo must not become an Indonesia event.
-    if not country and norm_source and norm_source in config.ASEAN_COUNTRIES:
-        national_scope = re.search(
-            r"(?i)\b(?:"
-            r"nationwide|nationally|countrywide|across\s+the\s+country|"
-            r"throughout\s+the\s+country|in\s+the\s+country|"
-            r"seluruh\s+(?:tanah\s+air|negeri|negara)|di\s+tanah\s+air|"
-            r"peringkat\s+kebangsaan|seluruh\s+indonesia"
-            r")\b",
-            text or "",
-        )
-        foreign = extract_country_hint(text or "")
-        conflicting = [
-            c for c in extract_all_mentioned_countries(text or "")
-            if c != norm_source
-        ]
-        if foreign and foreign != norm_source:
-            conflicting.append(foreign)
-        if national_scope and not conflicting:
-            country = norm_source
-            if not location:
-                location = country
+    # Country is the country named on the cases. A publisher country is not
+    # used. "Nasional" / "internasional" with no named country is global, and
+    # that row has no coordinates.
+    named_country = extract_country_hint(text, publisher=norm_source)
+    publisher_only = bool(
+        country
+        and norm_source
+        and str(country).casefold() == str(norm_source).casefold()
+        and not country_alias_in_text(country, text)
+    )
+    if publisher_only:
+        country = named_country
+        if location and str(location).casefold() == str(norm_source).casefold():
+            location = named_country
+    if (
+        not named_country
+        and not country
+        and article_has_unspecified_geo_scope(text)
+    ):
+        country = GLOBAL_SCOPE_COUNTRY
+        location = GLOBAL_SCOPE_COUNTRY
+        all_locations = [{
+            "name": GLOBAL_SCOPE_COUNTRY,
+            "latitude": None,
+            "longitude": None,
+            "country": GLOBAL_SCOPE_COUNTRY,
+            "geocode_confidence": 0.0,
+            "geocode_needs_review": False,
+        }]
+    elif is_global_scope_country(country):
+        country = GLOBAL_SCOPE_COUNTRY
+        location = GLOBAL_SCOPE_COUNTRY
+        for item in all_locations:
+            item["latitude"] = None
+            item["longitude"] = None
     if not location and country:
         location = country
     if location and not all_locations:
@@ -3082,9 +3279,12 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     case_label = _runtime_metric_label_pattern("metric_case")
     localized_patterns = {
         "case_count": [
-            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/,.'-]*){{0,7}}\s*{case_label}(?!\w)"
+            rf"(?<![A-Za-z0-9])({num_token})(?:-an)?(?:\s+[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/,.'-]*){{0,7}}\s*{case_label}(?!\w)"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has|of)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
+            rf"({num_token})-an\s+orang\s+(?:kena\s+)?(?:infeksi|infected)\b",
+            rf"\b({num_token})\s+(?:kasus|cases?|kes|pasien|patients?|infections?)\b",
+            rf"(?:terinfeksi|infected|wabah|outbreak).{{0,120}}?(?:lebih\s+dari|more\s+than|over)\s+({num_token})\s+orang\b",
             rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({num_token})\s*\)",
             rf"(?:with|logged|recorded|reported|confirms?|confirmed|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({num_token})\s+(?:[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/-]*\s+){{0,6}}(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
             rf"(?:cases?|infections?|kasus).{{0,90}}(?:rose|climbed|increased|jumped|naik).{{0,50}}to\s+({num_token})",

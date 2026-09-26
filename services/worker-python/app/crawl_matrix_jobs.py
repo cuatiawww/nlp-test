@@ -35,6 +35,7 @@ from .geo import (
     st_makepoint_args,
 )
 from .document_identity import identity_lock_keys, identity_where_clause
+from .multi_event_persist import event_place_fields, focused_place
 from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
 from .queue_reliability import (
     declare_queue_topology,
@@ -81,11 +82,28 @@ def clean_province_names(provinces) -> list[str]:
     return cleaned
 
 
+_GLOBAL_COUNTRY_LABELS = frozenset({
+    "global", "internasional", "international", "worldwide", "world",
+    "nasional", "national", "multi_country",
+})
+
+
 def surveillance_scope_for_country(country: str | None) -> str | None:
     value = str(country or '').strip().casefold()
     if not value:
         return None
+    if value in _GLOBAL_COUNTRY_LABELS:
+        return 'Global'
     return 'ASEAN' if value in {item.casefold() for item in ASEAN_COUNTRIES} else 'Outside ASEAN'
+
+
+def matrix_region(country: str | None, request: dict) -> str:
+    value = str(country or "").strip()
+    if value in ASEAN_COUNTRIES:
+        return "ASEAN"
+    if value.casefold() in _GLOBAL_COUNTRY_LABELS:
+        return "Global"
+    return str(request.get("region") or "Global")
 
 
 def split_province_city(names: list[str]) -> tuple[str | None, str | None]:
@@ -477,6 +495,8 @@ def country_coordinates(conn, country: str, areas: list[str] | None = None):
     A requested province that is not in the gazetteer stays unpinned. It must
     not inherit the country centroid or the Indonesia default pin.
     """
+    if str(country or "").strip().casefold() in _GLOBAL_COUNTRY_LABELS:
+        return None, None
     requested = [str(area or "").strip() for area in (areas or []) if str(area or "").strip()]
     for area_name in requested:
         curated = curated_admin_coordinates(area_name, country)
@@ -635,9 +655,14 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 ),
                 "",
             )
-        latitude, longitude = country_coordinates(conn, country, provinces)
+        event_lat = item.get("latitude")
+        event_lon = item.get("longitude")
+        if event_lat is not None and event_lon is not None:
+            latitude, longitude = event_lat, event_lon
+        else:
+            latitude, longitude = country_coordinates(conn, country, provinces)
         province, city = split_province_city(provinces)
-        province_city_case = ", ".join(provinces) or None
+        province_city_case = focused_place(city or province, country) or None
         date_case = item.get("time_frame") or ""
         if _matrix_row_exists(
             conn, job_id, raw_id, disease, country, province_city_case, published, date_case
@@ -654,7 +679,7 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             (
                 job_id, raw_id, item_concept["id"] if item_concept else None, item_disease,
                 None,
-                "ASEAN" if country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
+                matrix_region(country, request),
                 country, province_city_case, province, city, published, date_case,
                 0 if analysis.get("case_count_unknown") else int(item.get("reported_cases") or 0),
                 int(item.get("deaths") or 0),
@@ -665,60 +690,6 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
             ),
         )
         rows += 1
-
-    if rows == 0 and disease:
-        # Graceful fallback: article is relevant but lacks fine-grained metric pairs
-        text_content = article.get("content", "") + " " + article.get("title", "")
-        detected_country = request.get("country")
-        if not detected_country:
-            for c_name in ASEAN_COUNTRIES:
-                if re.search(r"\b" + re.escape(c_name) + r"\b", text_content, re.I):
-                    detected_country = c_name
-                    break
-        if not detected_country and request.get("region", "").casefold() == "asean":
-            detected_country = None
-
-        if detected_country:
-            latitude, longitude = country_coordinates(conn, detected_country)
-            evidence = next(
-                (
-                    sentence.strip()[:1000]
-                    for sentence in re.split(r"(?<=[.!?])\s+|\n+", article.get("content", ""))
-                    if disease.casefold() in sentence.casefold()
-                ),
-                article.get("title", "")[:500],
-            )
-            cases = 0 if analysis.get("case_count_unknown") else int(analysis.get("case_count") or analysis.get("confirmed_cases") or 0)
-            deaths = int(analysis.get("death_count") or 0)
-            province_city_case = analysis.get("province")
-            date_case = analysis.get("time_frame") or analysis.get("event_date") or ""
-            if _matrix_row_exists(
-                conn, job_id, raw_id, disease, detected_country,
-                province_city_case, published, date_case,
-            ):
-                rows += 1
-                return rows
-            conn.execute(
-                """INSERT INTO crawl_matrix_rows
-                   (crawl_job_id, raw_report_id, disease_concept_id, disease_name, icd11_code,
-                    crawling_date, region, country, province_city_case, province, city, article_date, date_case,
-                   number_of_cases, number_of_deaths, latitude, longitude, source_type, source_name, source_country,
-                   source_url, article_title, evidence, confidence, processing_status)
-                   VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (
-                    job_id, raw_id, concept["id"] if concept else None, disease,
-                    None,
-                    "ASEAN" if detected_country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
-                    detected_country,
-                    province_city_case, analysis.get("city"), published, date_case,
-                    cases, deaths,
-                    latitude, longitude, "news", article.get("source_name"),
-                    analysis.get("source_country") or article.get("source_country"), article.get("url"),
-                    article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.65),
-                    "needs_review" if (not evidence or analysis.get("case_count_unknown") or analysis.get("needs_review")) else "processed",
-                ),
-            )
-            rows += 1
 
     return rows
 
@@ -787,11 +758,14 @@ _UNCLOSED_ANCHOR = re.compile(
 
 
 def _strip_embedded_anchors(value: str) -> str:
-    text = value or ""
-    if "<" not in text:
-        return text.strip()
+    text = (value or "").replace("&nbsp;", " ").replace("\u00a0", " ")
+    if "<" not in text and "http" not in text.casefold():
+        return re.sub(r"[ \t]{2,}", " ", text).strip()
+    text = re.sub(r"<font\b[^>]*>.*?</font>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = _ANCHOR_TAG.sub(" ", text)
     text = _UNCLOSED_ANCHOR.sub(" ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"https?://\S+", " ", text)
     return re.sub(r"[ \t]{2,}", " ", text).strip()
 
 
@@ -803,15 +777,23 @@ def prepare_text_for_nlp(article: dict, max_chars: int = 35000) -> str:
 
 
 def analyze_article(article: dict) -> dict:
-    """Run the same NLP contract as bulk ingest (`/nlp/analyze/raw`)."""
+    """Run the same NLP contract as URL analysis (`/nlp/analyze/raw`).
+
+    DeepSeek is the rear gate inside that service. This caller does not
+    switch it off and does not send a second extraction profile.
+    """
+    from .analysis_jobs import _prepare_text_for_nlp
+
     response = requests.post(
         NLP_SERVICE_URL + "/nlp/analyze/raw",
         json={
-            "text": prepare_text_for_nlp(article),
+            "text": _prepare_text_for_nlp(article),
             "source_type": article.get("source_type") or "news",
             "source_name": article.get("source_name"),
             "source_country": article.get("source_country") or "",
             "published_at": article.get("published_at"),
+            "rules_only": False,
+            "historical_fast": False,
             "source_url": article.get("url"),
         },
         timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
@@ -842,16 +824,19 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
         evidence="",
         confidence=None,
         needs_review=False,
+        latitude=None,
+        longitude=None,
     ):
         name = str(country or "").strip()
         if not name:
             return
         disease_name = str(disease or primary_disease or "").strip()
-        subplaces = [
-            str(item).strip()
-            for item in [*(provinces or []), *(cities or [])]
-            if str(item).strip() and str(item).strip().casefold() != name.casefold()
-        ]
+        subplaces = []
+        for raw_place in [*(provinces or []), *(cities or [])]:
+            place = focused_place(raw_place, name)
+            if not place or place.casefold() in {item.casefold() for item in subplaces}:
+                continue
+            subplaces.append(place)
         key = (
             disease_name.casefold(),
             name.casefold(),
@@ -878,6 +863,9 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             item["confidence"] = float(confidence or 0.0)
         if needs_review:
             item["needs_review"] = True
+        if latitude is not None and longitude is not None:
+            item["latitude"] = latitude
+            item["longitude"] = longitude
         locations.append(item)
 
     sub_events = [event for event in (out.get("sub_events") or []) if isinstance(event, dict)]
@@ -895,9 +883,11 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             confidence=out.get("confidence"),
         )
     for event in sub_events:
+        # Same place split URL analysis persists for this sub-event.
+        _location, province, city = event_place_fields(event, out)
         add(
             event.get("country"),
-            [event.get("location_name")],
+            [province, city],
             event.get("case_count"),
             event.get("death_count"),
             event.get("time_frame")
@@ -908,6 +898,8 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             evidence=event.get("evidence") or event.get("source_evidence"),
             confidence=event.get("confidence"),
             needs_review=event.get("needs_review", False),
+            latitude=event.get("latitude"),
+            longitude=event.get("longitude"),
         )
     # A structured sub-event already carries the disease-location-metric
     # relation. Do not add the collapsed location projection again, or the

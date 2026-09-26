@@ -5,6 +5,7 @@ from typing import Optional, Any
 
 from . import config, extractors
 from .llm_gate import (
+    distinct_case_figure_count,
     resolve_agent_invocation_status,
     should_escalate_to_llm,
     text_has_unbound_metric_evidence,
@@ -14,7 +15,7 @@ from .models.classifier import classify_disease, classify, classify_sentiment, c
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
 from .multilingual import detect_language_profile, normalize_language_code
-from .surveillance_extraction import source_reliability_score
+from .surveillance_extraction import promote_country_total, source_reliability_score
 from .epidemiology import (
     calibrate_outbreak_alert,
     classify_epistemic_status,
@@ -250,21 +251,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     ) or extractors.is_clearly_non_health_topic(semantic_text)
     source_country = extractors.normalize_country(payload.source_country)
     article_country = facts.get("country") or extractors.extract_country_hint(text[:1500])
-    # The feed's country is the publisher. It must not replace a country the
-    # article itself names (an Indonesian wire story about RD Kongo).
-    if (
-        article_country
-        and source_country
-        and str(article_country).casefold() != str(source_country).casefold()
-    ):
-        location_country = article_country
+    # The feed country is the publisher. The case country is only a country
+    # the article names, or Global when the scope is nasional/internasional.
+    if extractors.is_global_scope_country(article_country):
+        location_country = extractors.GLOBAL_SCOPE_COUNTRY
     else:
-        location_country = article_country or source_country
-    if location_country and location_country not in config.ASEAN_COUNTRIES:
-        # Keep ASEAN countries; do not promote a source/publisher country into
-        # the article's event geography.
-        if extractors.extract_country_hint(text[:1500]) is None:
-            location_country = extractors.country_scope(location_country)
+        location_country = article_country
     mentioned_countries = extractors.extract_all_mentioned_countries(text[:1500])
     if location_country and location_country in config.ASEAN_COUNTRIES:
         allowed_countries = {location_country}
@@ -288,8 +280,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     all_locations = [
         item for item in all_locations
         if isinstance(item, dict)
-        and (_location_is_source_grounded(item.get("name"), text)
-        or str(item.get("name") or "").casefold() == str(source_country or "").casefold()
+        and (
+            _location_is_source_grounded(item.get("name"), text)
+            or extractors.is_global_scope_country(item.get("name"))
+            or extractors.is_global_scope_country(item.get("country"))
         )
     ]
     all_locations = _attach_location_provenance(all_locations, text)
@@ -329,8 +323,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             or extractors.country_alias_in_text(hinted, text)
         ):
             location = hinted
-        elif source_country and extractors.country_alias_in_text(source_country, text):
-            location = source_country
+        elif extractors.article_has_unspecified_geo_scope(text):
+            location = extractors.GLOBAL_SCOPE_COUNTRY
         else:
             location = None
     asean_hits = [
@@ -361,10 +355,20 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # event location. Keep the surveillance scope scalar as OUTSIDE ASEAN,
         # but do not erase the actual place from location_name.
         location = raw_country
-    if asean_hits and (raw_country not in config.ASEAN_COUNTRIES or not location):
+    if (
+        asean_hits
+        and not extractors.is_global_scope_country(raw_country)
+        and (raw_country not in config.ASEAN_COUNTRIES or not location)
+        and (
+            not raw_country
+            or str(raw_country).casefold() == str(asean_hits[0].get("country") or "").casefold()
+        )
+    ):
         location = asean_hits[0]["name"]
         raw_country = asean_hits[0].get("country") or raw_country
-    country = extractors.country_scope(raw_country)
+    country = extractors.event_country_name(raw_country)
+    if extractors.is_global_scope_country(country):
+        location = extractors.GLOBAL_SCOPE_COUNTRY
     lat, lon, geocode_confidence, geocode_needs_review = extractors.geocode_place(
         location, raw_country if raw_country in config.ASEAN_COUNTRIES else country, text
     )
@@ -614,7 +618,9 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # Cheap local/rules NLP first. DeepSeek is the rear correction gate:
     # UNKNOWN / low confidence / needs_review / zero metrics, plus a known
     # disease whose case and death counts stayed 0 while the text still
-    # states a number. Never escalate only because an article listed more than one disease.
+    # states a number. A high-confidence row still goes to the rear gate
+    # when the article states several countries, locations, case figures,
+    # or more than one disease that already has a metric.
     known_disease = bool(disease and disease.strip().upper() != "UNKNOWN")
     unbound_metrics = (
         known_disease
@@ -625,6 +631,28 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             or text_has_unbound_metric_evidence(analysis_text)
         )
     )
+    named_case_countries = extractors.extract_named_countries(text)
+    finer_locations = {
+        str(item.get("name") or "").casefold()
+        for item in all_locations
+        if item.get("name")
+        and str(item.get("name")).casefold() != str(item.get("country") or "").casefold()
+    }
+    disease_names = [
+        item for item in extracted
+        if item and str(item).strip().upper() != "UNKNOWN"
+    ]
+    multi_fact = bool(
+        len(named_case_countries) > 1
+        or len(finer_locations) > 1
+        or distinct_case_figure_count(text) >= 2
+        or (
+            len(disease_names) > 1
+            and (prelim_cases > 0 or prelim_deaths > 0 or unbound_metrics)
+        )
+    )
+    if multi_fact:
+        review_focus.append("multi-fact")
     gate_confidence = confidence
     if is_policy_content and (prelim_cases > 0 or prelim_deaths > 0):
         # Entity extraction promotes a source-grounded disease to 0.85 before
@@ -655,6 +683,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         has_location_conflict=has_location_conflict,
         is_health_related=is_health_related,
         unbound_metrics=unbound_metrics,
+        multi_fact=multi_fact,
         publisher_country_conflict=bool(
             source_country
             and (named_foreign := extractors.extract_country_hint(text, publisher=source_country))
@@ -740,7 +769,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                                     not publisher_country
                                     or named_country.casefold() != publisher_country.casefold()
                                 )
-                                else (publisher_country or country)
+                                else country
                             )
                         )
                     if first_evt.get("country"):
@@ -751,10 +780,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                             or named_country.casefold() != publisher_country.casefold()
                         ):
                             country = named_country
-                        elif not publisher_country or _location_is_source_grounded(
-                            first_evt.get("location_name"), text
-                        ) or extractors.country_alias_in_text(first_evt.get("country"), text):
+                        elif extractors.country_alias_in_text(first_evt.get("country"), text):
                             country = first_evt["country"]
+                        elif extractors.article_has_unspecified_geo_scope(text) and not named_country:
+                            country = extractors.GLOBAL_SCOPE_COUNTRY
                     if first_evt.get("case_count") is not None:
                         prelim_cases = int(first_evt["case_count"])
                     if first_evt.get("death_count") is not None:
@@ -1286,6 +1315,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         logger.warning("Multi-event extraction failed: %s", exc)
         sub_events = []
 
+    split_country_total = False
     if sub_events:
         event_diseases = list(dict.fromkeys(
             extractors.canonical_disease_name(evt.disease)
@@ -1300,11 +1330,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         if len(event_diseases) == 1:
             disease = event_diseases[0]
             extracted = list(dict.fromkeys([disease, *extracted]))
-        if not location and sub_events[0].location_name:
+        # "309,786 cases in Indonesia. West Java ... with 63,748 cases"
+        # is two events. The parent keeps the country total. The province
+        # keeps its own count and does not inherit the national figure.
+        sub_events, country_total = promote_country_total(sub_events)
+        split_country_total = country_total is not None
+        if country_total is not None:
+            location = country_total.location_name
+            country = country_total.country
+            case_count = int(country_total.case_count or 0)
+            explicit_case_count = True
+            if country_total.latitude is not None:
+                lat = country_total.latitude
+                lon = country_total.longitude
+        if not location and sub_events and sub_events[0].location_name:
             location = sub_events[0].location_name
-        if not country and sub_events[0].country:
+        if not country and sub_events and sub_events[0].country:
             country = sub_events[0].country
-        if lat is None and sub_events[0].latitude is not None:
+        if lat is None and sub_events and sub_events[0].latitude is not None:
             lat = sub_events[0].latitude
             lon = sub_events[0].longitude
 
@@ -1975,14 +2018,18 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     # If the article identifies only a country, make that country the event
     # location and use its gazetteer centroid.  This is event geography, not
     # publisher/source geography.
-    if country and (not location or str(location).strip().casefold() != str(country).strip().casefold()):
+    if (
+        country
+        and not extractors.is_global_scope_country(country)
+        and (not location or str(location).strip().casefold() != str(country).strip().casefold())
+    ):
         location_hierarchy = extractors.resolve_location_hierarchy(country, country_hint=country)
         if not location:
             location = location_hierarchy.get("canonical_name") or country
         if lat is None and location.casefold() == str(country).casefold():
             lat = location_hierarchy.get("latitude")
             lon = location_hierarchy.get("longitude")
-    elif country and lat is None:
+    elif country and lat is None and not extractors.is_global_scope_country(country):
         location_hierarchy = extractors.resolve_location_hierarchy(country, country_hint=country)
         lat = location_hierarchy.get("latitude")
         lon = location_hierarchy.get("longitude")
@@ -2119,9 +2166,24 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 ),
                 None,
             )
-            if local_specific and str(reviewed_location).casefold() == str(
-                levt.get("country") or country
-            ).casefold():
+            event_country = levt.get("country")
+            event_country_grounded = bool(
+                event_country
+                and (
+                    extractors.country_alias_in_text(event_country, text)
+                    or _location_is_source_grounded(event_country, text)
+                )
+            )
+            # One foreign-country hint must not rewrite every reviewed row.
+            # A grounded country, province, and city each stay their own event.
+            keep_event_country = len(llm_verified_sub_events) > 1 and event_country_grounded
+            if (
+                not keep_event_country
+                and local_specific
+                and str(reviewed_location).casefold() == str(
+                    levt.get("country") or country
+                ).casefold()
+            ):
                 reviewed_location = local_specific
             named_country = extractors.extract_country_hint(text)
             publisher_country = extractors.normalize_country(payload.source_country)
@@ -2131,22 +2193,28 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 and named_country.casefold() != publisher_country.casefold()
             )
             if not _location_is_source_grounded(reviewed_location, text):
-                reviewed_location = (
+                if keep_event_country:
+                    reviewed_location = event_country
+                else:
+                    reviewed_location = (
+                        named_country
+                        if article_names_another_country
+                        else (publisher_country or country or levt.get("country"))
+                    )
+            if keep_event_country:
+                reviewed_country = event_country
+            else:
+                reviewed_country = (
                     named_country
                     if article_names_another_country
-                    else (publisher_country or country or levt.get("country"))
+                    else (
+                        publisher_country
+                        if publisher_country and not _location_is_source_grounded(
+                            levt.get("location_name"), text
+                        ) and not extractors.country_alias_in_text(levt.get("country"), text)
+                        else levt.get("country") or country
+                    )
                 )
-            reviewed_country = (
-                named_country
-                if article_names_another_country
-                else (
-                    publisher_country
-                    if publisher_country and not _location_is_source_grounded(
-                        levt.get("location_name"), text
-                    ) and not extractors.country_alias_in_text(levt.get("country"), text)
-                    else levt.get("country") or country
-                )
-            )
             reviewed_events.append(
                 SubEvent(
                     disease=levt.get("disease") or disease,
@@ -2202,14 +2270,50 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 max(group, key=_review_period_rank)
                 for group in grouped_review.values()
             ]
-            reviewed_cases = sum(int(event.case_count or 0) for event in sub_events)
-            reviewed_deaths = sum(int(event.death_count or 0) for event in sub_events)
-            source_case_count = reviewed_cases
-            source_death_count = reviewed_deaths
-            source_death_explicit = reviewed_deaths > 0
-            explicit_case_count = reviewed_cases > 0
-            case_count = reviewed_cases
-            death_count = reviewed_deaths
+            reviewed_countries = list(dict.fromkeys(
+                str(event.country or "").strip()
+                for event in sub_events
+                if str(event.country or "").strip()
+            ))
+            if len(reviewed_countries) > 1:
+                multi_country_article = True
+                country = "MULTI_COUNTRY"
+                location = "MULTI_COUNTRY"
+                lat = None
+                lon = None
+                by_country: dict[str, list[SubEvent]] = {}
+                for event in sub_events:
+                    by_country.setdefault(str(event.country or "").strip(), []).append(event)
+                parent_cases = 0
+                parent_deaths = 0
+                for group in by_country.values():
+                    country_level = [
+                        event for event in group
+                        if str(event.location_name or "").casefold()
+                        == str(event.country or "").casefold()
+                    ]
+                    pool = country_level or group
+                    best = max(
+                        pool,
+                        key=lambda event: (int(event.case_count or 0), int(event.death_count or 0)),
+                    )
+                    parent_cases += int(best.case_count or 0)
+                    parent_deaths += int(best.death_count or 0)
+                source_case_count = parent_cases
+                source_death_count = parent_deaths
+                source_death_explicit = parent_deaths > 0
+                explicit_case_count = parent_cases > 0
+                case_count = parent_cases
+                death_count = parent_deaths
+            else:
+                reviewed_cases = sum(int(event.case_count or 0) for event in sub_events)
+                reviewed_deaths = sum(int(event.death_count or 0) for event in sub_events)
+                source_case_count = reviewed_cases
+                source_death_count = reviewed_deaths
+                source_death_explicit = reviewed_deaths > 0
+                explicit_case_count = reviewed_cases > 0
+                case_count = reviewed_cases
+                death_count = reviewed_deaths
 
     if llm_verified_sub_events and sub_events:
         # Parent totals must use country-level events only when a country total
@@ -2288,11 +2392,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         # source-local metric event remains useful, but its disease identity
         # must follow the reviewed concept rather than the stale classifier.
         disease = llm_review_disease
-        extracted = list(dict.fromkeys([llm_review_disease, *extracted]))
+        reviewed_disease_names = list(dict.fromkeys(
+            evt.disease
+            for evt in sub_events
+            if evt.disease and str(evt.disease).strip().upper() != "UNKNOWN"
+        ))
+        extracted = list(dict.fromkeys([llm_review_disease, *reviewed_disease_names, *extracted]))
         is_health_related = True
-        for evt in sub_events:
-            if evt.disease and evt.disease.strip().upper() != "UNKNOWN":
-                evt.disease = llm_review_disease
+        # A single reviewed disease replaces the local label. Distinct
+        # diseases returned as separate events stay on those events.
+        if len(reviewed_disease_names) <= 1:
+            for evt in sub_events:
+                if evt.disease and evt.disease.strip().upper() != "UNKNOWN":
+                    evt.disease = llm_review_disease
 
     # Final locality preference: a source-grounded city/province wins over a
     # country-only LLM answer. This is especially important for short RSS
@@ -2329,12 +2441,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         and place_country
         and place_country.casefold() != article_named.casefold()
     )
-    publisher_conflicts_article = bool(
-        article_named
-        and source_country
-        and article_named.casefold() != str(source_country).casefold()
-    )
-    if local_source_location and not place_conflicts_article and (
+    if local_source_location and not split_country_total and not place_conflicts_article and (
         len(relation_location_names) == 1
         or not location
         or str(location).casefold() == str(country or "").casefold()
@@ -2342,9 +2449,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     ):
         location = local_source_location
         if place_country:
-            country = extractors.country_scope(place_country)
-        elif source_country and not publisher_conflicts_article:
-            country = source_country
+            country = extractors.event_country_name(place_country)
         if len(sub_events) == 1:
             sub_events[0].location_name = local_source_location
             sub_events[0].country = country
@@ -2370,7 +2475,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         location=location,
         country=country,
         source_country=source_country,
-        surveillance_scope=("MULTI_COUNTRY" if country == "MULTI_COUNTRY" else "ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
+        surveillance_scope=extractors.surveillance_scope_label(country),
         case_count=case_count,
         death_count=death_count,
     )
@@ -2866,7 +2971,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         local_names = {str(evt.location_name or "").casefold() for evt in local_rows if evt.location_name}
         local_counts = {int(evt.case_count or 0) for evt in local_rows}
         if location and str(location).casefold() not in local_names:
-            if len(local_names) == 1:
+            if len(local_names) == 1 and not split_country_total:
                 location = next(evt.location_name for evt in local_rows if evt.location_name)
                 loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=country)
                 admin_place = extractors.split_admin_place(location, country)
@@ -2890,7 +2995,12 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 case_count = int(best_local.case_count or 0)
             if int(best_local.death_count or 0) > int(death_count or 0):
                 death_count = int(best_local.death_count or 0)
-        elif case_count and int(case_count) not in local_counts and int(case_count) > max(local_counts):
+        elif (
+            not split_country_total
+            and case_count
+            and int(case_count) not in local_counts
+            and int(case_count) > max(local_counts)
+        ):
             if int(case_count) > sum(int(evt.case_count or 0) for evt in local_rows) * 2:
                 case_count = max(int(evt.case_count or 0) for evt in local_rows)
             else:
@@ -3057,7 +3167,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         locations=all_locations,
         original_location_name=original_location,
         source_country=source_country,
-        surveillance_scope=("MULTI_COUNTRY" if country == "MULTI_COUNTRY" else "ASEAN" if country in config.ASEAN_COUNTRIES else "Outside ASEAN" if country else None),
+        surveillance_scope=extractors.surveillance_scope_label(country),
         translated=bool(translated_text),
         translation_provider=translation.get("provider") or "none",
         translation_status=translation.get("translation_status") or (

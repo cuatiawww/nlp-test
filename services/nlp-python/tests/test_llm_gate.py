@@ -8,11 +8,18 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from app import config
 from app.llm_gate import (
+    distinct_case_figure_count,
     should_escalate_to_llm,
     text_has_unbound_metric_evidence,
     truncate_for_llm,
 )
-from app.deepseek import verify_ground_truth_guardrails, _scoped_metric_count
+from app.deepseek import (
+    _compact_review_body,
+    validate_and_correct_events,
+    verify_ground_truth_guardrails,
+    _scoped_metric_count,
+)
+from app.extractors import extract_named_countries
 from app.agent import _is_quota_failure
 
 
@@ -134,6 +141,34 @@ class LlmGateTests(unittest.TestCase):
                 confidence=0.88,
                 extracted=["Dengue", "Malaria"],
                 language="en",
+            ))
+
+    def test_multi_fact_still_escalates_at_high_confidence(self):
+        with patch.object(config, "AGENT_ENABLED", True):
+            self.assertTrue(should_escalate_to_llm(
+                disease="Mpox",
+                confidence=0.92,
+                extracted=["Mpox"],
+                case_count=40,
+                death_count=0,
+                is_health_related=True,
+                multi_fact=True,
+            ))
+            self.assertFalse(should_escalate_to_llm(
+                disease="Mpox",
+                confidence=0.92,
+                extracted=["Mpox"],
+                case_count=40,
+                death_count=0,
+                is_health_related=True,
+                multi_fact=False,
+            ))
+            self.assertFalse(should_escalate_to_llm(
+                disease="Mpox",
+                confidence=0.92,
+                extracted=["Mpox"],
+                is_health_related=False,
+                multi_fact=True,
             ))
 
     def test_ambiguous_unknown_disease_with_candidates_triggers(self):
@@ -410,6 +445,125 @@ class LlmGateTests(unittest.TestCase):
         )
         self.assertEqual(_scoped_metric_count(evidence, "Gia Lai", "cases", source), 2913)
         self.assertEqual(_scoped_metric_count(evidence, "Gia Lai", "deaths", source), 1)
+
+    def test_named_countries_include_places_outside_asean(self):
+        text = (
+            "The United Kingdom reported 12 mpox cases, Lithuania reported 4, "
+            "Germany reported 9, Denmark reported 2 and Latvia reported 1."
+        )
+        names = set(extract_named_countries(text))
+        self.assertTrue({"United Kingdom", "Lithuania", "Germany", "Denmark", "Latvia"} <= names)
+
+    def test_distinct_case_figures_ignore_a_single_death_total(self):
+        self.assertEqual(distinct_case_figure_count(
+            "Indonesia mencatat 39672 kasus dengan 105 kematian. Jakarta mencatat 4200 kasus."
+        ), 2)
+        self.assertEqual(distinct_case_figure_count(
+            "Vietnam reported 6573 cases and 1 death."
+        ), 1)
+
+    def test_multi_fact_prompt_keeps_each_place_and_uses_the_larger_budget(self):
+        with patch.object(config, "AGENT_ENABLED", True), patch.object(
+            config, "DEEPSEEK_MAX_TOKENS", 1500
+        ), patch("app.deepseek.chat_json", return_value={
+            "is_health_related": True,
+            "outbreak_alert": True,
+            "disease_classification": "Mpox",
+            "sub_events": [],
+        }) as chat_json:
+            validate_and_correct_events(
+                text="Germany reported 12 mpox cases. Lithuania reported 4 mpox cases.",
+                draft_disease="Mpox",
+                review_focus=["multi-fact"],
+            )
+        system_prompt, _user_prompt = chat_json.call_args.args[:2]
+        self.assertIn("province or city count are separate events", system_prompt)
+        self.assertIn("countries outside ASEAN", system_prompt)
+        self.assertIn("SENTENCE LINKS", system_prompt)
+        self.assertEqual(chat_json.call_args.kwargs["max_tokens"], 1500)
+
+    def test_cross_sentence_pronoun_keeps_the_place_from_the_previous_sentence(self):
+        source = "Wabah kolera melanda Yaman. Sebanyak 1200 kasus tercatat di sana. Jerman melaporkan 4 kasus."
+        self.assertEqual(
+            _scoped_metric_count("Sebanyak 1200 kasus tercatat di sana.", "Yemen", "cases", source),
+            1200,
+        )
+        self.assertIsNone(
+            _scoped_metric_count("Sebanyak 1200 kasus tercatat di sana.", "Germany", "cases", source),
+        )
+        result = verify_ground_truth_guardrails(
+            {
+                "is_health_related": True,
+                "disease_classification": "Cholera",
+                "sub_events": [
+                    {
+                        "disease": "Cholera",
+                        "location_name": "Yemen",
+                        "country": "Yemen",
+                        "case_count": 1200,
+                        "death_count": 0,
+                        "evidence": "Wabah kolera melanda Yaman. Sebanyak 1200 kasus tercatat di sana.",
+                    }
+                ],
+            },
+            source,
+            allowed_diseases=["Cholera"],
+        )
+        self.assertEqual(result["sub_events"][0]["case_count"], 1200)
+        self.assertEqual(result["sub_events"][0]["country"], "Yemen")
+
+    def test_respectively_pairs_each_country_with_its_own_count(self):
+        source = (
+            "The United Kingdom, Lithuania and Germany have reported outbreaks. "
+            "They recorded 12, 4 and 9 cases respectively."
+        )
+        evidence = "They recorded 12, 4 and 9 cases respectively."
+        self.assertEqual(_scoped_metric_count(evidence, "United Kingdom", "cases", source), 12)
+        self.assertEqual(_scoped_metric_count(evidence, "Lithuania", "cases", source), 4)
+        self.assertEqual(_scoped_metric_count(evidence, "Germany", "cases", source), 9)
+
+    def test_review_body_keeps_the_sentence_a_count_refers_to(self):
+        filler = "Berita lain tanpa angka sama sekali. " * 30
+        text = filler + "Wabah kolera melanda Yaman. Sebanyak 1200 kasus tercatat di sana."
+        body = _compact_review_body(text, 700)
+        self.assertIn("melanda Yaman", body)
+        self.assertIn("di sana", body)
+
+    def test_guardrail_keeps_country_total_and_city_count(self):
+        source = (
+            "Kementerian Kesehatan mencatat kasus DBD di Indonesia mencapai 39672 kasus dengan 105 kematian. "
+            "DKI Jakarta mencatat 4200 kasus."
+        )
+        result = verify_ground_truth_guardrails(
+            {
+                "is_health_related": True,
+                "disease_classification": "Dengue",
+                "sub_events": [
+                    {
+                        "disease": "Dengue",
+                        "location_name": "Indonesia",
+                        "country": "Indonesia",
+                        "case_count": 39672,
+                        "death_count": 105,
+                        "evidence": "Kementerian Kesehatan mencatat kasus DBD di Indonesia mencapai 39672 kasus dengan 105 kematian.",
+                    },
+                    {
+                        "disease": "Dengue",
+                        "location_name": "DKI Jakarta",
+                        "country": "Indonesia",
+                        "case_count": 4200,
+                        "death_count": 0,
+                        "evidence": "DKI Jakarta mencatat 4200 kasus.",
+                    },
+                ],
+            },
+            source,
+            allowed_diseases=["Dengue"],
+        )
+        events = {event["location_name"]: event for event in result["sub_events"]}
+        self.assertEqual(events["Indonesia"]["case_count"], 39672)
+        self.assertEqual(events["Indonesia"]["death_count"], 105)
+        self.assertEqual(events["DKI Jakarta"]["case_count"], 4200)
 
     def test_guardrail_does_not_read_health_zone_count_as_deaths(self):
         evidence = (

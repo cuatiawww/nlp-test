@@ -3457,7 +3457,7 @@ async fn analyze_url(
         .unwrap_or(true);
     let use_analysis_cache = env_use_cache && !payload.force_refresh;
     let pipeline_version = env::var("NLP_PIPELINE_VERSION")
-        .unwrap_or_else(|_| "2026.09.17.multi-fact".to_string());
+        .unwrap_or_else(|_| "2026.09.26.deepseek-multi-fact".to_string());
 
     let row = if use_analysis_cache {
         client

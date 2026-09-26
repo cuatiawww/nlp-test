@@ -20,7 +20,7 @@ from .queue_reliability import (
 )
 
 logger = logging.getLogger(__name__)
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.deepseek-multi-fact")
 
 
 def _pipeline_version_matches(row) -> bool:
@@ -384,11 +384,14 @@ _UNCLOSED_ANCHOR = re.compile(
 
 
 def _strip_embedded_anchors(value: str) -> str:
-    text = value or ""
-    if "<" not in text:
-        return text.strip()
+    text = (value or "").replace("&nbsp;", " ").replace("\u00a0", " ")
+    if "<" not in text and "http" not in text.casefold():
+        return re.sub(r"[ \t]{2,}", " ", text).strip()
+    text = re.sub(r"<font\b[^>]*>.*?</font>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = _ANCHOR_TAG.sub(" ", text)
     text = _UNCLOSED_ANCHOR.sub(" ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"https?://\S+", " ", text)
     return re.sub(r"[ \t]{2,}", " ", text).strip()
 
 
@@ -431,6 +434,7 @@ def analyze_article(extracted):
             "source_country": extracted.get("source_country"),
             "published_at": extracted.get("published_at"),
             "rules_only": False,
+            "historical_fast": False,
             "source_url": extracted.get("url"),
         },
         timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),

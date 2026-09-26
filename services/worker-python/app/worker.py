@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 import requests
 
 from .entity_relations import disease_relation_rows, location_relation_rows
+from .multi_event_persist import event_place_fields
 from .geo import st_makepoint_args
 from .document_identity import identity_lock_keys, identity_where_clause
 from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
@@ -34,7 +35,7 @@ RABBITMQ_CONSUME_SOCIAL = os.getenv("RABBITMQ_CONSUME_SOCIAL", "true").lower() i
 RABBITMQ_SKDR_QUEUE = os.getenv("RABBITMQ_SKDR_QUEUE", "disease.skdr")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres://postgres:root@host.docker.internal:9898/disease_ai")
 NLP_SERVICE_URL = os.getenv("NLP_SERVICE_URL", "http://localhost:8003")
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.17.multi-fact")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.deepseek-multi-fact")
 CURRENT_YEAR_ONLY = os.getenv("CURRENT_YEAR_ONLY", "true").lower() in {"1", "true", "yes", "on"}
 ENTITY_LOCATION_STORAGE_ENABLED = os.getenv(
     "ENTITY_LOCATION_STORAGE_ENABLED", "true"
@@ -557,7 +558,8 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
         "source_language": source_language,
         "source_country": source_country,
         "source_url": source_url or "",
-        "historical_fast": HISTORICAL_FAST_NON_HEALTH,
+        "rules_only": False,
+        "historical_fast": False,
     }
     resp = requests.post(url, json=payload, timeout=NLP_REQUEST_TIMEOUT_SECONDS)
     resp.raise_for_status()
@@ -886,7 +888,7 @@ def callback(ch, method, properties, body):
             if len(sub_events) >= 2:
                 parent_event_id = event_id
                 for sub_evt in sub_events:
-                    sub_location = sub_evt.get("location_name") or nlp.get("location_name")
+                    sub_location, sub_province, sub_city = event_place_fields(sub_evt, nlp)
                     sub_disease = sub_evt.get("disease") or nlp.get("disease_classification")
                     sub_cases = sub_evt.get("case_count", 0)
                     sub_deaths = sub_evt.get("death_count", 0)
@@ -920,8 +922,8 @@ def callback(ch, method, properties, body):
                             sub_evidence or msg.get("text", ""),
                             nlp["language"],
                             sub_location,
-                            nlp.get("province"),
-                            nlp.get("city"),
+                            sub_province,
+                            sub_city,
                             *st_makepoint_args(sub_lat, sub_lon),
                             json.dumps(nlp.get("symptoms", [])),
                             json.dumps([sub_disease] if sub_disease else []),

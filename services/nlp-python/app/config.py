@@ -29,7 +29,7 @@ def _repair_legacy_lexicon_text(value: str) -> str:
 NLP_MODEL = os.getenv("NLP_MODEL", "xlm-roberta")
 # Bump this when analyze-url extraction rules change so cached disease_events
 # rows are not silently returned after a pipeline fix.
-NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.19.multilingual-source-first")
+NLP_PIPELINE_VERSION = os.getenv("NLP_PIPELINE_VERSION", "2026.09.26.deepseek-multi-fact")
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
@@ -751,6 +751,19 @@ def load_locations_from_db():
         LOCATION_ADMIN_LEVEL = {}
         LOCATION_REGISTRY_REFERENCE_ID = None
         apply_curated_localities()
+        try:
+            from . import extractors
+            # The reset above kept only the built-in names. External aliases
+            # such as Inggris and Jerman still have to resolve when the
+            # registry cannot be reached.
+            extractors.COUNTRY_ALIASES = dict(
+                getattr(extractors, "DEFAULT_COUNTRY_ALIASES", {})
+            )
+            extractors.COUNTRY_ALIASES.update(
+                getattr(extractors, "EXTERNAL_COUNTRY_ALIASES", {})
+            )
+        except Exception:
+            pass
         build_location_patterns()
         logging.getLogger(__name__).warning(
             "Location registry unavailable; using curated offline localities: %s", e
