@@ -290,7 +290,7 @@ def _scoped_metric_count(
     label_pattern = (
         re.compile(
             r"\b(?:confirmed\s+|suspected\s+|cumulative\s+)?"
-            r"(?:cases?|infections?|casos?|kasus|ca(?:\s+mắc)?|ca\s+bệnh|"
+            r"(?:cases?|infections?|infected|terjangkit|terinfeksi|tertular|casos?|kasus|ca(?:\s+mắc)?|ca\s+bệnh|"
             r"trường\s+hợp)\b",
             re.IGNORECASE,
         )
@@ -611,6 +611,33 @@ def _evidence_is_source_grounded(evidence: str, text_lower: str) -> bool:
     return len(words) >= 6 and " ".join(words[:8]) in folded
 
 
+_PRIOR_OR_RATE = re.compile(
+    r"\b(?:last year|previous year|the year before|a year earlier|"
+    r"tahun lalu|tahun yang lalu|tahun lepas|"
+    r"case rate|incidence rate|tingkat kasus|per\s+100[,.\s]?000)\b",
+    re.IGNORECASE,
+)
+_CURRENT_PERIOD = re.compile(
+    r"\b(?:this year|this month|this week|tahun ini|bulan ini|so far)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_CASE_COUNT = re.compile(
+    r"\b\d[\d,.]*\s+(?:people|persons|patients?|residents|orang|warga)\s+"
+    r"(?:were\s+|was\s+|have\s+been\s+|telah\s+)?(?:infected|terjangkit|terinfeksi)\b"
+    r"|\b\d[\d,.]*\s+(?:cases?|infections?|kasus|kes|patients?)\b",
+    re.IGNORECASE,
+)
+
+
+def _evidence_is_rate_or_prior_year(evidence: str) -> bool:
+    sample = evidence or ""
+    return bool(_PRIOR_OR_RATE.search(sample)) and not _CURRENT_PERIOD.search(sample)
+
+
+def _evidence_has_current_case_count(evidence: str) -> bool:
+    return bool(_EXPLICIT_CASE_COUNT.search(evidence or ""))
+
+
 def verify_ground_truth_guardrails(
     result: dict[str, Any],
     raw_text: str,
@@ -717,6 +744,13 @@ def verify_ground_truth_guardrails(
 
         evt["case_count"] = case_count
         evt["death_count"] = death_count
+        if _evidence_is_rate_or_prior_year(evidence) and not _evidence_has_current_case_count(evidence):
+            logger.warning(
+                "Dropping comparison or rate sub-event: location=%s evidence=%s",
+                evt.get("location_name") or evt.get("country"),
+                evidence[:100],
+            )
+            continue
         if case_count <= 0 and death_count <= 0:
             logger.warning(
                 "Dropping LLM sub-event without location-bound metrics: location=%s evidence=%s",
@@ -725,6 +759,12 @@ def verify_ground_truth_guardrails(
             )
             continue
         verified_events.append(evt)
+
+    if any(not _evidence_is_rate_or_prior_year(str(evt.get("evidence") or "")) for evt in verified_events):
+        verified_events = [
+            evt for evt in verified_events
+            if not _evidence_is_rate_or_prior_year(str(evt.get("evidence") or ""))
+        ]
 
     result["sub_events"] = verified_events
     return result
@@ -795,6 +835,7 @@ def validate_and_correct_events(
         "15. ONE FACT ONCE: The same disease, place, and count is one event. A country total and a smaller province or city count are two events. Do not add them together.\n"
         "16. RELATIVE TIME: Phrases such as 3 bulan yang lalu, minggu lalu, and last month are measured from the article publication date.\n"
         "17. SEVERAL DISEASES: When two diseases each have their own count, return both events even if they share a country.\n"
+        "18. PUBLISHER, LANGUAGE, AND A PRIOR-YEAR RATE: The website country and the article language do not choose the outbreak country. An English article on an Indonesian site can say that 10 people were infected with disease A in Australia, then say that last year country B had a case rate or tingkat kasus. Return one current event: disease A, 10 cases, Australia. Do not give those 10 cases to Indonesia. Do not turn country B's rate, incidence, or per-100,000 figure into a case count, and do not add it to Australia. A prior-year comparison stays out of the current event.\n"
         "Output valid JSON ONLY matching the requested schema."
     )
 

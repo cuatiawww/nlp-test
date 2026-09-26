@@ -462,8 +462,19 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
 }
 
 _OUTBREAK_COUNTRY_NEAR = re.compile(
-    r"\b(?:kasus|cases?|kematian|deaths?|meninggal|wabah|outbreak|epidemic|"
+    r"\b(?:kasus|cases?|infections?|infected|terjangkit|terinfeksi|kematian|deaths?|meninggal|wabah|outbreak|epidemic|"
     r"klb|ca\s+mắc|tử\s*vong|dịch|เสียชีวิต)\b",
+    re.IGNORECASE,
+)
+_COMPARISON_COUNTRY_NEAR = re.compile(
+    r"\b(?:last year|previous year|the year before|a year earlier|"
+    r"tahun lalu|tahun yang lalu|tahun lepas|"
+    r"case rate|incidence rate|tingkat kasus|per\s+100[,.\s]?000)\b",
+    re.IGNORECASE,
+)
+_RATE_METRIC = re.compile(
+    r"\b(?:case\s+rate|incidence\s+rate|tingkat\s+kasus|angka\s+kejadian|"
+    r"per\s+100(?:[,.\s]?000)?)\b",
     re.IGNORECASE,
 )
 
@@ -1261,8 +1272,10 @@ def extract_country_hint(text: str, publisher: Optional[str] = None) -> Optional
             if contextual.search(lower_text[max(0, pos - 80):pos]):
                 score -= 12.0
             window = lower_text[max(0, pos - 90): min(len(lower_text), m.end() + 90)]
-            if _OUTBREAK_COUNTRY_NEAR.search(window):
+            if _OUTBREAK_COUNTRY_NEAR.search(window) and not _RATE_METRIC.search(window):
                 score += 24.0
+            if _COMPARISON_COUNTRY_NEAR.search(window):
+                score -= 18.0
         # Accumulate score across aliases for the same country (do not clobber)
         country_scores[standard_country] = country_scores.get(standard_country, 0.0) + score
 
@@ -3312,6 +3325,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({num_token})",
             rf"(?:cases?|infections?|kasus|pasien)\b[^.\n;:]{{0,100}}?\b(?:reached|recorded|reported|tercatat|mencatat|melaporkan|total(?:ed)?|stood at|of)\s+({num_token})",
             rf"(?:sickened|infected|affected)\s+(?:more than|over|nearly|about|around)?\s*({num_token})\s+(?:children|people|persons|residents)",
+            rf"\b({num_token})\s+(?:people|persons|patients?|residents|orang|warga)\s+(?:were\s+|was\s+|have\s+been\s+|telah\s+|sudah\s+)?(?:infected|terjangkit|terinfeksi|tertular)\b",
             rf"\b({num_token})\s+(?:ribu|juta|thousand|million|nghin|ngan|nghìn|ngàn)\s+(?:kasus|cases?|infections?|ca)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
@@ -3416,6 +3430,10 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return
         if field == "case_count" and is_non_incident_metric_context(
             search_text, match.start(1), match.end(1)
+        ):
+            return
+        if field == "case_count" and _RATE_METRIC.search(
+            search_text[max(0, match.start(1) - 40): match.end(1) + 24]
         ):
             return
         if field == "case_count" and _VACCINE_WINDOW.search(window):
