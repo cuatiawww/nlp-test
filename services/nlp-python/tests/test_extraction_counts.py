@@ -192,6 +192,24 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         self.assertEqual(facts["case_count"], 1)
         self.assertEqual(facts["death_count"], 0)
 
+    def test_indonesia_cumulative_beats_july_monthly_slice(self):
+        """WHO Indonesia: July 124 / no deaths must not beat cumulative 75431 / 203."""
+        text = (
+            "As of 5 August 2026, 124 dengue cases and no deaths were reported in July 2026, "
+            "bringing the cumulative total from January to July 2026 to 75 431 cases and 203 deaths."
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 75431)
+        self.assertEqual(extractors.extract_death_count(text, disease="Dengue"), 203)
+
+    def test_cumulative_total_of_preferred_over_month_only(self):
+        text = (
+            "In June 2026, 255 dengue cases were reported. "
+            "As of 26 July 2026, a total of 40 915 dengue cases, including 58 deaths, "
+            "have been reported through the National Dengue Surveillance System."
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 40915)
+        self.assertEqual(extractors.extract_death_count(text, disease="Dengue"), 58)
+
     def test_philippine_adjective_maps_to_philippines(self):
         self.assertEqual(
             extractors.extract_country_hint("Philstar / Philippine DOH notes measles"),
