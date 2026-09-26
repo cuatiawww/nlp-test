@@ -133,5 +133,54 @@ class OperatorHttpTests(unittest.TestCase):
         request.assert_not_called()
 
 
+class ReviewedLocationHttpTests(unittest.TestCase):
+    def test_posts_reviewed_location_and_reloads(self):
+        with mock.patch.dict(os.environ, {"NLP_SERVICE_URL": "http://nlp-python:8000"}):
+            with mock.patch(
+                "app.registry_client.request_json",
+                return_value={"success": True, "data": {"name": "Johor Bahru"}},
+            ) as request:
+                with mock.patch("app.config.load_locations_from_db") as reload_locations:
+                    stored = config.upsert_reviewed_location(
+                        "  Johor   Bahru ",
+                        "Malaysia",
+                        alias="JB",
+                        language="en",
+                    )
+        self.assertEqual(stored, "Johor Bahru")
+        reload_locations.assert_called_once()
+        body = request.call_args.args[2]
+        self.assertEqual(request.call_args.args[1], "/api/v1/locations/upsert-reviewed")
+        self.assertEqual(body["name"], "Johor Bahru")
+        self.assertEqual(body["country"], "Malaysia")
+        self.assertEqual(body["country_iso3"], "MYS")
+        self.assertEqual(body["alias"], "JB")
+        self.assertEqual(body["language"], "en")
+
+    def test_rejects_empty_and_placeholder_names_without_http(self):
+        with mock.patch("app.registry_client.request_json") as request:
+            self.assertIsNone(config.upsert_reviewed_location("", "Malaysia"))
+            self.assertIsNone(config.upsert_reviewed_location("unknown", "Malaysia"))
+            self.assertIsNone(config.upsert_reviewed_location("multi_country", "Indonesia"))
+        request.assert_not_called()
+
+    def test_http_failure_uses_database_then_reloads(self):
+        with mock.patch.dict(os.environ, {"NLP_SERVICE_URL": "http://nlp-python:8000"}):
+            with mock.patch(
+                "app.registry_client.request_json",
+                side_effect=RegistryApiError("down"),
+            ):
+                with mock.patch(
+                    "app.config._upsert_reviewed_location_db",
+                    return_value="Johor Bahru",
+                ) as db_write:
+                    with mock.patch("app.config.load_locations_from_db") as reload_locations:
+                        stored = config.upsert_reviewed_location("Johor Bahru", "Malaysia")
+        self.assertEqual(stored, "Johor Bahru")
+        db_write.assert_called_once()
+        self.assertEqual(db_write.call_args.args[4], "MYS")
+        reload_locations.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

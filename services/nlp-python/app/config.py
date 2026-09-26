@@ -710,47 +710,83 @@ def upsert_reviewed_location(
         return None
     if name.casefold() in {"unknown", "multi_country", "multiple countries"}:
         return None
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
+    alias_value = " ".join(str(alias or "").split()).strip()
+    lang = (language or "und")[:12] or "und"
+    iso3 = COUNTRY_TO_ISO3.get(nation.casefold())
+    from .registry_client import http_registry_enabled, request_json
 
-        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
-            row = conn.execute(
-                """
-                SELECT id, name FROM locations
-                WHERE lower(name) = lower(%s) AND lower(country) = lower(%s)
-                LIMIT 1
-                """,
-                (name, nation),
-            ).fetchone()
-            if row is None:
-                row = conn.execute(
-                    """
-                    INSERT INTO locations
-                        (id, name, country, is_active, country_iso3, admin_level)
-                    VALUES
-                        (gen_random_uuid(), %s, %s, true, %s, 3)
-                    RETURNING id, name
-                    """,
-                    (name, nation, COUNTRY_TO_ISO3.get(nation.casefold())),
-                ).fetchone()
-            alias_value = " ".join(str(alias or "").split()).strip()
-            if alias_value and alias_value.casefold() != str(row["name"]).casefold():
-                conn.execute(
-                    """
-                    INSERT INTO location_aliases
-                        (location_id, alias_name, language, is_preferred)
-                    VALUES (%s, %s, %s, false)
-                    ON CONFLICT (location_id, alias_name, language) DO NOTHING
-                    """,
-                    (row["id"], alias_value, language[:12] or "und"),
-                )
-            conn.commit()
+    if http_registry_enabled():
+        try:
+            result = request_json(
+                "POST",
+                "/api/v1/locations/upsert-reviewed",
+                {
+                    "name": name,
+                    "country": nation,
+                    "alias": alias_value or None,
+                    "language": lang,
+                    "country_iso3": iso3,
+                },
+            )
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            stored = str(data.get("name") or name)
             load_locations_from_db()
-            return str(row["name"])
+            return stored
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Reviewed location API failed, using database: %s", exc
+            )
+    try:
+        stored = _upsert_reviewed_location_db(name, nation, alias_value, lang, iso3)
+        load_locations_from_db()
+        return stored
     except Exception as exc:
         logging.getLogger(__name__).warning("Reviewed location upsert skipped: %s", exc)
         return name
+
+
+def _upsert_reviewed_location_db(
+    name: str,
+    nation: str,
+    alias_value: str,
+    language: str,
+    iso3: str | None,
+) -> str:
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        row = conn.execute(
+            """
+            SELECT id, name FROM locations
+            WHERE lower(name) = lower(%s) AND lower(country) = lower(%s)
+            LIMIT 1
+            """,
+            (name, nation),
+        ).fetchone()
+        if row is None:
+            row = conn.execute(
+                """
+                INSERT INTO locations
+                    (id, name, country, is_active, country_iso3, admin_level)
+                VALUES
+                    (gen_random_uuid(), %s, %s, true, %s, 3)
+                RETURNING id, name
+                """,
+                (name, nation, iso3),
+            ).fetchone()
+        if alias_value and alias_value.casefold() != str(row["name"]).casefold():
+            conn.execute(
+                """
+                INSERT INTO location_aliases
+                    (location_id, alias_name, language, is_preferred)
+                VALUES (%s, %s, %s, false)
+                ON CONFLICT (location_id, alias_name, language) DO NOTHING
+                """,
+                (row["id"], alias_value, language),
+            )
+        conn.commit()
+        return str(row["name"])
 
 
 def ensure_location_registry_loaded() -> None:

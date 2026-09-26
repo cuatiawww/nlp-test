@@ -2518,6 +2518,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/nlp-keywords/:id", put(update_keyword).delete(delete_keyword))
         .route("/api/v1/data/cleanup-events", post(cleanup_events))
         .route("/api/v1/data/cleanup-stats", get(get_cleanup_stats))
+        .route("/api/v1/locations/upsert-reviewed", post(upsert_reviewed_location))
         .route("/api/v1/locations", get(list_locations).post(create_location))
         .route("/api/v1/locations/:id", put(update_location).delete(delete_location))
         .route("/api/v1/master/countries", get(list_master_countries).post(create_master_country))
@@ -9096,6 +9097,101 @@ async fn list_locations(
         .get(0);
 
     Ok(Json(ApiResponse { success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)) }))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpsertReviewedLocationRequest {
+    name: String,
+    country: String,
+    alias: Option<String>,
+    language: Option<String>,
+    country_iso3: Option<String>,
+}
+
+fn collapse_ws(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+async fn upsert_reviewed_location(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<UpsertReviewedLocationRequest>,
+) -> Result<Json<ApiResponse<Value>>, (StatusCode, Json<Value>)> {
+    let name = collapse_ws(&payload.name);
+    let country = collapse_ws(&payload.country);
+    if name.is_empty()
+        || country.is_empty()
+        || name.chars().count() > 180
+        || country.chars().count() > 120
+        || matches!(
+            name.to_lowercase().as_str(),
+            "unknown" | "multi_country" | "multiple countries"
+        )
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "location name and country are required"})),
+        ));
+    }
+    let iso3 = payload
+        .country_iso3
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let mut client = state.db.get().await.map_err(internal_error)?;
+    let tx = client.transaction().await.map_err(internal_error)?;
+    let existing = tx
+        .query_opt(
+            "SELECT id, name FROM locations
+             WHERE lower(name) = lower($1) AND lower(country) = lower($2)
+             LIMIT 1",
+            &[&name, &country],
+        )
+        .await
+        .map_err(internal_error)?;
+    let (location_id, stored_name): (Uuid, String) = if let Some(row) = existing {
+        (row.get(0), row.get(1))
+    } else {
+        let row = tx
+            .query_one(
+                "INSERT INTO locations
+                    (id, name, country, is_active, country_iso3, admin_level)
+                 VALUES (gen_random_uuid(), $1, $2, true, $3, 3)
+                 RETURNING id, name",
+                &[&name, &country, &iso3],
+            )
+            .await
+            .map_err(internal_error)?;
+        (row.get(0), row.get(1))
+    };
+    let alias = collapse_ws(payload.alias.as_deref().unwrap_or(""));
+    let mut language: String = payload
+        .language
+        .unwrap_or_else(|| "und".to_string())
+        .chars()
+        .take(12)
+        .collect();
+    if language.is_empty() {
+        language = "und".to_string();
+    }
+    if !alias.is_empty() && !alias.eq_ignore_ascii_case(&stored_name) {
+        tx.execute(
+            "INSERT INTO location_aliases
+                (location_id, alias_name, language, is_preferred)
+             VALUES ($1, $2, $3, false)
+             ON CONFLICT (location_id, alias_name, language) DO NOTHING",
+            &[&location_id, &alias, &language],
+        )
+        .await
+        .map_err(internal_error)?;
+    }
+    tx.commit().await.map_err(internal_error)?;
+    Ok(Json(ApiResponse {
+        success: true,
+        data: json!({"name": stored_name}),
+        total: None,
+        page: None,
+        per_page: None,
+        total_pages: None,
+    }))
 }
 
 async fn create_location(

@@ -177,6 +177,7 @@ fn is_nlp_internal_write(method: &Method, path: &str) -> bool {
             | (&Method::POST, "/api/v1/disease-discovery-candidates")
             | (&Method::POST, "/api/v1/nlp-corrections")
             | (&Method::POST, "/api/v1/nlp/reviews")
+            | (&Method::POST, "/api/v1/locations/upsert-reviewed")
     )
 }
 
@@ -384,6 +385,8 @@ mod tests {
         assert!(is_public_route(&Method::POST, "/api/v1/disease-concepts/upsert"));
         assert!(is_public_route(&Method::POST, "/api/v1/disease-discovery-candidates"));
         assert!(!is_public_route(&Method::POST, "/api/v1/disease-concepts"));
+        assert!(is_public_route(&Method::POST, "/api/v1/locations/upsert-reviewed"));
+        assert!(!is_public_route(&Method::POST, "/api/v1/locations"));
         assert!(!is_public_route(&Method::GET, "/api/v1/report-issues"));
         assert!(is_public_route(&Method::GET, "/api/v1/crawl-history/rows"));
         assert!(is_public_route(&Method::GET, "/api/v1/crawl-history/rows/abc"));
