@@ -268,6 +268,76 @@ def _ymd(year: Optional[int], month: Optional[int], day: Optional[int]) -> Optio
         return None
 
 
+_SLASH_RANGE = re.compile(
+    r"\(?\s*(?P<d1>\d{1,2})\s*/\s*(?P<m1>\d{1,2})(?:\s*/\s*(?P<y1>20\d{2}|\d{2}))?"
+    r"\s*[-–—]\s*"
+    r"(?P<d2>\d{1,2})\s*/\s*(?P<m2>\d{1,2})(?:\s*/\s*(?P<y2>20\d{2}|\d{2}))?\s*\)?",
+)
+_YTD_TO_SLASH = re.compile(
+    r"(?:từ\s+đầu\s+năm|tu\s+dau\s+nam|tính\s+từ\s+đầu\s+năm|lũy\s+kế(?:\s+từ\s+đầu\s+năm)?|"
+    r"from\s+(?:the\s+)?beginning\s+of\s+(?:the\s+)?year|"
+    r"since\s+(?:the\s+)?(?:start|beginning)\s+of\s+(?:the\s+)?year|"
+    r"sejak\s+awal\s+tahun|dari\s+awal\s+tahun|year\s+to\s+date|\bytd\b)"
+    r"(?:\s+(?P<year>20\d{2}))?"
+    r"(?:\s+(?:đến|tới|hingga|sampai|to|through|until)\s+(?:ngày\s+|date\s+)?)?"
+    r"(?P<d>\d{1,2})\s*/\s*(?P<m>\d{1,2})(?:\s*/\s*(?P<y2>20\d{2}|\d{2}))?",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _slash_date(day: str, month: str, year: Optional[str], pub_year: int) -> Optional[date]:
+    try:
+        day_n, month_n = int(day), int(month)
+    except (TypeError, ValueError):
+        return None
+    if month_n > 12 and 1 <= day_n <= 12:
+        day_n, month_n = month_n, day_n
+    if not (1 <= month_n <= 12 and 1 <= day_n <= 31):
+        return None
+    resolved = pub_year
+    if year:
+        resolved = int(year)
+        if resolved < 100:
+            resolved += 2000
+    try:
+        return date(resolved, month_n, day_n)
+    except ValueError:
+        return None
+
+
+def numeric_case_window(text: str, published_at: Optional[str] = None) -> Optional[dict]:
+    """YTD-to-D/M or a short D/M–D/M increment stated next to a case count."""
+    sample = normalize_local_digits(text or "")
+    pub_iso = normalize_publication_date(published_at)
+    pub_year = datetime.now().year
+    if pub_iso:
+        try:
+            pub_year = date.fromisoformat(pub_iso).year
+        except ValueError:
+            pass
+    ytd = _YTD_TO_SLASH.search(sample)
+    slash = _SLASH_RANGE.search(sample)
+    prefer_increment = bool(
+        slash and re.search(r"\b(?:riêng|trong\s+tuần|the\s+week\s+of)\b", sample, re.I)
+    )
+    if ytd and not prefer_increment:
+        year = _calendar_year(ytd.group("year") or ytd.group("y2")) or pub_year
+        end = _slash_date(ytd.group("d"), ytd.group("m"), ytd.group("y2"), year)
+        if end:
+            return _period_result(date(year, 1, 1), end, "cumulative", review=False)
+    if slash and not (ytd and not prefer_increment and ytd.start() <= slash.start() < ytd.end()):
+        year = _calendar_year(slash.group("y2") or slash.group("y1")) or pub_year
+        start = _slash_date(slash.group("d1"), slash.group("m1"), slash.group("y1"), year)
+        end = _slash_date(slash.group("d2"), slash.group("m2"), slash.group("y2"), year)
+        if start and end:
+            if end < start:
+                start, end = end, start
+            span = (end - start).days
+            period = "weekly" if span <= 10 else "incident"
+            return _period_result(start, end, period, review=False)
+    return None
+
+
 def _single_event_date(text: str) -> Optional[str]:
     """Parse one explicitly event-marked date without using publication time."""
     patterns = _runtime_date_patterns()
@@ -579,12 +649,13 @@ def _surveillance_window(
 
     first_months = re.search(
         r"\b(?:first|pertama)\s+(?P<num>\d{1,2})\s+(?:months?|bulan)\s+(?:of\s+|tahun\s+)?(?P<year>20\d{2}|25\d{2})?"
-        r"|(?P<num_id>\d{1,2})\s+bulan\s+pertama(?:\s+tahun)?\s*(?P<year_id>20\d{2}|25\d{2})?",
+        r"|(?P<num_id>\d{1,2})\s+bulan\s+pertama(?:\s+tahun)?\s*(?P<year_id>20\d{2}|25\d{2})?"
+        r"|(?:trong|trong\s+vòng)\s+(?P<num_vi>\d{1,2})\s+tháng",
         sample,
         re.I,
     )
     if first_months:
-        count = int(first_months.group("num") or first_months.group("num_id"))
+        count = int(first_months.group("num") or first_months.group("num_id") or first_months.group("num_vi"))
         year = _calendar_year(first_months.group("year") or first_months.group("year_id")) or pub_year
         if 1 <= count <= 12:
             return _period_result(
@@ -742,6 +813,30 @@ def extract_event_period(text: str, published_at: Optional[str] = None) -> dict:
                 return result
         except (ValueError, OverflowError):
             pass
+
+    numeric_window = numeric_case_window(sample[:2500], published_at)
+    if numeric_window:
+        result.update(numeric_window)
+        return result
+    iso_span = re.search(
+        r"(?P<s>20\d{2}-\d{2}-\d{2})\s+to\s+(?P<e>20\d{2}-\d{2}-\d{2})",
+        sample[:2500],
+    )
+    if iso_span:
+        try:
+            start_d = date.fromisoformat(iso_span.group("s"))
+            end_d = date.fromisoformat(iso_span.group("e"))
+        except ValueError:
+            start_d = end_d = None
+        if start_d and end_d:
+            span = (end_d - start_d).days
+            period = (
+                "weekly" if span <= 10
+                else "cumulative" if start_d.month == 1 and start_d.day == 1
+                else "incident"
+            )
+            result.update(_period_result(start_d, end_d, period, review=False))
+            return result
 
     # 2. Relative time expressions against published_at
     if pub_dt:

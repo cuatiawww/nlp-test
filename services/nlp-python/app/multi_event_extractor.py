@@ -1608,6 +1608,11 @@ def _event_time_bucket(event: dict[str, Any]) -> str:
         return f"cumulative:{frame or start or 'open'}"
     if " to " in frame:
         return f"{period}:{frame}"
+    end = str(event.get("event_date_end") or "")
+    if start and end and start != end:
+        return f"{period}:{start} to {end}"
+    if start:
+        return f"{period}:{start}"
     return "current"
 
 

@@ -2570,6 +2570,8 @@ def count_period_type(text: str) -> str:
         r"\b(?:cumulativ(?:e|ely)|kumulatif|year to date|\bytd\b|so far this year|"
         r"from \w+ (?:20\d{2}|to)|\bas of\b|hingga|sejak|\bso far\b|"
         r"1 january|1 januari|january to|januari hingga|"
+        r"từ đầu năm|tu dau nam|lũy kế|luy ke|tính từ đầu năm|"
+        r"sejak awal tahun|dari awal tahun|"
         r"dilaporkan per|reported as of)\b",
         sample,
     ):

@@ -23,6 +23,7 @@ import os
 import re
 from collections import Counter
 from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from datetime import date, datetime
 from functools import lru_cache
 from typing import Any, Iterable, Optional, Protocol
@@ -1262,6 +1263,12 @@ def _relation_time_frame_for_span(
     week_frame = _nearest_week_frame(source, start, end, published_date)
     if week_frame:
         return week_frame
+    from .epidemiology import numeric_case_window
+    local_numeric = numeric_case_window(context, published_date)
+    if local_numeric and local_numeric.get("event_date_start"):
+        local_start = local_numeric["event_date_start"]
+        local_end = local_numeric.get("event_date_end") or local_start
+        return local_start if local_start == local_end else f"{local_start} to {local_end}"
     years = _YEAR_TOKEN.findall(context)
     local_period = extract_event_period(context, published_at=published_date)
     if local_period.get("event_date_start"):
@@ -3226,6 +3233,114 @@ def _week_series_counts(
     return relations
 
 
+_YTD_MARK = re.compile(
+    r"(?:từ\s+đầu\s+năm|tính\s+từ\s+đầu\s+năm|lũy\s+kế(?:\s+từ\s+đầu\s+năm)?|"
+    r"sejak\s+awal\s+tahun|dari\s+awal\s+tahun|"
+    r"from\s+(?:the\s+)?beginning\s+of\s+(?:the\s+)?year|"
+    r"year\s+to\s+date|\bytd\b)",
+    re.IGNORECASE | re.UNICODE,
+)
+_INCREMENT_MARK = re.compile(
+    r"(?:riêng|trong\s+tuần|the\s+week\s+of)"
+    r".{0,48}?"
+    r"(?P<d1>\d{1,2})\s*/\s*(?P<m1>\d{1,2})\s*[-–]\s*(?P<d2>\d{1,2})\s*/\s*(?P<m2>\d{1,2})",
+    re.IGNORECASE | re.UNICODE | re.DOTALL,
+)
+
+
+def _nearest_window_count(text: str, center: int, radius: int = 140):
+    window = text[max(0, center - radius): min(len(text), center + radius)]
+    shift = max(0, center - radius)
+    best = None
+    best_dist = radius + 1
+    for match in re.finditer(rf"(?P<count>{_NUMBER})\s+(?:ca|kasus|cases?|kes)\b", window, re.I):
+        if not _metric_is_valid(text, shift + match.start("count"), shift + match.end("count")):
+            continue
+        value = _number(match.group("count"))
+        if value <= 0 or _year_like_count(value):
+            continue
+        dist = abs((shift + match.start("count")) - center)
+        if dist < best_dist:
+            best = (match, value, shift)
+            best_dist = dist
+    if best is None:
+        return None
+    match, value, shift = best
+    return SimpleNamespace(
+        value=value,
+        abs_start=shift + match.start("count"),
+        abs_end=shift + match.end("count"),
+        span_start=shift + match.start(),
+        span_end=shift + match.end(),
+    )
+
+
+def _ytd_increment_counts(
+    source: str,
+    linker: GazetteerLinker,
+    published_date: Optional[str],
+    fallback_location: Optional[LinkedLocation],
+) -> list[MetricRelation]:
+    """Keep a year-to-date total and a later dated increment as two events."""
+    from .epidemiology import numeric_case_window
+
+    text = source or ""
+    if not text.strip():
+        return []
+    parent = fallback_location
+    if parent is None:
+        from .admin_abbreviations import resolve_admin_place
+        for surface in ("TP.HCM", "TP HCM", "TPHCM", "Ho Chi Minh"):
+            scoped = resolve_admin_place(surface, context=text)
+            if scoped:
+                parent = _linked_from_admin(scoped, text)
+                break
+    if parent is None:
+        return []
+    relations: list[MetricRelation] = []
+    used: set[int] = set()
+
+    def _add(mark_start: int, mark_end: int, frame: str, qualifier: str) -> None:
+        hit = _nearest_window_count(text, (mark_start + mark_end) // 2)
+        if hit is None or hit.value in used:
+            return
+        used.add(hit.value)
+        evidence = re.sub(r"\s+", " ", text[min(mark_start, hit.span_start): max(mark_end, hit.span_end)]).strip(" ,;.")
+        relations.append(MetricRelation(
+            location=parent,
+            cases=hit.value,
+            time_frame=frame,
+            evidence=evidence,
+            disease=_relation_disease(text, mark_start, hit.abs_end),
+            metric_type="cases",
+            qualifier=qualifier,
+            value=hit.value,
+            evidence_offset_start=min(mark_start, hit.abs_start),
+            evidence_offset_end=max(mark_end, hit.abs_end),
+            source_sentence_id=_source_sentence_id(text, mark_start),
+            country_scope=parent.country or None,
+        ))
+
+    for mark in _YTD_MARK.finditer(text):
+        clause = text[mark.start(): mark.end() + 80]
+        window = numeric_case_window(clause, published_date) or numeric_case_window(
+            text[max(0, mark.start() - 80): mark.end() + 80], published_date
+        )
+        if not window or not window.get("event_date_start"):
+            continue
+        start = window["event_date_start"]
+        end = window.get("event_date_end") or start
+        _add(mark.start(), mark.end() + 40, f"{start} to {end}" if start != end else start, "cumulative")
+    for mark in _INCREMENT_MARK.finditer(text):
+        window = numeric_case_window(mark.group(0), published_date)
+        if not window or not window.get("event_date_start"):
+            continue
+        start = window["event_date_start"]
+        end = window.get("event_date_end") or start
+        _add(mark.start(), mark.end(), f"{start} to {end}" if start != end else start, "weekly")
+    return relations
+
+
 def _article_countries(source: str) -> set[str]:
     named = {
         extractors.normalize_country(item)
@@ -3585,6 +3700,8 @@ def extract_metric_relations(
     for relation in _month_series_counts(source, linker, published_date, fallback_location):
         _upsert_relation(relations, relation)
     for relation in _week_series_counts(source, linker, published_date, fallback_location):
+        _upsert_relation(relations, relation)
+    for relation in _ytd_increment_counts(source, linker, published_date, fallback_location):
         _upsert_relation(relations, relation)
     from .sitrep_matrix import drop_stolen_sitrep_counts, extract_sitrep_matrix_relations
     sitrep_relations = extract_sitrep_matrix_relations(
