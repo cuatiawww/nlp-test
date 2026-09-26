@@ -177,13 +177,14 @@ def prepare_raw_for_persistence(conn, msg: dict):
         """UPDATE raw_reports
            SET source_type=%s, source_name=%s, published_at=COALESCE(%s, published_at),
                original_text=%s, object_path=%s, processing_status='PROCESSED',
+               url=COALESCE(NULLIF(BTRIM(url), ''), NULLIF(BTRIM(%s), '')),
                normalized_url=COALESCE(normalized_url,%s), canonical_url=COALESCE(canonical_url,%s),
                url_hash=COALESCE(url_hash,%s), content_hash=COALESCE(content_hash,%s),
                final_url=COALESCE(final_url,%s), author=COALESCE(author,%s)
          WHERE id=%s""",
         (
             msg.get("source_type"), msg.get("source_name"), parse_date(msg.get("published_at")),
-            msg.get("text"), msg.get("object_path"), msg.get("normalized_url"),
+            msg.get("text"), msg.get("object_path"), message_source_url(msg), msg.get("normalized_url"),
             msg.get("canonical_url"), msg.get("url_hash"), msg.get("content_hash"),
             msg.get("final_url"), msg.get("author"), raw_id,
         ),
@@ -533,8 +534,20 @@ def fast_non_health_result(msg: dict) -> dict | None:
     }
 
 
+def message_source_url(msg: dict | None) -> str:
+    """First non-empty article URL on a continuous crawl message."""
+    if not msg:
+        return ""
+    for key in ("url", "final_url", "canonical_url", "normalized_url"):
+        value = str(msg.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
-             source_language: str = "", source_country: str = "") -> dict:
+             source_language: str = "", source_country: str = "",
+             source_url: str = "") -> dict:
     url = f"{NLP_SERVICE_URL}/nlp/analyze/raw"
     payload = {
         "text": text,
@@ -543,6 +556,7 @@ def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
         "published_at": published_at,
         "source_language": source_language,
         "source_country": source_country,
+        "source_url": source_url or "",
         "historical_fast": HISTORICAL_FAST_NON_HEALTH,
     }
     resp = requests.post(url, json=payload, timeout=NLP_REQUEST_TIMEOUT_SECONDS)
@@ -668,6 +682,7 @@ def callback(ch, method, properties, body):
                 published_at,
                 msg.get("source_language", ""),
                 msg.get("source_country", ""),
+                message_source_url(msg),
             )
 
         with get_db() as conn:
@@ -700,6 +715,7 @@ def callback(ch, method, properties, body):
                                published_at=COALESCE(%s, published_at),
                                original_text=%s, object_path=%s,
                                processing_status='PROCESSED',
+                               url=COALESCE(NULLIF(BTRIM(url), ''), NULLIF(BTRIM(%s), '')),
                                normalized_url=COALESCE(normalized_url,%s),
                                canonical_url=COALESCE(canonical_url,%s),
                                url_hash=COALESCE(url_hash,%s),
@@ -713,6 +729,7 @@ def callback(ch, method, properties, body):
                             parse_date(msg.get("published_at")),
                             msg.get("text"),
                             msg.get("object_path"),
+                            message_source_url(msg),
                             msg.get("normalized_url"), msg.get("canonical_url"), msg.get("url_hash"),
                             msg.get("content_hash"), msg.get("final_url"), msg.get("author"),
                             raw_id,
@@ -760,13 +777,13 @@ def callback(ch, method, properties, body):
                         case_count, death_count, event_date, confirmed_cases, suspected_cases,
                         hospitalizations, epidemiological_evidence,
                         confidence, outbreak_alert, sentiment, event_type, relevance_score,
-                         source_credibility, source_credibility_label, is_health_related, needs_review)
+                         source_credibility, source_credibility_label, is_health_related, needs_review, source_url)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                                CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                     ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                                END,
                                  %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-                                 %s, %s, %s, %s, %s, %s, %s, FALSE, %s)""",
+                                 %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s)""",
                     (
                         raw_id,
                         msg.get("source_type"),
@@ -796,6 +813,7 @@ def callback(ch, method, properties, body):
                         nlp.get("source_credibility", 0.50),
                         nlp.get("source_credibility_label", ""),
                         nlp_needs_review(nlp),
+                        message_source_url(msg),
                     ),
                 )
                 mark_kpi_snapshots_stale(conn)
@@ -813,13 +831,13 @@ def callback(ch, method, properties, body):
                     sentiment, event_type, relevance_score,
                     source_credibility, source_credibility_label, is_health_related,
                     needs_review, nlp_pipeline_version, count_period_type,
-                    event_date_start, event_date_end, date_needs_review)
+                    event_date_start, event_date_end, date_needs_review, source_url)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                             CASE WHEN %s::float8 IS NULL OR %s::float8 IS NULL THEN NULL
                                  ELSE ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                             END,
                             %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-                            %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s, %s, %s, %s)
+                            %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
                     raw_id,
@@ -856,6 +874,7 @@ def callback(ch, method, properties, body):
                     parse_date(nlp.get("event_date_start")),
                     parse_date(nlp.get("event_date_end")),
                     nlp.get("date_needs_review", False),
+                    message_source_url(msg),
                 ),
             )
             event_id = event_cursor.fetchone()["id"]
@@ -919,7 +938,7 @@ def callback(ch, method, properties, body):
                             nlp.get("source_credibility_label", ""),
                             nlp_needs_review(nlp) or bool(sub_location and (sub_lat is None or sub_lon is None)),
                             parent_event_id,
-                            msg.get("url"),
+                            message_source_url(msg),
                             nlp.get("nlp_pipeline_version") or NLP_PIPELINE_VERSION,
                         ),
                     )

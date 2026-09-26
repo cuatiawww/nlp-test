@@ -1,5 +1,6 @@
 import unittest
 
+from app import config
 from app.epidemiology import (
     event_category,
     evidence_sentences,
@@ -8,9 +9,32 @@ from app.epidemiology import (
     extract_labeled_counts,
     normalize_publication_date,
 )
+from app.extractors import extract_death_count
 
 
 class EpidemiologyTests(unittest.TestCase):
+    def setUp(self):
+        # Named months live in the lexicon API. These tests name January,
+        # August, September, and October, so they carry that slice themselves
+        # when the registry is unreachable.
+        self._months = dict(config.TEMPORAL_MONTH_MAP)
+        self._attempted = config.LEXICON_LOAD_ATTEMPTED
+        config.LEXICON_LOAD_ATTEMPTED = True
+        config.TEMPORAL_MONTH_MAP = {
+            **self._months,
+            "january": 1,
+            "januari": 1,
+            "august": 8,
+            "agustus": 8,
+            "september": 9,
+            "october": 10,
+            "oktober": 10,
+        }
+
+    def tearDown(self):
+        config.TEMPORAL_MONTH_MAP = self._months
+        config.LEXICON_LOAD_ATTEMPTED = self._attempted
+
     def test_publication_and_event_dates_are_separate(self):
         text = "Pada tanggal 14 Oktober 2026 tercatat penambahan sebanyak 1.053 kasus COVID-19."
         self.assertEqual(normalize_publication_date("2026-10-15T08:00:00+07:00"), "2026-10-15")
@@ -41,6 +65,97 @@ class EpidemiologyTests(unittest.TestCase):
         self.assertEqual(period["event_date_end"], "2026-08-23")
         self.assertEqual(period["period_type"], "cumulative")
         self.assertTrue(period["date_needs_review"])
+
+    def test_months_ago_is_publication_minus_the_offset(self):
+        period = extract_event_period(
+            "Lima orang meninggal 3 bulan yang lalu di wilayah itu.",
+            published_at="2026-09-23",
+        )
+        self.assertEqual(period["event_date"], "2026-06-23")
+        self.assertEqual(period["event_date_start"], "2026-06-23")
+        self.assertTrue(period["date_needs_review"])
+
+    def test_recent_month_window_ends_on_the_publication_date(self):
+        period = extract_event_period(
+            "Selama 3 bulan terakhir tercatat 4 kematian.",
+            published_at="2026-09-23",
+        )
+        self.assertEqual(period["event_date_start"], "2026-06-23")
+        self.assertEqual(period["event_date_end"], "2026-09-23")
+        self.assertEqual(period["event_date"], "2026-09-23")
+
+    def test_english_and_vietnamese_relative_death_dates(self):
+        english = extract_event_period(
+            "Two deaths were recorded 3 months ago.",
+            published_at="2026-09-23",
+        )
+        vietnamese = extract_event_period(
+            "Có 2 ca tử vong cách đây 3 tháng.",
+            published_at="2026-09-23",
+        )
+        self.assertEqual(english["event_date"], "2026-06-23")
+        self.assertEqual(vietnamese["event_date"], "2026-06-23")
+
+    def test_age_in_months_is_not_a_case_date(self):
+        period = extract_event_period(
+            "Seorang bayi berusia 3 bulan meninggal.",
+            published_at="2026-09-23",
+        )
+        self.assertIsNone(period["event_date"])
+        english = extract_event_period(
+            "An infant aged 3 months died.",
+            published_at="2026-09-23",
+        )
+        self.assertIsNone(english["event_date"])
+
+    def test_relative_phrases_across_languages_use_the_publication_date(self):
+        published = "2026-09-23"
+        points = {
+            "3 bulan yg lalu": "2026-06-23",
+            "tiga bulan yang lalu": "2026-06-23",
+            "sebulan yang lalu": "2026-08-23",
+            "2 minggu yang lalu": "2026-09-09",
+            "3 hari lepas": "2026-09-20",
+            "3 tháng trước": "2026-06-23",
+            "3 เดือนที่แล้ว": "2026-06-23",
+        }
+        for phrase, expected in points.items():
+            period = extract_event_period(
+                f"Ada kematian {phrase}.",
+                published_at=published,
+            )
+            self.assertEqual(period["event_date"], expected, phrase)
+        window = extract_event_period(
+            "Selama 3 bulan yang lalu tercatat 4 kematian.",
+            published_at=published,
+        )
+        self.assertEqual(window["event_date_start"], "2026-06-23")
+        self.assertEqual(window["event_date_end"], "2026-09-23")
+        last_year = extract_event_period(
+            "Kematian itu terjadi tahun lalu.",
+            published_at=published,
+        )
+        self.assertEqual(last_year["event_date_start"], "2025-01-01")
+        self.assertEqual(last_year["event_date_end"], "2025-12-31")
+        clamped = extract_event_period(
+            "Kasus itu 1 bulan yang lalu.",
+            published_at="2026-03-31",
+        )
+        self.assertEqual(clamped["event_date"], "2026-02-28")
+        unanchored = extract_event_period("Lima orang meninggal 3 bulan yang lalu.")
+        self.assertIsNone(unanchored["event_date"])
+
+    def test_relative_time_is_not_counted_as_deaths(self):
+        self.assertEqual(extract_death_count("3 bulan yang lalu terjadi kematian."), 0)
+        self.assertEqual(extract_death_count("Sebanyak 4 kematian 3 bulan yang lalu."), 4)
+
+    def test_explicit_range_beats_a_relative_phrase(self):
+        period = extract_event_period(
+            "From 1 January to 23 August 2026, officials noted cases 3 months ago.",
+            published_at="2026-09-23",
+        )
+        self.assertEqual(period["event_date_start"], "2026-01-01")
+        self.assertEqual(period["event_date_end"], "2026-08-23")
 
     def test_cumulative_as_of_window(self):
         period = extract_event_period(

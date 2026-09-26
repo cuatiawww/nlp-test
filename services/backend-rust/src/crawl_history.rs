@@ -529,6 +529,10 @@ fn event_article_key_sql() -> &'static str {
     "COALESCE(NULLIF(BTRIM(rr.normalized_url), ''), NULLIF(BTRIM(rr.url), ''), NULLIF(BTRIM(de.source_url), ''), de.raw_report_id::text, de.id::text)"
 }
 
+fn event_display_url_sql() -> &'static str {
+    "COALESCE(NULLIF(BTRIM(rr.url), ''), NULLIF(BTRIM(de.source_url), ''), NULLIF(BTRIM(rr.final_url), ''), NULLIF(BTRIM(rr.canonical_url), ''), NULLIF(BTRIM(rr.normalized_url), ''))"
+}
+
 fn matrix_article_key_sql() -> &'static str {
     "COALESCE(NULLIF(BTRIM(rr.normalized_url), ''), NULLIF(BTRIM(m.source_url), ''), NULLIF(BTRIM(rr.url), ''), m.raw_report_id::text, m.id::text)"
 }
@@ -783,8 +787,8 @@ fn event_select_sql(evidence_chars: i32) -> String {
             NULL::uuid AS crawl_job_id,
             de.raw_report_id,
             de.id AS disease_event_id,
-            COALESCE(NULLIF(LEFT(rr.original_text, {title}), ''), COALESCE(rr.url, de.source_url), de.location_name) AS title,
-            COALESCE(rr.url, de.source_url) AS url,
+            COALESCE(NULLIF(LEFT(rr.original_text, {title}), ''), {display_url}, de.location_name) AS title,
+            {display_url} AS url,
             de.language,
             {source_country} AS source_country,
             {event_country} AS country,
@@ -844,6 +848,7 @@ fn event_select_sql(evidence_chars: i32) -> String {
         event_known = event_known,
         pipeline_quality = pipeline_quality,
         article_key = event_article_key_sql(),
+        display_url = event_display_url_sql(),
         province = place_or_null_sql("de.province"),
         city = place_or_null_sql("de.city"),
         from = event_from_sql(),
@@ -1101,7 +1106,7 @@ fn event_where_sql(quality: Quality, matrix_ready: bool) -> String {
                OR COALESCE(de.disease_classification, '') ILIKE '%'||$1||'%'
                OR COALESCE(de.source_name, '') ILIKE '%'||$1||'%'
                OR COALESCE(de.location_name, '') ILIKE '%'||$1||'%'
-               OR COALESCE(rr.url, de.source_url, '') ILIKE '%'||$1||'%'
+               OR COALESCE({display_url}, '') ILIKE '%'||$1||'%'
                OR LEFT(COALESCE(rr.original_text, ''), 1000) ILIKE '%'||$1||'%'
                OR COALESCE(rr.summary, '') ILIKE '%'||$1||'%')
           AND (
@@ -1132,6 +1137,7 @@ fn event_where_sql(quality: Quality, matrix_ready: bool) -> String {
         skip_matrix = skip_matrix,
         country = event_country_where("$3"),
         known = known,
+        display_url = event_display_url_sql(),
     )
 }
 
