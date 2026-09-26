@@ -193,6 +193,7 @@ def _resolve_coords(location: str) -> tuple:
 
 def _regex_extract_location_cases(text: str) -> list[dict[str, Any]]:
     """Layer 1: Extract (location, case_count) pairs via regex patterns."""
+    text = extractors.normalize_spaced_thousands(text or "")
     pairs: dict[str, dict[str, Any]] = {}
 
     for pattern in [_RE_LOCATION_CASES_PARENS_ID, _RE_LOCATION_CASES_PARENS_EN]:
@@ -401,6 +402,214 @@ def _llm_extract_events(text: str, diseases: list[str]) -> list[dict[str, Any]]:
     return validated
 
 
+
+# ---------------------------------------------------------------------------
+# WHO Situation Update country headings (WPR dengue bulletins, etc.)
+# ---------------------------------------------------------------------------
+
+# Standalone line headings used in WHO WPR dengue Situation Updates.
+# Longer forms first so "Lao People's Democratic Republic" wins over "Laos".
+_WHO_COUNTRY_HEADING_NAMES: tuple[str, ...] = (
+    "Lao People's Democratic Republic",
+    "Lao PDR",
+    "Viet Nam",
+    "French Polynesia",
+    "Papua New Guinea",
+    "New Caledonia",
+    "Solomon Islands",
+    "Marshall Islands",
+    "Federated States of Micronesia",
+    "Timor-Leste",
+    "Philippines",
+    "Cambodia",
+    "Indonesia",
+    "Malaysia",
+    "Singapore",
+    "Thailand",
+    "Myanmar",
+    "Vietnam",
+    "Australia",
+    "Brunei",
+    "China",
+    "Laos",
+    "Fiji",
+    "Guam",
+)
+
+_RE_WHO_UPDATE_FOOTER = re.compile(
+    r"(?im)^Dengue Situation Update\s+\d+\s*[│|/|-].*$"
+)
+_RE_WHO_PAGE_MARKER = re.compile(r"(?im)^---PAGE\s+\d+---\s*")
+_RE_WHO_REGION_LABEL = re.compile(
+    r"(?im)^(?:Northern Hemisphere|Southern Hemisphere|Pacific Islands?(?: Countries)?)\s*$"
+)
+
+
+def _who_country_heading_regex() -> re.Pattern:
+    alternates = "|".join(
+        re.escape(name) for name in sorted(_WHO_COUNTRY_HEADING_NAMES, key=len, reverse=True)
+    )
+    # Optional parenthetical such as "(Monthly update)".
+    return re.compile(
+        rf"(?m)^(?P<country>{alternates})(?:\s*\([^)\n]{{0,60}}\))?\s*$"
+    )
+
+
+def _canonical_who_country(raw: str) -> Optional[str]:
+    mapped = extractors.normalize_country(raw)
+    if not mapped:
+        return None
+    # Collapse WHO long-form Lao heading onto the ASEAN canonical.
+    if mapped.casefold() in {
+        "lao people's democratic republic".casefold(),
+        "lao pdr",
+    }:
+        return "Laos"
+    if mapped.casefold() == "viet nam":
+        return "Vietnam"
+    return mapped
+
+
+def _split_who_country_sections(text: str) -> list[tuple[str, str]]:
+    """Split a WHO multi-country bulletin into (country, body) sections.
+
+    Country names appear as standalone headings; metric sentences often omit
+    repeating the country. Page footers must not restart the parse at Cambodia.
+    """
+    source = extractors.normalize_spaced_thousands(text or "")
+    if not source.strip():
+        return []
+    # PDF text often uses curly apostrophes in "Lao People's ...".
+    source = (
+        source.replace("\u2019", "'")
+        .replace("\u2018", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+    )
+    source = _RE_WHO_UPDATE_FOOTER.sub("", source)
+    source = _RE_WHO_PAGE_MARKER.sub("", source)
+    source = _RE_WHO_REGION_LABEL.sub("", source)
+
+    heading = _who_country_heading_regex()
+    matches = list(heading.finditer(source))
+    if len(matches) < 2:
+        return []
+
+    sections: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        country = _canonical_who_country(match.group("country"))
+        if not country:
+            continue
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        body = source[start:end].strip()
+        if not body:
+            continue
+        sections.append((country, body))
+    return sections
+
+
+def _who_section_case_death_counts(body: str, disease: str) -> tuple[int, int]:
+    """Prefer cumulative / 'a total of' totals inside one WHO country section."""
+    source = extractors.normalize_spaced_thousands(body or "")
+    if not source.strip():
+        return 0, 0
+
+    case_patterns = (
+        (60, re.compile(
+            r"(?i)\bbringing\s+the\s+cumulative\s+total\b.{0,100}?\bto\s+"
+            r"(?P<cases>\d{1,3}(?:,\d{3})+|\d+)\s+cases?\b"
+            r"(?:\s+and\s+(?P<deaths>\d{1,3}(?:,\d{3})+|\d+)\s+deaths?)?",
+        )),
+        (55, re.compile(
+            r"(?i)\bcumulativ(?:e|ely)\b.{0,80}?\b(?:a\s+total\s+of\s+|total\s+of\s+)?"
+            r"(?P<cases>\d{1,3}(?:,\d{3})+|\d+)\s+cases?\b"
+            r"(?:.{0,40}?\b(?:and|,)\s+(?P<deaths>\d{1,3}(?:,\d{3})+|\d+)\s+deaths?)?",
+        )),
+        (50, re.compile(
+            r"(?i)\ba\s+total\s+of\s+(?P<cases>\d{1,3}(?:,\d{3})+|\d+)\s+"
+            r"(?:new\s+)?(?:dengue\s+)?cases?\b"
+            r"(?:.{0,60}?\bincluding\s+(?P<deaths>\d{1,3}(?:,\d{3})+|\d+)\s+deaths?)?",
+        )),
+        (25, re.compile(
+            r"(?i)\b(?P<cases>\d{1,3}(?:,\d{3})+|\d+)\s+(?:new\s+)?(?:dengue\s+)?cases?\b"
+            r"(?:.{0,60}?\bincluding\s+(?P<deaths>\d{1,3}(?:,\d{3})+|\d+)\s+deaths?)?",
+        )),
+    )
+
+    best_cases: tuple[int, int] | None = None  # (priority, value)
+    best_deaths: tuple[int, int] | None = None
+    for priority, pattern in case_patterns:
+        for match in pattern.finditer(source):
+            before = source[max(0, match.start("cases") - 24): match.start("cases")]
+            if re.search(r"(?i)\b(?:from|n\s*=)\s*$", before):
+                continue
+            parsed_cases = extractors.parse_surveillance_count(match.group("cases"), match.group(0))
+            if parsed_cases is None or parsed_cases <= 0:
+                continue
+            if best_cases is None or priority > best_cases[0] or (
+                priority == best_cases[0] and parsed_cases > best_cases[1]
+            ):
+                best_cases = (priority, int(parsed_cases))
+            raw_deaths = match.groupdict().get("deaths")
+            if raw_deaths:
+                parsed_deaths = extractors.parse_surveillance_count(raw_deaths, match.group(0))
+                if parsed_deaths is not None and parsed_deaths >= 0:
+                    if best_deaths is None or priority > best_deaths[0]:
+                        best_deaths = (priority, int(parsed_deaths))
+
+    if best_deaths is None:
+        death_match = re.search(
+            r"(?i)\b(?:including|and)\s+(?P<deaths>\d{1,3}(?:,\d{3})+|\d+)\s+deaths?\b",
+            source,
+        )
+        if death_match:
+            parsed_deaths = extractors.parse_surveillance_count(
+                death_match.group("deaths"), death_match.group(0)
+            )
+            if parsed_deaths is not None:
+                best_deaths = (10, int(parsed_deaths))
+
+    cases = best_cases[1] if best_cases else extractors.extract_case_count(source, disease=disease)
+    deaths = best_deaths[1] if best_deaths else extractors.extract_death_count(source, disease=disease)
+    return max(0, int(cases or 0)), max(0, int(deaths or 0))
+
+
+def _extract_who_country_section_events(
+    text: str,
+    primary_disease: str,
+) -> list[dict[str, Any]]:
+    """One event per WHO country section with an explicit case/death total."""
+    sections = _split_who_country_sections(text)
+    if len(sections) < MULTI_EVENT_MIN_PAIRS:
+        return []
+
+    disease = primary_disease or "Dengue"
+    events: list[dict[str, Any]] = []
+    for country, body in sections:
+        cases, deaths = _who_section_case_death_counts(body, disease)
+        if cases <= 0 and deaths <= 0:
+            continue
+        lat, lon = _resolve_coords(country)
+        # Prefer a short evidence window near the first case/death mention.
+        evidence_match = re.search(
+            r"(?i).{0,40}\b(?:cases?|kasus|deaths?|kematian)\b.{0,80}",
+            body,
+        )
+        evidence = (evidence_match.group(0).strip() if evidence_match else body[:180]).strip()
+        events.append({
+            "disease": disease,
+            "location_name": country,
+            "country": country,
+            "latitude": lat,
+            "longitude": lon,
+            "case_count": max(0, int(cases or 0)),
+            "death_count": max(0, int(deaths or 0)),
+            "evidence": evidence[:500],
+        })
+    return events
+
+
 # ---------------------------------------------------------------------------
 # Section Detection for Multi-Disease Documents
 # ---------------------------------------------------------------------------
@@ -551,6 +760,13 @@ def extract_multi_events(
 
     if not text or not text.strip():
         return []
+
+    # WHO multi-country Situation Updates: country headings delimit sections.
+    # Handle before single-country atomic/legacy paths so page-1 Cambodia does
+    # not swallow China/Indonesia/etc. from later pages.
+    who_events = _extract_who_country_section_events(text, primary_disease)
+    if len(who_events) >= MULTI_EVENT_MIN_PAIRS:
+        return _deduplicate_events(who_events)
 
     # The canonical path is evidence-first: metrics are linked to a disease
     # and location in the same local context before an event is created.  The

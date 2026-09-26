@@ -2368,7 +2368,9 @@ def _runtime_number_word_pattern() -> str:
 
     words = sorted(config.get_lexicon_values("number_word"), key=len, reverse=True)
     alternatives = [re.escape(word) for word in words]
-    alternatives.append(r"[0-9]{1,3}(?:[,\.\s]\d{3})+\.?")
+    # Spaced thousands are normalized by ``_compact_spaced_thousands`` first.
+    # Keep only comma/dot here so "September 18 250 cases" cannot tokenize as 18250.
+    alternatives.append(r"[0-9]{1,3}(?:[,.]\d{3})+\.?")
     alternatives.append(r"[0-9]+(?:[.,]\d+)?\.?")
     return "(?:" + "|".join(alternatives) + ")"
 
@@ -2515,13 +2517,50 @@ _ANIMAL_OUTBREAK = re.compile(
 )
 
 
+# Unicode spaces commonly used as thousands separators in WHO/ASEAN copy.
+_THOUSANDS_SPACE_RE = re.compile(r"[\u0020\u00a0\u202f\u2007\u2009\u2008]")
+# Month name immediately before a digit group → day-of-month, not thousands.
+_MONTH_BEFORE_SPACED_NUMBER = re.compile(
+    r"(?i)(?:^|(?<!\w))(?:"
+    r"January|Jan(?:uary)?|February|Feb(?:ruary)?|March|Mar(?:ch)?|"
+    r"April|Apr(?:il)?|May|June|Jun(?:e)?|July|Jul(?:y)?|"
+    r"August|Aug(?:ust)?|September|Sep(?:t(?:ember)?)?|"
+    r"October|Oct(?:ober)?|November|Nov(?:ember)?|December|Dec(?:ember)?|"
+    r"Januari|Februari|Maret|Mei|Juni|Juli|Agustus|Oktober|Desember|Des"
+    r")\.?\s+$"
+)
+_SPACED_THOUSANDS_TOKEN = re.compile(
+    r"\b(\d{1,3}(?:[\u0020\u00a0\u202f\u2007\u2009\u2008]\d{3})+)\b"
+)
+
+
 def _compact_spaced_thousands(text: str) -> str:
-    """WHO WPRO style: '40 915' / '3 029' / '73 828' → compact integers."""
-    return re.sub(
-        r"\b(\d{1,3}(?:[ \u00a0]\d{3})+)\b",
-        lambda match: re.sub(r"[ \u00a0]", "", match.group(1)),
-        text or "",
-    )
+    """Normalize WHO/ASEAN spaced thousands without gluing month/day counts.
+
+    Compacts digit groups such as ``40 915``, ``1 234 567``, and NBSP/thin-space
+    variants into plain integers (``40915``, ``1234567``).
+
+    Leaves day-of-month + count alone: ``September 18 250 cases`` must stay
+    day=18 / count=250, not 18250. Gluing requires the thousands shape
+    (1–3 digit groups, rightmost group exactly 3 digits).
+    """
+    source = text or ""
+    if not source:
+        return ""
+
+    def _repl(match: re.Match) -> str:
+        start = match.start(1)
+        prefix = source[max(0, start - 32):start]
+        if _MONTH_BEFORE_SPACED_NUMBER.search(prefix):
+            return match.group(1)
+        return _THOUSANDS_SPACE_RE.sub("", match.group(1))
+
+    return _SPACED_THOUSANDS_TOKEN.sub(_repl, source)
+
+
+def normalize_spaced_thousands(text: str) -> str:
+    """Public wrapper for shared spaced-thousands normalization."""
+    return _compact_spaced_thousands(text)
 
 
 def _years_in(text: str) -> list[int]:
@@ -3158,7 +3197,22 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             )
         ]
         if cumulative_candidates:
-            candidates = cumulative_candidates
+            # Prefer the number attached to the cumulative / "a total of" phrase
+            # itself so a monthly slice earlier in the same sentence (``124 ...
+            # bringing the cumulative total ... to 75431``) does not win on
+            # earlier offset alone.
+            attached = []
+            for item in cumulative_candidates:
+                before = re.sub(r"\s+", " ", search_text[max(0, item[1] - 160): item[1]])
+                if re.search(
+                    r"(?i)(?:\ba\s+total\s+of|"
+                    r"\bbringing\s+the\s+cumulative\s+total\b(?:\s+\w+){0,20}\s+to|"
+                    r"\bcumulativ(?:e|ely)\b(?:\s+\w+){0,12}\s+(?:total\s+(?:of\s+)?)?|"
+                    r"\bcumulative\s+total\b(?:\s+\w+){0,16}\s+to)\s*$",
+                    before,
+                ):
+                    attached.append(item)
+            candidates = attached or cumulative_candidates
 
     if not candidates:
         if field == "death_count" and re.search(r"\bno deaths?\b", search_text, re.I):
@@ -3243,9 +3297,10 @@ def _parse_count(value: str, context: str = "") -> Optional[int]:
         if multiplier == 1 and re.fullmatch(r"(?:19|20)\d{2}", val):
             return None
 
-        # Case 1: Standard thousands separator (e.g. 19,313 or 10.000 or 1,000,000 or 40 915)
-        if re.fullmatch(r"\d{1,3}(?:[,. ]\d{3})+", val):
-            clean_int = re.sub(r"[,. ]", "", val)
+        # Case 1: Standard thousands separator (e.g. 19,313 / 10.000 / 40 915 / NBSP)
+        if re.fullmatch(r"\d{1,3}(?:[,.\u0020\u00a0\u202f\u2007\u2009\u2008]\d{3})+", val):
+            clean_int = _THOUSANDS_SPACE_RE.sub("", val)
+            clean_int = re.sub(r"[,.]", "", clean_int)
             return _bounded(int(clean_int) * multiplier)
 
         # Case 2: Pure integer digits
@@ -3304,7 +3359,7 @@ def extract_disease_case_metrics(
     used only when one article has multiple diseases, so a country total is
     not duplicated across every disease merely because they share a sentence.
     """
-    source = str(text or "")
+    source = _compact_spaced_thousands(str(text or ""))
     if not source:
         return {}
     number = _runtime_number_word_pattern()
@@ -3401,6 +3456,10 @@ def extract_case_count(text: str, disease: Optional[str] = None) -> int:
                     continue
                 window = _sentence_window(source, match.start(), match.end())
                 window_l = window.casefold()
+                before = source[max(0, match.start("count") - 40): match.start("count")]
+                # ``China, an increase from 222 cases`` is a comparator, not the June total.
+                if re.search(r"(?i)\b(?:from|dari|daripada|increase from|down from)\s*$", before):
+                    continue
                 if re.search(
                     r"\b(?:last year|previous year|year before|a year earlier|same period|compared with|compared to|"
                     r"tahun lalu|tahun lepas|berbanding|berbanding dengan)\b",

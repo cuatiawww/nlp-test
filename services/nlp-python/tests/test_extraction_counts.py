@@ -141,6 +141,37 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         text = "Cumulatively, a total of 3 029 dengue cases have been reported in 2026."
         self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 3029)
 
+    def test_spaced_thousands_cambodia_quote_and_variants(self):
+        quote = (
+            "As of 26 July 2026, a total of 40 915 dengue cases, including 58 deaths "
+            "(case fatality rate: 0.1%), have been reported."
+        )
+        self.assertEqual(extractors.extract_case_count(quote, disease="Dengue"), 40915)
+        self.assertEqual(extractors.extract_death_count(quote, disease="Dengue"), 58)
+        self.assertEqual(
+            extractors.extract_case_count("There were 1 234 dengue cases reported.", disease="Dengue"),
+            1234,
+        )
+        self.assertEqual(
+            extractors.extract_case_count("a total of 1 234 567 dengue cases", disease="Dengue"),
+            1234567,
+        )
+        nbsp = "a total of 40 915 dengue cases"
+        thin = "a total of 40 915 dengue cases"
+        self.assertEqual(extractors.extract_case_count(nbsp, disease="Dengue"), 40915)
+        self.assertEqual(extractors.extract_case_count(thin, disease="Dengue"), 40915)
+
+    def test_month_day_not_glued_as_spaced_thousands(self):
+        # Day-of-month sitting before a count must stay separate.
+        text = "September 18 250 dengue cases were reported in the district."
+        self.assertEqual(extractors.normalize_spaced_thousands(text), text)
+        self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 250)
+        text_id = "Pada 18 September 250 kasus dengue dilaporkan."
+        # Indonesian day-before-month: compact may still see "18 250" without month lookbehind
+        # immediately before digits; ensure count is not 18250 when month follows the day.
+        # Primary guard is English month-before-day; this checks we do not invent 18250 from EN form.
+        self.assertNotEqual(extractors.extract_case_count(text, disease="Dengue"), 18250)
+
     def test_percent_change_does_not_hide_following_case_total(self):
         text = (
             "The number of dengue fever cases in the country rose 66 per cent "
