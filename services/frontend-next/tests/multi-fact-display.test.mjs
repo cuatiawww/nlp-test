@@ -5,6 +5,10 @@ import {
   collapseAnalyzeResult,
   formatLabelCounts,
   joinUniqueLabels,
+  displayCountry,
+  displayRegion,
+  flagCountryName,
+  isMultiCountryValue,
 } from '../lib/multiFactDisplay.mjs';
 
 test('multi-disease names join with semicolon not comma', () => {
@@ -61,4 +65,22 @@ test('analyze summary prefers API display fields then sub_events', () => {
   });
   assert.equal(fromEvents.diseaseDisplay, 'Influenza; RSV');
   assert.equal(fromEvents.casesDisplay, 'Jakarta(10); Manila(4)');
+});
+
+test('multi-country hides MULTI_COUNTRY and keeps joined country names', () => {
+  assert.equal(displayCountry('MULTI_COUNTRY', ['Indonesia', 'Vietnam', 'MULTI_COUNTRY']), 'Indonesia; Vietnam');
+  assert.equal(displayCountry('Indonesia; Vietnam'), 'Indonesia; Vietnam');
+  assert.equal(displayCountry('Indonesia'), 'Indonesia');
+  assert.equal(isMultiCountryValue('Indonesia; Vietnam'), true);
+  assert.equal(flagCountryName('Indonesia; Vietnam'), '');
+  assert.equal(flagCountryName('Indonesia'), 'Indonesia');
+});
+
+test('region stays separate from country and uses master scope', () => {
+  assert.equal(displayRegion('ASEAN', 'Indonesia'), 'ASEAN');
+  assert.equal(displayRegion('Global', 'Indonesia; Vietnam'), 'Global');
+  assert.equal(displayRegion(null, 'Indonesia; Vietnam'), 'Global');
+  assert.equal(displayRegion('MULTI_COUNTRY', 'Indonesia; Vietnam'), 'Global');
+  assert.equal(displayRegion(null, 'Indonesia'), 'ASEAN');
+  assert.equal(displayRegion(null, 'United Kingdom'), 'Outside ASEAN');
 });

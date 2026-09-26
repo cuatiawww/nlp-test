@@ -11,6 +11,7 @@ from app.multi_fact_display import (
     facts_from_analyze_payload,
     format_label_counts,
     join_unique_labels,
+    parent_geo_from_events,
     short_disease_label,
 )
 
@@ -76,6 +77,35 @@ class MultiFactDisplayTest(unittest.TestCase):
         collapsed = collapse_facts(facts_from_analyze_payload(payload))
         self.assertEqual(collapsed["disease_display"], "Influenza; RSV")
         self.assertEqual(collapsed["cases_display"], "Jakarta(10); Manila(4)")
+
+    def test_parent_geo_lists_outbreak_countries_not_multi_country(self):
+        country, location = parent_geo_from_events([
+            {"disease": "Dengue", "country": "Indonesia", "location_name": "Indonesia", "case_count": 5000},
+            {"disease": "Dengue", "country": "Vietnam", "location_name": "Vietnam", "case_count": 3000},
+        ])
+        self.assertEqual(country, "Indonesia; Vietnam")
+        self.assertEqual(location, "Indonesia; Vietnam")
+        self.assertNotIn("MULTI_COUNTRY", country)
+
+    def test_parent_geo_keeps_one_country_when_others_have_no_metric(self):
+        country, location = parent_geo_from_events([
+            {"disease": "Dengue", "country": "Indonesia", "location_name": "Indonesia", "case_count": 5000},
+            {"disease": "Dengue", "country": "Japan", "location_name": "Japan", "case_count": 0},
+        ])
+        self.assertEqual(country, "Indonesia")
+        self.assertIsNone(location)
+
+    def test_parent_geo_global_row_keeps_country_list(self):
+        country, location = parent_geo_from_events([
+            {
+                "disease": "Dengue",
+                "country": "Indonesia; Vietnam; Thailand",
+                "location_name": "Global",
+                "case_count": 200000,
+            },
+        ])
+        self.assertEqual(country, "Indonesia; Vietnam; Thailand")
+        self.assertEqual(location, "Global")
 
 
 if __name__ == "__main__":

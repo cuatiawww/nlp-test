@@ -181,6 +181,68 @@ export function factsFromAnalyzeResult(result) {
   }]
 }
 
+const GEO_SENTINELS = new Set(['MULTI_COUNTRY', 'UNKNOWN'])
+const GLOBAL_LABELS = new Set(['GLOBAL', 'WORLD', 'WORLDWIDE', 'INTERNATIONAL', 'INTERNASIONAL'])
+const ASEAN_COUNTRIES = new Set([
+  'brunei',
+  'cambodia',
+  'indonesia',
+  'laos',
+  'lao pdr',
+  'malaysia',
+  'myanmar',
+  'philippines',
+  'singapore',
+  'thailand',
+  'timor-leste',
+  'vietnam',
+  'viet nam',
+])
+
+export function isHiddenGeoLabel(value) {
+  const raw = String(value || '').trim()
+  return !raw || GEO_SENTINELS.has(raw.toUpperCase())
+}
+
+export function isJoinedPlaces(value) {
+  return String(value || '').includes(';')
+}
+
+export function isMultiCountryValue(value) {
+  const raw = String(value || '').trim()
+  return raw.toUpperCase() === 'MULTI_COUNTRY' || isJoinedPlaces(raw)
+}
+
+export function displayCountry(value, fallbacks = []) {
+  const raw = String(value || '').trim()
+  if (raw && !isHiddenGeoLabel(raw)) return raw
+  return joinUniqueLabels(
+    (fallbacks || [])
+      .flatMap((item) => String(item || '').split(';'))
+      .map((part) => part.trim())
+      .filter((part) => part && !isHiddenGeoLabel(part) && !GLOBAL_LABELS.has(part.toUpperCase())),
+  )
+}
+
+export function displayRegion(region, country) {
+  const fromMaster = String(region || '').trim()
+  if (fromMaster && !isHiddenGeoLabel(fromMaster)) {
+    return fromMaster.toUpperCase() === 'GLOBAL' ? 'Global' : fromMaster
+  }
+  const named = String(country || '').trim()
+  if (!named) return ''
+  if (isHiddenGeoLabel(named) || isJoinedPlaces(named) || GLOBAL_LABELS.has(named.toUpperCase())) {
+    return 'Global'
+  }
+  return ASEAN_COUNTRIES.has(named.toLowerCase()) ? 'ASEAN' : 'Outside ASEAN'
+}
+
+export function flagCountryName(country) {
+  const named = String(country || '').trim()
+  if (!named || isMultiCountryValue(named) || GLOBAL_LABELS.has(named.toUpperCase())) return ''
+  return named
+}
+
 export function collapseAnalyzeResult(result) {
   if (!result) {
     return {

@@ -80,7 +80,8 @@ class CaseCountryScopeTests(unittest.TestCase):
         self.assertEqual(extractors.surveillance_scope_label("Indonesia"), "ASEAN")
         self.assertEqual(extractors.surveillance_scope_label("United Kingdom"), "Outside ASEAN")
         self.assertEqual(extractors.surveillance_scope_label("Global"), "Global")
-        self.assertEqual(extractors.surveillance_scope_label("MULTI_COUNTRY"), "MULTI_COUNTRY")
+        self.assertEqual(extractors.surveillance_scope_label("MULTI_COUNTRY"), "Global")
+        self.assertEqual(extractors.surveillance_scope_label("Indonesia; Vietnam"), "Global")
         self.assertEqual(extractors.country_scope("Global"), "Global")
         self.assertEqual(extractors.country_scope("Indonesia"), "Indonesia")
 

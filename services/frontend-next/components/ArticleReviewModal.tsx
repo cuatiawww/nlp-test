@@ -25,6 +25,7 @@ import {
 import { toast } from 'sonner'
 import { markArticleReviewed, submitNLPCorrection } from '@/lib/api'
 import CountryFlag from '@/components/CountryFlag'
+import { displayCountry, displayRegion, flagCountryName } from '@/lib/multiFactDisplay.mjs'
 
 export interface ReviewTarget {
   id?: string | null
@@ -130,10 +131,10 @@ function EventCorrectionModal({
     if (event) {
       setDraft({
         disease: event.disease || event.disease_classification || '',
-        country: (event.country !== 'MULTI_COUNTRY' ? event.country : '') || (event.case_country !== 'MULTI_COUNTRY' ? event.case_country : '') || '',
-        region: (event.region !== 'MULTI_COUNTRY' ? event.region : '') || (event.surveillance_scope !== 'MULTI_COUNTRY' ? event.surveillance_scope : '') || '',
+        country: displayCountry(event.country, [event.case_country]),
+        region: displayRegion(event.region || event.surveillance_scope, displayCountry(event.country, [event.case_country])),
         province: event.province || '',
-        city: (event.city !== 'MULTI_COUNTRY' ? event.city : '') || (event.location_name !== 'MULTI_COUNTRY' ? event.location_name : '') || (event.province_city_case !== 'MULTI_COUNTRY' ? event.province_city_case : '') || '',
+        city: displayCountry(event.city, [event.location_name, event.province_city_case]),
         cases: event.cases != null ? String(event.cases) : event.case_count != null ? String(event.case_count) : '',
         deaths: event.deaths != null ? String(event.deaths) : event.death_count != null ? String(event.death_count) : '',
         dateCase: event.date_case || event.article_date || event.published_at || '',
@@ -145,8 +146,8 @@ function EventCorrectionModal({
   if (!open || !event) return null
 
   const originalDisease = event.disease || event.disease_classification || 'Unknown'
-  const originalCountry = event.country || event.case_country || 'Unknown'
-  const originalRegion = event.region || event.surveillance_scope || '-'
+  const originalCountry = displayCountry(event.country, [event.case_country]) || 'Unknown'
+  const originalRegion = displayRegion(event.region || event.surveillance_scope, originalCountry) || '-'
   const originalProvince = event.province || '-'
   const originalCity = event.city || event.location_name || event.province_city_case || '-'
   const originalCases = event.cases != null ? Number(event.cases) : event.case_count != null ? Number(event.case_count) : 0
@@ -749,7 +750,8 @@ export default function ArticleReviewModal({
                     <tr className="bg-slate-50 text-[10px] uppercase font-bold text-slate-600 border-b border-slate-200">
                       <th className="px-3.5 py-2.5 text-center w-10">#</th>
                       <th className="px-3.5 py-2.5 w-44">Disease</th>
-                      <th className="px-3.5 py-2.5 w-40">Country & Region</th>
+                      <th className="px-3.5 py-2.5 w-44">Country</th>
+                      <th className="px-3.5 py-2.5 w-28">Region</th>
                       <th className="px-3.5 py-2.5 w-48">Province & City</th>
                       <th className="px-3.5 py-2.5 text-right w-24">Cases</th>
                       <th className="px-3.5 py-2.5 text-right w-24">Deaths</th>
@@ -761,13 +763,11 @@ export default function ArticleReviewModal({
                   <tbody className="divide-y divide-slate-100">
                     {eventsList.map((evt, idx) => {
                       const diseaseName = evt.disease || evt.disease_classification || 'Unknown'
-                      const rawCountry = evt.country || evt.case_country
-                      const countryName = (rawCountry && rawCountry !== 'MULTI_COUNTRY') ? rawCountry : '-'
-                      const rawRegion = evt.region || evt.surveillance_scope
-                      const regionName = (rawRegion && rawRegion !== 'MULTI_COUNTRY') ? rawRegion : '-'
+                      const countryName = displayCountry(evt.country, [evt.case_country]) || '—'
+                      const regionName = displayRegion(evt.region || evt.surveillance_scope, displayCountry(evt.country, [evt.case_country])) || '—'
                       const provinceName = evt.province
-                      const rawCity = evt.city || evt.location_name || evt.province_city_case
-                      const cityName = (rawCity && rawCity !== 'MULTI_COUNTRY') ? rawCity : '-'
+                      const cityName = displayCountry(evt.city, [evt.location_name, evt.province_city_case]) || '—'
+                      const flagName = flagCountryName(countryName)
                       const casesVal = evt.cases != null ? Number(evt.cases) : evt.case_count != null ? Number(evt.case_count) : 0
                       const deathsVal = evt.deaths != null ? Number(evt.deaths) : evt.death_count != null ? Number(evt.death_count) : 0
                       const dateVal = evt.date_case || evt.article_date || evt.published_at || '-'
@@ -803,19 +803,16 @@ export default function ArticleReviewModal({
                             </div>
                           </td>
 
-                          {/* Country & Region */}
                           <td className="px-3 py-3">
-                            <div className="flex items-center gap-1.5">
-                              {countryName !== '-' && <CountryFlag countryName={countryName} size={14} />}
-                              <div>
-                                <span className="font-semibold text-slate-800 block">
-                                  {countryName}
-                                </span>
-                                <span className="text-[10px] text-slate-500 font-medium">
-                                  {regionName}
-                                </span>
-                              </div>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {flagName ? <CountryFlag countryName={flagName} size={14} /> : null}
+                              <span className="font-semibold text-slate-800 block truncate" title={countryName}>
+                                {countryName}
+                              </span>
                             </div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="text-[11px] font-semibold text-slate-600">{regionName}</span>
                           </td>
 
                           {/* Province & City */}

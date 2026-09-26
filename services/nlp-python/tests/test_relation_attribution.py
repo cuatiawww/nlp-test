@@ -437,6 +437,24 @@ class RelationAttributionTests(unittest.TestCase):
                 self.assertIn((2000, 0, "2023-01-01"), dated)
                 self.assertEqual(len(events), 3)
 
+    def test_named_cities_without_counts_are_not_events(self):
+        linker = self._use_places({
+            "Indonesia": ("Indonesia", -2.5489, 118.0149),
+            "Jakarta": ("Indonesia", -6.2088, 106.8456),
+            "Surabaya": ("Indonesia", -7.2575, 112.7521),
+        })
+        text = (
+            "Indonesia recorded 5,000 dengue cases this year. "
+            "Jakarta and Surabaya were among the affected cities."
+        )
+        _, _, events = self._events(
+            text, linker, primary_location="Indonesia", primary_country="Indonesia",
+        )
+        places = {evt.get("location_name") for evt in events}
+        self.assertIn("Indonesia", places)
+        self.assertNotIn("Jakarta", places)
+        self.assertNotIn("Surabaya", places)
+
 
 if __name__ == "__main__":
     unittest.main()

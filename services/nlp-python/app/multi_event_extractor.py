@@ -1030,15 +1030,14 @@ def compose_structured_events(
     # first relation layer above, never from the length of `diseases_extracted`.
     from . import extractors as ext
 
-    # Create regional events ONLY when metrics are truly bound to that region.
-    # No empty 1.1 events from bare disease/location mentions.
+    # A named city/province/country without a bound count is a mention, not
+    # an event. Negative surveillance ("no cases in X") is the exception.
     events = [
         evt for evt in events
         if (
             (evt.get("case_count") or 0) > 0
             or (evt.get("death_count") or 0) > 0
             or evt.get("metric_type") == "negative_surveillance"
-            or (evt.get("country") and str(evt.get("location_name") or "").casefold() == str(evt.get("country")).casefold())
         )
     ]
 

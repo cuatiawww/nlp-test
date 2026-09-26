@@ -929,6 +929,8 @@ def sanitize_event_coordinates(
     if (
         str(country_norm or "").upper() == "MULTI_COUNTRY"
         or loc.upper() == "MULTI_COUNTRY"
+        or ";" in str(country or "")
+        or ";" in loc
         or is_global_scope_country(country)
         or is_global_scope_country(loc)
     ):
@@ -1592,9 +1594,7 @@ def surveillance_scope_label(country: Optional[str]) -> Optional[str]:
     value = str(country or "").strip()
     if not value:
         return None
-    if value == "MULTI_COUNTRY":
-        return "MULTI_COUNTRY"
-    if ";" in value:
+    if value == "MULTI_COUNTRY" or ";" in value:
         return "Global"
     if is_global_scope_country(value):
         return "Global"

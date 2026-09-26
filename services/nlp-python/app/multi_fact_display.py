@@ -38,6 +38,62 @@ def short_disease_label(name: Optional[str]) -> str:
     return _SHORT_DISEASE.get(raw.casefold(), raw)
 
 
+def _event_field(event: Any, key: str, default: Any = None) -> Any:
+    if isinstance(event, dict):
+        return event.get(key, default)
+    return getattr(event, key, default)
+
+
+def _split_joined_labels(value: Optional[str]) -> list[str]:
+    return [part.strip() for part in str(value or "").split(";") if part.strip()]
+
+
+def parent_geo_from_events(events: Iterable[Any]) -> tuple[Optional[str], Optional[str]]:
+    """Article-level country and location. Never returns MULTI_COUNTRY.
+
+    Only places that carry a disease metric are listed. One country stays a
+    single name. Several outbreak countries become ``Indonesia; Vietnam``.
+    A Global-scope row keeps location=Global; the country field still lists
+    the named countries.
+    """
+    from .extractors import GLOBAL_SCOPE_COUNTRY, is_global_scope_country, is_usable_place_name
+
+    countries: list[str] = []
+    seen: set[str] = set()
+    global_scope = False
+    for event in events:
+        cases = _event_field(event, "case_count") or 0
+        deaths = _event_field(event, "death_count") or 0
+        metric_type = str(_event_field(event, "metric_type") or "")
+        if int(cases or 0) <= 0 and int(deaths or 0) <= 0 and metric_type != "negative_surveillance":
+            continue
+        country = str(_event_field(event, "country") or "").strip()
+        location = str(_event_field(event, "location_name") or "").strip()
+        if country.upper() == "MULTI_COUNTRY":
+            country = ""
+        if location.upper() == "MULTI_COUNTRY":
+            location = ""
+        if is_global_scope_country(country) or is_global_scope_country(location):
+            global_scope = True
+        for part in _split_joined_labels(country):
+            if part.upper() == "MULTI_COUNTRY" or not is_usable_place_name(part):
+                continue
+            if is_global_scope_country(part):
+                global_scope = True
+                continue
+            key = part.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            countries.append(part)
+    if not countries:
+        return None, (GLOBAL_SCOPE_COUNTRY if global_scope else None)
+    joined = join_unique_labels(countries)
+    if len(countries) == 1:
+        return countries[0], None
+    return joined, GLOBAL_SCOPE_COUNTRY if global_scope else joined
+
+
 def join_unique_labels(labels: Iterable[str]) -> str:
     seen: set[str] = set()
     ordered: list[str] = []

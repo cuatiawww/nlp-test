@@ -2064,18 +2064,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         sub_events = []
 
     # A scalar article row cannot safely pretend that the first country is the
-    # only event in a multi-country report. Keep the country/event rows as the
-    # source of truth and expose an explicit multi-country parent summary.
-    event_country_values = list(dict.fromkeys(
-        str(evt.country or "").strip()
-        for evt in sub_events
-        if str(evt.country or "").strip()
-        and extractors.is_usable_place_name(str(evt.location_name or evt.country or ""))
-    ))
-    multi_country_article = len(event_country_values) > 1
+    # only event in a multi-country report. Parent country lists the outbreak
+    # countries; MULTI_COUNTRY is not a place name.
+    from .multi_fact_display import parent_geo_from_events
+
+    parent_country, parent_location = parent_geo_from_events(sub_events)
+    multi_country_article = bool(parent_country and ";" in parent_country)
     if multi_country_article:
-        country = "MULTI_COUNTRY"
-        location = "MULTI_COUNTRY"
+        country = parent_country
+        location = parent_location or parent_country
         lat = None
         lon = None
         # Prefer max national totals per country over summing every noisy row.
@@ -2098,15 +2095,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             death_count += int(best.death_count or 0)
         explicit_case_count = bool(sub_events)
 
-    # Regional events exist ONLY when metrics are truly bound to that region.
-    # Bare location mentions belong in the location matrix, not as empty regional events.
+    # Bare city/province/country names stay on the location matrix. An event
+    # needs a bound case/death count or explicit negative surveillance.
     sub_events = [
         evt for evt in sub_events
         if (
             (evt.case_count or 0) > 0
             or (evt.death_count or 0) > 0
             or evt.metric_type == "negative_surveillance"
-            or (evt.country and str(evt.location_name or "").casefold() == str(evt.country).casefold())
         )
     ]
 
@@ -2291,9 +2287,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                 if str(event.country or "").strip()
             ))
             if len(reviewed_countries) > 1:
-                multi_country_article = True
-                country = "MULTI_COUNTRY"
-                location = "MULTI_COUNTRY"
+                reviewed_parent, reviewed_location = parent_geo_from_events(sub_events)
+                multi_country_article = bool(reviewed_parent and ";" in reviewed_parent)
+                country = reviewed_parent or country
+                location = reviewed_location or reviewed_parent or location
                 lat = None
                 lon = None
                 by_country: dict[str, list[SubEvent]] = {}
@@ -2504,17 +2501,33 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         and raw_country.casefold() == explicit_country.casefold()
         else country
     )
-    loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=hierarchy_country)
-    admin_place = extractors.split_admin_place(location, country)
-    final_province = loc_hier.get("admin1_name") or admin_place[0]
-    final_city = loc_hier.get("admin2_name") or admin_place[1]
-    final_iso3 = loc_hier.get("country_iso3")
+    joined_parent = bool(country and ";" in str(country))
+    if joined_parent:
+        loc_hier = {
+            "admin1_name": None,
+            "admin2_name": None,
+            "country_iso3": None,
+            "latitude": None,
+            "longitude": None,
+        }
+        admin_place = (None, None)
+        final_province = None
+        final_city = None
+        final_iso3 = None
+        lat = None
+        lon = None
+    else:
+        loc_hier = extractors.resolve_event_location_hierarchy(location, country_hint=hierarchy_country)
+        admin_place = extractors.split_admin_place(location, country)
+        final_province = loc_hier.get("admin1_name") or admin_place[0]
+        final_city = loc_hier.get("admin2_name") or admin_place[1]
+        final_iso3 = loc_hier.get("country_iso3")
 
     # A location can be a valid gazetteer name in another country. The event
     # country is the article's evidence-backed scope, so a conflicting
     # locality is retained only as provenance and cannot leak its hierarchy or
     # coordinates into the public response.
-    if loc_hier.get("country_conflict"):
+    if loc_hier.get("country_conflict") and not joined_parent:
         original_location = original_location or loc_hier.get("original_location_name")
         location = loc_hier.get("canonical_name") or country or location
         final_province = None
@@ -2526,7 +2539,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         needs_review = True
         if "location_country_conflict" not in doc_validation_flags:
             doc_validation_flags.append("location_country_conflict")
-    elif country:
+    elif country and not joined_parent:
         norm_country = extractors.normalize_country(country)
         final_iso3 = config.COUNTRY_TO_ISO3.get(norm_country.casefold(), final_iso3)
         if lat is not None and lon is not None:
@@ -2548,8 +2561,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
                     doc_validation_flags.append("location_country_conflict")
 
     # Do not collapse a multi-country article onto the largest/first event.
-    # The parent is explicitly marked MULTI_COUNTRY and sub_events remain the
-    # authoritative country-scoped facts.
+    # Parent country is the joined outbreak list; sub_events stay authoritative.
 
     metric_countries = {
         str(item.country or "").strip()
@@ -2560,7 +2572,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if article_event_country is None and len(mentioned_countries) == 1:
         article_event_country = next(iter(mentioned_countries))
 
-    safe_parent_country = country if country != "MULTI_COUNTRY" else None
+    safe_parent_country = country if country != "MULTI_COUNTRY" and ";" not in str(country or "") else None
     for evt in sub_events:
         evt_country = evt.country or safe_parent_country
         target_country = article_event_country or safe_parent_country
@@ -2951,10 +2963,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             for evt in primary_events
             if str(evt.country or "").strip()
         ))
-        if len(primary_countries) == 1:
+        if len(primary_countries) == 1 and ";" not in primary_countries[0]:
             country = primary_countries[0]
             if not location or str(location).casefold() in {"multi_country", ""}:
                 location = country
+        elif len(primary_countries) > 1:
+            fold_country, fold_location = parent_geo_from_events(primary_events)
+            if fold_country:
+                country = fold_country
+                location = fold_location or fold_country
+                lat = None
+                lon = None
         disease_labels = {
             extractors.canonical_disease_name(evt.disease or "")
             for evt in sub_events

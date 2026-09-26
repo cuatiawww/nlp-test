@@ -63,6 +63,7 @@ import {
 import type { CrawlHistoryJob, CrawlHistoryRow, CrawlHistorySummary } from '@/types'
 import { ASEAN11_DISPLAY } from '@/lib/asean-scope'
 import { useTranslation } from '@/lib/i18n/LanguageContext'
+import { displayCountry, displayRegion, flagCountryName } from '@/lib/multiFactDisplay.mjs'
 
 type Tab = 'matrix' | 'jobs'
 type ChannelFilter = 'all' | 'manual' | 'continuous' | 'analyze-url'
@@ -83,7 +84,8 @@ export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; 
   { key: 'source_info', label: 'Source & Channel', width: 160 },
   { key: 'needs_review', label: 'Status', width: 155 },
   { key: 'title', label: 'Article Title & Link', width: 320 },
-  { key: 'country', label: 'Country & Region', width: 160 },
+  { key: 'country', label: 'Country', width: 180 },
+  { key: 'region', label: 'Region', width: 110 },
   { key: 'province_city_case', label: 'Province & City', width: 170 },
   { key: 'lat_long', label: 'Lat / Long', width: 125 },
   { key: 'disease', label: 'Disease', width: 160 },
@@ -97,8 +99,8 @@ export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; 
 
 export const ALL_LOG_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 52, sticky: true },
-  { key: 'surveillance_scope', label: 'Scope', width: 110 },
-  { key: 'country', label: 'Case Country', width: 150 },
+  { key: 'surveillance_scope', label: 'Region', width: 110 },
+  { key: 'country', label: 'Country', width: 180 },
   { key: 'disease', label: 'Disease Name', width: 180 },
   { key: 'title', label: 'Article Title', width: 280 },
   { key: 'cases', label: 'Cases', width: 90 },
@@ -161,6 +163,12 @@ function asEventRow(row: CrawlHistoryRow): CrawlHistoryRow {
 function factKey(row: CrawlHistoryRow) {
   const place = (row.city || row.province_city_case || row.province || '').trim().toLowerCase()
   return [row.disease || '', row.country || '', place, row.cases ?? '', row.deaths ?? ''].join('|').toLowerCase()
+}
+
+function decorateGeo(row: CrawlHistoryRow, children?: CrawlHistoryRow[]): CrawlHistoryRow {
+  const country = displayCountry(row.country, (children || []).map((child) => child.country))
+  const region = displayRegion(row.region || row.surveillance_scope, country)
+  return { ...row, country: country || null, region: region || null, surveillance_scope: region || row.surveillance_scope }
 }
 
 function decomposedEvents(_parent: CrawlHistoryRow, kids: CrawlHistoryRow[] | undefined) {
@@ -356,32 +364,34 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
       )
     case 'country_region':
     case 'country': {
-      const countryName = (row.country && row.country !== 'MULTI_COUNTRY') ? row.country : '-'
-      const reg = row.region || row.surveillance_scope
+      const countryName = displayCountry(row.country) || '—'
+      const flagName = flagCountryName(countryName)
       return (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {countryName !== '-' && <CountryFlag countryCode={row.country} size="xs" shape="rounded" />}
-          <div className="min-w-0">
-            <span className="font-semibold text-slate-800 truncate max-w-[130px] block" title={row.country || ''}>
-              {row.country || '—'}
-            </span>
-            {reg ? (
-              <span className="inline-flex items-center rounded bg-slate-100 border border-slate-200 px-1.5 py-0.2 text-[9px] font-bold text-slate-600 uppercase tracking-tight" title={`Region: ${reg}`}>
-                {reg}
-              </span>
-            ) : null}
-          </div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {flagName ? <CountryFlag countryName={flagName} size="xs" shape="rounded" /> : null}
+          <span className="font-semibold text-slate-800 truncate max-w-[160px] block" title={countryName}>
+            {countryName}
+          </span>
         </div>
       )
     }
     case 'source_country':
       return fmtTrunc(row.source_country, 'max-w-[130px]')
     case 'surveillance_scope':
-      return fmtTrunc(row.surveillance_scope || row.region, 'max-w-[110px]')
+    case 'region': {
+      const regionName = displayRegion(row.region || row.surveillance_scope, row.country)
+      if (!regionName) return <span className="text-slate-400">—</span>
+      return (
+        <span
+          className="inline-flex items-center rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
+          title={`Region: ${regionName}`}
+        >
+          {regionName}
+        </span>
+      )
+    }
     case 'language':
       return fmtText(row.language)
-    case 'region':
-      return fmtTrunc(row.region, 'max-w-[130px]')
     case 'province_city':
     case 'province_city_case': {
       const cityName = row.city || (row.province_city_case && row.province && row.province_city_case !== row.province ? row.province_city_case : '')
@@ -642,8 +652,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
       snippet: row.snippet,
       evidence: row.evidence,
       disease: row.disease,
-      country: row.country,
-      region: row.region || row.surveillance_scope,
+      country: displayCountry(row.country),
+      region: displayRegion(row.region || row.surveillance_scope, displayCountry(row.country)),
       locationName: row.province_city_case || row.province || row.city || row.location_name,
       latitude: row.latitude,
       longitude: row.longitude,
@@ -1221,6 +1231,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                 <tbody>
                   {rows.map((row, index) => {
                     const events = decomposedEvents(row, eventRows[row.id])
+                    const parentView = decorateGeo(row, events)
                     const articleKey = row.id
                     const eventsOpen = Boolean(openArticles[articleKey])
                     const renderCells = (item: CrawlHistoryRow, label: string | number, open: () => void, toggle?: () => void) => activeColumns.map((col) => {
@@ -1290,21 +1301,24 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                       <Fragment key={`${row.crawl_channel}-${row.article_key || row.id}`}>
                         <tr className="cursor-pointer hover:bg-blue-50/40" onClick={() => void openRow(row)}>
                           {renderCells(
-                            row,
+                            parentView,
                             (page - 1) * PAGE_SIZE + index + 1,
                             () => void openRow(row),
                             events.length > 1 ? () => setOpenArticles((current) => ({ ...current, [articleKey]: !current[articleKey] })) : undefined,
                           )}
                         </tr>
-                        {eventsOpen && events.map((event, eventIndex) => (
+                        {eventsOpen && events.map((event, eventIndex) => {
+                          const childView = decorateGeo(asEventRow(event))
+                          return (
                           <tr
                             key={`${event.id || eventIndex}`}
                             className="cursor-pointer bg-blue-50/30 hover:bg-blue-50/50"
                             onClick={() => void openRow(row)}
                           >
-                            {renderCells(asEventRow(event), `${index + 1}.${eventIndex + 1}`, () => void openRow({ ...row, ...asEventRow(event) }))}
+                            {renderCells(childView, `${index + 1}.${eventIndex + 1}`, () => void openRow({ ...row, ...childView }))}
                           </tr>
-                        ))}
+                          )
+                        })}
                       </Fragment>
                     )
                   })}
@@ -1319,7 +1333,7 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
               <table className="min-w-[1100px] w-full border-separate border-spacing-0 text-left text-xs">
                 <thead>
                   <tr>
-                    {['Job', 'Status', 'Diseases', 'Country / region', 'Dates', 'Discovered', 'Processed', 'Rows', 'Started', 'Finished'].map((header) => (
+                    {['Job', 'Status', 'Diseases', 'Country', 'Region', 'Dates', 'Discovered', 'Processed', 'Rows', 'Started', 'Finished'].map((header) => (
                       <th key={header} className="sticky top-0 whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{header}</th>
                     ))}
                   </tr>
@@ -1330,7 +1344,8 @@ export default function CrawlHistoryPanel({ initialJobId }: { initialJobId?: str
                       <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3 font-mono text-[11px] text-slate-700">{job.job_id.slice(0, 8)}</td>
                       <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3 font-semibold capitalize">{job.status}</td>
                       <td className="max-w-[220px] truncate border-b border-r border-slate-100 px-3 py-3">{diseaseNames(job.disease_names)}</td>
-                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{[job.country, job.region, job.province_city].filter(Boolean).join(' · ') || ''}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{displayCountry(job.country) || ''}</td>
+                      <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{displayRegion(job.region, job.country) || ''}</td>
                       <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{[job.date_from, job.date_to].filter(Boolean).join(' → ') || ''}</td>
                       <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{fmtNum(job.discovered_count)}</td>
                       <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-3">{fmtNum(job.processed_count)}</td>

@@ -267,6 +267,8 @@ export type AnalyzeResponse = {
   latitude: number | null;
   longitude: number | null;
   country?: string | null;
+  region?: string | null;
+  surveillance_scope?: string | null;
   locations?: { name: string; latitude?: number | null; longitude?: number | null; country?: string | null }[];
   translated?: boolean;
   translation_provider?: string;
@@ -308,6 +310,9 @@ export type AnalyzeResponse = {
     disease_icd11_code?: string | null;
     location_name: string;
     country?: string | null;
+    region?: string | null;
+    province?: string | null;
+    city?: string | null;
     latitude?: number | null;
     longitude?: number | null;
     case_count: number;

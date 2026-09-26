@@ -45,6 +45,7 @@ import { useSettings } from '@/lib/settings-context'
 import CountryFlag from '@/components/CountryFlag'
 import SocialMediaIcon from '@/components/SocialMediaIcon'
 import { fetchKpiEvents, fetchKpiSnapshot, fetchPublicDashboard, type KpiEventRow } from '@/lib/api'
+import { displayCountry, displayRegion, flagCountryName, isMultiCountryValue } from '@/lib/multiFactDisplay.mjs'
 import { ASEAN_SCOPE_BANNER } from '@/lib/asean-scope'
 import AseanScopeBanner from '@/components/AseanScopeBanner'
 import type { PublicDashboard, OutbreakLocation } from '@/types'
@@ -57,6 +58,7 @@ export type SurveillanceReportRow = {
   dateFormatted: string
   country: string
   countryCode: string
+  region: string
   locationName: string
   disease: string
   rawDisease: string
@@ -145,8 +147,16 @@ function formatDiseaseName(raw?: string | null): string {
 
 // Smart country resolver from geographic text and NLP metadata
 function resolveCountry(country?: string | null, locationName?: string | null): { name: string; code: string } {
-  const c = (country || '').trim()
-  const l = (locationName || '').trim()
+  const rawCountry = displayCountry(country)
+  const rawLocation = displayCountry(locationName)
+  if (isMultiCountryValue(country)) {
+    if (rawLocation && !isMultiCountryValue(rawLocation) && rawLocation.toUpperCase() !== 'GLOBAL') {
+      return resolveCountry(rawLocation, null)
+    }
+    return { name: '', code: '' }
+  }
+  const c = rawCountry
+  const l = rawLocation
   const target = `${c} ${l}`.toLowerCase()
 
   for (const [key, val] of Object.entries(ASEAN_COUNTRY_MAP)) {
@@ -173,7 +183,7 @@ function resolveCountry(country?: string | null, locationName?: string | null): 
 
   const concrete = [c, l].find((value) => {
     const upper = value.toUpperCase()
-    return upper !== 'OUTSIDE ASEAN' && upper !== 'UNKNOWN' && upper !== 'GLOBAL' && upper !== 'MULTI_COUNTRY'
+    return Boolean(value) && upper !== 'OUTSIDE ASEAN' && upper !== 'UNKNOWN' && upper !== 'GLOBAL' && !isMultiCountryValue(value)
   })
   if (concrete) return { name: concrete, code: 'XX' }
 
@@ -198,6 +208,7 @@ function kpiEventToRow(row: KpiEventRow): SurveillanceReportRow {
     dateFormatted: formatLedgerDate(dateStr),
     country: resolved.name,
     countryCode: resolved.code,
+    region: displayRegion(null, resolved.name),
     locationName: row.location_name || resolved.name,
     disease: formatDiseaseName(row.disease_classification),
     rawDisease: row.disease_classification || 'Unknown',
@@ -328,8 +339,8 @@ export default function ReportsPage() {
             : 'Recent'
 
           const resolved = resolveCountry(loc.country, loc.location_name)
-          const displayCountry = resolved.name
-          if (!displayCountry || displayCountry === OUTSIDE_ASEAN_LABEL) return
+          const countryName = resolved.name
+          if (!countryName || countryName === OUTSIDE_ASEAN_LABEL) return
           const diseaseFormatted = formatDiseaseName(loc.disease)
           const cases = Number(loc.cases) || 0
           const deaths = Number(loc.deaths) || 0
@@ -339,8 +350,9 @@ export default function ReportsPage() {
             id: rowId,
             date: dateStr,
             dateFormatted,
-            country: displayCountry,
+            country: countryName,
             countryCode: resolved.code,
+            region: displayRegion(null, countryName),
             locationName: loc.location_name || resolved.name,
             disease: diseaseFormatted,
             rawDisease: loc.disease || 'Unknown',
@@ -771,6 +783,7 @@ export default function ReportsPage() {
       'Report ID',
       'Date',
       'Country',
+      'Region',
       'Country Code',
       'Location / Province',
       'Disease Classification',
@@ -791,6 +804,7 @@ export default function ReportsPage() {
         `"${row.id}"`,
         `"${row.dateFormatted}"`,
         `"${row.country}"`,
+        `"${row.region || ''}"`,
         `"${row.countryCode}"`,
         `"${row.locationName.replace(/"/g, '""')}"`,
         `"${row.disease.replace(/"/g, '""')}"`,
@@ -1813,9 +1827,12 @@ export default function ReportsPage() {
                                 }}
                               >
                                 <div className="flex items-center gap-1.5">
-                                  <span>COUNTRY &amp; REGION</span>
+                                  <span>COUNTRY</span>
                                   <ArrowUpDown className="h-3.5 w-3.5" />
                                 </div>
+                              </th>
+                              <th className="py-3.5 px-3.5 font-black border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm">
+                                REGION
                               </th>
                               <th
                                 className="py-3.5 px-3.5 font-black cursor-pointer hover:bg-[#004b85] border-b border-[#004b85] whitespace-nowrap text-xs md:text-sm"
@@ -1888,7 +1905,7 @@ export default function ReportsPage() {
                           <tbody className="divide-y divide-slate-200 bg-white">
                             {paginatedData.length === 0 ? (
                               <tr>
-                                <td colSpan={8} className="py-14 text-center text-slate-400 font-bold text-sm">
+                                <td colSpan={9} className="py-14 text-center text-slate-400 font-bold text-sm">
                                   No records found matching query &quot;{searchQuery}&quot;
                                 </td>
                               </tr>
@@ -1909,10 +1926,15 @@ export default function ReportsPage() {
 
                                   <td className="py-3 px-3.5 whitespace-nowrap">
                                     <div className="flex items-center gap-2 font-black text-slate-900 text-sm md:text-base">
-                                      <CountryFlag countryName={item.country} shape="rounded" size="sm" />
+                                      {flagCountryName(item.country) ? (
+                                        <CountryFlag countryName={flagCountryName(item.country)} shape="rounded" size="sm" />
+                                      ) : null}
                                       <span>{item.country}</span>
                                     </div>
                                     <div className="text-xs text-slate-500 truncate max-w-[150px] font-medium">{item.locationName}</div>
+                                  </td>
+                                  <td className="py-3 px-3.5 whitespace-nowrap text-xs font-semibold text-slate-600">
+                                    {item.region || '—'}
                                   </td>
 
                                   <td className="py-3 px-3.5 whitespace-nowrap">
@@ -2079,13 +2101,17 @@ export default function ReportsPage() {
             {/* Modal Details Grid */}
             <div className="space-y-2.5 text-sm text-slate-700">
               <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="font-semibold text-slate-500">Country &amp; Region:</span>
+                <span className="font-semibold text-slate-500">Country:</span>
                 <div className="flex items-center gap-2 font-black text-slate-900">
-                  <CountryFlag countryName={selectedDetailItem.country} shape="rounded" size="sm" />
-                  <span>
-                    {selectedDetailItem.locationName}, {selectedDetailItem.country}
-                  </span>
+                  {flagCountryName(selectedDetailItem.country) ? (
+                    <CountryFlag countryName={flagCountryName(selectedDetailItem.country)} shape="rounded" size="sm" />
+                  ) : null}
+                  <span>{selectedDetailItem.country}</span>
                 </div>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
+                <span className="font-semibold text-slate-500">Region:</span>
+                <span className="font-black text-slate-900">{selectedDetailItem.region || '—'}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="font-semibold text-slate-500">Detection / Report Date:</span>

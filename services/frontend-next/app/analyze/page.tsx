@@ -9,7 +9,7 @@ import AseanMap from '@/components/AseanMap'
 import ArticleReviewModal, { ReviewTarget } from '@/components/ArticleReviewModal'
 import { Eye } from 'lucide-react'
 import type { AnalyzeResponse } from '@/types'
-import { collapseAnalyzeResult } from '@/lib/multiFactDisplay.mjs'
+import { collapseAnalyzeResult, displayCountry, displayRegion } from '@/lib/multiFactDisplay.mjs'
 import { isCachedAnalyzeResult } from '@/lib/analysis-job.mjs'
 import { toast } from 'sonner'
 import {
@@ -349,25 +349,21 @@ export default function AnalyzePage() {
             const evidenceSnippet = ((result as any)?.evidence || [])[0] || ''
             const eventCountries: string[] = Array.from(new Set<string>(
               subEvents
-                .map((evt: { country?: string }) => (evt.country || '').trim())
-                .filter((c: string) => Boolean(c) && c !== 'MULTI_COUNTRY'),
+                .map((evt: { country?: string }) => displayCountry(evt.country))
+                .filter(Boolean),
             ))
-            const hasScopedMetrics = subEvents.length >= 2
-            const summedCases = subEvents.reduce((sum: number, evt: { case_count?: number }) => sum + (Number(evt.case_count) || 0), 0)
-            const summedDeaths = subEvents.reduce((sum: number, evt: { death_count?: number }) => sum + (Number(evt.death_count) || 0), 0)
-            const matrixCountry = eventCountries.length === 1
-              ? eventCountries[0]
-              : eventCountries.length > 1
-                ? eventCountries.join(', ')
-                : (result.country && result.country !== 'MULTI_COUNTRY' ? result.country : '-')
-            const matrixCases = hasScopedMetrics
-              ? summedCases.toLocaleString()
-              : ((result as any).case_count_unknown
+            const matrixCountry = displayCountry(result.country, eventCountries) || '—'
+            const matrixRegion = displayRegion(result.surveillance_scope || result.region, displayCountry(result.country, eventCountries))
+            const matrixCases = collapsed.casesDisplay
+              || (result.case_count_unknown
                 ? 'unknown'
-                : result.case_count != null ? result.case_count.toLocaleString() : '0')
-            const matrixDeaths = hasScopedMetrics
-              ? summedDeaths.toLocaleString()
-              : (result.death_count != null ? result.death_count.toLocaleString() : '0')
+                : result.case_count != null ? result.case_count.toLocaleString() : '—')
+            const matrixDeaths = collapsed.deathsDisplay
+              || (result.death_count != null ? result.death_count.toLocaleString() : '—')
+            const parentLocation = displayCountry(result.location_name)
+              || result.province
+              || collapsed.locationDisplay
+              || matrixCountry
             const resultLatitude = (result as any)?.latitude
             const resultLongitude = (result as any)?.longitude
             const resultPrecision = eventCountries.length > 1
@@ -380,7 +376,8 @@ export default function AnalyzePage() {
 
             const ANALYZE_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
               { key: 'no', label: 'No', width: 68, sticky: true },
-              { key: 'country', label: 'Country', width: 130 },
+              { key: 'country', label: 'Country', width: 160 },
+              { key: 'region', label: 'Region', width: 110 },
               { key: 'language', label: 'Language', width: 75 },
               { key: 'url', label: 'Source URL', width: 200 },
               { key: 'title', label: 'Article Title', width: 240 },
@@ -421,15 +418,13 @@ export default function AnalyzePage() {
                   </div>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Location / Country</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Country</span>
                     <p className="mt-1 text-sm font-black text-slate-900 truncate" title={matrixCountry}>
-                      {hasScopedMetrics
-                        ? `${subEvents.length} events`
-                        : ((result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || result.province || matrixCountry || '-')}
+                      {matrixCountry}
                     </p>
-                    {!hasScopedMetrics && result.country && result.country !== 'MULTI_COUNTRY' && (result.location_name || result.province) !== result.country && (
-                      <span className="text-[11px] text-slate-500 font-medium">({result.country})</span>
-                    )}
+                    {matrixRegion ? (
+                      <span className="text-[11px] text-slate-500 font-medium">{matrixRegion}</span>
+                    ) : null}
                   </div>
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
@@ -441,7 +436,7 @@ export default function AnalyzePage() {
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 shadow-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Recorded Deaths</span>
-                    <p className={`mt-1 text-lg font-black ${(hasScopedMetrics ? summedDeaths : result.death_count) > 0 ? 'text-red-600' : 'text-slate-900'} leading-snug truncate`}>
+                    <p className={`mt-1 text-lg font-black ${(Number(result.death_count) || 0) > 0 ? 'text-red-600' : 'text-slate-900'} leading-snug truncate`}>
                       {matrixDeaths}
                     </p>
                   </div>
@@ -503,7 +498,10 @@ export default function AnalyzePage() {
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            {matrixCountry}
+                            <span className="block max-w-[150px] truncate" title={matrixCountry}>{matrixCountry}</span>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600">
+                            {matrixRegion || '—'}
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-600 font-mono uppercase">
                             {result.language || '-'}
@@ -534,8 +532,8 @@ export default function AnalyzePage() {
                             </div>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
-                            <span className="block max-w-[150px] truncate" title={matrixCountry}>
-                              {(result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || result.province || result.country || '-'}
+                            <span className="block max-w-[150px] truncate" title={parentLocation}>
+                              {parentLocation}
                             </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-mono text-slate-600">
@@ -598,7 +596,8 @@ export default function AnalyzePage() {
                                 snippet: evidenceSnippet || ((result as any)?.text || '').slice(0, 300),
                                 evidence: evidenceSnippet,
                                 disease: result?.disease_extracted || (result as any)?.disease,
-                                country: result?.country,
+                                country: matrixCountry,
+                                region: matrixRegion,
                                 locationName: result?.location_name,
                                 cases: result?.case_count,
                                 deaths: result?.death_count,
@@ -613,7 +612,8 @@ export default function AnalyzePage() {
                                   raw_report_id: (result as any)?.raw_report_id,
                                   disease: evt.disease,
                                   location_name: evt.location_name,
-                                  country: evt.country,
+                                  country: displayCountry(evt.country),
+                                  region: displayRegion(evt.region, displayCountry(evt.country)),
                                   latitude: evt.latitude,
                                   longitude: evt.longitude,
                                   cases: evt.case_count,
@@ -632,6 +632,9 @@ export default function AnalyzePage() {
                         </tr>
 
                         {eventsOpen && subEvents.length >= 2 && subEvents.map((evt: any, sIdx: number) => {
+                          const childCountry = displayCountry(evt.country) || '—'
+                          const childRegion = displayRegion(evt.region || evt.surveillance_scope, displayCountry(evt.country))
+                          const childLocation = displayCountry(evt.location_name) || evt.province || evt.city || '—'
                           const childEvtSnippet = findEvidence(
                             result,
                             evt.disease || result.disease_classification,
@@ -644,11 +647,10 @@ export default function AnalyzePage() {
                                 {sIdx + 1}
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-700 font-medium">
-                                {evt.country && evt.country !== 'MULTI_COUNTRY'
-                                  ? evt.country
-                                  : result.country && result.country !== 'MULTI_COUNTRY'
-                                    ? result.country
-                                    : '-'}
+                                {childCountry}
+                              </td>
+                              <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-600">
+                                {childRegion || '—'}
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 text-slate-400 font-mono text-[10px]">
                                 {result.language || '-'}
@@ -675,11 +677,7 @@ export default function AnalyzePage() {
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-semibold text-slate-800">
                                 <div className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3 text-red-500 shrink-0" />
-                                  <span>{
-                                    (evt.location_name && evt.location_name !== 'MULTI_COUNTRY')
-                                      ? evt.location_name
-                                      : evt.province || evt.city || (result.location_name && result.location_name !== 'MULTI_COUNTRY' ? result.location_name : null) || '-'
-                                  }</span>
+                                  <span>{childLocation}</span>
                                 </div>
                               </td>
                               <td className="whitespace-nowrap border-b border-r border-slate-100 px-3 py-2 font-mono text-slate-600">
@@ -741,8 +739,9 @@ export default function AnalyzePage() {
                                     snippet: childEvtSnippet || evt.evidence || evidenceSnippet,
                                     evidence: childEvtSnippet || evt.evidence,
                                     disease: evt.disease || result?.disease_classification,
-                                    country: evt.country || result?.country,
-                                    locationName: evt.location_name || result?.location_name,
+                                    country: displayCountry(evt.country),
+                                    region: displayRegion(evt.region || evt.surveillance_scope, displayCountry(evt.country)),
+                                    locationName: displayCountry(evt.location_name) || evt.province || evt.city,
                                     cases: evt.case_count,
                                     deaths: evt.death_count,
                                     language: result?.language,
