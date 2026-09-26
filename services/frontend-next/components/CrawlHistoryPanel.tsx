@@ -92,6 +92,7 @@ export const SURVEILLANCE_COLUMNS: { key: string; label: string; width: number; 
   { key: 'cases', label: 'Cases', width: 90 },
   { key: 'deaths', label: 'Deaths', width: 90 },
   { key: 'language', label: 'Language', width: 80 },
+  { key: 'date_case', label: 'Date Case', width: 120 },
   { key: 'article_date', label: 'Published Date', width: 120 },
   { key: 'crawling_date', label: 'Crawling Date', width: 130 },
   { key: 'action', label: 'Action', width: 90 },
@@ -312,8 +313,10 @@ function rowCell(row: CrawlHistoryRow, key: string, index: number, page: number)
       return fmtDate(row.crawling_date)
     case 'article_date':
       return fmtDate(row.article_date || row.published_at)
-    case 'date_case':
-      return fmtDate(row.date_case)
+    case 'date_case': {
+      const eventDate = fmtDate(row.date_case)
+      return eventDate || <span className="text-slate-400">—</span>
+    }
     case 'cases':
       return casesCell(row)
     case 'deaths':

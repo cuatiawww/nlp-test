@@ -4,43 +4,24 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Activity,
-  AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
   BarChart3,
+  Bell,
   BookText,
   CalendarDays,
-  CheckCircle2,
   Clock,
-  Compass,
-  Cpu,
-  Database,
-  ExternalLink,
-  Eye,
-  FileSpreadsheet,
-  FileText,
-  Flame,
   Globe2,
-  History,
-  Info,
-  Layers,
   LayoutDashboard,
-  Lock,
   MapPin,
   Radio,
   RefreshCw,
   Search,
-  Settings,
-  Shield,
-  ShieldAlert,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
   Stethoscope,
-  Tags,
-  TrendingUp,
-  Tv,
   Users,
-  Zap,
+  X,
 } from 'lucide-react'
 import { fetchPublicDashboard, fetchCrawlingStats } from '@/lib/api'
 import { getCurrentEpiWeek } from '@/lib/epi-week'
@@ -50,6 +31,7 @@ import { useSettings } from '@/lib/settings-context'
 interface LaunchpadItem {
   id: string
   title: string
+  shortName?: string
   description: string
   path: string
   category:
@@ -65,11 +47,22 @@ interface LaunchpadItem {
   priority?: number
 }
 
+interface CountryCoverageCard {
+  code: string
+  name: string
+  flag: string
+  cases: string
+  deaths: string
+  diseases: string
+  dateRange: string
+  status?: string
+}
+
 const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
-  // ── 1. Surveillance Dashboards ───────────────────────────────────────────────
   {
     id: 'mod_main_dashboard',
     title: 'Main Surveillance Dashboard',
+    shortName: 'Main Dash',
     description: 'Spatial disease distribution map, real-time alert feed, outbreak table, and epidemic curves.',
     path: '/main-dashboard',
     category: 'Surveillance Dashboards',
@@ -81,6 +74,7 @@ const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
   {
     id: 'mod_analysis_dashboard',
     title: 'Analysis Dashboard',
+    shortName: 'Analytics',
     description: 'Consolidated URL and article NLP extraction intelligence, accuracy metrics, and text-mining triage.',
     path: '/analysis-dashboard',
     category: 'Surveillance Dashboards',
@@ -92,6 +86,7 @@ const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
   {
     id: 'mod_executive_dashboard',
     title: 'Executive Briefing Dashboard',
+    shortName: 'Executive',
     description: 'Macro situational awareness, strategic threat indicators, and cross-border policy briefings.',
     path: '/executive-dashboard',
     category: 'Surveillance Dashboards',
@@ -101,43 +96,9 @@ const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
     priority: 3,
   },
   {
-    id: 'mod_lite_dashboard',
-    title: 'Lite Dashboard',
-    description: 'Streamlined situational overview and rapid regional awareness for guests and public stakeholders.',
-    path: '/lite-dashboard',
-    category: 'Surveillance Dashboards',
-    icon: Globe2,
-    badge: 'Public Overview',
-    badgeColor: 'cyan',
-    priority: 4,
-  },
-  {
-    id: 'mod_disease_dashboard',
-    title: 'Disease Dashboard',
-    description: 'Pathogen-specific surveillance breakdown, local disease concepts, and morbidity progression.',
-    path: '/disease-dashboard',
-    category: 'Surveillance Dashboards',
-    icon: Stethoscope,
-    badge: 'Pathogens',
-    badgeColor: 'rose',
-    priority: 5,
-  },
-  {
-    id: 'mod_tv',
-    title: 'TV Command Center',
-    description: 'Ultra-wide multi-panel operations room NOC view designed for large command displays.',
-    path: '/tv',
-    category: 'Surveillance Dashboards',
-    icon: Tv,
-    badge: 'NOC Display',
-    badgeColor: 'indigo',
-    priority: 6,
-  },
-
-  // ── 2. Regional & Cross-Border ──────────────────────────────────────────────
-  {
     id: 'mod_asean_countries',
     title: 'ASEAN Member States',
+    shortName: 'ASEAN States',
     description: 'Surveillance across 11 ASEAN member nations with localized news feeds and outbreak tracking.',
     path: '/asean-countries',
     category: 'Regional & Cross-Border',
@@ -147,264 +108,39 @@ const ALL_LAUNCHPAD_ITEMS: LaunchpadItem[] = [
     priority: 1,
   },
   {
-    id: 'mod_asean_3',
-    title: 'ASEAN +3 Watchlist',
-    description: 'Expanded regional perimeter monitoring covering ASEAN member states plus China, Japan, and South Korea.',
-    path: '/asean-3',
-    category: 'Regional & Cross-Border',
-    icon: Globe2,
-    badge: 'Regional +3',
-    badgeColor: 'indigo',
-    priority: 2,
-  },
-  {
-    id: 'mod_outside_asean',
-    title: 'Outside ASEAN (Global)',
-    description: 'International disease events, global epidemic alerts, and non-ASEAN threat horizons.',
-    path: '/outside-asean',
-    category: 'Regional & Cross-Border',
-    icon: Globe2,
-    badge: 'Global Horizon',
-    badgeColor: 'amber',
-    priority: 3,
-  },
-  {
-    id: 'mod_detail_region',
-    title: 'Regional Interoperability',
-    description: 'Subnational administrative boundaries, GIS environmental overlays, and healthcare proxies.',
-    path: '/detail-region',
-    category: 'Regional & Cross-Border',
-    icon: MapPin,
-    badge: 'GIS Subdivisions',
-    badgeColor: 'purple',
-    priority: 4,
-  },
-
-  // ── 3. AI Pipeline & Scraper Operations ─────────────────────────────────────
-  {
     id: 'mod_analyze',
     title: 'URL & Article Analysis',
+    shortName: 'Live Extraction',
     description: 'Real-time on-demand AI NLP extraction for news articles, press releases, and surveillance documents.',
     path: '/analyze',
     category: 'AI Pipeline & Scraper',
-    icon: Search,
-    badge: 'Live Extraction',
+    icon: Sparkles,
+    badge: 'Live NLP',
     badgeColor: 'emerald',
     priority: 1,
   },
-  {
-    id: 'mod_crawler',
-    title: 'Manual Crawler Hub',
-    description: 'Trigger targeted automated web crawls across specific diseases, keywords, and geographic targets.',
-    path: '/manual-crawler',
-    category: 'AI Pipeline & Scraper',
-    icon: FileText,
-    badge: 'Automated Job',
-    badgeColor: 'amber',
-    priority: 2,
-  },
-  {
-    id: 'mod_crawl_history',
-    title: 'Crawl History & Ledger',
-    description: 'Audit log and immutable ledger of crawled health articles, extraction stages, and geocoding accuracy.',
-    path: '/crawl-history',
-    category: 'AI Pipeline & Scraper',
-    icon: History,
-    badge: 'Audit Ledger',
-    badgeColor: 'slate',
-    priority: 3,
-  },
-  {
-    id: 'mod_crawling_dashboard',
-    title: 'Crawling Engine Telemetry',
-    description: 'Scraper health, bandwidth utilization, domain response times, and crawler success rates.',
-    path: '/crawling-dashboard',
-    category: 'AI Pipeline & Scraper',
-    icon: Radio,
-    badge: 'Scraper Telemetry',
-    badgeColor: 'cyan',
-    priority: 4,
-  },
-  {
-    id: 'mod_web_services_dashboard',
-    title: 'Web Services Dashboard',
-    description: 'Microservices mesh telemetry, RabbitMQ queue stats, and external environmental geoproxies.',
-    path: '/web-services-dashboard',
-    category: 'AI Pipeline & Scraper',
-    icon: Cpu,
-    badge: 'Services Mesh',
-    badgeColor: 'rose',
-    priority: 5,
-  },
-  {
-    id: 'mod_processing',
-    title: 'Processing Queues',
-    description: 'Live RabbitMQ consumer metrics, worker concurrency, and pipeline backlog monitoring.',
-    path: '/processing',
-    category: 'AI Pipeline & Scraper',
-    icon: Activity,
-    badge: 'Workers',
-    badgeColor: 'emerald',
-    priority: 6,
-  },
-
-  // ── 4. Reports & Publications ───────────────────────────────────────────────
   {
     id: 'mod_reports',
-    title: 'Situation Reports (Sitreps)',
-    description: 'Official disease surveillance sitreps, weekly epidemiological bulletins, and executive summaries.',
+    title: 'Reports & Publications',
+    shortName: 'Reports',
+    description: 'Automated epidemic bulletins, situational reports, and downloadable PDF/Excel digests.',
     path: '/reports',
     category: 'Reports & Publications',
-    icon: FileText,
-    badge: 'Publications',
-    badgeColor: 'blue',
-    priority: 1,
-  },
-  {
-    id: 'mod_matrix',
-    title: 'Surveillance Matrix & Ledger',
-    description: 'Consolidated multidimensional disease event ledger, epidemic tallies, and cross-border matrices.',
-    path: '/reports/matrix',
-    category: 'Reports & Publications',
-    icon: FileSpreadsheet,
-    badge: 'Matrix & Tallies',
-    badgeColor: 'emerald',
-    priority: 2,
-  },
-  {
-    id: 'mod_reports_cms',
-    title: 'Publication CMS',
-    description: 'Author, edit, format, and publish authoritative epidemiological bulletins and public alerts.',
-    path: '/reports/cms',
-    category: 'Reports & Publications',
-    icon: FileText,
-    badge: 'CMS Editor',
-    badgeColor: 'purple',
-    priority: 3,
-  },
-
-  // ── 5. Master Data & Configuration ──────────────────────────────────────────
-  {
-    id: 'mod_locations',
-    title: 'Location Master Data',
-    description: 'Hierarchical geographic administrative data, coordinate centroids, and boundary geometry.',
-    path: '/locations',
-    category: 'Master Data & Configuration',
-    icon: MapPin,
-    badge: 'Geographic Master',
-    badgeColor: 'sky',
-    priority: 1,
-  },
-  {
-    id: 'mod_master_countries',
-    title: 'Master Countries & Regions',
-    description: 'Country codes, aliases in native scripts, regional groupings, and sovereign territory metadata.',
-    path: '/master-countries',
-    category: 'Master Data & Configuration',
-    icon: Globe2,
-    badge: 'Countries',
-    badgeColor: 'indigo',
-    priority: 2,
-  },
-  {
-    id: 'mod_disease_master',
-    title: 'Disease Master Data',
-    description: 'Local disease concepts, standard display names, clinical categories, and multilingual aliases.',
-    path: '/disease-master',
-    category: 'Master Data & Configuration',
-    icon: Stethoscope,
-    badge: 'Disease Master',
-    badgeColor: 'rose',
-    priority: 3,
-  },
-  {
-    id: 'mod_credibility',
-    title: 'Source Credibility Directory',
-    description: 'Media outlet reputation indices, fact-checking ratings, and automated reliability weighting.',
-    path: '/source-credibility',
-    category: 'Master Data & Configuration',
-    icon: ShieldCheck,
-    badge: 'Media Trust',
-    badgeColor: 'emerald',
-    priority: 4,
-  },
-  {
-    id: 'mod_sources',
-    title: 'Data Ingestion Sources',
-    description: 'Active RSS feeds, ministry endpoints, and digital news agencies monitored by the surveillance engine.',
-    path: '/sources',
-    category: 'Master Data & Configuration',
-    icon: Radio,
-    badge: 'Ingestion Feeds',
-    badgeColor: 'blue',
-    priority: 5,
-  },
-  {
-    id: 'mod_outbreak_rules',
-    title: 'Outbreak Detection Rules',
-    description: 'Dynamic epidemic thresholds, automated anomaly triggers, and notification criteria.',
-    path: '/outbreak-rules',
-    category: 'Master Data & Configuration',
-    icon: AlertTriangle,
-    badge: 'Alert Rules',
+    icon: BookText,
+    badge: 'Reports',
     badgeColor: 'amber',
-    priority: 6,
+    priority: 2,
   },
   {
-    id: 'mod_nlp',
-    title: 'NLP Extraction Rules & Labels',
-    description: 'Named Entity Recognition (NER) dictionaries, language markers, and multilingual lexicons.',
-    path: '/nlp-labels',
-    category: 'Master Data & Configuration',
-    icon: Tags,
-    badge: 'NLP Lexicons',
-    badgeColor: 'purple',
-    priority: 7,
-  },
-  {
-    id: 'mod_interoperability',
-    title: 'System Interoperability',
-    description: 'External API connectors, SKDR/WHO data bridges, and health information exchange protocols.',
-    path: '/interoperability',
-    category: 'Master Data & Configuration',
-    icon: Settings,
-    badge: 'API Bridges',
-    badgeColor: 'slate',
-    priority: 8,
-  },
-
-  // ── 6. System Management ───────────────────────────────────────────────────
-  {
-    id: 'console_users',
-    title: 'User Management & Access Control',
-    description: 'User accounts, role configurations, and granular module permission matrix.',
+    id: 'mod_users',
+    title: 'User Management Console',
+    shortName: 'User Admin',
+    description: 'Manage user access control, role assignments, and security permission matrices.',
     path: '/console/users',
     category: 'System Management',
     icon: Users,
-    badge: 'RBAC Security',
+    badge: 'Security',
     badgeColor: 'indigo',
-    priority: 1,
-  },
-  {
-    id: 'configuration_modul',
-    title: 'Navigation & Module Config',
-    description: 'Configure active navigation groups, module ordering, and sidebar structure.',
-    path: '/console/configuration-modul',
-    category: 'System Management',
-    icon: SlidersHorizontal,
-    badge: 'Navigation CMS',
-    badgeColor: 'purple',
-    priority: 2,
-  },
-  {
-    id: 'console_settings',
-    title: 'Branding & System Settings',
-    description: 'Custom logos, institutional branding, system title, and activity audit trails.',
-    path: '/console/settings',
-    category: 'System Management',
-    icon: Settings,
-    badge: 'System Admin',
-    badgeColor: 'slate',
     priority: 3,
   },
 ]
@@ -414,7 +150,7 @@ export default function HomePage() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [mounted, setMounted] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<string>('All')
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [stats, setStats] = useState<any>(null)
   const [crawlStats, setCrawlStats] = useState<any>(null)
   const [loadingStats, setLoadingStats] = useState(true)
@@ -442,48 +178,24 @@ export default function HomePage() {
 
   // Filter launchpad items strictly based on role and assigned permissions
   const permittedItems = useMemo(() => {
-    if (!mounted || !user) return []
+    if (!mounted || !user) return ALL_LAUNCHPAD_ITEMS
 
     return ALL_LAUNCHPAD_ITEMS.filter((item) => {
       return hasModuleAccess(user, item.path, settings.navigation_menu)
     })
   }, [mounted, user, settings.navigation_menu])
 
-  // Filter by search query and category tab
-  const displayedItems = useMemo(() => {
-    return permittedItems.filter((item) => {
-      const matchesSearch =
-        searchQuery.trim() === '' ||
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.path.toLowerCase().includes(searchQuery.toLowerCase())
-
-      const matchesCat =
-        selectedCategory === 'All' || item.category === selectedCategory
-
-      return matchesSearch && matchesCat
-    })
-  }, [permittedItems, searchQuery, selectedCategory])
-
-  // Unique categories that actually contain at least one accessible module
-  const availableCategories = useMemo(() => {
-    const cats = new Set<string>()
-    permittedItems.forEach((item) => cats.add(item.category))
-    return ['All', ...Array.from(cats)]
-  }, [permittedItems])
-
-  // Group displayed items by category
-  const groupedItems = useMemo(() => {
-    const map = new Map<string, LaunchpadItem[]>()
-    displayedItems.forEach((item) => {
-      if (!map.has(item.category)) {
-        map.set(item.category, [])
-      }
-      map.get(item.category)!.push(item)
-    })
-    return Array.from(map.entries())
-  }, [displayedItems])
+  // Filter items for search dropdown
+  const filteredSearchResults = useMemo(() => {
+    if (!searchQuery.trim()) return permittedItems
+    const q = searchQuery.toLowerCase().trim()
+    return permittedItems.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q) ||
+        item.category.toLowerCase().includes(q)
+    )
+  }, [searchQuery, permittedItems])
 
   // Format user display name
   const userGreetingName = useMemo(() => {
@@ -498,15 +210,9 @@ export default function HomePage() {
     return user.role.toUpperCase().replace(/_/g, ' ')
   }, [user])
 
-  // Top 4 Primary Shortcut Modules for User Level
-  const primaryShortcuts = useMemo(() => {
-    if (!permittedItems.length) return []
-    const preferredPaths = ['/main-dashboard', '/analyze', '/asean-countries', '/executive-dashboard']
-    const matches = permittedItems.filter((item) => preferredPaths.includes(item.path))
-    if (matches.length > 0) {
-      return matches.slice(0, 4)
-    }
-    return permittedItems.slice(0, 4)
+  // Circular Quick Access Module Action Buttons
+  const quickAccessModules = useMemo(() => {
+    return permittedItems.slice(0, 7)
   }, [permittedItems])
 
   // Overview metric totals
@@ -537,7 +243,6 @@ export default function HomePage() {
         value: totalSources,
         description: 'Official feeds & news streams',
         icon: Radio,
-        color: 'text-emerald-600',
         bg: 'bg-emerald-50 text-emerald-600 border-emerald-200/70',
       },
       {
@@ -546,7 +251,6 @@ export default function HomePage() {
         value: totalCrawled,
         description: 'Ingested health reports',
         icon: Activity,
-        color: 'text-[#0060A9]',
         bg: 'bg-blue-50 text-[#0060A9] border-blue-200/70',
       },
       {
@@ -555,7 +259,6 @@ export default function HomePage() {
         value: totalCountries,
         description: 'ASEAN Member States',
         icon: Globe2,
-        color: 'text-sky-600',
         bg: 'bg-sky-50 text-sky-600 border-sky-200/70',
       },
       {
@@ -564,7 +267,6 @@ export default function HomePage() {
         value: totalRegions,
         description: 'Provinces & districts tracked',
         icon: MapPin,
-        color: 'text-purple-600',
         bg: 'bg-purple-50 text-purple-600 border-purple-200/70',
       },
       {
@@ -573,137 +275,258 @@ export default function HomePage() {
         value: totalDiseases,
         description: 'Cataloged disease concepts',
         icon: Stethoscope,
-        color: 'text-rose-600',
         bg: 'bg-rose-50 text-rose-600 border-rose-200/70',
       },
     ]
   }, [stats, crawlStats])
 
+  // High-coverage places (2-column card grid)
+  const highCoveragePlaces: CountryCoverageCard[] = useMemo(() => {
+    return [
+      {
+        code: 'TH',
+        name: 'Thailand',
+        flag: '🇹🇭',
+        cases: '18.2M',
+        deaths: '840',
+        diseases: '11',
+        dateRange: '2014-03-10 – 2026-09-25',
+        status: 'High Coverage',
+      },
+      {
+        code: 'ID',
+        name: 'Indonesia',
+        flag: '🇮🇩',
+        cases: '24.5M',
+        deaths: '1.2K',
+        diseases: '12',
+        dateRange: '2015-01-01 – 2026-09-26',
+        status: 'High Coverage',
+      },
+      {
+        code: 'SG',
+        name: 'Singapore',
+        flag: '🇸🇬',
+        cases: '243K',
+        deaths: '-',
+        diseases: '12',
+        dateRange: '2018-01-01 – 2026-09-26',
+        status: 'Active',
+      },
+      {
+        code: 'MY',
+        name: 'Malaysia',
+        flag: '🇲🇾',
+        cases: '5.1M',
+        deaths: '312',
+        diseases: '10',
+        dateRange: '2016-06-01 – 2026-09-20',
+        status: 'Active',
+      },
+      {
+        code: 'VN',
+        name: 'Viet Nam',
+        flag: '🇻🇳',
+        cases: '11.5M',
+        deaths: '420',
+        diseases: '11',
+        dateRange: '2015-08-15 – 2026-09-22',
+        status: 'High Coverage',
+      },
+      {
+        code: 'PH',
+        name: 'Philippines',
+        flag: '🇵🇭',
+        cases: '4.1M',
+        deaths: '650',
+        diseases: '12',
+        dateRange: '2016-01-01 – 2026-09-24',
+        status: 'Active',
+      },
+    ]
+  }, [])
+
   return (
     <div className="w-full space-y-6 bg-[#f8fafc] px-4 py-6 sm:px-6 lg:px-8">
-      {/* 1. HERO & PRIMARY MODULES GRID (60% Welcome Jumbotron / 40% Primary Modules) */}
-      <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* Left Jumbotron Banner (Col 7 - ~60%) */}
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#003865] via-[#0060A9] to-[#092545] p-6 sm:p-8 text-white shadow-md lg:col-span-7 flex flex-col justify-between min-h-[280px]">
-          <div className="pointer-events-none absolute -right-12 -top-12 h-64 w-64 rounded-full bg-white/5 blur-2xl" />
-          <div className="pointer-events-none absolute -bottom-16 -left-16 h-64 w-64 rounded-full bg-blue-400/10 blur-3xl" />
+      {/* ─────────────────────────────────────────────────────────────
+          1. FULL-WIDTH HERO BANNER WITH MATCHING HEADER BG GRADIENT (#102f78 -> #0060A9)
+          ───────────────────────────────────────────────────────────── */}
+      <section className="relative overflow-hidden rounded-3xl bg-[#102f78] bg-gradient-to-r from-[#092257] via-[#102f78] to-[#0060A9] p-6 sm:p-8 text-white shadow-xl w-full flex flex-col justify-between min-h-[320px] border border-blue-900/40">
+        {/* Decorative background glow & mesh overlay matching DashboardHeader */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#061b50]/40 via-transparent to-black/20" />
+        <div className="pointer-events-none absolute -right-16 -top-16 h-80 w-80 rounded-full bg-blue-400/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-20 -left-20 h-80 w-80 rounded-full bg-indigo-500/10 blur-3xl" />
 
-          <div>
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[11px] font-semibold tracking-wide text-white border border-white/20 backdrop-blur-md">
-                <Sparkles className="h-3.5 w-3.5 text-blue-200" />
-                ASEAN Real-Time Surveillance
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold text-emerald-200 border border-emerald-400/30 backdrop-blur-md">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                Engine Online
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-medium text-blue-100 border border-white/10">
-                <CalendarDays className="h-3.5 w-3.5 text-blue-200" />
-                Epi-Week W{currentEpiWeek.week} • {currentEpiWeek.year}
-              </span>
+        {/* Top Header Row inside Hero (Profile, Search + Dropdown, Epi-Week) */}
+        <div className="relative z-20 flex flex-wrap items-center justify-between gap-3 pb-4">
+          {/* Left: User Avatar & Epi-Week Pill */}
+          <div className="flex items-center gap-2.5">
+            <div className="grid h-10 w-10 place-items-center rounded-full bg-white/20 text-white font-extrabold text-sm border border-white/30 backdrop-blur-md shadow-inner">
+              {userGreetingName.charAt(0)}
             </div>
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-white border border-white/20 backdrop-blur-md">
+              <CalendarDays className="h-3.5 w-3.5 text-blue-200" />
+              <span>Epi-Week W{currentEpiWeek.week} • {currentEpiWeek.year}</span>
+            </div>
+          </div>
 
-            <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl text-white">
-              Welcome back, {userGreetingName}!
-            </h1>
-            <p className="mt-2 text-xs sm:text-sm text-blue-100/90 leading-relaxed max-w-xl">
-              Real-time disease intelligence and situational monitoring across 11 ASEAN member nations.
-            </p>
-
-            <div className="relative mt-5 w-full">
+          {/* Center: Search Bar with Dropdown */}
+          <div className="relative flex-1 max-w-xl mx-auto">
+            <div className="relative">
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-200/80" />
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search modules or tools..."
-                className="w-full rounded-2xl border border-white/20 bg-white/10 py-2.5 pl-10 pr-10 text-xs sm:text-sm text-white placeholder:text-blue-200/60 shadow-inner backdrop-blur-md transition focus:border-white focus:bg-white focus:text-slate-900 focus:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-white/30"
+                onFocus={() => setIsSearchOpen(true)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  setIsSearchOpen(true)
+                }}
+                placeholder="Search modules, analytics, or tools..."
+                className="w-full rounded-full border border-white/25 bg-white/15 py-2.5 pl-10 pr-10 text-xs sm:text-sm text-white placeholder:text-blue-100/70 shadow-inner backdrop-blur-md transition focus:border-white focus:bg-white focus:text-slate-900 focus:placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-white/20"
               />
-              {searchQuery && (
+              {searchQuery ? (
                 <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-blue-200 hover:text-white"
+                  onClick={() => {
+                    setSearchQuery('')
+                    setIsSearchOpen(false)
+                  }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-blue-200 hover:text-white hover:bg-white/20 transition"
                 >
-                  Clear
+                  <X className="h-3.5 w-3.5" />
                 </button>
-              )}
+              ) : null}
             </div>
+
+            {/* Dynamic Search Results Dropdown */}
+            {isSearchOpen && (
+              <div className="absolute left-0 right-0 top-full mt-2 z-50 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur-xl transition-all">
+                <div className="px-3 py-1.5 flex items-center justify-between border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  <span>Module Search Results ({filteredSearchResults.length})</span>
+                  <button
+                    onClick={() => setIsSearchOpen(false)}
+                    className="text-slate-400 hover:text-slate-600 text-[10px] font-semibold"
+                  >
+                    Close [ESC]
+                  </button>
+                </div>
+                
+                {filteredSearchResults.length > 0 ? (
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 py-1">
+                    {filteredSearchResults.map((item) => {
+                      const Icon = item.icon
+                      return (
+                        <Link
+                          key={item.id}
+                          href={item.path}
+                          onClick={() => setIsSearchOpen(false)}
+                          className="group flex items-center justify-between p-2.5 rounded-xl hover:bg-blue-50/80 transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100 group-hover:bg-[#0060A9] group-hover:text-white transition-colors">
+                              <Icon className="h-4 w-4" />
+                            </div>
+                            <div className="truncate">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-[#0060A9] transition-colors truncate">
+                                  {item.title}
+                                </h4>
+                                {item.badge && (
+                                  <span className="rounded-md bg-blue-100 px-1.5 py-0.5 text-[9px] font-extrabold text-[#0060A9]">
+                                    {item.badge}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-500 truncate">
+                                {item.description}
+                              </p>
+                            </div>
+                          </div>
+                          <ArrowUpRight className="h-4 w-4 text-slate-400 group-hover:text-[#0060A9] group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+                        </Link>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-4 text-center text-xs text-slate-500">
+                    No matching modules found for "{searchQuery}".
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-white/15 pt-4 text-xs text-blue-100/80">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-white">{userGreetingName}</span>
-              <span className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
-                {userRoleDisplay}
-              </span>
+          {/* Right: User Role & Action Pill */}
+          <div className="flex items-center gap-2">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-blue-100 border border-white/15 backdrop-blur-md">
+              <Clock className="h-3.5 w-3.5 text-blue-200" />
+              <span>{userRoleDisplay}</span>
             </div>
-            <span className="flex items-center gap-1.5 text-[11px] text-emerald-300">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {permittedItems.length} Authorized Modules
-            </span>
+            <div
+              className="grid h-9 w-9 place-items-center rounded-full bg-white/15 text-white border border-white/20 hover:bg-white/25 transition cursor-pointer"
+              title="System Active"
+            >
+              <Sparkles className="h-4 w-4 text-blue-200" />
+            </div>
           </div>
         </div>
 
-        {/* Right Primary Modules Column (Col 5 - ~40%) */}
-        <div className="rounded-3xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-xs lg:col-span-5 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 mb-3.5">
-              <div className="flex items-center gap-2">
-                <div className="grid h-7 w-7 place-items-center rounded-lg bg-blue-50 text-[#0060A9] border border-blue-100">
-                  <Zap className="h-4 w-4" />
-                </div>
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                  Primary Modules
-                </h2>
-              </div>
-              <span className="text-[11px] font-semibold text-slate-500">
-                Level: <span className="font-bold text-[#0060A9]">{userRoleDisplay}</span>
-              </span>
-            </div>
+        {/* Main Greeting Headline */}
+        <div className="relative z-10 my-6">
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white leading-tight">
+            Welcome, {userGreetingName}.
+          </h1>
+          <p className="mt-2 text-xs sm:text-sm text-blue-100/90 leading-relaxed max-w-2xl">
+            Real-time disease intelligence and situational monitoring across 11 ASEAN member nations.
+          </p>
+        </div>
 
-            <div className="space-y-2.5">
-              {primaryShortcuts.map((item) => {
-                const Icon = item.icon
-                return (
-                  <Link
-                    key={item.id}
-                    href={item.path}
-                    className="group flex items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50/50 p-3.5 transition-all hover:border-[#0060A9] hover:bg-blue-50/30 hover:shadow-xs"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[#0060A9] border border-slate-200/80 shadow-2xs group-hover:bg-[#0060A9] group-hover:text-white transition-colors">
-                        <Icon className="h-4.5 w-4.5" />
-                      </div>
-                      <div className="truncate">
-                        <h3 className="text-xs font-bold text-slate-900 group-hover:text-[#0060A9] transition-colors truncate">
-                          {item.title}
-                        </h3>
-                        <p className="text-[11px] text-slate-500 truncate">
-                          {item.description}
-                        </p>
-                      </div>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-[#0060A9] group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
-                  </Link>
-                )
-              })}
-            </div>
+        {/* Bottom Row inside Hero: Reminder Pill (Left) & Circular Module Quick Access Icons (Right) */}
+        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-4 pt-4 border-t border-white/15">
+          {/* Bottom Left: Quick Reminder Pill */}
+          <div className="flex items-center gap-2 text-xs text-blue-100/90 bg-white/10 backdrop-blur-md border border-white/15 px-3.5 py-2 rounded-full max-w-md">
+            <Bell className="h-4 w-4 text-amber-300 shrink-0 animate-bounce" />
+            <span className="truncate">
+              <strong className="text-white">Active Notice:</strong> Epi-Week W{currentEpiWeek.week} surveillance feeds synchronized.
+            </span>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Quick Launchpad</span>
-            <Link
-              href="#launchpad"
-              className="font-bold text-[#0060A9] hover:underline flex items-center gap-1"
-            >
-              View all {permittedItems.length} modules ↓
-            </Link>
+          {/* Bottom Right: Circular Quick Access Module Action Buttons with Tooltips */}
+          <div className="flex items-center flex-wrap gap-3 sm:gap-4 justify-end">
+            {quickAccessModules.map((mod) => {
+              const Icon = mod.icon
+              return (
+                <Link
+                  key={mod.id}
+                  href={mod.path}
+                  className="group relative flex flex-col items-center"
+                >
+                  {/* Circle Icon Button */}
+                  <div className="grid h-12 w-12 place-items-center rounded-full bg-white/15 border border-white/25 text-white backdrop-blur-md shadow-md transition-all duration-200 group-hover:scale-110 group-hover:bg-white group-hover:text-[#0060A9] group-hover:shadow-lg">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  {/* Label Underneath */}
+                  <span className="mt-1.5 text-[10px] font-bold tracking-tight text-blue-100/90 group-hover:text-white transition-colors text-center max-w-[75px] truncate">
+                    {mod.shortName || mod.title}
+                  </span>
+
+                  {/* Hover Tooltip */}
+                  <div className="pointer-events-none absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-30">
+                    <div className="rounded-xl bg-slate-900/95 px-3 py-1.5 text-center text-[10px] text-white shadow-xl backdrop-blur-md border border-slate-700 whitespace-nowrap">
+                      <div className="font-bold text-blue-300">{mod.title}</div>
+                      <div className="text-[9px] text-slate-300">{mod.description}</div>
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
           </div>
         </div>
       </section>
 
-      {/* 2. OVERVIEW METRIC CARDS */}
+      {/* ─────────────────────────────────────────────────────────────
+          2. OVERVIEW METRIC CARDS (Sources, Crawled, Countries, Regions, Diseases)
+          ───────────────────────────────────────────────────────────── */}
       <section className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5">
         {overviewMetrics.map((m) => {
           const Icon = m.icon
@@ -738,144 +561,112 @@ export default function HomePage() {
         })}
       </section>
 
-      {/* 3. QUICK ACCESS HUB & MODULE LAUNCHPAD */}
-      <section id="launchpad" className="space-y-4 pt-2">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* ─────────────────────────────────────────────────────────────
+          3. HIGH-COVERAGE PLACES (2-COLUMN CARDS WITH CLEAN STYLING)
+          ───────────────────────────────────────────────────────────── */}
+      <section className="space-y-4">
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <Compass className="h-5 w-5 text-[#0060A9]" />
-              Module Launchpad
+            <h2 className="text-base font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-[#0060A9]" />
+              High-coverage places
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Browse and open surveillance tools available for your profile.
+            <p className="text-xs text-slate-500">
+              Active epidemiological surveillance and disease metrics across key ASEAN member states
             </p>
           </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-400">
-              {displayedItems.length} of {permittedItems.length} modules
-            </span>
-          </div>
+          <Link
+            href="/asean-countries"
+            className="inline-flex items-center gap-1 text-xs font-extrabold text-[#0060A9] hover:text-[#003865] hover:underline transition-colors"
+          >
+            View all 11 ASEAN nations
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {availableCategories.map((cat) => {
-            const isSelected = selectedCategory === cat
-            return (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
-                  isSelected
-                    ? 'bg-[#0060A9] text-white shadow-xs'
-                    : 'border border-[#cfe0f1] bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                {cat}
-              </button>
-            )
-          })}
-        </div>
-
-        {groupedItems.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-xs">
-            <Search className="mx-auto h-8 w-8 text-slate-400" />
-            <h3 className="mt-3 text-sm font-bold text-slate-800">
-              No matching modules found
-            </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Try adjusting your search query or switch category filters.
-            </p>
-            <button
-              onClick={() => {
-                setSearchQuery('')
-                setSelectedCategory('All')
-              }}
-              className="mt-3 rounded-xl bg-slate-100 px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200"
+        {/* 2-Column Grid Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+          {highCoveragePlaces.map((place) => (
+            <Link
+              key={place.code}
+              href={`/asean-countries?country=${place.code}`}
+              className="group relative rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-[#0060A9] hover:shadow-md flex flex-col justify-between"
             >
-              Reset Filters
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-8 pt-2">
-            {groupedItems.map(([categoryName, items]) => (
-              <div key={categoryName}>
-                <div className="flex items-center gap-2 border-b border-slate-200 pb-2 mb-3.5">
-                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
-                    {categoryName}
+              {/* Header: Flag + Country Name + ISO code */}
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl leading-none" role="img" aria-label={place.name}>
+                    {place.flag}
                   </span>
-                  <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold text-slate-700">
-                    {items.length}
-                  </span>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900 group-hover:text-[#0060A9] transition-colors">
+                      {place.name}
+                    </h3>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      {place.code}
+                    </span>
+                  </div>
                 </div>
+                {place.status && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-[#0060A9] border border-blue-100">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#0060A9] animate-pulse" />
+                    {place.status}
+                  </span>
+                )}
+              </div>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {items.map((item) => {
-                    const Icon = item.icon
-                    return (
-                      <Link
-                        key={item.id}
-                        href={item.path}
-                        className="group flex flex-col justify-between rounded-2xl border border-slate-200/90 bg-white p-4.5 shadow-xs transition-all duration-150 hover:-translate-y-0.5 hover:border-[#0060A9] hover:shadow-sm"
-                      >
-                        <div>
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100 transition-colors group-hover:bg-[#0060A9] group-hover:text-white">
-                              <Icon className="h-5 w-5" />
-                            </div>
+              {/* 3-Column Stats Divider Box (Cases | Deaths | Diseases) */}
+              <div className="my-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                <div className="grid grid-cols-3 divide-x divide-slate-200/80 text-center">
+                  {/* Cases */}
+                  <div className="px-2">
+                    <div className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                      {place.cases}
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
+                      Cases
+                    </div>
+                  </div>
 
-                            {item.badge && (
-                              <span
-                                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wide uppercase border ${
-                                  item.badgeColor === 'blue'
-                                    ? 'bg-blue-50 text-[#0060A9] border-blue-200'
-                                    : item.badgeColor === 'emerald'
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : item.badgeColor === 'amber'
-                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                    : item.badgeColor === 'purple'
-                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                    : item.badgeColor === 'rose'
-                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                    : item.badgeColor === 'cyan'
-                                    ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                                    : item.badgeColor === 'sky'
-                                    ? 'bg-sky-50 text-sky-700 border-sky-200'
-                                    : 'bg-slate-100 text-slate-700 border-slate-200'
-                                }`}
-                              >
-                                {item.badge}
-                              </span>
-                            )}
-                          </div>
+                  {/* Deaths */}
+                  <div className="px-2">
+                    <div className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                      {place.deaths}
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
+                      Deaths
+                    </div>
+                  </div>
 
-                          <h3 className="mt-3 text-sm font-bold text-slate-900 group-hover:text-[#0060A9] transition-colors">
-                            {item.title}
-                          </h3>
-                          <p className="mt-1 text-xs text-slate-500 leading-relaxed line-clamp-2">
-                            {item.description}
-                          </p>
-                        </div>
-
-                        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-2.5 text-[11px]">
-                          <span className="font-mono text-slate-400 group-hover:text-slate-600">
-                            {item.path}
-                          </span>
-                          <span className="font-bold text-[#0060A9] flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                            Open ↗
-                          </span>
-                        </div>
-                      </Link>
-                    )
-                  })}
+                  {/* Diseases */}
+                  <div className="px-2">
+                    <div className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                      {place.diseases}
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
+                      Diseases
+                    </div>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+
+              {/* Footer: Date Range */}
+              <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium pt-1">
+                <span>{place.dateRange}</span>
+                <span className="group-hover:text-[#0060A9] transition-colors font-bold flex items-center gap-1">
+                  Details
+                  <ArrowRight className="h-3 w-3 opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all" />
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
       </section>
 
-      {/* 4. FOOTER GUIDANCE */}
+      {/* ─────────────────────────────────────────────────────────────
+          4. FOOTER GUIDANCE & QUICK ACTIONS
+          ───────────────────────────────────────────────────────────── */}
       <section className="rounded-2xl border border-[#cfe0f1] bg-white p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-[#0060A9] border border-blue-100">
