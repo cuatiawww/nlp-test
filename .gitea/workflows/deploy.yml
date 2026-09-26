@@ -66,6 +66,8 @@ jobs:
             --exclude 'docker-compose.yml' \
             --exclude 'docker-compose-prod.override.yml' \
             --exclude 'services/nlp-python/models' \
+            --exclude 'data/social_media/' \
+            --exclude 'archive/' \
             --exclude '__pycache__/' \
             --exclude '*.pyc' \
             --exclude '*.pyo' \
