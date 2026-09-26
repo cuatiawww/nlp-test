@@ -4,6 +4,8 @@ ST_MakePoint(x, y) uses X=longitude and Y=latitude. Passing latitude first
 pins ASEAN cities into the Atlantic and swaps them on the map.
 """
 
+import unicodedata
+
 
 def st_makepoint_args(latitude, longitude):
     """Bind order for a nullable ``ST_MakePoint(longitude, latitude)``.
@@ -28,7 +30,7 @@ ASEAN_COUNTRY_CENTROIDS = {
     "Philippines": (14.5995, 120.9842),
     "Singapore": (1.3521, 103.8198),
     "Thailand": (13.7563, 100.5018),
-    "Vietnam": (21.0278, 105.8342),
+    "Vietnam": (14.0583, 108.2772),
     "Timor-Leste": (-8.5569, 125.5603),
 }
 
@@ -48,10 +50,20 @@ ASEAN_COUNTRY_BBOXES = {
 }
 
 
+def _country_key(country: str | None) -> str | None:
+    if not country:
+        return None
+    folded = country.strip().casefold()
+    for name in ASEAN_COUNTRY_CENTROIDS:
+        if name.casefold() == folded:
+            return name
+    return country.strip()
+
+
 def coords_in_country_bbox(lat, lon, country: str | None) -> bool:
     if lat is None or lon is None or not country:
         return False
-    bbox = ASEAN_COUNTRY_BBOXES.get(country.strip())
+    bbox = ASEAN_COUNTRY_BBOXES.get(_country_key(country) or "")
     if not bbox:
         return True
     south, north, west, east = bbox
@@ -61,4 +73,45 @@ def coords_in_country_bbox(lat, lon, country: str | None) -> bool:
 def country_centroid(country: str | None):
     if not country:
         return None
-    return ASEAN_COUNTRY_CENTROIDS.get(country.strip())
+    return ASEAN_COUNTRY_CENTROIDS.get(_country_key(country) or "")
+
+
+# Subnational pins used when the locations table has not been re-seeded.
+CURATED_ADMIN_COORDS = {
+    "an giang": ("Vietnam", 10.5216, 105.1259),
+    "quang tri": ("Vietnam", 16.7943, 107.0027),
+    "yogyakarta": ("Indonesia", -7.7956, 110.3695),
+    "di yogyakarta": ("Indonesia", -7.7956, 110.3695),
+    "jogja": ("Indonesia", -7.7956, 110.3695),
+}
+_INDONESIA_DEFAULT_CENTROID = (-2.5489, 118.0149)
+
+
+def _fold_admin_name(name: str) -> str:
+    folded = unicodedata.normalize("NFKD", name.casefold())
+    return "".join(char for char in folded if not unicodedata.combining(char))
+
+
+def curated_admin_coordinates(name: str | None, country: str | None = None):
+    """Return a curated province pin, or None when the name is unknown."""
+    key = _fold_admin_name(str(name or "").strip())
+    row = CURATED_ADMIN_COORDS.get(key)
+    if not row:
+        return None
+    place_country, lat, lon = row
+    if country and _country_key(country) != place_country and country.strip().casefold() != place_country.casefold():
+        return None
+    return lat, lon
+
+
+def replace_foreign_indonesia_centroid(lat, lon, country: str | None):
+    """Never keep the Indonesia default pin on another country's row."""
+    if lat is None or lon is None or not country:
+        return lat, lon
+    if country.strip().casefold() == "indonesia":
+        return lat, lon
+    if abs(float(lat) - _INDONESIA_DEFAULT_CENTROID[0]) > 1e-3:
+        return lat, lon
+    if abs(float(lon) - _INDONESIA_DEFAULT_CENTROID[1]) > 1e-3:
+        return lat, lon
+    return country_centroid(country) or (None, None)

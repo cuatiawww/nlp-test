@@ -376,10 +376,26 @@ def fetch_article(url, fallback=False):
     raise RuntimeError("Article fetch failed")
 
 
+_ANCHOR_TAG = re.compile(r"</?a\b[^>]*>", re.IGNORECASE)
+_UNCLOSED_ANCHOR = re.compile(
+    r"<a\s+href\s*=\s*(?:\"[^\"]{0,500}?\"|'[^']{0,500}?'|https?://[^\s\"'<>]+)",
+    re.IGNORECASE,
+)
+
+
+def _strip_embedded_anchors(value: str) -> str:
+    text = value or ""
+    if "<" not in text:
+        return text.strip()
+    text = _ANCHOR_TAG.sub(" ", text)
+    text = _UNCLOSED_ANCHOR.sub(" ", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
 def _prepare_text_for_nlp(extracted, max_chars=None):
     max_chars = NLP_INPUT_MAX_CHARS if max_chars is None else max_chars
-    title = (extracted.get("title") or "").strip()
-    content = (extracted.get("content") or "").strip()
+    title = _strip_embedded_anchors(extracted.get("title") or "")
+    content = _strip_embedded_anchors(extracted.get("content") or "")
     if len(content) <= max_chars:
         return (title + "\n\n" + content).strip()
 

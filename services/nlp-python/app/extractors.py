@@ -185,6 +185,22 @@ def repair_mojibake(text: str) -> str:
     return min(candidates, key=score)
 
 
+_WELL_FORMED_ANCHOR = re.compile(r"</?a\b[^>]*>", re.IGNORECASE)
+_UNCLOSED_ANCHOR = re.compile(
+    r"<a\s+href\s*=\s*(?:\"[^\"]{0,500}?\"|'[^']{0,500}?'|https?://[^\s\"'<>]+)",
+    re.IGNORECASE,
+)
+
+
+def strip_embedded_markup(text: str) -> str:
+    """Drop anchor tags, including an unclosed ``<a href=`` left in a title."""
+    if not text or "<" not in text:
+        return text or ""
+    cleaned = _WELL_FORMED_ANCHOR.sub(" ", text)
+    cleaned = _UNCLOSED_ANCHOR.sub(" ", cleaned)
+    return re.sub(r"[ \t]{2,}", " ", cleaned)
+
+
 def normalize_text(text: str) -> str:
     text = repair_mojibake(text or "").lower()
     text = re.sub(r"[^\w\s\-/:\.\+%#@]", " ", text)
@@ -724,7 +740,7 @@ ASEAN_COUNTRY_CENTROIDS: dict[str, tuple[float, float]] = {
     "Philippines": (14.5995, 120.9842),
     "Singapore": (1.3521, 103.8198),
     "Thailand": (13.7563, 100.5018),
-    "Vietnam": (21.0278, 105.8342),
+    "Vietnam": (14.0583, 108.2772),
     "Timor-Leste": (-8.5569, 125.5603),
 }
 
@@ -735,6 +751,59 @@ _CITY_HINTS = (
 _PROVINCE_HINTS = (
     "province", "provinsi", "state", "oblast", "prefecture", "region",
 )
+
+
+_INDONESIA_DEFAULT_CENTROID = (-2.5489, 118.0149)
+_HANOI_CAPITAL_PIN = (21.0278, 105.8342)
+
+
+def _coords_near(lat: Optional[float], lon: Optional[float], pin: tuple[float, float], tol: float = 1e-3) -> bool:
+    if lat is None or lon is None:
+        return False
+    return abs(float(lat) - pin[0]) <= tol and abs(float(lon) - pin[1]) <= tol
+
+
+def sanitize_event_coordinates(
+    lat: Optional[float],
+    lon: Optional[float],
+    country: Optional[str],
+    location: Optional[str] = None,
+) -> tuple[Optional[float], Optional[float]]:
+    """Drop a pin that belongs to the wrong country.
+
+    A named province with no resolved coordinates stays empty. A country-level
+    event may use that country's centroid. Multi-country bulletins get no pin.
+    """
+    country_norm = normalize_country(country) if country else None
+    loc = str(location or "").strip()
+    if str(country_norm or "").upper() == "MULTI_COUNTRY" or loc.upper() == "MULTI_COUNTRY":
+        return None, None
+    subnational = bool(loc) and bool(country_norm) and loc.casefold() != str(country_norm).casefold()
+    cleared = False
+    if lat is not None and lon is not None:
+        wrong_indonesia = (
+            _coords_near(lat, lon, _INDONESIA_DEFAULT_CENTROID)
+            and bool(country_norm)
+            and country_norm != "Indonesia"
+        )
+        wrong_hanoi_country = (
+            country_norm == "Vietnam"
+            and not subnational
+            and _coords_near(lat, lon, _HANOI_CAPITAL_PIN)
+        )
+        outside = bool(country_norm) and not coords_in_country_bbox(lat, lon, country_norm)
+        if wrong_indonesia or wrong_hanoi_country or outside:
+            lat, lon = None, None
+            cleared = True
+    if lat is None or lon is None:
+        if subnational:
+            return None, None
+        if cleared:
+            centroid = ASEAN_COUNTRY_CENTROIDS.get(country_norm or "")
+            if centroid:
+                return centroid[0], centroid[1]
+        return None, None
+    return lat, lon
 
 
 def coords_in_country_bbox(lat: Optional[float], lon: Optional[float], country: Optional[str]) -> bool:
@@ -1184,7 +1253,11 @@ def validate_location_context(
             start = max(0, match.start() - 100)
             end = min(len(lower_text), match.end() + 100)
             window = lower_text[start:end]
-            if re.search(r"\b(?:\d+[\d.,]*\s+kasus|\d+[\d.,]*\s+cases?|dinas\s+kesehatan|kemenkes|hospital|rsud|puskesmas|dinas)\b", window):
+            if re.search(
+                r"\b(?:\d[\d.,]*\s+(?:[A-Za-z][\w'-]*\s+){0,4}(?:kasus|cases?)|"
+                r"dinas\s+kesehatan|kemenkes|hospital|rsud|puskesmas|dinas)\b",
+                window,
+            ):
                 return {"name": raw_name, "country": city_country, "score": 1, "is_valid": True}
                 
     return {"name": raw_name, "country": city_country, "score": 0, "is_valid": False}
@@ -1498,6 +1571,15 @@ def extract_location(
             ):
                 # Dateline "KUALA LUMPUR, Aug 4 —" is byline location, not the outbreak province.
                 score -= 12.0
+            folded_loc = _fold_location_text(loc)
+            newsroom = folded_loc in {
+                "hanoi", "ha noi", "jakarta", "manila", "bangkok", "phnom penh",
+                "yangon", "vientiane", "singapore", "dili", "kuala lumpur", "naypyidaw",
+            }
+            dash_window = compact_text[pos: pos + max(len(loc), 8) + 8]
+            if newsroom and re.search(r"[—–-]", dash_window):
+                # "HÀ NỘI —" is the newsroom dateline, not the outbreak province.
+                score -= 18.0
             scored[loc] = score
 
     if not scored:
@@ -1904,9 +1986,56 @@ def has_surveillance_signal(text: str, diseases: Optional[list[str]] = None) -> 
     return False
 
 
+_HARD_NON_OUTBREAK = re.compile(
+    r"\b("
+    r"tabletop(?:\s+exercise)?|preparedness\s+exercise|simulation\s+exercise|"
+    r"pandemic\s+preparedness|mock\s+outbreak|exercise\s+polaris|"
+    r"department\s+of\s+medical\s+research|research\s+institute|laboratory\s+methods|"
+    r"cluster\s+munitions?|unexploded\s+ordnance|explosive\s+remnants|"
+    r"\bhaze\b|forest\s+fires?|air\s+pollution|air\s+quality|"
+    r"(?:un|united\s+nations|economic|international)\s+sanctions|sanctions\s+on\s+"
+    r")\b",
+    re.IGNORECASE,
+)
+_CONFIRMED_INCIDENT_CASES = re.compile(
+    r"\b(\d{1,3}(?:[,.\s]\d{3})+|\d+)\s+(?:confirmed\s+|suspected\s+|new\s+)?"
+    r"(?:cases?|infections?|kasus)\b[^.]{0,80}\b("
+    r"polio|poliovirus|poliomyelitis|dengue|anthrax|nipah|cholera|measles|mpox|monkeypox|"
+    r"hfmd|hand,\s*foot|covid(?:-19)?|sars-cov-2"
+    r")\b|"
+    r"\b("
+    r"polio|poliovirus|poliomyelitis|dengue|anthrax|nipah|cholera|measles|mpox|monkeypox|"
+    r"hfmd|hand,\s*foot|covid(?:-19)?|sars-cov-2"
+    r")\b[^.]{0,80}\b(\d{1,3}(?:[,.\s]\d{3})+|\d+)\s+(?:confirmed\s+|suspected\s+|new\s+)?"
+    r"(?:cases?|infections?|kasus)\b",
+    re.IGNORECASE,
+)
+
+
+def _confirmed_incident_cases(text: str) -> bool:
+    """Positive 'N cases' of a named pathogen. Does not call the case extractor."""
+    return bool(_CONFIRMED_INCIDENT_CASES.search(text or ""))
+
+
+def is_hard_non_outbreak_document(text: str) -> bool:
+    """Reject preparedness drills, institutional pages, and non-outbreak topics.
+
+    A weak disease keyword or 'affected N people' must not invent an outbreak.
+    A real 'N cases' of a named pathogen still passes.
+    """
+    sample = text or ""
+    if not _HARD_NON_OUTBREAK.search(sample[:6000]):
+        return False
+    if _confirmed_incident_cases(sample):
+        return False
+    return True
+
+
 def is_clearly_non_health_topic(text: str, diseases: Optional[list[str]] = None) -> bool:
     """Reject non-health topics, academic research, plant diseases, and metaphors."""
     sample = text or ""
+    if is_hard_non_outbreak_document(sample):
+        return True
 
     # 1. Academic & Student Research Filter (Skripsi, Tesis, Disertasi, Jurnal, KTI)
     if is_academic_or_scholarly_research(sample):
@@ -2194,6 +2323,7 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
     Manual crawler and bulk ingest must call the same pipeline so mapping and
     case counts cannot drift between those paths.
     """
+    text = strip_embedded_markup(repair_mojibake(text or ""))
     lede = title_lede_text(text)
     opening = text[:1200] if text else ""
     aliases = extract_alias_diseases(lede) or extract_alias_diseases(opening)
@@ -2846,6 +2976,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             rf"(?:cases?|infections?|kasus)\s+(?:reached|total(?:ed)?|stood at|of)\s+({num_token})",
             rf"(?:cases?|infections?|kasus|pasien)\b[^.\n;:]{{0,100}}?\b(?:reached|recorded|reported|tercatat|mencatat|melaporkan|total(?:ed)?|stood at|of)\s+({num_token})",
             rf"(?:sickened|infected|affected)\s+(?:more than|over|nearly|about|around)?\s*({num_token})\s+(?:children|people|persons|residents)",
+            rf"\b({num_token})\s+(?:ribu|juta|thousand|million|nghin|ngan|nghìn|ngàn)\s+(?:kasus|cases?|infections?|ca)\b",
             r"ဓာတ်ခွဲနမူနာ[^။]{0,220}?စစ်ဆေးခဲ့ရာ\s*([0-9][0-9,.]*)\s*ဦးတွေ့ရှိ",
             r"(?:ผู้ป่วยใหม่|ผู้ป่วย|ติดเชื้อ)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ผู้ป่วย|ผู้ติดเชื้อ)(?:สะสม|ใหม่|ทั้งหมด)?\s*([0-9][0-9,.]*)\s*(?:ราย|คน)",
@@ -2855,7 +2986,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         "death_count": [
             rf"\b({num_token})\s+(?:cases?|kasus|kes)\s+(?:of\s+)?(?:deaths?|kematian|fatalities|tewas|maut)\b",
             rf"(?:deaths?|kematian|korban jiwa|fatalities|maut)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({num_token})",
-            rf"\b({num_token})(?:\s+[\w\u00C0-\u024F\u1EA0-\u1EFF/'’-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|fatal|maut|tử\s+vong)\b",
+            rf"\b({num_token})(?:\s+[\w\u00C0-\u024F\u1EA0-\u1EFF/'’-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|dead|fatal|maut|tử\s+vong)\b",
             rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({num_token})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities|maut)",
             rf"(?:killed|caused|causing|menyebabkan|meragut\s+nyawa|mengorbankan)\s+({num_token})\s+(?:people|persons|residents|orang|warga|jiwa)?",
             rf"(?:death toll|toll)\s+(?:reached|reaches|rose to|stood at|of)\s+({num_token})",
@@ -2921,6 +3052,18 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             return
         window = _sentence_window(search_text, match.start(), match.end())
         window_l = window.lower()
+        if field == "death_count":
+            span = search_text[match.start(1): match.end()]
+            if re.search(
+                r"(?i)(?:\bpercent\b|\bper\s*cent\b|\bpersen\b|%|fatality\s+rate|case\s+fatality)",
+                span,
+            ):
+                return
+            if re.search(r"(?i)\bdead\b", span) and re.search(
+                r"(?i)\b(?:poultry|birds?|chickens?|unggas|livestock|cattle)\b",
+                window,
+            ):
+                return
         if field == "death_count" and re.search(
             r"\b(?:bagi|pada|in|for)\s+(?:tahun\s+|year\s+)?20\d{2}\b",
             match.group(0),
@@ -3054,7 +3197,7 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             if any(y == latest_year for y in preceding_years):
                 score += 15
             elif all(y < latest_year for y in preceding_years):
-                score -= 15
+                score -= 80
         following_text = search_text[match.end(1): min(len(search_text), match.end(1) + 40)]
         following_years = _years_in(following_text)
         if following_years and latest_year:
@@ -3463,7 +3606,18 @@ def extract_disease_case_metrics(
     return result
 
 
+def _number_sits_in_older_year(source: str, start: int) -> bool:
+    """True when a year before the number is older than the newest year in the text."""
+    years_before = _years_in((source or "")[max(0, start - 60): start])
+    all_years = _years_in(source)
+    if not years_before or not all_years:
+        return False
+    return max(years_before) < max(all_years)
+
+
 def extract_case_count(text: str, disease: Optional[str] = None) -> int:
+    if is_hard_non_outbreak_document(text):
+        return 0
     if article_states_zero_cases(text):
         return 0
     try:
@@ -3525,11 +3679,15 @@ def extract_case_count(text: str, disease: Optional[str] = None) -> int:
                     continue
                 scoped_candidates.append((
                     _period_score(window, source),
-                    -match.start(),
+                    -match.start("count"),
                     parsed,
                 ))
-            if scoped_candidates:
-                return max(scoped_candidates)[2]
+            current_scoped = [
+                item for item in scoped_candidates
+                if not _number_sits_in_older_year(source, -item[1])
+            ]
+            if current_scoped:
+                return max(current_scoped)[2]
         parsed = _extract_count(text, "case_count", default, disease=disease)
         max_count = int(os.getenv("MAX_EVENT_CASE_COUNT", "2000000"))
         if parsed is None or parsed > max_count:
@@ -3555,6 +3713,33 @@ def has_explicit_death_count(text: str, disease: Optional[str] = None) -> bool:
         return _extract_count(text, "death_count", -1, disease=disease) >= 0
     except Exception:
         return False
+
+
+_TITLE_DEAD_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+def _title_lead_death_count(text: str) -> Optional[int]:
+    """Read an explicit 'three dead' lead when the metric lexicon misses 'dead'."""
+    head = (text or "")[:700]
+    match = re.search(
+        r"(?i)\b(one|two|three|four|five|six|seven|eight|nine|ten|\d{1,4})\s+dead\b",
+        head,
+    )
+    if not match:
+        return None
+    window = head[max(0, match.start() - 40): match.end() + 40]
+    if re.search(r"(?i)\b(?:deadly|poultry|birds?|chickens?|unggas|percent|fatality\s+rate)\b", window):
+        return None
+    raw = match.group(1).casefold()
+    if raw in _TITLE_DEAD_WORDS:
+        return _TITLE_DEAD_WORDS[raw]
+    parsed = _parse_count(raw, match.group(0))
+    if parsed is None or parsed <= 0:
+        return None
+    return int(parsed)
 
 
 def extract_death_count(text: str, disease: Optional[str] = None) -> int:
@@ -3667,6 +3852,10 @@ def extract_death_count(text: str, disease: Optional[str] = None) -> int:
                 return 0
         parsed = _extract_count(text, "death_count", 0, disease=disease)
         max_count = int(os.getenv("MAX_EVENT_DEATH_COUNT", "200000"))
+        if parsed is None or parsed > max_count or int(parsed) <= 0:
+            titled = _title_lead_death_count(source)
+            if titled:
+                return titled
         if parsed is None or parsed > max_count:
             return 0
         return max(0, int(parsed))
@@ -4790,11 +4979,15 @@ def _matched_disease_aliases(
         if folded_text is not None
         else re.sub(r"[^\w]+", " ", text.casefold()).strip()
     )
-    matched = [
-        (key, value)
-        for key, value in aliases.items()
-        if _match_disease_alias(key, text, lower_text, folded_text)
-    ]
+    matched = []
+    for key, value in aliases.items():
+        if not _match_disease_alias(key, text, lower_text, folded_text):
+            continue
+        # Agence France-Presse bylines are "(AFP)", not acute flaccid paralysis.
+        if key.casefold() == "afp" and str(value).casefold() == "polio":
+            if not re.search(r"\b(?:polio|poliovirus|poliomyelitis|cvdpv)\b", text or "", re.IGNORECASE):
+                continue
+        matched.append((key, value))
     normalized = [
         (
             key,
@@ -5028,12 +5221,25 @@ def prefer_outbreak_diseases(candidates: list[str], text: str) -> list[str]:
         item for item in pool
         if _disease_has_outbreak_evidence(item, source, link_at)
     ]
+    metrics = extract_disease_case_metrics(source, pool)
+
+    def metric_count(name: str) -> int:
+        label = canonical_disease_name(name)
+        row = metrics.get(label) or metrics.get(name) or {}
+        try:
+            return int(row.get("case_count") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    owners = [item for item in pool if metric_count(item) > 0]
     if evidenced:
-        pool = evidenced
+        # Keep the disease that owns the numbers even when a title disease
+        # is the only one sitting in an outbreak sentence.
+        pool = list(dict.fromkeys([*owners, *evidenced]))
 
     pool = _collapse_cholera_diarrhea_family(pool, source)
 
-    def sort_key(name: str) -> tuple[int, int]:
+    def sort_key(name: str) -> tuple[int, int, int]:
         positions = disease_mention_positions(name, source) or [10**9]
         near_count = 0
         for pos in positions:
@@ -5047,7 +5253,7 @@ def prefer_outbreak_diseases(candidates: list[str], text: str) -> list[str]:
             if re.search(r"\d", window):
                 near_count = 1
                 break
-        return (-near_count, min(positions))
+        return (-metric_count(name), -near_count, min(positions))
 
     return sorted(pool, key=sort_key)
 

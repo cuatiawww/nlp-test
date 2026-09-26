@@ -341,6 +341,32 @@ DEFAULT_LEXICON_TERMS: dict[str, dict[str, list[str]]] = {
         "tl": ["kaso", "katao"],
     },
 }
+# Offline numeric vocabulary used when the DB lexicon is empty or partial.
+# Single-letter magnitudes (k/m/b) are intentionally absent.
+DEFAULT_LEXICON_VALUES: dict[str, dict[str, int]] = {
+    "number_word": {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+    },
+    "metric_magnitude": {
+        "ribu": 1000,
+        "juta": 1000000,
+        "thousand": 1000,
+        "million": 1000000,
+        "nghìn": 1000,
+        "ngàn": 1000,
+        "nghin": 1000,
+        "ngan": 1000,
+    },
+}
 LANGUAGE_MARKERS: dict[str, list[str]] = {k: list(v) for k, v in DEFAULT_LANGUAGE_MARKERS.items()}
 EXTRACTION_RULES: dict[str, list[str]] = {}
 LANGUAGE_MODEL_MAP: dict[str, str] = {}
@@ -480,6 +506,35 @@ def load_outbreak_rules_from_db():
         logging.getLogger(__name__).warning(
             "Failed to load outbreak rules from app API, using defaults: %s", e
         )
+
+
+# Provinces missing from older registries. Existing rows win; init/130 seeds
+# the same pins for fresh databases.
+_CURATED_LOCALITIES = (
+    ("An Giang", "Vietnam", 10.5216, 105.1259, "An Giang", "VNM", 1),
+    ("Quang Tri", "Vietnam", 16.7943, 107.0027, "Quang Tri", "VNM", 1),
+    ("Yogyakarta", "Indonesia", -7.7956, 110.3695, "DI Yogyakarta", "IDN", 1),
+    ("DI Yogyakarta", "Indonesia", -7.7956, 110.3695, "DI Yogyakarta", "IDN", 1),
+    ("Hanoi", "Vietnam", 21.0278, 105.8342, "Hanoi", "VNM", 2),
+    ("Ha Noi", "Vietnam", 21.0278, 105.8342, "Hanoi", "VNM", 2),
+)
+
+
+def apply_curated_localities() -> None:
+    """Add audit provinces when the live registry does not already have them."""
+    for name, country, lat, lon, admin1, iso3, level in _CURATED_LOCALITIES:
+        if name in LOCATION_COORDS:
+            continue
+        LOCATION_COORDS[name] = (lat, lon)
+        LOCATION_COUNTRIES[name] = country
+        LOCATION_ADMIN1[name] = admin1
+        LOCATION_ISO3[name] = iso3
+        LOCATION_ADMIN_LEVEL[name] = level
+    alias_keys = {key.casefold() for key in LOCATION_ALIASES}
+    if "jogja" not in alias_keys and "Yogyakarta" in LOCATION_COORDS:
+        LOCATION_ALIASES["jogja"] = "Yogyakarta"
+    if "ha noi" not in alias_keys and "Hanoi" in LOCATION_COORDS:
+        LOCATION_ALIASES["ha noi"] = "Hanoi"
 
 
 def build_location_patterns():
@@ -653,6 +708,7 @@ def load_locations_from_db():
             LOCATION_COUNTRIES["Sumatra Selatan"] = "Indonesia"
             LOCATION_ADMIN1["Sumatra Selatan"] = "Sumatera Selatan"
             LOCATION_ISO3["Sumatra Selatan"] = "IDN"
+        apply_curated_localities()
 
         all_names_to_match = set(LOCATION_COORDS.keys()) | {
             alias for alias, canon in LOCATION_ALIASES.items() if canon in LOCATION_COORDS
@@ -690,9 +746,14 @@ def load_locations_from_db():
         LOCATION_COORDS = {}
         LOCATION_COUNTRIES = {}
         LOCATION_ALIASES = {}
+        LOCATION_ADMIN1 = {}
+        LOCATION_ISO3 = {}
+        LOCATION_ADMIN_LEVEL = {}
         LOCATION_REGISTRY_REFERENCE_ID = None
+        apply_curated_localities()
+        build_location_patterns()
         logging.getLogger(__name__).warning(
-            "Location registry unavailable; location alias matching is disabled: %s", e
+            "Location registry unavailable; using curated offline localities: %s", e
         )
 
 
@@ -980,14 +1041,15 @@ def get_temporal_month_map() -> dict[str, int]:
 
 
 def get_lexicon_values(marker_type: str) -> dict[str, int]:
-    """Return canonical numeric values from the active DB lexicon."""
+    """Return DB numeric lexicon values, with offline defaults underneath."""
 
     if not LEXICON_LOAD_ATTEMPTED:
         load_language_markers_from_db()
-    return {
-        _repair_legacy_lexicon_text(word): value
-        for word, value in LEXICON_VALUES.get(str(marker_type or "").strip().casefold(), {}).items()
-    }
+    marker_key = str(marker_type or "").strip().casefold()
+    merged = dict(DEFAULT_LEXICON_VALUES.get(marker_key, {}))
+    for word, value in LEXICON_VALUES.get(marker_key, {}).items():
+        merged[_repair_legacy_lexicon_text(word)] = value
+    return merged
 
 
 def get_temporal_month_pattern() -> str:

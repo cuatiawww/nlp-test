@@ -194,7 +194,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     _stages: dict[str, float] = {}
     _location_resolution_token = extractors.begin_location_resolution_stats()
     original_text = payload.text or ""
-    text = extractors.repair_mojibake(original_text)
+    text = extractors.strip_embedded_markup(extractors.repair_mojibake(original_text))
     if payload.interactive or payload.rules_only:
         before = len(text)
         text = _interactive_analysis_text(text)
@@ -2323,11 +2323,15 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         final_iso3 = config.COUNTRY_TO_ISO3.get(norm_country.casefold(), final_iso3)
         if lat is not None and lon is not None:
             if not extractors.coords_in_country_bbox(lat, lon, norm_country):
-                centroid = extractors.ASEAN_COUNTRY_CENTROIDS.get(norm_country)
-                if centroid:
-                    lat, lon = centroid[0], centroid[1]
-                else:
+                subnational = bool(location) and str(location).casefold() != norm_country.casefold()
+                if subnational:
                     lat, lon = None, None
+                else:
+                    centroid = extractors.ASEAN_COUNTRY_CENTROIDS.get(norm_country)
+                    if centroid:
+                        lat, lon = centroid[0], centroid[1]
+                    else:
+                        lat, lon = None, None
                 final_province = None
                 final_city = None
                 geocode_needs_review = True
@@ -2395,11 +2399,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             evt.country_iso3 = config.COUNTRY_TO_ISO3.get(norm_evt_country.casefold(), evt.country_iso3)
             if evt.latitude is not None and evt.longitude is not None:
                 if not extractors.coords_in_country_bbox(evt.latitude, evt.longitude, norm_evt_country):
-                    centroid = extractors.ASEAN_COUNTRY_CENTROIDS.get(norm_evt_country)
-                    if centroid:
-                        evt.latitude, evt.longitude = centroid[0], centroid[1]
-                    else:
+                    evt_place = str(evt.location_name or "")
+                    subnational = bool(evt_place) and evt_place.casefold() != norm_evt_country.casefold()
+                    if subnational:
                         evt.latitude, evt.longitude = None, None
+                    else:
+                        centroid = extractors.ASEAN_COUNTRY_CENTROIDS.get(norm_evt_country)
+                        if centroid:
+                            evt.latitude, evt.longitude = centroid[0], centroid[1]
+                        else:
+                            evt.latitude, evt.longitude = None, None
                     evt.admin1 = None
                     evt.admin2 = None
                     evt.needs_review = True
@@ -2941,6 +2950,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             )
             if _evt_resolution.model_rule_conflict:
                 _evt.needs_review = True
+
+    lat, lon = extractors.sanitize_event_coordinates(lat, lon, country, location)
 
     return AnalyzeResponse(
         language=language,

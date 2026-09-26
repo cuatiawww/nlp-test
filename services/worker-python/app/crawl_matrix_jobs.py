@@ -27,7 +27,13 @@ import psycopg
 import requests
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from .geo import coords_in_country_bbox, country_centroid, st_makepoint_args
+from .geo import (
+    coords_in_country_bbox,
+    country_centroid,
+    curated_admin_coordinates,
+    replace_foreign_indonesia_centroid,
+    st_makepoint_args,
+)
 from .document_identity import identity_lock_keys, identity_where_clause
 from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
 from .queue_reliability import (
@@ -466,11 +472,16 @@ def matching_concepts(conn, ids: list[str]) -> list[dict]:
 
 
 def country_coordinates(conn, country: str, areas: list[str] | None = None):
-    """Resolve the first cited city/province, then fall back to country center."""
-    for area in areas or []:
-        area_name = str(area or "").strip()
-        if not area_name:
-            continue
+    """Resolve the first cited city/province, then fall back to country center.
+
+    A requested province that is not in the gazetteer stays unpinned. It must
+    not inherit the country centroid or the Indonesia default pin.
+    """
+    requested = [str(area or "").strip() for area in (areas or []) if str(area or "").strip()]
+    for area_name in requested:
+        curated = curated_admin_coordinates(area_name, country)
+        if curated and coords_in_country_bbox(curated[0], curated[1], country):
+            return curated
         row = conn.execute(
             """SELECT latitude, longitude FROM locations
                WHERE is_active=TRUE AND LOWER(name)=LOWER(%s)
@@ -481,8 +492,10 @@ def country_coordinates(conn, country: str, areas: list[str] | None = None):
         if row:
             lat, lon = row["latitude"], row["longitude"]
             if coords_in_country_bbox(lat, lon, country):
-                return lat, lon
+                return replace_foreign_indonesia_centroid(lat, lon, country)
             return None, None
+    if requested:
+        return None, None
     row = conn.execute(
         """SELECT latitude, longitude FROM locations
            WHERE is_active=TRUE AND (LOWER(name)=LOWER(%s) OR LOWER(country)=LOWER(%s))
@@ -497,7 +510,7 @@ def country_coordinates(conn, country: str, areas: list[str] | None = None):
     if not coords_in_country_bbox(lat, lon, country):
         centroid = country_centroid(country)
         return (centroid[0], centroid[1]) if centroid else (None, None)
-    return lat, lon
+    return replace_foreign_indonesia_centroid(lat, lon, country)
 
 
 def persist_dashboard_event_from_analysis(conn, raw_id, article: dict, analysis: dict) -> bool:

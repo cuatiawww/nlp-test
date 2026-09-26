@@ -122,6 +122,22 @@ def _parse_date(value: str) -> str | None:
         return None
 
 
+_ANCHOR_TAG = re.compile(r"</?a\b[^>]*>", re.IGNORECASE)
+_UNCLOSED_ANCHOR = re.compile(
+    r"<a\s+href\s*=\s*(?:\"[^\"]{0,500}?\"|'[^']{0,500}?'|https?://[^\s\"'<>]+)",
+    re.IGNORECASE,
+)
+
+
+def _strip_feed_markup(value: str) -> str:
+    """Remove tags, including an unclosed ``<a href=`` left in a Google News title."""
+    text = html.unescape(value or "")
+    text = _ANCHOR_TAG.sub(" ", text)
+    text = _UNCLOSED_ANCHOR.sub(" ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def parse_feed(payload: bytes, source_url: str) -> list[dict]:
     root = ET.fromstring(payload)
     items = root.findall(".//item") or root.findall(".//{*}entry")
@@ -138,8 +154,8 @@ def parse_feed(payload: bytes, source_url: str) -> list[dict]:
         published = item.findtext("pubDate") or item.findtext("{*}published") or item.findtext("{*}updated") or ""
         results.append({
             "url": urljoin(source_url, html.unescape(link)),
-            "title": html.unescape(re.sub(r"<[^>]+>", " ", title)).strip(),
-            "summary": html.unescape(re.sub(r"<[^>]+>", " ", summary)).strip(),
+            "title": _strip_feed_markup(title),
+            "summary": _strip_feed_markup(summary),
             "published_at": _parse_date(published),
         })
     return results
