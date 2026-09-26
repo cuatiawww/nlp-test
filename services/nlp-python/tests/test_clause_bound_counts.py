@@ -246,6 +246,99 @@ class ClauseBoundCountTests(unittest.TestCase):
                 self.assertNotIn(("Indonesia", 63748, 0), counted)
                 self.assertFalse(any(deaths == 309786 for _, _, deaths in counted))
 
+    def test_other_countries_and_cities_stay_separate_events(self):
+        linker = self._use_places({
+            "Indonesia": ("Indonesia", -2.5489, 118.0149),
+            "Bandung": ("Indonesia", -6.9175, 107.6191),
+            "Thailand": ("Thailand", 15.8700, 100.9925),
+            "Bangkok": ("Thailand", 13.7563, 100.5018),
+            "Chiang Mai": ("Thailand", 18.7883, 98.9853),
+            "Philippines": ("Philippines", 12.8797, 121.7740),
+            "Quezon City": ("Philippines", 14.6760, 121.0437),
+            "Vietnam": ("Vietnam", 14.0583, 108.2772),
+            "Hanoi": ("Vietnam", 21.0278, 105.8342),
+            "Nigeria": ("Nigeria", 9.0820, 8.6753),
+            "Lagos": ("Nigeria", 6.5244, 3.3792),
+        })
+        config.LOCATION_ALIASES = {
+            "filipina": "Philippines",
+            "kota bandung": "Bandung",
+            "việt nam": "Vietnam",
+            "viet nam": "Vietnam",
+            "hà nội": "Hanoi",
+            "ha noi": "Hanoi",
+        }
+        linker = GazetteerLinker(
+            coords=config.LOCATION_COORDS,
+            countries=config.LOCATION_COUNTRIES,
+            allow_remote=False,
+        )
+        narratives = [
+            (
+                "th-city",
+                "There were 80,000 suspected cases of dengue in Thailand. During this period, "
+                "Bangkok became the city with the most suspected dengue cases nationwide, with 12,400 cases.",
+                [("Thailand", 80000), ("Bangkok", 12400)],
+            ),
+            (
+                "ph-city",
+                "Tercatat 54.210 kasus demam berdarah di Filipina. Quezon City menjadi kota "
+                "dengan kasus terbanyak secara nasional, yakni 9.200 kasus.",
+                [("Philippines", 54210), ("Quezon City", 9200)],
+            ),
+            (
+                "id-city",
+                "Tercatat 309.786 kasus demam berdarah di Indonesia. Pada periode ini, "
+                "Kota Bandung menjadi kota dengan kasus terbanyak, dengan 8.421 kasus.",
+                [("Indonesia", 309786), ("Bandung", 8421)],
+            ),
+            (
+                "vn-city",
+                "Có 45.000 ca mắc sốt xuất huyết tại Việt Nam. Trong giai đoạn ini, "
+                "Hà Nội là thành phố có nhiều ca nhất, với 6.200 ca.",
+                [("Vietnam", 45000), ("Hanoi", 6200)],
+            ),
+            (
+                "ng-city",
+                "There were 15,000 cases of dengue in Nigeria. Lagos became the city "
+                "with the most cases, with 4,800 cases.",
+                [("Nigeria", 15000), ("Lagos", 4800)],
+            ),
+            (
+                "two-cities",
+                "Thailand recorded 80,000 dengue cases. Bangkok reported 12,400 cases and Chiang Mai reported 3,100 cases.",
+                [("Thailand", 80000), ("Bangkok", 12400), ("Chiang Mai", 3100)],
+            ),
+            (
+                "unknown-city",
+                "There were 80,000 suspected cases of dengue in Thailand. During this period, "
+                "Lampang became the city with the most suspected dengue cases nationwide, with 1,200 cases.",
+                [("Thailand", 80000), ("Lampang", 1200)],
+            ),
+        ]
+        for label, text, expected in narratives:
+            with self.subTest(label=label):
+                _, relations, events = self._events(
+                    text, linker, primary_location=expected[0][0], primary_country=expected[0][0],
+                )
+                local = {
+                    (relation.location.name, relation.cases)
+                    for relation in relations
+                    if relation.source_scope == "article_local" and relation.cases
+                }
+                counted = {
+                    (evt.get("location_name"), int(evt.get("case_count") or 0))
+                    for evt in events
+                    if int(evt.get("case_count") or 0) > 0
+                }
+                for place, count in expected:
+                    self.assertIn((place, count), local)
+                    self.assertIn((place, count), counted)
+                country_count = expected[0][1]
+                for place, count in expected[1:]:
+                    self.assertNotIn((place, country_count), counted)
+                    self.assertNotIn((expected[0][0], count), counted)
+
     def test_country_total_parent_drops_only_the_empty_country_row(self):
         events = [
             SimpleNamespace(location_name="Indonesia", country="Indonesia", case_count=309786, death_count=0, latitude=-2.5, longitude=118.0),
