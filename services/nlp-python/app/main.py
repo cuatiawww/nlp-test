@@ -246,7 +246,7 @@ def resolve_legacy_disease(payload: DiseaseResolveRequest):
 
 @app.post("/reload")
 def reload_runtime_data():
-    """Reload DB-backed concepts, aliases, locations, and extraction rules."""
+    """Reload registry concepts, aliases, locations, and extraction rules from the app API."""
     from .config import (
         load_keywords_from_db, load_outbreak_rules_from_db, load_locations_from_db,
         load_credibility_from_db, load_language_markers_from_db,

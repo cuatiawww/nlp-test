@@ -363,68 +363,48 @@ OUTSIDE_ASEAN_COUNTRY = "OUTSIDE ASEAN"
 
 
 def load_keywords_from_db():
+    """Refresh symptom/disease keywords from GET /api/v1/nlp-keywords?snapshot=true."""
     global SYMPTOM_DICT, DISEASE_DICT, KEYWORDS_LOAD_ATTEMPTED
     KEYWORDS_LOAD_ATTEMPTED = True
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT category, keyword, target_label FROM nlp_keywords WHERE is_active = TRUE ORDER BY priority"
-        ).fetchall()
-        conn.close()
+        from .registry_client import fetch_collection
+        rows = fetch_collection("/api/v1/nlp-keywords?is_active=true&snapshot=true")
         symptom = {}
         disease = {}
         for r in rows:
+            if not r.get("is_active", True):
+                continue
             if r["category"] not in {"symptom", "disease"}:
                 logging.getLogger(__name__).warning(
-                    "Ignoring unsupported keyword category from DB: %s", r["category"]
+                    "Ignoring unsupported keyword category from app API: %s", r["category"]
                 )
                 continue
             d = symptom if r["category"] == "symptom" else disease
             d[r["keyword"]] = r["target_label"]
         SYMPTOM_DICT = symptom
         DISEASE_DICT = disease
-        import logging
         logging.getLogger(__name__).info(
-            "Loaded %d symptom keywords and %d disease keywords from DB",
+            "Loaded %d symptom keywords and %d disease keywords from app API",
             len(symptom), len(disease),
         )
     except Exception as e:
         SYMPTOM_DICT = {}
         DISEASE_DICT = {}
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load keywords from DB, using empty dicts: %s", e
+            "Failed to load keywords from app API, using empty dicts: %s", e
         )
 
 
 def load_disease_master_from_db():
+    """Refresh disease concepts and aliases from GET /api/v1/disease-concepts?snapshot=true."""
     global DISEASE_MASTER_CONCEPTS, DISEASE_MASTER_LOAD_ATTEMPTED
     DISEASE_MASTER_LOAD_ATTEMPTED = True
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            """SELECT c.disease_id, c.canonical_name, c.english_name, c.ontology_system,
-                      c.source,
-                      COALESCE(
-                        json_agg(
-                          json_build_object('alias', a.alias, 'language', a.language)
-                          ORDER BY a.confidence DESC, a.alias
-                        ) FILTER (WHERE a.id IS NOT NULL),
-                        '[]'::json
-                      ) AS aliases
-               FROM disease_concepts c
-               LEFT JOIN disease_aliases a
-                 ON a.concept_id = c.id AND a.is_active = TRUE
-               WHERE c.is_active = TRUE
-               GROUP BY c.id, c.disease_id, c.canonical_name, c.english_name, c.ontology_system, c.source
-               ORDER BY c.canonical_name"""
-        ).fetchall()
-        conn.close()
-        DISEASE_MASTER_CONCEPTS = list(rows)
+        from .registry_client import fetch_collection
+        rows = fetch_collection(
+            "/api/v1/disease-concepts?is_active=true&snapshot=true&include=aliases"
+        )
+        DISEASE_MASTER_CONCEPTS = [row for row in rows if row.get("is_active", True)]
         # The database concept/alias catalog is authoritative when it knows a
         # surface form. Keep the legacy map as a fallback for concepts that
         # have not been migrated yet, but let DB aliases win on collisions.
@@ -443,33 +423,31 @@ def load_disease_master_from_db():
             # Import order during isolated unit tests must not prevent the DB
             # catalog itself from loading.
             pass
-        import logging
-        logging.getLogger(__name__).info("Loaded %d local disease-master concepts", len(rows))
+        logging.getLogger(__name__).info(
+            "Loaded %d local disease-master concepts from app API", len(DISEASE_MASTER_CONCEPTS)
+        )
     except Exception as e:
         DISEASE_MASTER_CONCEPTS = []
-        import logging
         logging.getLogger(__name__).warning("Failed to load local disease-master concepts: %s", e)
 
 
 def load_outbreak_rules_from_db():
+    """Refresh outbreak thresholds from GET /api/v1/outbreak-rules?snapshot=true."""
     global OUTBREAK_RULES
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT disease_name, min_case_count FROM disease_outbreak_rules WHERE is_active = TRUE"
-        ).fetchall()
-        conn.close()
-        OUTBREAK_RULES = {r["disease_name"].upper(): r["min_case_count"] for r in rows}
-        import logging
+        from .registry_client import fetch_collection
+        rows = fetch_collection("/api/v1/outbreak-rules?is_active=true&snapshot=true")
+        OUTBREAK_RULES = {
+            r["disease_name"].upper(): r["min_case_count"]
+            for r in rows
+            if r.get("is_active", True)
+        }
         logging.getLogger(__name__).info(
-            "Loaded %d outbreak rules from DB", len(OUTBREAK_RULES),
+            "Loaded %d outbreak rules from app API", len(OUTBREAK_RULES),
         )
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load outbreak rules from DB, using defaults: %s", e
+            "Failed to load outbreak rules from app API, using defaults: %s", e
         )
 
 
@@ -510,29 +488,31 @@ def load_locations_from_db():
     except Exception:
         extractors = None
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            """SELECT name, latitude, longitude, country, country_iso3,
-                      admin1_name, admin2_name, admin_level
-               FROM locations
-               WHERE is_active = TRUE"""
-        ).fetchall()
-
+        from .registry_client import fetch_collection
+        rows = [
+            row for row in fetch_collection(
+                "/api/v1/locations?is_active=true&snapshot=true&include=aliases"
+            )
+            if row.get("is_active", True)
+        ]
         alias_rows = []
         try:
-            alias_rows = conn.execute(
-                """SELECT a.alias_name, l.name as canonical_name, l.country, l.admin_level
-                   FROM location_aliases a
-                   JOIN locations l ON a.location_id = l.id
-                   WHERE l.is_active = TRUE"""
-            ).fetchall()
+            for row in rows:
+                for alias in row.get("aliases") or []:
+                    if not isinstance(alias, dict):
+                        continue
+                    alias_name = alias.get("alias_name")
+                    if not alias_name:
+                        continue
+                    alias_rows.append({
+                        "alias_name": str(alias_name),
+                        "canonical_name": alias.get("canonical_name") or row.get("name"),
+                        "country": alias.get("country", row.get("country")),
+                        "admin_level": alias.get("admin_level", row.get("admin_level")),
+                    })
         except Exception as e:
-            import logging
             logging.getLogger(__name__).warning("Could not load location_aliases: %s", e)
-
-        conn.close()
+            alias_rows = []
         usable_rows = [
             r for r in rows
             if r["name"].strip().casefold() not in LOCATION_STOPWORDS
@@ -638,9 +618,8 @@ def load_locations_from_db():
             LOCATION_PATTERNS = [(combined.pattern, combined)]
         else:
             LOCATION_PATTERNS = []
-        import logging
         logging.getLogger(__name__).info(
-            "Loaded %d locations, %d aliases from DB", len(LOCATION_COORDS), len(LOCATION_ALIASES),
+            "Loaded %d locations, %d aliases from app API", len(LOCATION_COORDS), len(LOCATION_ALIASES),
         )
         LOCATION_REGISTRY_REFERENCE_ID = id(LOCATION_COORDS)
         try:
@@ -653,7 +632,6 @@ def load_locations_from_db():
         LOCATION_COUNTRIES = {}
         LOCATION_ALIASES = {}
         LOCATION_REGISTRY_REFERENCE_ID = None
-        import logging
         logging.getLogger(__name__).warning(
             "Location registry unavailable; location alias matching is disabled: %s", e
         )
@@ -735,24 +713,22 @@ def ensure_location_registry_loaded() -> None:
 
 
 def load_credibility_from_db():
+    """Refresh source scores from GET /api/v1/source-credibility."""
     global SOURCE_CREDIBILITY_MAP
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT source_type, score FROM source_credibility WHERE is_active = TRUE"
-        ).fetchall()
-        conn.close()
-        SOURCE_CREDIBILITY_MAP = {r["source_type"]: r["score"] for r in rows}
-        import logging
+        from .registry_client import fetch_collection
+        rows = fetch_collection("/api/v1/source-credibility")
+        SOURCE_CREDIBILITY_MAP = {
+            r["source_type"]: r["score"]
+            for r in rows
+            if r.get("is_active", True)
+        }
         logging.getLogger(__name__).info(
-            "Loaded %d credibility scores from DB", len(SOURCE_CREDIBILITY_MAP),
+            "Loaded %d credibility scores from app API", len(SOURCE_CREDIBILITY_MAP),
         )
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load credibility from DB: %s", e
+            "Failed to load credibility from app API: %s", e
         )
 
 
@@ -760,24 +736,17 @@ def load_language_markers_from_db():
     global LANGUAGE_MARKERS, LEXICON_TERMS, LEXICON_VALUES, TEMPORAL_MONTH_MAP, LEXICON_READY, LEXICON_LOAD_ATTEMPTED
     LEXICON_LOAD_ATTEMPTED = True
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        try:
-            rows = conn.execute(
-                """SELECT word, language, marker_type, canonical_value
-                   FROM language_markers
-                   WHERE is_active = TRUE
-                   ORDER BY marker_type, language, priority, word"""
-            ).fetchall()
-        except Exception:
-            # Keep older development databases usable until migration 095 is
-            # applied. They expose the original two-column marker contract.
-            conn.rollback()
-            rows = conn.execute(
-                "SELECT word, language FROM language_markers WHERE is_active = TRUE ORDER BY language, word"
-            ).fetchall()
-        conn.close()
+        from .registry_client import fetch_collection
+        rows = [
+            row for row in fetch_collection("/api/v1/language-markers")
+            if row.get("is_active", True)
+        ]
+        rows.sort(key=lambda row: (
+            str(row.get("marker_type") or ""),
+            str(row.get("language") or ""),
+            int(row.get("priority") or 0),
+            str(row.get("word") or ""),
+        ))
         markers: dict[str, list[str]] = {}
         lexicon: dict[str, dict[str, list[str]]] = {}
         lexicon_values: dict[str, dict[str, int]] = {}
@@ -817,9 +786,8 @@ def load_language_markers_from_db():
         LEXICON_VALUES = lexicon_values
         TEMPORAL_MONTH_MAP = month_map
         LEXICON_READY = bool(lexicon)
-        import logging
         logging.getLogger(__name__).info(
-            "Loaded %d lexicon terms (%d language markers, %d languages) from DB",
+            "Loaded %d lexicon terms (%d language markers, %d languages) from app API",
             sum(len(items) for by_language in lexicon.values() for items in by_language.values()),
             sum(len(v) for v in markers.values()), len(markers),
         )
@@ -829,7 +797,6 @@ def load_language_markers_from_db():
         LEXICON_VALUES = {}
         TEMPORAL_MONTH_MAP = {}
         LEXICON_READY = False
-        import logging
         logging.getLogger(__name__).warning(
             "Lexicon registry unavailable; lexical metric/date extraction is disabled: %s", e
         )
@@ -909,15 +876,18 @@ def get_temporal_month_pattern() -> str:
 
 
 def load_extraction_rules_from_db():
+    """Refresh regex rules from GET /api/v1/extraction-rules."""
     global EXTRACTION_RULES
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT field_name, regex_pattern FROM extraction_rules WHERE is_active = TRUE ORDER BY field_name, priority"
-        ).fetchall()
-        conn.close()
+        from .registry_client import fetch_collection
+        rows = [
+            row for row in fetch_collection("/api/v1/extraction-rules")
+            if row.get("is_active", True)
+        ]
+        rows.sort(key=lambda row: (
+            str(row.get("field_name") or ""),
+            int(row.get("priority") or 0),
+        ))
         rules: dict[str, list[str]] = {}
         for r in rows:
             field = r["field_name"]
@@ -932,35 +902,31 @@ def load_extraction_rules_from_db():
                 rules[field] = []
             rules[field].append(r["regex_pattern"])
         EXTRACTION_RULES = rules
-        import logging
         logging.getLogger(__name__).info(
-            "Loaded %d extraction rules (%d fields) from DB",
+            "Loaded %d extraction rules (%d fields) from app API",
             sum(len(v) for v in rules.values()), len(rules),
         )
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load extraction rules from DB, using defaults: %s", e
+            "Failed to load extraction rules from app API, using defaults: %s", e
         )
 
 
 def load_language_models_from_db():
+    """Refresh per-language model keys from GET /api/v1/language-models."""
     global LANGUAGE_MODEL_MAP
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-        rows = conn.execute(
-            "SELECT language, model_key FROM language_models WHERE is_active = TRUE ORDER BY language"
-        ).fetchall()
-        conn.close()
-        LANGUAGE_MODEL_MAP = {r["language"]: r["model_key"] for r in rows}
-        import logging
+        from .registry_client import fetch_collection
+        rows = fetch_collection("/api/v1/language-models")
+        LANGUAGE_MODEL_MAP = {
+            r["language"]: r["model_key"]
+            for r in rows
+            if r.get("is_active", True)
+        }
         logging.getLogger(__name__).info(
-            "Loaded %d language-to-model mappings from DB", len(LANGUAGE_MODEL_MAP),
+            "Loaded %d language-to-model mappings from app API", len(LANGUAGE_MODEL_MAP),
         )
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(
-            "Failed to load language models from DB: %s", e
+            "Failed to load language models from app API: %s", e
         )

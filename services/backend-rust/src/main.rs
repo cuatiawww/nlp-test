@@ -2049,6 +2049,8 @@ struct KeywordQuery {
     per_page: Option<i64>,
     q: Option<String>,
     is_active: Option<bool>,
+    /// Return every matching row. NLP startup uses this so pagination cannot truncate the lexicon.
+    snapshot: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2208,6 +2210,8 @@ struct RulesQuery {
     per_page: Option<i64>,
     q: Option<String>,
     is_active: Option<bool>,
+    /// Return every matching outbreak rule. NLP startup cannot use the 100-row page cap.
+    snapshot: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2270,6 +2274,11 @@ struct LocationsQuery {
     per_page: Option<i64>,
     q: Option<String>,
     country: Option<String>,
+    is_active: Option<bool>,
+    /// Full gazetteer dump, including hierarchy columns the admin page list omits.
+    snapshot: Option<bool>,
+    /// Comma-separated. `aliases` attaches location_aliases for the NLP gazetteer.
+    include: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -2279,6 +2288,10 @@ struct DiseaseConceptQuery {
     q: Option<String>,
     is_active: Option<bool>,
     category: Option<String>,
+    /// Return every matching concept. NLP startup cannot use the 100-row page cap.
+    snapshot: Option<bool>,
+    /// Comma-separated. `aliases` embeds active disease_aliases on each concept.
+    include: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4427,6 +4440,14 @@ fn page_params(page: Option<i64>, per_page: Option<i64>) -> (i64, i64, i64) {
 
 fn calc_total_pages(total: i64, per_page: i64) -> i64 {
     if total == 0 { 1 } else { (total as f64 / per_page as f64).ceil() as i64 }
+}
+
+fn query_include_flag(include: &Option<String>, flag: &str) -> bool {
+    include
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .any(|part| part.trim() == flag)
 }
 
 fn validate_candidate_review(
@@ -8310,20 +8331,47 @@ async fn list_rules(
     Query(query): Query<RulesQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
-    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
-
-    let rows = client
-        .query(
-            "SELECT id, disease_name, display_label, min_case_count, is_active, priority, created_at::text, updated_at::text
-             FROM disease_outbreak_rules
-             WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
-             AND ($2::bool IS NULL OR is_active = $2)
-             ORDER BY priority
-             LIMIT $3 OFFSET $4",
-            &[&query.q, &query.is_active, &per_page, &offset],
-        )
-        .await
-        .map_err(internal_error)?;
+    let snapshot = query.snapshot.unwrap_or(false);
+    let (rows, page, per_page, total) = if snapshot {
+        let rows = client
+            .query(
+                "SELECT id, disease_name, display_label, min_case_count, is_active, priority, created_at::text, updated_at::text
+                 FROM disease_outbreak_rules
+                 WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
+                 AND ($2::bool IS NULL OR is_active = $2)
+                 ORDER BY priority",
+                &[&query.q, &query.is_active],
+            )
+            .await
+            .map_err(internal_error)?;
+        let total = rows.len() as i64;
+        (rows, None, None, total)
+    } else {
+        let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+        let rows = client
+            .query(
+                "SELECT id, disease_name, display_label, min_case_count, is_active, priority, created_at::text, updated_at::text
+                 FROM disease_outbreak_rules
+                 WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
+                 AND ($2::bool IS NULL OR is_active = $2)
+                 ORDER BY priority
+                 LIMIT $3 OFFSET $4",
+                &[&query.q, &query.is_active, &per_page, &offset],
+            )
+            .await
+            .map_err(internal_error)?;
+        let total: i64 = client
+            .query_one(
+                "SELECT COUNT(*) FROM disease_outbreak_rules
+                 WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
+                 AND ($2::bool IS NULL OR is_active = $2)",
+                &[&query.q, &query.is_active],
+            )
+            .await
+            .map_err(internal_error)?
+            .get(0);
+        (rows, Some(page), Some(per_page), total)
+    };
 
     let data: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.get::<_, Uuid>(0),
@@ -8336,19 +8384,13 @@ async fn list_rules(
         "updated_at": r.get::<_, Option<String>>(7),
     })).collect();
 
-    let total: i64 = client
-        .query_one(
-            "SELECT COUNT(*) FROM disease_outbreak_rules
-             WHERE ($1::text IS NULL OR disease_name ILIKE '%'||$1||'%' OR display_label ILIKE '%'||$1||'%')
-             AND ($2::bool IS NULL OR is_active = $2)",
-            &[&query.q, &query.is_active],
-        )
-        .await
-        .map_err(internal_error)?
-        .get(0);
-
     Ok(Json(ApiResponse {
-        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+        success: true,
+        data,
+        total: Some(total),
+        page,
+        per_page,
+        total_pages: per_page.map(|size| calc_total_pages(total, size)),
     }))
 }
 
@@ -8581,15 +8623,49 @@ async fn list_keywords(
     Query(query): Query<KeywordQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
-    let (page, per_page, offset) = build_pagination(query.page, query.per_page);
-
-    let sql = "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords
-               WHERE ($1::text IS NULL OR category = $1)
-               AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
-               AND ($3::bool IS NULL OR is_active = $3)
-               ORDER BY category, priority
-               LIMIT $4 OFFSET $5";
-    let rows = client.query(sql, &[&query.category, &query.q, &query.is_active, &per_page, &offset]).await.map_err(internal_error)?;
+    let snapshot = query.snapshot.unwrap_or(false);
+    let (rows, page, per_page, total) = if snapshot {
+        // Priority order matches the NLP loader: a later row with the same keyword wins.
+        let rows = client
+            .query(
+                "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords
+                 WHERE ($1::text IS NULL OR category = $1)
+                 AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
+                 AND ($3::bool IS NULL OR is_active = $3)
+                 ORDER BY priority, category, keyword",
+                &[&query.category, &query.q, &query.is_active],
+            )
+            .await
+            .map_err(internal_error)?;
+        let total = rows.len() as i64;
+        (rows, None, None, total)
+    } else {
+        let (page, per_page, offset) = build_pagination(query.page, query.per_page);
+        let rows = client
+            .query(
+                "SELECT id, category, keyword, target_label, is_active, priority, created_at::text FROM nlp_keywords
+                 WHERE ($1::text IS NULL OR category = $1)
+                 AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
+                 AND ($3::bool IS NULL OR is_active = $3)
+                 ORDER BY category, priority
+                 LIMIT $4 OFFSET $5",
+                &[&query.category, &query.q, &query.is_active, &per_page, &offset],
+            )
+            .await
+            .map_err(internal_error)?;
+        let total: i64 = client
+            .query_one(
+                "SELECT COUNT(*) FROM nlp_keywords
+                 WHERE ($1::text IS NULL OR category = $1)
+                 AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
+                 AND ($3::bool IS NULL OR is_active = $3)",
+                &[&query.category, &query.q, &query.is_active],
+            )
+            .await
+            .map_err(internal_error)?
+            .get(0);
+        (rows, Some(page), Some(per_page), total)
+    };
 
     let data: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.get::<_, Uuid>(0),
@@ -8601,20 +8677,13 @@ async fn list_keywords(
         "created_at": r.get::<_, Option<String>>(6),
     })).collect();
 
-    let total: i64 = client
-        .query_one(
-            "SELECT COUNT(*) FROM nlp_keywords
-             WHERE ($1::text IS NULL OR category = $1)
-             AND ($2::text IS NULL OR keyword ILIKE '%'||$2||'%' OR target_label ILIKE '%'||$2||'%')
-             AND ($3::bool IS NULL OR is_active = $3)",
-            &[&query.category, &query.q, &query.is_active],
-        )
-        .await
-        .map_err(internal_error)?
-        .get(0);
-
     Ok(Json(ApiResponse {
-        success: true, data, total: Some(total), page: Some(page), per_page: Some(per_page), total_pages: Some(calc_total_pages(total, per_page)),
+        success: true,
+        data,
+        total: Some(total),
+        page,
+        per_page,
+        total_pages: per_page.map(|size| calc_total_pages(total, size)),
     }))
 }
 
@@ -8933,6 +9002,56 @@ async fn list_locations(
     Query(query): Query<LocationsQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    if query.snapshot.unwrap_or(false) {
+        let include_aliases = query_include_flag(&query.include, "aliases");
+        let rows = client
+            .query(
+                "SELECT id, name, latitude, longitude, country, country_iso3,
+                        admin1_name, admin2_name, admin_level, is_active,
+                        CASE WHEN $4::bool THEN COALESCE(
+                            (SELECT json_agg(json_build_object(
+                                'alias_name', a.alias_name,
+                                'canonical_name', locations.name,
+                                'country', locations.country,
+                                'admin_level', locations.admin_level
+                             ) ORDER BY a.alias_name)
+                             FROM location_aliases a
+                             WHERE a.location_id = locations.id),
+                            '[]'::json)
+                        ELSE '[]'::json END
+                 FROM locations
+                 WHERE ($1::text IS NULL OR name ILIKE '%'||$1||'%' OR country ILIKE '%'||$1||'%')
+                   AND ($2::text IS NULL OR country = $2)
+                   AND ($3::bool IS NULL OR is_active = $3)
+                 ORDER BY country, name",
+                &[&query.q, &query.country, &query.is_active, &include_aliases],
+            )
+            .await
+            .map_err(internal_error)?;
+        let data: Vec<Value> = rows.iter().map(|r| json!({
+            "id": r.get::<_, Uuid>(0),
+            "name": r.get::<_, String>(1),
+            "latitude": r.get::<_, f64>(2),
+            "longitude": r.get::<_, f64>(3),
+            "country": r.get::<_, Option<String>>(4),
+            "country_iso3": r.get::<_, Option<String>>(5),
+            "admin1_name": r.get::<_, Option<String>>(6),
+            "admin2_name": r.get::<_, Option<String>>(7),
+            "admin_level": r.get::<_, Option<i16>>(8),
+            "is_active": r.get::<_, bool>(9),
+            "aliases": r.get::<_, Value>(10),
+        })).collect();
+        let total = data.len() as i64;
+        return Ok(Json(ApiResponse {
+            success: true,
+            data,
+            total: Some(total),
+            page: None,
+            per_page: None,
+            total_pages: None,
+        }));
+    }
+
     let (page, per_page, offset) = build_pagination(query.page, query.per_page);
 
     let rows = client
@@ -9357,6 +9476,89 @@ async fn list_disease_concepts(
     Query(query): Query<DiseaseConceptQuery>,
 ) -> Result<Json<ApiResponse<Vec<Value>>>, (StatusCode, Json<Value>)> {
     let client = state.db.get().await.map_err(internal_error)?;
+    if query.snapshot.unwrap_or(false) {
+        let include_aliases = query_include_flag(&query.include, "aliases");
+        let alias_sql = if include_aliases {
+            "COALESCE(
+                json_agg(
+                    json_build_object('alias', a.alias, 'language', a.language)
+                    ORDER BY a.confidence DESC, a.alias
+                ) FILTER (WHERE a.id IS NOT NULL),
+                '[]'::json
+             )"
+        } else {
+            "'[]'::json"
+        };
+        let join_sql = if include_aliases {
+            "LEFT JOIN disease_aliases a ON a.concept_id = c.id AND a.is_active = TRUE"
+        } else {
+            ""
+        };
+        let group_sql = if include_aliases { "GROUP BY c.id" } else { "" };
+        let sql = format!(
+            "SELECT c.id, c.disease_id, c.canonical_name, c.english_name, c.category, c.is_zoonotic,
+                    c.description, c.is_public, c.allow_engine, c.ontology_system, c.ontology_code,
+                    c.ontology_uri, c.ontology_release, c.source, c.confidence, c.is_active,
+                    {alias_sql} AS aliases,
+                    (SELECT COUNT(*) FROM disease_aliases ac WHERE ac.concept_id = c.id AND ac.is_active = TRUE)::bigint,
+                    c.created_at::text, c.updated_at::text
+             FROM disease_concepts c
+             {join_sql}
+             WHERE ($1::text IS NULL OR c.canonical_name ILIKE '%'||$1||'%'
+                    OR COALESCE(c.disease_id, '') ILIKE '%'||$1||'%'
+                    OR COALESCE(c.category, '') ILIKE '%'||$1||'%'
+                    OR COALESCE(c.ontology_code, '') ILIKE '%'||$1||'%'
+                    OR c.source ILIKE '%'||$1||'%' OR EXISTS (
+                        SELECT 1 FROM disease_aliases ax
+                        WHERE ax.concept_id = c.id
+                          AND ax.is_active = TRUE
+                          AND ax.alias ILIKE '%'||$1||'%'
+                    ))
+               AND ($2::bool IS NULL OR c.is_active = $2)
+             {group_sql}
+             ORDER BY c.canonical_name"
+        );
+        let rows = client
+            .query(&sql, &[&query.q, &query.is_active])
+            .await
+            .map_err(internal_error)?;
+        let data: Vec<Value> = rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "id": r.get::<_, Uuid>(0),
+                    "disease_id": r.get::<_, Option<String>>(1),
+                    "canonical_name": r.get::<_, String>(2),
+                    "english_name": r.get::<_, Option<String>>(3),
+                    "category": r.get::<_, Option<String>>(4),
+                    "is_zoonotic": r.get::<_, Option<bool>>(5).unwrap_or(false),
+                    "description": r.get::<_, Option<String>>(6),
+                    "is_public": r.get::<_, Option<bool>>(7).unwrap_or(true),
+                    "allow_engine": r.get::<_, Option<bool>>(8).unwrap_or(true),
+                    "ontology_system": r.get::<_, Option<String>>(9),
+                    "ontology_code": r.get::<_, Option<String>>(10),
+                    "ontology_uri": r.get::<_, Option<String>>(11),
+                    "ontology_release": r.get::<_, Option<String>>(12),
+                    "source": r.get::<_, String>(13),
+                    "confidence": r.get::<_, f64>(14),
+                    "is_active": r.get::<_, bool>(15),
+                    "aliases": r.get::<_, Value>(16),
+                    "alias_count": r.get::<_, i64>(17),
+                    "created_at": r.get::<_, Option<String>>(18),
+                    "updated_at": r.get::<_, Option<String>>(19),
+                })
+            })
+            .collect();
+        let total = data.len() as i64;
+        return Ok(Json(ApiResponse {
+            success: true,
+            data,
+            total: Some(total),
+            page: None,
+            per_page: None,
+            total_pages: None,
+        }));
+    }
     let (page, per_page, offset) = build_pagination(query.page, query.per_page);
     let rows = client
         .query(
