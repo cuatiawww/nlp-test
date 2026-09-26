@@ -8,6 +8,7 @@ from .llm_gate import (
     distinct_case_figure_count,
     resolve_agent_invocation_status,
     should_escalate_to_llm,
+    text_has_cross_country_comparison,
     text_has_unbound_metric_evidence,
 )
 from .rules_first_resolver import apply_resolution_to_provenance, resolve_disease_label
@@ -684,6 +685,19 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         is_health_related=is_health_related,
         unbound_metrics=unbound_metrics,
         multi_fact=multi_fact,
+        cross_country_comparison=bool(
+            text_has_cross_country_comparison(text)
+            and (
+                len(named_case_countries) > 1
+                or (
+                    source_country
+                    and any(
+                        str(name).casefold() != str(source_country).casefold()
+                        for name in named_case_countries
+                    )
+                )
+            )
+        ),
         publisher_country_conflict=bool(
             source_country
             and (named_foreign := extractors.extract_country_hint(text, publisher=source_country))

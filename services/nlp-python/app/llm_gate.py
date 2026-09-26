@@ -28,6 +28,19 @@ def _year_token(token: str) -> bool:
     return len(digits) == 4 and digits.startswith(("19", "20"))
 
 
+_CROSS_COUNTRY_COMPARISON = re.compile(
+    r"\b(?:last year|previous year|the year before|a year earlier|"
+    r"tahun lalu|tahun yang lalu|tahun lepas|"
+    r"case rate|incidence rate|tingkat kasus|per\s+100[,.\s]?000)\b",
+    re.IGNORECASE,
+)
+
+
+def text_has_cross_country_comparison(text: str | None) -> bool:
+    """True when a sentence compares another place or a prior-year rate."""
+    return bool(_CROSS_COUNTRY_COMPARISON.search(text or ""))
+
+
 def text_has_unbound_metric_evidence(text: str | None) -> bool:
     """True when the article states a case or death figure the rules did not bind."""
     for match in _UNBOUND_METRIC.finditer(text or ""):
@@ -83,6 +96,7 @@ def should_escalate_to_llm(
     unbound_metrics: bool = False,
     publisher_country_conflict: bool = False,
     multi_fact: bool = False,
+    cross_country_comparison: bool = False,
 ) -> bool:
     """Return True ONLY for valid outbreak candidates requiring rear-gate validation/correction."""
     # 1. Front-Gate Hard Rejections (Zero Token Waste):
@@ -123,6 +137,11 @@ def should_escalate_to_llm(
     # rear-gate job after the rules pin confidence. Two disease names alone
     # do not set this flag.
     if multi_fact:
+        return True
+    # An Indonesian site can publish English copy about 10 infections in
+    # Australia and a case rate in another country last year. That relation
+    # is still a rear-gate job after the rules pin one of the numbers.
+    if cross_country_comparison:
         return True
     # Already-high-confidence rows stay local, including official bulletins,
     # unless a carve-out above applied.

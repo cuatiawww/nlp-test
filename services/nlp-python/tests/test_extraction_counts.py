@@ -172,6 +172,16 @@ class ExtractionCountsAndLocationTest(unittest.TestCase):
         # Primary guard is English month-before-day; this checks we do not invent 18250 from EN form.
         self.assertNotEqual(extractors.extract_case_count(text, disease="Dengue"), 18250)
 
+    def test_indonesian_english_article_keeps_australia_count_not_prior_rate(self):
+        text = (
+            "JAKARTA — An Indonesian news site reported in English that 10 people were "
+            "infected with dengue in Australia this month. Last year, Japan recorded a "
+            "dengue case rate of 12.4 per 100,000 people."
+        )
+        self.assertEqual(extractors.extract_case_count(text, disease="Dengue"), 10)
+        self.assertEqual(extractors.extract_country_hint(text, publisher="Indonesia"), "Australia")
+        self.assertIn("Japan", extractors.extract_named_countries(text))
+
     def test_percent_change_does_not_hide_following_case_total(self):
         text = (
             "The number of dengue fever cases in the country rose 66 per cent "
