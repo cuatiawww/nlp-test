@@ -185,3 +185,7 @@ class AnalyzeResponse(BaseModel):
     cases_display: Optional[str] = None
     deaths_display: Optional[str] = None
     display_dimension: Optional[str] = None
+    # Fase 0: DeepSeek/agent invocation provenance (additive).
+    # disabled | not_called_gate | failed | applied
+    agent_enabled: bool = False
+    agent_invocation_status: str = "disabled"

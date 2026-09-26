@@ -48,8 +48,10 @@ DEEPSEEK_QUOTA_COOLDOWN_SECONDS = max(
     int(os.getenv("DEEPSEEK_QUOTA_COOLDOWN_SECONDS", "86400")),
 )
 DEEPSEEK_LOCATION_MAX_CANDIDATES = int(os.getenv("DEEPSEEK_LOCATION_MAX_CANDIDATES", "80"))
-# External LLM review is opt-in. It must never be an implicit dependency of
-# high-volume crawling or a synchronous source extraction request.
+# External LLM review is opt-in. Default false (Fase 0 rules-first baseline).
+# When false, no pipeline path may call DeepSeek/agent HTTP — status is
+# reported as agent_invocation_status="disabled". It must never be an
+# implicit dependency of high-volume crawling or synchronous extraction.
 AGENT_ENABLED = os.getenv("AGENT_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 AGENT_PROVIDER_ORDER = os.getenv("AGENT_PROVIDER_ORDER", "deepseek")
 AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", str(DEEPSEEK_TIMEOUT_SECONDS)))
