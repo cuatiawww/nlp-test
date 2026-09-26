@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 import requests
 
 from .entity_relations import disease_relation_rows, location_relation_rows
+from .multi_event_persist import event_place_fields
 from .geo import st_makepoint_args
 from .document_identity import identity_lock_keys, identity_where_clause
 from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
@@ -886,7 +887,7 @@ def callback(ch, method, properties, body):
             if len(sub_events) >= 2:
                 parent_event_id = event_id
                 for sub_evt in sub_events:
-                    sub_location = sub_evt.get("location_name") or nlp.get("location_name")
+                    sub_location, sub_province, sub_city = event_place_fields(sub_evt, nlp)
                     sub_disease = sub_evt.get("disease") or nlp.get("disease_classification")
                     sub_cases = sub_evt.get("case_count", 0)
                     sub_deaths = sub_evt.get("death_count", 0)
@@ -920,8 +921,8 @@ def callback(ch, method, properties, body):
                             sub_evidence or msg.get("text", ""),
                             nlp["language"],
                             sub_location,
-                            nlp.get("province"),
-                            nlp.get("city"),
+                            sub_province,
+                            sub_city,
                             *st_makepoint_args(sub_lat, sub_lon),
                             json.dumps(nlp.get("symptoms", [])),
                             json.dumps([sub_disease] if sub_disease else []),

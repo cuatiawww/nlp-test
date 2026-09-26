@@ -197,6 +197,61 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn(("Dengue", 12), disease_rows)
         self.assertIn(("Measles", 8), disease_rows)
 
+    def test_matrix_keeps_counted_events_and_one_place(self):
+        adapted = pipeline_analysis_to_matrix({
+            "disease_classification": "Chikungunya",
+            "country": "Philippines",
+            "sub_events": [
+                {
+                    "disease": "Chikungunya",
+                    "country": "Philippines",
+                    "location_name": "Basey; ; Gandara",
+                    "case_count": 372,
+                    "death_count": 0,
+                    "latitude": 11.28,
+                    "longitude": 125.07,
+                },
+                {
+                    "disease": "Chikungunya",
+                    "country": "Philippines",
+                    "location_name": "Thailand",
+                    "case_count": 1,
+                    "death_count": 0,
+                },
+                {
+                    "disease": "UNKNOWN",
+                    "country": "Philippines",
+                    "location_name": "Paranas",
+                    "case_count": 0,
+                    "death_count": 0,
+                },
+            ],
+        })
+        rows = [
+            (item["country"], item["provinces"], item["reported_cases"])
+            for item in adapted["locations"]
+        ]
+        self.assertIn(("Philippines", ["Basey"], 372), rows)
+        self.assertIn(("Thailand", [], 1), rows)
+        self.assertNotIn("Paranas", str(rows))
+        self.assertNotIn(";", str(rows))
+        self.assertEqual(adapted["locations"][0]["latitude"], 11.28)
+
+    def test_event_place_does_not_inherit_parent_or_semicolons(self):
+        from app.multi_event_persist import event_place_fields
+
+        location, province, city = event_place_fields(
+            {
+                "country": "Philippines",
+                "location_name": ";; Basey",
+                "admin1": "Samar",
+            },
+            {"province": "Communicable Diseases Agency", "city": "Quezon City"},
+        )
+        self.assertEqual(location, "Basey")
+        self.assertEqual(province, "Samar")
+        self.assertEqual(city, "Basey")
+
     def test_analyze_article_passes_title_and_source_country(self):
         from unittest.mock import Mock, patch
         response = Mock()

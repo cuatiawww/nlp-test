@@ -35,6 +35,7 @@ from .geo import (
     st_makepoint_args,
 )
 from .document_identity import identity_lock_keys, identity_where_clause
+from .multi_event_persist import focused_place
 from .kpi import mark_kpi_snapshots_stale, nlp_needs_review
 from .queue_reliability import (
     declare_queue_topology,
@@ -654,9 +655,14 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 ),
                 "",
             )
-        latitude, longitude = country_coordinates(conn, country, provinces)
+        event_lat = item.get("latitude")
+        event_lon = item.get("longitude")
+        if event_lat is not None and event_lon is not None:
+            latitude, longitude = event_lat, event_lon
+        else:
+            latitude, longitude = country_coordinates(conn, country, provinces)
         province, city = split_province_city(provinces)
-        province_city_case = ", ".join(provinces) or None
+        province_city_case = focused_place(city or province, country) or None
         date_case = item.get("time_frame") or ""
         if _matrix_row_exists(
             conn, job_id, raw_id, disease, country, province_city_case, published, date_case
@@ -861,16 +867,22 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
         evidence="",
         confidence=None,
         needs_review=False,
+        latitude=None,
+        longitude=None,
     ):
         name = str(country or "").strip()
         if not name:
             return
         disease_name = str(disease or primary_disease or "").strip()
-        subplaces = [
-            str(item).strip()
-            for item in [*(provinces or []), *(cities or [])]
-            if str(item).strip() and str(item).strip().casefold() != name.casefold()
-        ]
+        subplaces = []
+        for raw_place in [*(provinces or []), *(cities or [])]:
+            place = focused_place(raw_place, name)
+            if not place or place.casefold() in {item.casefold() for item in subplaces}:
+                continue
+            if place in ASEAN_COUNTRIES and place.casefold() != name.casefold():
+                name = place
+                continue
+            subplaces.append(place)
         key = (
             disease_name.casefold(),
             name.casefold(),
@@ -897,6 +909,9 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             item["confidence"] = float(confidence or 0.0)
         if needs_review:
             item["needs_review"] = True
+        if latitude is not None and longitude is not None:
+            item["latitude"] = latitude
+            item["longitude"] = longitude
         locations.append(item)
 
     sub_events = [event for event in (out.get("sub_events") or []) if isinstance(event, dict)]
@@ -927,6 +942,8 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             evidence=event.get("evidence") or event.get("source_evidence"),
             confidence=event.get("confidence"),
             needs_review=event.get("needs_review", False),
+            latitude=event.get("latitude"),
+            longitude=event.get("longitude"),
         )
     # A structured sub-event already carries the disease-location-metric
     # relation. Do not add the collapsed location projection again, or the
@@ -945,6 +962,14 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             evidence=item.get("evidence"),
             confidence=item.get("confidence"),
         )
+    counted = [
+        item for item in locations
+        if int(item.get("reported_cases") or 0) or int(item.get("deaths") or 0)
+    ]
+    # URL analysis focuses the rows that carry a case or death count.
+    # Zero-count gazetteer hits are what the manual matrix was listing beside them.
+    if counted:
+        locations = counted
     out["locations"] = locations
     out["source_country"] = out.get("source_country") or ""
     out["surveillance_scope"] = out.get("surveillance_scope") or (

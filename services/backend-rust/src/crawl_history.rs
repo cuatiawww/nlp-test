@@ -520,6 +520,7 @@ fn place_or_null_sql(expr: &str) -> String {
             ) THEN NULL
             WHEN LENGTH(BTRIM({expr})) < 3 THEN NULL
             WHEN BTRIM({expr}) ~ '^[0-9.%]+$' THEN NULL
+            WHEN BTRIM({expr}) ~ '^[[:space:];,]+$' THEN NULL
             ELSE NULLIF(BTRIM({expr}), '')
         END"#
     )
@@ -793,9 +794,22 @@ fn event_select_sql(evidence_chars: i32) -> String {
             {source_country} AS source_country,
             {event_country} AS country,
             {event_scope} AS region,
-            NULLIF(CONCAT_WS(' / ', {province}, {city}), '') AS province_city_case,
+            COALESCE(
+                NULLIF(CONCAT_WS(' / ', {province}, {city}), ''),
+                CASE
+                    WHEN {location} IS NULL THEN NULL
+                    WHEN LOWER({location}) = LOWER(COALESCE({event_country}, '')) THEN NULL
+                    ELSE {location}
+                END
+            ) AS province_city_case,
             {province} AS province,
-            {city} AS city,
+            CASE
+                WHEN {city} IS NOT NULL THEN {city}
+                WHEN {province} IS NOT NULL THEN NULL
+                WHEN {location} IS NULL THEN NULL
+                WHEN LOWER({location}) = LOWER(COALESCE({event_country}, '')) THEN NULL
+                ELSE {location}
+            END AS city,
             NULLIF(de.disease_classification, '') AS disease,
             NULL::text AS icd11_code,
             de.created_at::text AS crawling_date,
@@ -851,6 +865,7 @@ fn event_select_sql(evidence_chars: i32) -> String {
         display_url = event_display_url_sql(),
         province = place_or_null_sql("de.province"),
         city = place_or_null_sql("de.city"),
+        location = place_or_null_sql("de.location_name"),
         from = event_from_sql(),
     )
 }
@@ -892,7 +907,7 @@ fn collapse_article_sql(inner: &str) -> String {
                    COUNT(*)::int AS n,
                    string_agg(country, '; ' ORDER BY cases DESC, country) AS labels,
                    string_agg(country || '(' || cases::text || ')', '; ' ORDER BY cases DESC, country)
-                       FILTER (WHERE cases IS NOT NULL) AS cases_display,
+                       FILTER (WHERE cases > 0) AS cases_display,
                    string_agg(country || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, country)
                        FILTER (WHERE deaths > 0) AS deaths_display
             FROM by_country
@@ -903,7 +918,7 @@ fn collapse_article_sql(inner: &str) -> String {
                    COUNT(*)::int AS n,
                    string_agg(label, '; ' ORDER BY cases DESC, label) AS labels,
                    string_agg(label || '(' || cases::text || ')', '; ' ORDER BY cases DESC, label)
-                       FILTER (WHERE cases IS NOT NULL) AS cases_display,
+                       FILTER (WHERE cases > 0) AS cases_display,
                    string_agg(label || '(' || deaths::text || ')', '; ' ORDER BY deaths DESC, label)
                        FILTER (WHERE deaths > 0) AS deaths_display
             FROM by_place
@@ -989,6 +1004,16 @@ fn collapse_article_sql(inner: &str) -> String {
                     ELSE 'noise'
                 END AS quality_class,
                 MAX(b.sort_ts) AS sort_ts,
+                (ARRAY_AGG(NULLIF(BTRIM(b.country), '') ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC)
+                    FILTER (WHERE NULLIF(BTRIM(b.country), '') IS NOT NULL))[1] AS primary_country,
+                (ARRAY_AGG(NULLIF(BTRIM(b.disease), '') ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC)
+                    FILTER (WHERE NULLIF(BTRIM(b.disease), '') IS NOT NULL AND LOWER(BTRIM(b.disease)) <> 'unknown'))[1] AS primary_disease,
+                (ARRAY_AGG(
+                    COALESCE(NULLIF(BTRIM(b.province), ''), NULLIF(BTRIM(b.city), ''), NULLIF(BTRIM(b.province_city_case), ''))
+                    ORDER BY COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC
+                ) FILTER (
+                    WHERE COALESCE(NULLIF(BTRIM(b.province), ''), NULLIF(BTRIM(b.city), ''), NULLIF(BTRIM(b.province_city_case), '')) IS NOT NULL
+                ))[1] AS primary_place,
                 (ARRAY_AGG(b.latitude ORDER BY CASE WHEN b.latitude IS NOT NULL THEN 0 ELSE 1 END, COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS primary_latitude,
                 (ARRAY_AGG(b.longitude ORDER BY CASE WHEN b.longitude IS NOT NULL THEN 0 ELSE 1 END, COALESCE(b.cases, 0) DESC NULLS LAST, b.sort_ts DESC, b.id DESC))[1] AS primary_longitude
             FROM base b
@@ -1004,12 +1029,12 @@ fn collapse_article_sql(inner: &str) -> String {
             g.url,
             g.language,
             st.labels AS source_country,
-            ct.labels AS country,
+            COALESCE(g.primary_country, ct.labels) AS country,
             rt.labels AS region,
-            COALESCE(pt.labels, g.province) AS province_city_case,
-            g.province,
-            g.city,
-            dt.labels AS disease,
+            COALESCE(g.primary_place, pt.labels, g.province) AS province_city_case,
+            CASE WHEN g.location_count > 1 THEN NULL ELSE g.province END AS province,
+            CASE WHEN g.location_count > 1 THEN NULL ELSE g.city END AS city,
+            COALESCE(g.primary_disease, dt.labels) AS disease,
             g.icd11_code,
             g.crawling_date,
             g.article_date,
@@ -2141,5 +2166,8 @@ mod tests {
         let sql = collapse_article_sql("SELECT 1 AS article_key, NULL::uuid AS parent_event_id");
         assert!(sql.contains("dt.cases_display"));
         assert!(sql.contains("parent_event_id"));
+        assert!(sql.contains("primary_place"));
+        assert!(sql.contains("primary_country"));
+        assert!(sql.contains("FILTER (WHERE cases > 0)"));
     }
 }
