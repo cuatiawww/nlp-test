@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Download, ExternalLink, Loader2, Play, RefreshCw } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, ExternalLink, Loader2, Play, RefreshCw } from 'lucide-react'
 import { createCrawlJob, fetchCrawlJob, fetchPaginated, reprocessCrawlJob } from '@/lib/api'
 import type { CrawlJobStatus, CrawlMatrixRow } from '@/types'
 import type { DiseaseConcept } from '@/lib/api'
@@ -46,6 +46,7 @@ export default function CrawlMatrixPanel() {
   const [dateTo, setDateTo] = useState('')
   const [maxArticles, setMaxArticles] = useState(20)
   const [job, setJob] = useState<CrawlJobStatus | null>(null)
+  const [openArticles, setOpenArticles] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
   const [loadingMaster, setLoadingMaster] = useState(true)
 
@@ -257,28 +258,61 @@ export default function CrawlMatrixPanel() {
             <tbody className="divide-y divide-slate-100">
               {articleGroups.map((group, groupIndex) => {
                 const many = group.rows.length > 1
-                return group.rows.map((row, eventIndex) => (
-                  <tr key={row.id} className={`align-top hover:bg-slate-50 ${many ? 'bg-blue-50/20' : ''}`}>
-                    <td className="px-3 py-3 font-mono text-[11px] font-bold text-[#0060A9]">{many ? `${groupIndex + 1}.${eventIndex + 1}` : groupIndex + 1}</td>
-                    <td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}</td>
-                    <td className="px-3 py-3 font-semibold">{row.country}<div className="text-[10px] font-normal text-slate-400">{row.region || ''}</div></td>
-                    <td className="max-w-[180px] px-3 py-3">{eventPlace(row)}</td>
-                    <td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('en-US')}</td>
-                    <td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('en-US')}</td>
-                    <td className="px-3 py-3 font-mono text-[11px]">{row.latitude != null && row.longitude != null ? `${row.latitude}, ${row.longitude}` : '—'}</td>
-                    <td className="px-3 py-3">{row.article_date || row.crawling_date || '—'}</td>
+                const open = Boolean(openArticles[group.key])
+                const cases = group.rows.reduce((sum, row) => sum + (row.number_of_cases || 0), 0)
+                const deaths = group.rows.reduce((sum, row) => sum + (row.number_of_deaths || 0), 0)
+                const diseases = Array.from(new Set(group.rows.map((row) => row.disease_name).filter(Boolean)))
+                const countries = Array.from(new Set(group.rows.map((row) => row.country).filter(Boolean)))
+                const summary = many ? (
+                  <tr key={`${group.key}-summary`} className="align-top hover:bg-slate-50">
+                    <td className="px-3 py-3 font-mono text-[11px] font-bold text-[#0060A9]">
+                      <button
+                        type="button"
+                        onClick={() => setOpenArticles((current) => ({ ...current, [group.key]: !current[group.key] }))}
+                        className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-slate-100"
+                        title={open ? 'Tutup event' : 'Buka event'}
+                      >
+                        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                        {groupIndex + 1}
+                      </button>
+                    </td>
+                    <td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{diseases.length === 1 ? diseases[0] : `${group.rows.length} events`}</td>
+                    <td className="px-3 py-3 font-semibold">{countries.length === 1 ? countries[0] : `${countries.length} countries`}</td>
+                    <td className="max-w-[180px] px-3 py-3 text-slate-500">{group.rows.length} events</td>
+                    <td className="px-3 py-3 font-bold text-slate-800">{cases.toLocaleString('en-US')}</td>
+                    <td className="px-3 py-3 font-bold text-red-600">{deaths.toLocaleString('en-US')}</td>
+                    <td className="px-3 py-3 text-slate-400">—</td>
+                    <td className="px-3 py-3">{group.rows[0]?.article_date || group.rows[0]?.crawling_date || '—'}</td>
                     <td className="px-3 py-3">
-                      {row.source_type || '—'}
-                      <div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div>
-                      {many && eventIndex === 0 && <div className="mt-1 max-w-[240px] truncate text-[10px] text-slate-500" title={group.title}>{group.title}</div>}
-                      <details className="mt-1">
-                        <summary className="cursor-pointer text-[#0060A9]">Evidence</summary>
-                        <p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Needs review'}</p>
-                        {row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Article <ExternalLink className="h-3 w-3" /></a>}
-                      </details>
+                      <div className="max-w-[240px] truncate text-[11px] text-slate-600" title={group.title}>{group.title}</div>
                     </td>
                   </tr>
-                ))
+                ) : null
+                const visibleRows = many && !open ? [] : group.rows
+                return [
+                  summary,
+                  ...visibleRows.map((row, eventIndex) => (
+                    <tr key={row.id} className={`align-top hover:bg-slate-50 ${many ? 'bg-blue-50/20' : ''}`}>
+                      <td className="px-3 py-3 font-mono text-[11px] font-bold text-[#0060A9]">{many ? `${groupIndex + 1}.${eventIndex + 1}` : groupIndex + 1}</td>
+                      <td className="max-w-[190px] px-3 py-3 font-semibold text-slate-800">{row.disease_name}</td>
+                      <td className="px-3 py-3 font-semibold">{row.country}<div className="text-[10px] font-normal text-slate-400">{row.region || ''}</div></td>
+                      <td className="max-w-[180px] px-3 py-3">{eventPlace(row)}</td>
+                      <td className="px-3 py-3 font-bold text-slate-800">{row.number_of_cases.toLocaleString('en-US')}</td>
+                      <td className="px-3 py-3 font-bold text-red-600">{row.number_of_deaths.toLocaleString('en-US')}</td>
+                      <td className="px-3 py-3 font-mono text-[11px]">{row.latitude != null && row.longitude != null ? `${row.latitude}, ${row.longitude}` : '—'}</td>
+                      <td className="px-3 py-3">{row.article_date || row.crawling_date || '—'}</td>
+                      <td className="px-3 py-3">
+                        {row.source_type || '—'}
+                        <div className="mt-1 text-[10px] text-slate-400">{row.source_name || ''}</div>
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-[#0060A9]">Evidence</summary>
+                          <p className="mt-1 min-w-[220px] whitespace-normal text-slate-600">{row.evidence || 'Needs review'}</p>
+                          {row.source_url && <a href={row.source_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#0060A9] hover:underline">Article <ExternalLink className="h-3 w-3" /></a>}
+                        </details>
+                      </td>
+                    </tr>
+                  )),
+                ]
               })}
             </tbody>
           </table>

@@ -16,7 +16,7 @@ import {
   Search, Globe, MapPin, Bug, Activity, Heart, MessageSquare,
   Shield, Languages, Users, Skull, TrendingUp,
   FileText, ExternalLink, Layers, CheckCircle, Loader2, Calendar,
-  Database, RefreshCw
+  Database, RefreshCw, ChevronDown, ChevronRight
 } from 'lucide-react'
 
 // Disease labels can arrive from old records, keyword aliases, and WHO
@@ -87,6 +87,7 @@ export default function AnalyzePage() {
   const [diseaseMatrixOpen, setDiseaseMatrixOpen] = useState(false)
   const [forceRefresh, setForceRefresh] = useState(false)
   const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null)
+  const [eventsOpen, setEventsOpen] = useState(false)
 
   useEffect(() => {
     const initialUrl = new URLSearchParams(window.location.search).get('url')?.trim()
@@ -140,6 +141,7 @@ export default function AnalyzePage() {
     setLoading(true)
     setError('')
     setResult(null)
+    setEventsOpen(false)
     setPartial(null)
     setStage(forceRefresh ? 'nlp' : 'queued')
     try {
@@ -484,11 +486,21 @@ export default function AnalyzePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {/* One event: the article row is the event. Several events: only the event rows below. */}
-                        {subEvents.length < 2 && (
                         <tr className="hover:bg-blue-50/30 transition-colors">
                           <td className="sticky left-0 z-[1] whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 font-bold text-slate-800 shadow-[2px_0_0_#f1f5f9]">
-                            <span>1</span>
+                            <span className="inline-flex items-center gap-1">
+                              {subEvents.length >= 2 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setEventsOpen((open) => !open)}
+                                  className="rounded p-0.5 text-slate-500 hover:bg-slate-100"
+                                  title={eventsOpen ? 'Tutup event' : 'Buka event'}
+                                >
+                                  {eventsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                                </button>
+                              ) : null}
+                              <span>1</span>
+                            </span>
                           </td>
                           <td className="whitespace-nowrap border-b border-r border-slate-100 bg-white px-3 py-2.5 text-slate-800 font-medium">
                             {matrixCountry}
@@ -618,10 +630,8 @@ export default function AnalyzePage() {
                             </button>
                           </td>
                         </tr>
-                        )}
 
-                        {/* Same event rows for every multi-event article. */}
-                        {subEvents.length >= 2 && subEvents.map((evt: any, sIdx: number) => {
+                        {eventsOpen && subEvents.length >= 2 && subEvents.map((evt: any, sIdx: number) => {
                           const childEvtSnippet = findEvidence(
                             result,
                             evt.disease || result.disease_classification,
