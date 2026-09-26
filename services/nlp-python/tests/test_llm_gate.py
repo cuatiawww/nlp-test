@@ -24,6 +24,16 @@ from app.agent import _is_quota_failure
 
 
 class LlmGateTests(unittest.TestCase):
+    def test_rear_gate_is_taught_the_repeated_mistakes(self):
+        import inspect
+        source = inspect.getsource(validate_and_correct_events)
+        self.assertIn("COVID-19", source)
+        self.assertIn("RD Kongo", source)
+        self.assertIn("3 bulan yang lalu", source)
+        self.assertIn("same disease, place, and count", source)
+        self.assertIn("10 people were infected", source)
+        self.assertIn("tingkat kasus", source)
+
     def test_confidence_threshold_boundary(self):
         """Only health rows below 0.85 are eligible for review."""
         with patch.object(config, "AGENT_ENABLED", True):
@@ -245,6 +255,52 @@ class LlmGateTests(unittest.TestCase):
                 death_count=0,
                 is_health_related=True,
             ))
+
+    def test_cross_country_comparison_still_escalates(self):
+        with patch.object(config, "AGENT_ENABLED", True):
+            self.assertTrue(should_escalate_to_llm(
+                disease="Dengue",
+                confidence=0.92,
+                extracted=["Dengue"],
+                case_count=10,
+                death_count=0,
+                is_health_related=True,
+                cross_country_comparison=True,
+            ))
+
+    def test_prior_year_rate_does_not_become_a_second_event(self):
+        article = (
+            "JAKARTA — An Indonesian news site reported in English that 10 people were "
+            "infected with dengue in Australia this month. Last year, Japan recorded a "
+            "dengue case rate of 12.4 per 100,000 people."
+        )
+        reviewed = verify_ground_truth_guardrails({
+            "is_health_related": True,
+            "outbreak_alert": True,
+            "disease_classification": "Dengue",
+            "sub_events": [
+                {
+                    "disease": "Dengue",
+                    "country": "Australia",
+                    "location_name": "Australia",
+                    "case_count": 10,
+                    "death_count": 0,
+                    "evidence": "10 people were infected with dengue in Australia this month.",
+                },
+                {
+                    "disease": "Dengue",
+                    "country": "Japan",
+                    "location_name": "Japan",
+                    "case_count": 12,
+                    "death_count": 0,
+                    "evidence": "Last year, Japan recorded a dengue case rate of 12.4 per 100,000 people.",
+                },
+            ],
+        }, article)
+        events = reviewed["sub_events"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["country"], "Australia")
+        self.assertEqual(events[0]["case_count"], 10)
 
     def test_publisher_country_conflict_still_escalates(self):
         with patch.object(config, "AGENT_ENABLED", True):

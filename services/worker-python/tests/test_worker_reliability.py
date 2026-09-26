@@ -50,6 +50,19 @@ class WorkerReliabilityTests(unittest.TestCase):
         )
         self.assertEqual(worker.message_source_url({}), "")
 
+    def test_continuous_message_uses_the_same_text_as_url_analysis(self):
+        from app.analysis_jobs import _prepare_text_for_nlp
+        article = {"title": "Ebola di RD Kongo", "content": "WHO mencatat 40 kasus."}
+        self.assertEqual(
+            worker.nlp_text_from_message({"title": article["title"], "text": article["content"]}),
+            _prepare_text_for_nlp(article),
+        )
+        joined = "Ebola di RD Kongo\n\nWHO mencatat 40 kasus."
+        self.assertEqual(
+            worker.nlp_text_from_message({"title": "Ebola di RD Kongo", "text": joined}),
+            joined,
+        )
+
     def test_continuous_nlp_payload_includes_source_url(self):
         response = Mock()
         response.raise_for_status.return_value = None

@@ -751,30 +751,9 @@ def extract_article(item: dict) -> dict:
     }
 
 
-_ANCHOR_TAG = re.compile(r"</?a\b[^>]*>", re.IGNORECASE)
-_UNCLOSED_ANCHOR = re.compile(
-    r"<a\s+href\s*=\s*(?:\"[^\"]{0,500}?\"|'[^']{0,500}?'|https?://[^\s\"'<>]+)",
-    re.IGNORECASE,
-)
-
-
-def _strip_embedded_anchors(value: str) -> str:
-    text = (value or "").replace("&nbsp;", " ").replace("\u00a0", " ")
-    if "<" not in text and "http" not in text.casefold():
-        return re.sub(r"[ \t]{2,}", " ", text).strip()
-    text = re.sub(r"<font\b[^>]*>.*?</font>", " ", text, flags=re.IGNORECASE | re.DOTALL)
-    text = _ANCHOR_TAG.sub(" ", text)
-    text = _UNCLOSED_ANCHOR.sub(" ", text)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"https?://\S+", " ", text)
-    return re.sub(r"[ \t]{2,}", " ", text).strip()
-
-
 def prepare_text_for_nlp(article: dict, max_chars: int = 35000) -> str:
-    title = _strip_embedded_anchors(str(article.get("title") or ""))
-    content = _strip_embedded_anchors(str(article.get("content") or ""))
-    combined = f"{title}\n\n{content}".strip() if title else content
-    return combined[:max_chars]
+    from .analysis_jobs import _prepare_text_for_nlp
+    return _prepare_text_for_nlp(article, max_chars)
 
 
 def analyze_article(article: dict) -> dict:
