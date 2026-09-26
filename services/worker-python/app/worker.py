@@ -559,21 +559,20 @@ def nlp_text_from_message(msg: dict) -> str:
 def call_nlp(text: str, source_type: str, source_name: str, published_at: str,
              source_language: str = "", source_country: str = "",
              source_url: str = "") -> dict:
-    url = f"{NLP_SERVICE_URL}/nlp/analyze/raw"
-    payload = {
-        "text": text,
-        "source_type": source_type,
-        "source_name": source_name,
-        "published_at": published_at,
-        "source_language": source_language,
-        "source_country": source_country,
-        "source_url": source_url or "",
-        "rules_only": False,
-        "historical_fast": False,
-    }
-    resp = requests.post(url, json=payload, timeout=NLP_REQUEST_TIMEOUT_SECONDS)
-    resp.raise_for_status()
-    return resp.json()
+    from .analysis_jobs import post_full_nlp
+    return post_full_nlp(
+        {
+            "text": text,
+            "source_type": source_type,
+            "source_name": source_name,
+            "published_at": published_at,
+            "source_language": source_language,
+            "source_country": source_country,
+            "source_url": source_url or "",
+        },
+        NLP_REQUEST_TIMEOUT_SECONDS,
+        source_name=source_name or "worker",
+    )
 
 
 def retry_delay_milliseconds(retry_count: int) -> int:
