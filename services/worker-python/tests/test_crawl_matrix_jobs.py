@@ -144,10 +144,11 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertTrue(
             jobs._matrix_row_exists(
                 FakeConn(), "job", "raw", "Dengue", "Indonesia",
-                "Jakarta", "2026-09-18", "week 38",
+                "Jakarta", 12, 1,
             )
         )
         self.assertIn("pg_advisory_xact_lock", calls[0][0])
+        self.assertIn("number_of_cases", calls[1][0])
         self.assertIn("IS NOT DISTINCT FROM", calls[1][0])
 
     def test_pipeline_analysis_to_matrix_keeps_primary_country(self):
@@ -239,6 +240,34 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         ])
         self.assertNotIn(";", str(rows))
         self.assertEqual(adapted["locations"][0]["latitude"], 11.28)
+
+    def test_same_place_and_count_is_one_matrix_row(self):
+        adapted = pipeline_analysis_to_matrix({
+            "disease_classification": "Chikungunya",
+            "country": "Philippines",
+            "sub_events": [
+                {
+                    "disease": "Chikungunya",
+                    "country": "Philippines",
+                    "location_name": "Basey",
+                    "admin1": "Samar",
+                    "case_count": 372,
+                    "death_count": 0,
+                    "time_frame": "2026-07-31",
+                },
+                {
+                    "disease": "Chikungunya",
+                    "country": "Philippines",
+                    "location_name": "Basey",
+                    "admin1": "Samar",
+                    "case_count": 372,
+                    "death_count": 0,
+                    "time_frame": "",
+                },
+            ],
+        })
+        self.assertEqual(len(adapted["locations"]), 1)
+        self.assertEqual(adapted["locations"][0]["reported_cases"], 372)
 
     def test_event_place_does_not_inherit_parent_or_semicolons(self):
         from app.multi_event_persist import event_place_fields

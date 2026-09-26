@@ -445,11 +445,24 @@ def status(job_id: str):
         job = conn.execute("SELECT * FROM crawl_matrix_jobs WHERE id=%s", (job_id,)).fetchone()
         if not job:
             raise HTTPException(404, "Manual crawler job was not found")
-        rows = conn.execute("""SELECT id, disease_name, icd11_code, crawling_date::text, region, country,
-                    province_city_case, article_date::text, date_case, number_of_cases, number_of_deaths,
-                    latitude, longitude, source_type, source_name, source_url, article_title, evidence,
-                    confidence, processing_status, raw_report_id, reprocessed_at::text
-                    FROM crawl_matrix_rows WHERE crawl_job_id=%s ORDER BY article_date DESC NULLS LAST, country, disease_name""", (job_id,)).fetchall()
+        rows = conn.execute("""SELECT m.id, m.disease_name, m.icd11_code, m.crawling_date::text, m.region, m.country,
+                    m.province, m.city, m.province_city_case, m.article_date::text, m.date_case,
+                    m.number_of_cases, m.number_of_deaths, m.latitude, m.longitude, m.source_type, m.source_name,
+                    m.source_url, m.article_title, m.evidence, m.confidence, m.processing_status,
+                    m.raw_report_id, m.reprocessed_at::text,
+                    de.language, de.event_type, de.sentiment, de.relevance_score,
+                    de.is_health_related, de.source_credibility
+                    FROM crawl_matrix_rows m
+                    LEFT JOIN LATERAL (
+                        SELECT language, event_type, sentiment, relevance_score::text AS relevance_score,
+                               is_health_related, source_credibility
+                        FROM disease_events
+                        WHERE raw_report_id = m.raw_report_id
+                        ORDER BY CASE WHEN parent_event_id IS NULL THEN 0 ELSE 1 END, created_at DESC
+                        LIMIT 1
+                    ) de ON TRUE
+                    WHERE m.crawl_job_id=%s
+                    ORDER BY m.article_date DESC NULLS LAST, m.country, m.disease_name""", (job_id,)).fetchall()
     return {"success": True, "data": {"job_id": job_id, "status": job["status"], "disease_names": job["disease_names"],
         "region": job["region"], "country": job["country"], "discovered_count": job["discovered_count"],
         "processed_count": job["processed_count"], "row_count": job["row_count"], "warnings": job["warnings"],

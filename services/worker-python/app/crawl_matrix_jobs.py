@@ -664,8 +664,11 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
         province, city = split_province_city(provinces)
         province_city_case = focused_place(city or province, country) or None
         date_case = item.get("time_frame") or ""
+        reported_cases = 0 if analysis.get("case_count_unknown") else int(item.get("reported_cases") or 0)
+        reported_deaths = int(item.get("deaths") or 0)
         if _matrix_row_exists(
-            conn, job_id, raw_id, disease, country, province_city_case, published, date_case
+            conn, job_id, raw_id, item_disease, country, province_city_case,
+            reported_cases, reported_deaths,
         ):
             rows += 1
             continue
@@ -681,8 +684,8 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
                 None,
                 matrix_region(country, request),
                 country, province_city_case, province, city, published, date_case,
-                0 if analysis.get("case_count_unknown") else int(item.get("reported_cases") or 0),
-                int(item.get("deaths") or 0),
+                reported_cases,
+                reported_deaths,
                 latitude, longitude, "news", article.get("source_name"),
                 analysis.get("source_country") or article.get("source_country"), article.get("url"),
                 article.get("title"), evidence, float(analysis.get("source_reliability_score") or 0.0),
@@ -843,7 +846,6 @@ def pipeline_analysis_to_matrix(analysis: dict) -> dict:
             tuple(dict.fromkeys(item.casefold() for item in subplaces)),
             int(cases or 0),
             int(deaths or 0),
-            time_frame or out.get("event_date") or "",
         )
         if key in seen:
             return
@@ -955,12 +957,16 @@ def _matrix_row_exists(
     disease_name: str,
     country: str,
     province_city_case: str | None,
-    article_date,
-    date_case: str | None,
+    cases: int,
+    deaths: int,
 ) -> bool:
-    """Serialize and deduplicate matrix rows across redelivery and stale workers."""
+    """Serialize and deduplicate the same fact across redelivery and stale workers.
+
+    A second copy of the same disease, country, place, and counts is the same
+    event even when the case date string differs. Different counts stay.
+    """
     identity = json.dumps(
-        [job_id, raw_id, disease_name, country, province_city_case, article_date, date_case],
+        [job_id, raw_id, disease_name, country, province_city_case, cases, deaths],
         ensure_ascii=False,
         separators=(",", ":"),
         default=str,
@@ -972,10 +978,9 @@ def _matrix_row_exists(
                WHERE crawl_job_id=%s AND raw_report_id IS NOT DISTINCT FROM %s
                  AND disease_name=%s AND country=%s
                  AND province_city_case IS NOT DISTINCT FROM %s
-                 AND article_date IS NOT DISTINCT FROM %s
-                 AND date_case IS NOT DISTINCT FROM %s
+                 AND number_of_cases=%s AND number_of_deaths=%s
                LIMIT 1""",
-            (job_id, raw_id, disease_name, country, province_city_case, article_date, date_case),
+            (job_id, raw_id, disease_name, country, province_city_case, cases, deaths),
         ).fetchone()
     )
 
