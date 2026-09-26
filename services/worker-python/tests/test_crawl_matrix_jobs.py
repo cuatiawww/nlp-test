@@ -13,6 +13,7 @@ from app.crawl_matrix_jobs import (
     disease_labels,
     extract_article,
     LeaseLost,
+    matrix_region,
     persist_dashboard_event_from_analysis,
     pipeline_analysis_to_matrix,
     prepare_text_for_nlp,
@@ -21,6 +22,10 @@ from app.crawl_matrix_jobs import (
 
 
 class CrawlMatrixWorkerTests(unittest.TestCase):
+    def test_foreign_case_country_is_kept_on_an_asean_job(self):
+        self.assertEqual(matrix_region("Democratic Republic of the Congo", {"region": "ASEAN"}), "Outside ASEAN")
+        self.assertEqual(matrix_region("Indonesia", {"region": "Global"}), "ASEAN")
+
     def test_news_query_uses_diseases_as_alternatives_and_does_not_require_asean_word(self):
         query = build_news_query(["Dengue", "Measles"], None, "ASEAN")
         self.assertIn("Dengue OR Measles", query)

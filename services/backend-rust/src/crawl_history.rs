@@ -16,7 +16,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    asean11_fold_sql, build_pagination, calc_total_pages, internal_error, ApiResponse, AppState,
+    asean11_fold_sql, build_pagination, calc_total_pages, case_country_sql, internal_error,
+    ApiResponse, AppState,
 };
 
 const EXPORT_CAP: i64 = 5_000;
@@ -29,9 +30,26 @@ const ASEAN11_IN: &str = "'Brunei','Cambodia','Indonesia','Laos','Malaysia','Mya
 const DEFAULT_PAGE_SIZE: i64 = 25;
 
 fn scope_sql(country_expr: &str) -> String {
+    let country = case_country_sql(country_expr);
     format!(
-        "CASE WHEN {country} IN ({members}) THEN 'ASEAN' WHEN NULLIF(BTRIM({country}), '') IS NOT NULL THEN 'Outside ASEAN' ELSE NULL END",
-        country = asean11_fold_sql(country_expr),
+        r#"COALESCE(
+            (
+                SELECT r.name
+                FROM master_countries c
+                JOIN master_region_countries rc ON rc.country_id = c.id
+                JOIN master_regions r ON r.id = rc.region_id AND r.is_active = TRUE
+                WHERE LOWER(c.name) = LOWER({country})
+                  AND r.code NOT IN ('GLOBAL', 'OUTSIDE_ASEAN', 'ASEAN_PLUS_THREE')
+                ORDER BY r.name
+                LIMIT 1
+            ),
+            CASE
+                WHEN {country} IN ({members}) THEN 'ASEAN'
+                WHEN {country} IS NULL THEN NULL
+                ELSE 'Outside ASEAN'
+            END
+        )"#,
+        country = country,
         members = ASEAN11_IN,
     )
 }
@@ -418,15 +436,23 @@ fn to_excel_xml(rows: &[Value]) -> String {
 }
 
 fn country_filter_sql(expr: &str, param: &str) -> String {
+    let display = case_country_sql(expr);
+    let folded = asean11_fold_sql(expr);
     format!(
         r#"AND (
               {param}::text IS NULL
               OR (
                 LOWER({param}) IN ('asean', 'asean11')
-                AND {expr} IN ({list})
+                AND {folded} IN ({list})
               )
-              OR {expr} = {param}
+              OR (
+                LOWER({param}) IN ('outside asean', 'outside_asean')
+                AND {folded} = 'OUTSIDE ASEAN'
+              )
+              OR LOWER({display}) = LOWER({param})
             )"#,
+        display = display,
+        folded = folded,
         list = ASEAN11_IN
     )
 }
@@ -434,7 +460,7 @@ fn country_filter_sql(expr: &str, param: &str) -> String {
 fn event_resolved_country_sql() -> String {
     // Same LATERAL equality join as the ASEAN WHERE clause — do not put a
     // 3-column ORDER BY correlated subquery in SELECT (that 504'd the ledger).
-    asean11_fold_sql(
+    case_country_sql(
         "COALESCE(loc_hist.country, NULLIF(BTRIM(de.location_name), ''), NULLIF(BTRIM(de.province), ''), NULLIF(BTRIM(de.city), ''))",
     )
 }
@@ -454,10 +480,10 @@ fn event_from_sql() -> &'static str {
 fn event_country_where(param: &str) -> String {
     // Equality join / LATERAL LIMIT 1 on location_name, not a 3-column
     // ORDER BY correlated subquery in WHERE (that 504'd the ledger).
-    let expr = asean11_fold_sql(
+    country_filter_sql(
         "COALESCE(loc_hist.country, NULLIF(BTRIM(de.location_name), ''), NULLIF(BTRIM(de.province), ''), NULLIF(BTRIM(de.city), ''))",
-    );
-    country_filter_sql(&expr, param)
+        param,
+    )
 }
 
 fn event_key_page_sql(quality: Quality, matrix_ready: bool) -> String {
@@ -689,7 +715,7 @@ pub fn collapse_article_facts(facts: &[ArticleFact]) -> CollapsedArticleDisplay 
 }
 
 fn matrix_select_sql(evidence_chars: i32) -> String {
-    let matrix_country = asean11_fold_sql("m.country");
+    let matrix_country = case_country_sql("m.country");
     let matrix_scope = scope_sql("m.country");
     let matrix_known = known_disease_sql("m.disease_name");
     let matrix_quality = matrix_quality_sql();
@@ -1127,7 +1153,7 @@ fn matrix_where_sql(quality: Quality) -> String {
           AND ($10::uuid IS NULL OR m.crawl_job_id = $10)
         "#,
         quality_where = matrix_quality_where(quality),
-        country = country_filter_sql(&asean11_fold_sql("m.country"), "$3"),
+        country = country_filter_sql("m.country", "$3"),
     )
 }
 
@@ -2318,5 +2344,18 @@ mod tests {
         assert!(sql.contains("primary_place"));
         assert!(sql.contains("primary_country"));
         assert!(sql.contains("FILTER (WHERE cases > 0)"));
+    }
+
+    #[test]
+    fn history_keeps_a_named_foreign_country_and_its_master_region() {
+        let country = event_country_select();
+        assert!(country.contains("NULLIF(BTRIM("));
+        let events = event_select_sql(180);
+        assert!(events.contains("master_regions"));
+        assert!(events.contains("OUTSIDE_ASEAN"));
+        assert!(events.contains("ASEAN_PLUS_THREE"));
+        assert!(matrix_select_sql(180).contains("master_countries"));
+        assert!(!event_where_sql(Quality::Surveillance, false).contains("ORDER BY CASE"));
+        assert!(!events.contains("ORDER BY CASE"));
     }
 }

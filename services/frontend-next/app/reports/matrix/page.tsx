@@ -45,7 +45,7 @@ import { useSettings } from '@/lib/settings-context'
 import CountryFlag from '@/components/CountryFlag'
 import SocialMediaIcon from '@/components/SocialMediaIcon'
 import { fetchKpiEvents, fetchKpiSnapshot, fetchPublicDashboard, type KpiEventRow } from '@/lib/api'
-import { isAseanCountryName, ASEAN_SCOPE_BANNER } from '@/lib/asean-scope'
+import { ASEAN_SCOPE_BANNER } from '@/lib/asean-scope'
 import AseanScopeBanner from '@/components/AseanScopeBanner'
 import type { PublicDashboard, OutbreakLocation } from '@/types'
 import { PUBLIC_BASE_PATH } from '@/lib/public-path'
@@ -171,9 +171,11 @@ function resolveCountry(country?: string | null, locationName?: string | null): 
     return { name: 'Vietnam', code: 'VN' }
   }
 
-  if (c && c.toUpperCase() !== 'OUTSIDE ASEAN' && c.toUpperCase() !== 'UNKNOWN') {
-    return { name: c, code: 'GLOBAL' }
-  }
+  const concrete = [c, l].find((value) => {
+    const upper = value.toUpperCase()
+    return upper !== 'OUTSIDE ASEAN' && upper !== 'UNKNOWN' && upper !== 'GLOBAL' && upper !== 'MULTI_COUNTRY'
+  })
+  if (concrete) return { name: concrete, code: 'XX' }
 
   return { name: 'Outside ASEAN', code: 'GLOBAL' }
 }
@@ -194,7 +196,7 @@ function kpiEventToRow(row: KpiEventRow): SurveillanceReportRow {
     id: row.id,
     date: dateStr,
     dateFormatted: formatLedgerDate(dateStr),
-    country: resolved.code === 'GLOBAL' && !isAseanCountryName(row.country) ? OUTSIDE_ASEAN_LABEL : resolved.name,
+    country: resolved.name,
     countryCode: resolved.code,
     locationName: row.location_name || resolved.name,
     disease: formatDiseaseName(row.disease_classification),
@@ -326,8 +328,8 @@ export default function ReportsPage() {
             : 'Recent'
 
           const resolved = resolveCountry(loc.country, loc.location_name)
-          const displayCountry = resolved.code === 'GLOBAL' ? OUTSIDE_ASEAN_LABEL : resolved.name
-          if (!isAseanCountryName(displayCountry)) return
+          const displayCountry = resolved.name
+          if (!displayCountry || displayCountry === OUTSIDE_ASEAN_LABEL) return
           const diseaseFormatted = formatDiseaseName(loc.disease)
           const cases = Number(loc.cases) || 0
           const deaths = Number(loc.deaths) || 0
@@ -372,7 +374,7 @@ export default function ReportsPage() {
   const loadLedgerPage = async (page: number, perPage: number) => {
     try {
       const result = await fetchKpiEvents({ page, per_page: perPage })
-      setLedgerRows(result.data.map(kpiEventToRow).filter((row) => isAseanCountryName(row.country)))
+      setLedgerRows(result.data.map(kpiEventToRow))
       setLedgerTotal(result.total || 0)
     } catch (err) {
       console.error('Failed to retrieve KPI event ledger:', err)

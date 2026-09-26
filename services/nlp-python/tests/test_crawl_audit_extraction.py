@@ -190,6 +190,22 @@ class CrawlAuditExtractionTests(unittest.TestCase):
         )
         self.assertEqual(percent, 0)
 
+    def test_rd_kongo_and_rdc_name_the_country(self):
+        self.assertIn(
+            "Democratic Republic of the Congo",
+            extractors.extract_named_countries("Wabah Ebola di RD Kongo belum terkendali."),
+        )
+        self.assertIn(
+            "Democratic Republic of the Congo",
+            extractors.extract_named_countries("RDC melaporkan 40 kasus Ebola."),
+        )
+
+    def test_crimean_congo_fever_is_not_the_country(self):
+        text = "Demam Berdarah Krimea-Kongo tercatat 4 kasus di Turki."
+        names = extractors.extract_named_countries(text)
+        self.assertNotIn("Democratic Republic of the Congo", names)
+        self.assertIn("Turkey", names)
+
     def test_indonesian_wire_keeps_drc_instead_of_the_publisher(self):
         config.LOCATION_COORDS["Jakarta"] = (-6.2088, 106.8456)
         config.LOCATION_COUNTRIES["Jakarta"] = "Indonesia"

@@ -97,13 +97,13 @@ def surveillance_scope_for_country(country: str | None) -> str | None:
     return 'ASEAN' if value in {item.casefold() for item in ASEAN_COUNTRIES} else 'Outside ASEAN'
 
 
-def matrix_region(country: str | None, request: dict) -> str:
+def matrix_region(country: str | None, _request: dict) -> str:
     value = str(country or "").strip()
     if value in ASEAN_COUNTRIES:
         return "ASEAN"
     if value.casefold() in _GLOBAL_COUNTRY_LABELS:
         return "Global"
-    return str(request.get("region") or "Global")
+    return "Outside ASEAN"
 
 
 def split_province_city(names: list[str]) -> tuple[str | None, str | None]:
@@ -615,8 +615,6 @@ def persist_article(conn, job_id: str, raw_id, article: dict, analysis: dict, co
         if not country:
             continue
         if request.get("country") and country.casefold() != request["country"].casefold():
-            continue
-        if request.get("region", "").casefold() == "asean" and country not in ASEAN_COUNTRIES:
             continue
         if request.get("date_from") and published and published < request["date_from"]:
             continue

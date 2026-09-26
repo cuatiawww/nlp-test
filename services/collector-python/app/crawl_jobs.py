@@ -288,8 +288,6 @@ def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts:
             continue
         if request.get("country") and country.casefold() != request["country"].casefold():
             continue
-        if request.get("region", "").casefold() == "asean" and country not in ASEAN_COUNTRIES:
-            continue
         if request.get("date_from") and published and published < request["date_from"]:
             continue
         if request.get("date_to") and published and published > request["date_to"]:
@@ -318,7 +316,7 @@ def _persist_article(conn, job_id: str, article: dict, analysis: dict, concepts:
                VALUES (%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (job_id, raw_id, concept["id"] if concept else None, disease,
              None,
-             "ASEAN" if country in ASEAN_COUNTRIES else (request.get("region") or "Global"),
+             "ASEAN" if country in ASEAN_COUNTRIES else "Outside ASEAN",
              country, ", ".join(provinces), published, item.get("time_frame") or "",
              int(item.get("reported_cases") or 0), int(item.get("deaths") or 0), latitude, longitude,
              "news", article.get("source_name"), article.get("url"), article.get("title"), evidence,
