@@ -1705,13 +1705,37 @@ def _source_sentence_id(text: str, offset: int) -> str:
     return f"s{len(boundaries) + 1}"
 
 
-def _relation_disease(text: str, start: int, end: int) -> Optional[str]:
-    """Use only disease terms found in the same metric evidence window."""
+@lru_cache(maxsize=128)
+def _article_disease_candidates(text: str) -> tuple[str, ...]:
+    """Extract disease candidates once per article for relation linking."""
+
+    return tuple(extractors.extract_diseases(text or ""))
+
+
+def _relation_disease(
+    text: str,
+    start: int,
+    end: int,
+    disease_candidates: Optional[list[str]] = None,
+) -> Optional[str]:
+    """Use disease terms found in the same metric evidence window.
+
+    ``extract_diseases`` is expensive because it builds/scans the complete
+    disease lexicon. The pipeline already extracts article-level diseases
+    before relation extraction, so reuse those candidates instead of running
+    the full extractor once per metric relation.
+    """
 
     context = _metric_context(text, start, end)
-    # ``extract_diseases`` already returns DB terms plus explicit aliases.
-    candidates = extractors.extract_diseases(context)
-    candidates = [item for item in candidates if extractors.disease_has_textual_evidence(item, context)]
+    candidates = (
+        disease_candidates
+        if disease_candidates is not None
+        else _article_disease_candidates(text)
+    )
+    candidates = [
+        item for item in candidates
+        if extractors.disease_has_textual_evidence(item, context)
+    ]
     return candidates[0] if len(candidates) == 1 else None
 
 
