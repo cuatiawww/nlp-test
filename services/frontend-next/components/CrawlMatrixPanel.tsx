@@ -2,28 +2,34 @@
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Loader2, MapPin, Play, RefreshCw } from 'lucide-react'
+import { Bug, ChevronDown, ChevronRight, Download, ExternalLink, Loader2, MapPin, Play, RefreshCw } from 'lucide-react'
 import { createCrawlJob, fetchCrawlJob, fetchPaginated, reprocessCrawlJob } from '@/lib/api'
 import type { CrawlJobStatus, CrawlMatrixRow } from '@/types'
 import type { DiseaseConcept } from '@/lib/api'
 import { ASEAN11_COUNTRY_NAMES, isAseanCountryName } from '@/lib/asean-scope'
-import CountryFlag from '@/components/CountryFlag'
 
 const MATRIX_COLUMNS: { key: string; label: string; width: number; sticky?: boolean }[] = [
   { key: 'no', label: 'No', width: 68, sticky: true },
-  { key: 'source_info', label: 'Source & Channel', width: 160 },
-  { key: 'needs_review', label: 'Status', width: 155 },
-  { key: 'title', label: 'Article Title & Link', width: 320 },
-  { key: 'country', label: 'Country & Region', width: 160 },
-  { key: 'province_city_case', label: 'Province & City', width: 180 },
-  { key: 'lat_long', label: 'Lat / Long', width: 125 },
-  { key: 'disease', label: 'Disease', width: 160 },
-  { key: 'cases', label: 'Cases', width: 90 },
-  { key: 'deaths', label: 'Deaths', width: 90 },
-  { key: 'language', label: 'Language', width: 80 },
-  { key: 'article_date', label: 'Published Date', width: 120 },
-  { key: 'crawling_date', label: 'Crawling Date', width: 130 },
-  { key: 'action', label: 'Action', width: 110 },
+  { key: 'country', label: 'Country', width: 130 },
+  { key: 'language', label: 'Language', width: 75 },
+  { key: 'url', label: 'Source URL', width: 200 },
+  { key: 'title', label: 'Article Title', width: 240 },
+  { key: 'disease', label: 'Disease Name', width: 190 },
+  { key: 'location_case', label: 'Location Case', width: 170 },
+  { key: 'latitude', label: 'Latitude', width: 105 },
+  { key: 'longitude', label: 'Longitude', width: 105 },
+  { key: 'location_precision', label: 'Location Precision', width: 135 },
+  { key: 'published_at', label: 'Published Date', width: 120 },
+  { key: 'date_case', label: 'Date Case', width: 140 },
+  { key: 'cases', label: 'Number of Cases', width: 180 },
+  { key: 'deaths', label: 'Number of Deaths', width: 150 },
+  { key: 'event_type', label: 'Event Type', width: 130 },
+  { key: 'sentiment', label: 'Sentiment', width: 110 },
+  { key: 'relevance_score', label: 'Health Relevance', width: 130 },
+  { key: 'source_credibility', label: 'Source Reliability', width: 130 },
+  { key: 'is_health_related', label: 'Health Related', width: 110 },
+  { key: 'evidence', label: 'Evidence', width: 240 },
+  { key: 'action', label: 'Action', width: 95 },
 ]
 
 type LocationOption = { country?: string | null; name?: string | null }
@@ -40,26 +46,46 @@ function fmtCount(value?: number | null) {
   return (value || 0).toLocaleString('en-US')
 }
 
-function statusBadge(status?: string | null) {
-  if (status === 'processed' || status === 'reviewed') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-        <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Reviewed
-      </span>
-    )
-  }
-  if (status === 'failed') {
-    return (
-      <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">
-        Failed
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-      <Clock className="h-3 w-3 text-amber-600" /> Needs Review
-    </span>
-  )
+function formatCoordinate(value?: number | null) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '—'
+}
+
+function locationPrecision(row: CrawlMatrixRow, manyPlaces: boolean) {
+  if (manyPlaces) return 'multiple event locations'
+  if (row.latitude == null || row.longitude == null) return 'unknown'
+  const place = eventPlace(row).trim().toLowerCase()
+  const country = (row.country || '').trim().toLowerCase()
+  return place && place === country ? 'country centroid' : 'locality/admin'
+}
+
+function sentimentBadge(value?: string | null) {
+  const tone = (value || '').toLowerCase()
+  if (tone === 'positive') return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Positive</span>
+  if (tone === 'negative') return <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">Negative</span>
+  if (tone === 'neutral') return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Neutral</span>
+  return <span className="text-slate-400">{value || '—'}</span>
+}
+
+function relevanceBadge(value?: string | number | null) {
+  const tone = String(value || '').toLowerCase()
+  if (!tone) return <span className="text-slate-400">—</span>
+  if (tone === 'high') return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">High</span>
+  if (tone === 'low') return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Low</span>
+  return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{tone === 'medium' ? 'Medium' : tone}</span>
+}
+
+function healthBadge(value?: boolean | null) {
+  if (value === true) return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Yes</span>
+  if (value === false) return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">No</span>
+  return <span className="text-slate-400">—</span>
+}
+
+function reliabilityLabel(row: CrawlMatrixRow) {
+  const raw = row.source_credibility ?? row.confidence
+  if (raw == null || Number.isNaN(Number(raw))) return '—'
+  const value = Number(raw)
+  const percent = value <= 1 ? value * 100 : value
+  return `${percent.toFixed(0)}%`
 }
 
 function EventsButton({ count, open, onToggle }: { count: number; open: boolean; onToggle: () => void }) {
@@ -84,11 +110,14 @@ function matrixCells(input: {
   toggle?: () => void
   open?: boolean
   eventCount?: number
-  summary?: { disease: string; country: string; cases: number; deaths: number; status: string; title: string }
+  summary?: { disease: string; country: string; cases: number; deaths: number; title: string }
+  manyPlaces?: boolean
+  child?: boolean
 }) {
   const bg = input.shaded ? 'bg-blue-50/40' : 'bg-white'
   const row = input.row
   const summary = input.summary
+  const manyPlaces = Boolean(input.manyPlaces)
   return MATRIX_COLUMNS.map((col) => {
     let node: ReactNode = '—'
     if (col.key === 'no') {
@@ -108,73 +137,65 @@ function matrixCells(input: {
           {input.label}
         </span>
       )
-    } else if (col.key === 'source_info') {
-      node = (
-        <div className="flex flex-col">
-          <span className="max-w-[150px] truncate font-medium" title={row.source_name || ''}>{row.source_name || row.source_type || '—'}</span>
-          <span className="font-mono text-[10px] uppercase text-slate-400">Manual</span>
-        </div>
-      )
-    } else if (col.key === 'needs_review') {
-      node = statusBadge(summary?.status || row.processing_status)
-    } else if (col.key === 'title') {
-      const title = summary?.title || row.article_title || row.source_url || '—'
-      node = (
-        <div className="max-w-[300px]">
-          <div className="flex items-start gap-1">
-            <span className="line-clamp-2 text-xs font-medium leading-snug" title={title}>{title}</span>
-            {row.source_url ? (
-              <a href={row.source_url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="mt-0.5 shrink-0 text-[#0060A9]" title={row.source_url}>
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            ) : null}
-          </div>
-          {!summary && row.evidence ? (
-            <details className="mt-1" onClick={(event) => event.stopPropagation()}>
-              <summary className="cursor-pointer text-[#0060A9]">Evidence</summary>
-              <p className="mt-1 whitespace-normal text-slate-600">{row.evidence}</p>
-            </details>
-          ) : null}
-        </div>
-      )
     } else if (col.key === 'country') {
       const name = summary?.country || row.country || '—'
-      const showFlag = name !== '—' && !/countries|multi_country/i.test(name)
+      node = <span className="block max-w-[110px] truncate font-medium" title={name}>{name}</span>
+    } else if (col.key === 'language') {
+      node = <span className="font-mono uppercase text-slate-600">{row.language || '—'}</span>
+    } else if (col.key === 'url') {
+      node = row.source_url ? (
+        <a href={row.source_url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="inline-flex max-w-[180px] items-center gap-1 truncate text-[#0060A9] hover:underline" title={row.source_url}>
+          <ExternalLink className="h-3 w-3 shrink-0" />
+          <span className="truncate">{row.source_url}</span>
+        </a>
+      ) : '—'
+    } else if (col.key === 'title') {
+      const title = summary?.title || row.article_title || row.source_url || '—'
+      node = <span className="block max-w-[220px] truncate font-medium" title={title}>{title}</span>
+    } else if (col.key === 'disease') {
+      const disease = summary?.disease || row.disease_name || '—'
       node = (
-        <div className="flex items-center gap-1.5">
-          {showFlag ? <CountryFlag countryCode={name} size="xs" shape="rounded" /> : null}
-          <div className="min-w-0">
-            <span className="block max-w-[130px] truncate font-semibold" title={name}>{name}</span>
-            {!summary && row.region ? (
-              <span className="inline-flex rounded border border-slate-200 bg-slate-100 px-1.5 text-[9px] font-bold uppercase tracking-tight text-slate-600">{row.region}</span>
-            ) : null}
-          </div>
-        </div>
+        <span className="inline-flex max-w-[170px] items-center gap-1.5 font-bold" title={disease}>
+          <Bug className="h-3.5 w-3.5 shrink-0 text-[#0060A9]" />
+          <span className="truncate">{disease}</span>
+        </span>
       )
-    } else if (col.key === 'province_city_case') {
+    } else if (col.key === 'location_case') {
       node = input.toggle && input.eventCount ? (
         <EventsButton count={input.eventCount} open={Boolean(input.open)} onToggle={input.toggle} />
       ) : (
-        <div className="flex max-w-[170px] items-start gap-1.5">
-          <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-500" />
-          <span className="block truncate text-[11px] font-bold" title={eventPlace(row)}>{eventPlace(row)}</span>
-        </div>
+        <span className="inline-flex max-w-[150px] items-center gap-1 font-medium">
+          <MapPin className="h-3 w-3 shrink-0 text-rose-500" />
+          <span className="truncate" title={eventPlace(row)}>{eventPlace(row)}</span>
+        </span>
       )
-    } else if (col.key === 'lat_long') {
-      const text = !summary && row.latitude != null && row.longitude != null ? `${row.latitude}, ${row.longitude}` : '—'
-      node = <span className="font-mono text-[10px] text-slate-700">{text}</span>
-    } else if (col.key === 'disease') {
-      const disease = summary?.disease || row.disease_name || '—'
-      node = <span className="block max-w-[140px] truncate font-semibold" title={disease}>{disease}</span>
+    } else if (col.key === 'latitude') {
+      node = <span className="font-mono text-slate-600">{manyPlaces ? '—' : formatCoordinate(row.latitude)}</span>
+    } else if (col.key === 'longitude') {
+      node = <span className="font-mono text-slate-600">{manyPlaces ? '—' : formatCoordinate(row.longitude)}</span>
+    } else if (col.key === 'location_precision') {
+      node = <span className="text-slate-600">{locationPrecision(row, manyPlaces)}</span>
+    } else if (col.key === 'published_at') {
+      node = <span className="font-mono text-[10px]">{row.article_date || '—'}</span>
+    } else if (col.key === 'date_case') {
+      node = <span className="font-mono text-[10px]">{row.date_case || row.article_date || '—'}</span>
     } else if (col.key === 'cases') {
-      node = <span className="font-bold">{fmtCount(summary ? summary.cases : row.number_of_cases)}</span>
+      node = <span className="font-extrabold">{fmtCount(summary ? summary.cases : row.number_of_cases)}</span>
     } else if (col.key === 'deaths') {
       const deaths = summary ? summary.deaths : row.number_of_deaths
-      node = <span className={deaths ? 'font-bold text-red-600' : 'font-bold text-slate-600'}>{fmtCount(deaths)}</span>
-    } else if (col.key === 'article_date') {
-      node = row.article_date || '—'
-    } else if (col.key === 'crawling_date') {
-      node = row.crawling_date || '—'
+      node = <span className={deaths ? 'font-extrabold text-red-600' : 'font-bold text-slate-600'}>{fmtCount(deaths)}</span>
+    } else if (col.key === 'event_type') {
+      node = <span className="capitalize">{(row.event_type || '—').replace(/_/g, ' ')}</span>
+    } else if (col.key === 'sentiment') {
+      node = input.child ? '—' : sentimentBadge(row.sentiment)
+    } else if (col.key === 'relevance_score') {
+      node = input.child ? '—' : relevanceBadge(row.relevance_score)
+    } else if (col.key === 'source_credibility') {
+      node = input.child ? '—' : <span className="font-mono font-semibold">{reliabilityLabel(row)}</span>
+    } else if (col.key === 'is_health_related') {
+      node = input.child ? '—' : healthBadge(row.is_health_related)
+    } else if (col.key === 'evidence') {
+      node = <span className="block max-w-[220px] truncate text-slate-600" title={row.evidence || ''}>{row.evidence || '—'}</span>
     } else if (col.key === 'action') {
       node = row.source_url ? (
         <a
@@ -182,9 +203,10 @@ function matrixCells(input: {
           target="_blank"
           rel="noreferrer"
           onClick={(event) => event.stopPropagation()}
-          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:border-[#0060A9] hover:bg-blue-50/60 hover:text-[#0060A9]"
+          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
         >
-          <ExternalLink className="h-3.5 w-3.5 text-[#0060A9]" /> Article
+          <ExternalLink className="h-3 w-3 text-blue-600" />
+          Article
         </a>
       ) : '—'
     }
@@ -310,8 +332,15 @@ export default function CrawlMatrixPanel() {
   function exportRows(format: 'csv' | 'json') {
     const rows = job?.rows || []
     if (!rows.length) return toast.error('There are no result rows to export')
-    const headers = ['No.', 'Crawling Date', 'Diseases', 'Region', 'Country', 'Province', 'City', 'Province & City', 'Published Date', 'Date Case', 'Number of Cases', 'Number of Deaths', 'Latitude', 'Longitude', 'Source Type']
-    const values = rows.map((row, index) => [index + 1, row.crawling_date, row.disease_name, row.region, row.country, row.province || '', row.city || '', row.province_city_case, row.article_date, row.date_case, row.number_of_cases, row.number_of_deaths, row.latitude, row.longitude, row.source_type])
+    const headers = MATRIX_COLUMNS.map((col) => col.label)
+    const values = rows.map((row, index) => [
+      index + 1, row.country, row.language, row.source_url, row.article_title, row.disease_name,
+      eventPlace(row), row.latitude, row.longitude, locationPrecision(row, false),
+      row.article_date, row.date_case || row.article_date, row.number_of_cases, row.number_of_deaths,
+      row.event_type, row.sentiment, row.relevance_score, reliabilityLabel(row),
+      row.is_health_related == null ? '' : row.is_health_related ? 'Yes' : 'No',
+      row.evidence, row.source_url,
+    ])
     if (format === 'json') return download(`crawl-matrix-${job?.job_id}.json`, JSON.stringify(rows, null, 2), 'application/json')
     download(`crawl-matrix-${job?.job_id}.csv`, '\ufeff' + [headers, ...values].map(row => row.map(csvCell).join(',')).join('\n'), 'text/csv;charset=utf-8')
   }
@@ -453,11 +482,8 @@ export default function CrawlMatrixPanel() {
                 const deaths = group.rows.reduce((sum, row) => sum + (row.number_of_deaths || 0), 0)
                 const diseases = Array.from(new Set(group.rows.map((row) => row.disease_name).filter(Boolean)))
                 const countries = Array.from(new Set(group.rows.map((row) => row.country).filter(Boolean)))
-                const status = group.rows.some((row) => row.processing_status === 'failed')
-                  ? 'failed'
-                  : group.rows.every((row) => row.processing_status === 'processed')
-                    ? 'processed'
-                    : 'needs_review'
+                const places = new Set(group.rows.map((row) => eventPlace(row).trim().toLowerCase()))
+                const manyPlaces = countries.length > 1 || places.size > 1
                 const lead = group.rows[0]
                 return (
                   <Fragment key={group.key}>
@@ -468,12 +494,12 @@ export default function CrawlMatrixPanel() {
                         toggle: many ? toggle : undefined,
                         open,
                         eventCount: many ? group.rows.length : undefined,
+                        manyPlaces,
                         summary: many ? {
                           disease: diseases.length === 1 ? diseases[0] : `${diseases.length} diseases`,
                           country: countries.length === 1 ? countries[0] : `${countries.length} countries`,
                           cases,
                           deaths,
-                          status,
                           title: group.title,
                         } : undefined,
                       })}
@@ -484,6 +510,7 @@ export default function CrawlMatrixPanel() {
                           label: `${groupIndex + 1}.${eventIndex + 1}`,
                           row,
                           shaded: true,
+                          child: true,
                         })}
                       </tr>
                     ))}
