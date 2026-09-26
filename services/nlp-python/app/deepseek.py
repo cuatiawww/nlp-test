@@ -112,6 +112,23 @@ def _preceding_sentence(source_text: str, evidence: str) -> str:
     return earlier[-1] if earlier else ""
 
 
+def _disease_token_number(text: str, start: int) -> bool:
+    """Digits that belong to a disease name, such as the 19 in COVID-19."""
+    prefix = (text or "")[max(0, start - 24):start]
+    if re.search(r"[A-Za-z]\s*[-–]\s*$", prefix):
+        return True
+    return bool(re.search(r"(?:covid|sars(?:[\s_-]*cov)?)\s*$", prefix, re.IGNORECASE))
+
+
+def _next_metric_number(text: str):
+    """First count token that is not the numeric part of a disease name."""
+    for match in _COUNT_TOKEN.finditer(text or ""):
+        if _disease_token_number(text or "", match.start()):
+            continue
+        return match
+    return None
+
+
 def _numbers_before_label(sentence: str, metric: str) -> list[int]:
     label = _CASE_LABEL if metric == "cases" else _DEATH_LABEL
     labels = list(label.finditer(sentence or ""))
@@ -126,6 +143,8 @@ def _numbers_before_label(sentence: str, metric: str) -> list[int]:
     window = (sentence or "")[max(0, chosen.start() - 90):chosen.start()]
     values: list[int] = []
     for match in _COUNT_TOKEN.finditer(window):
+        if _disease_token_number(window, match.start()):
+            continue
         value = _parse_count_token(match.group(0))
         if value is None or value <= 0 or 1900 <= value <= 2100:
             continue
@@ -309,6 +328,8 @@ def _scoped_metric_count(
     if len(sources) > 1 and not location_pattern.search(source):
         quote_candidates: list[tuple[int, int, int]] = []
         for match in re.finditer(r"\b(?:\d[\d,.]*|" + "|".join(_NUMBER_WORDS) + r")\b", source, re.IGNORECASE):
+            if _disease_token_number(source, match.start()):
+                continue
             value = _parse_count_token(match.group(0))
             if value is None or value <= 0:
                 continue
@@ -323,7 +344,7 @@ def _scoped_metric_count(
             target = label_pattern.search(after[:45])
             if not target:
                 continue
-            if re.search(r"\b(?:\d[\d,.]*|" + "|".join(_NUMBER_WORDS) + r")\b", after[:target.start()], re.IGNORECASE):
+            if _next_metric_number(after[:target.start()]):
                 continue
             opposite_before = opposite_pattern.search(before[-80:])
             if opposite_before and metric == "cases":
@@ -352,6 +373,8 @@ def _scoped_metric_count(
 
     for candidate_source in sources:
       for match in number_pattern.finditer(candidate_source):
+        if _disease_token_number(candidate_source, match.start()):
+            continue
         value = _parse_count_token(match.group(0))
         if value is None or value <= 0:
             continue
@@ -378,7 +401,7 @@ def _scoped_metric_count(
             re.IGNORECASE,
         )
         between_number_location = after[:location_after.start()] if location_after else ""
-        number_between = number_pattern.search(between_number_location)
+        number_between = _next_metric_number(between_number_location)
         if location_after and not number_between and (immediate_label or preceding_label):
             score = 6 if immediate_label else 5
             if re.search(r"\bincluding\s*$", before[-25:], re.IGNORECASE):
@@ -396,7 +419,7 @@ def _scoped_metric_count(
         )
         if immediate_label and location_later:
             between = after[:location_later.start()]
-            has_intervening_number = bool(number_pattern.search(between))
+            has_intervening_number = _next_metric_number(between) is not None
             comparison_number = bool(re.search(
                 r"\b(?:tăng|meningkat|naik|increase(?:d)?|up\s+by|compared\s+with|"
                 r"compared\s+to|so\s+với)\b[^\d]{0,20}$",
@@ -433,8 +456,8 @@ def _scoped_metric_count(
                 connector,
                 re.IGNORECASE,
             ))
-            number_before_target_label = bool(
-                number_pattern.search(tail[:target_label.start()])
+            number_before_target_label = (
+                _next_metric_number(tail[:target_label.start()]) is not None
             ) if target_label else False
             if (
                 target_label
@@ -479,6 +502,8 @@ def _scoped_metric_count(
     # followed by the requested metric label.
     if not candidates:
         for match in number_pattern.finditer(source):
+            if _disease_token_number(source, match.start()):
+                continue
             value = _parse_count_token(match.group(0))
             if value is None or value <= 0:
                 continue
@@ -487,7 +512,7 @@ def _scoped_metric_count(
             if not location_pattern.search(before):
                 continue
             label_match = label_pattern.search(after[:45])
-            if not label_match or number_pattern.search(after[:label_match.start()]):
+            if not label_match or _next_metric_number(after[:label_match.start()]):
                 continue
             candidates.append((4, -abs(match.start()), value))
 
