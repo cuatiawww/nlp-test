@@ -192,12 +192,27 @@ _UNCLOSED_ANCHOR = re.compile(
 )
 
 
+_FONT_SOURCE = re.compile(r"<font\b[^>]*>.*?</font>", re.IGNORECASE | re.DOTALL)
+_URL_TOKEN = re.compile(r"https?://\S+")
+
+
 def strip_embedded_markup(text: str) -> str:
-    """Drop anchor tags, including an unclosed ``<a href=`` left in a title."""
-    if not text or "<" not in text:
+    """Drop RSS chrome so a Google News snippet is not the article.
+
+    The source credit inside ``<font>`` is the republisher, not the outbreak.
+    Anchor text is kept. URLs are removed so a gazetteer name inside a token
+    cannot become the event location.
+    """
+    if not text:
         return text or ""
-    cleaned = _WELL_FORMED_ANCHOR.sub(" ", text)
+    cleaned = text.replace("&nbsp;", " ").replace("\u00a0", " ")
+    if "<" not in cleaned and "http" not in cleaned.casefold():
+        return re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = _FONT_SOURCE.sub(" ", cleaned)
+    cleaned = _WELL_FORMED_ANCHOR.sub(" ", cleaned)
     cleaned = _UNCLOSED_ANCHOR.sub(" ", cleaned)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = _URL_TOKEN.sub(" ", cleaned)
     return re.sub(r"[ \t]{2,}", " ", cleaned)
 
 
@@ -426,6 +441,31 @@ EXTERNAL_COUNTRY_ALIASES: dict[str, str] = {
     "malawi": "Malawi",
     "zambia": "Zambia",
     "zimbabwe": "Zimbabwe",
+    "inggris raya": "United Kingdom",
+    "denmark": "Denmark",
+    "lithuania": "Lithuania",
+    "latvia": "Latvia",
+    "estonia": "Estonia",
+    "belanda": "Netherlands",
+    "netherlands": "Netherlands",
+    "belgia": "Belgium",
+    "belgium": "Belgium",
+    "swedia": "Sweden",
+    "sweden": "Sweden",
+    "norwegia": "Norway",
+    "norway": "Norway",
+    "finlandia": "Finland",
+    "finland": "Finland",
+    "polandia": "Poland",
+    "poland": "Poland",
+    "austria": "Austria",
+    "swiss": "Switzerland",
+    "switzerland": "Switzerland",
+    "portugal": "Portugal",
+    "yunani": "Greece",
+    "greece": "Greece",
+    "irlandia": "Ireland",
+    "ireland": "Ireland",
 }
 
 _OUTBREAK_COUNTRY_NEAR = re.compile(
@@ -623,7 +663,7 @@ def folded_location_index() -> dict[str, str]:
 
 
 CONTINENT_AND_REGION_LABELS = {
-    "asia", "africa", "europe", "oceania", "antarctica",
+    "asia", "africa", "europe", "eropa", "oceania", "antarctica",
     "southeast asia", "south east asia", "east asia", "south asia",
     "west asia", "central asia", "north america", "south america",
     "central america", "middle east", "asean", "asean / asia",
@@ -679,6 +719,57 @@ _ORG_HQ_AFFILIATION = re.compile(
     r")",
     re.IGNORECASE,
 )
+
+
+_PUBLISHER_ADMIN = re.compile(
+    r"\bpemerintah\s+(?:kabupaten|kota|provinsi|kecamatan|daerah)\s+"
+    r"(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){0,4}",
+    re.UNICODE,
+)
+_PLACE_CUE_BEFORE = re.compile(
+    r"(?:di|ke|dari|in|at|from|of|kabupaten|kota|provinsi|province|city|regency|district)\s+$",
+    re.IGNORECASE,
+)
+_PLACE_CUE_AFTER = re.compile(
+    r"^\s*[,:]?\s*(?:[0-9]+|mencatat|melaporkan|mencatatkan|memiliki|menjadi|became|"
+    r"recorded|report(?:ed|s)?|confirm(?:ed|s)?|mengonfirmasi)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_country_canonical(name: str) -> bool:
+    folded = name.casefold()
+    if folded in {item.casefold() for item in config.ASEAN_COUNTRIES}:
+        return True
+    return any(str(value).casefold() == folded for value in COUNTRY_ALIASES.values())
+
+
+def place_mention_is_event(text: str, name: str, start: int) -> bool:
+    """A title-case village is not an outbreak place.
+
+    ``Pemerintah Kabupaten ...`` is the republisher. A one-word place still
+    counts when it is a country, or when the sentence ties it to a count or
+    a geographic cue (``di Bandung``, ``Bandung mencatat``, ``Lithuania 23``).
+    """
+
+    raw = str(name or "")
+    if not raw or not text:
+        return False
+    end = start + len(raw)
+    for match in _PUBLISHER_ADMIN.finditer(text):
+        if match.start() <= start and end <= match.end():
+            return False
+    if " " in raw:
+        return True
+    folded = raw.casefold()
+    country = str(config.LOCATION_COUNTRIES.get(raw) or "")
+    if country and folded == country.casefold():
+        return True
+    if _is_country_canonical(raw):
+        return True
+    before = text[max(0, start - 32): start]
+    after = text[end: end + 40]
+    return bool(_PLACE_CUE_BEFORE.search(before) or _PLACE_CUE_AFTER.search(after))
 
 
 def _mention_is_org_affiliation(text: str, start: int, end: int) -> bool:
@@ -1568,6 +1659,8 @@ def extract_location(
             for match in re.finditer(pattern_str, compact_text, flags):
                 if not is_usable_place_name(canonical, compact_text, match.start()):
                     continue
+                if not place_mention_is_event(compact_text, canonical, match.start()):
+                    continue
                 hits.append((canonical, match.start()))
 
     location_index = folded_location_index()
@@ -1601,6 +1694,8 @@ def extract_location(
                 if loc.lower() == "mexico" and raw_position >= 4 and compact_text[raw_position - 4:raw_position].lower() == "new ":
                     continue
             if not is_usable_place_name(loc, compact_text, raw_position):
+                continue
+            if not place_mention_is_event(compact_text, loc, raw_position):
                 continue
             hits.append((loc, raw_position))
 
@@ -1733,6 +1828,8 @@ def extract_all_locations(
             for match in re.finditer(pattern_str, compact_text, flags):
                 if not is_usable_place_name(canonical, compact_text, match.start()):
                     continue
+                if not place_mention_is_event(compact_text, canonical, match.start()):
+                    continue
                 hits.append((canonical, match.start()))
 
     location_index = folded_location_index()
@@ -1762,6 +1859,8 @@ def extract_all_locations(
                 if loc.lower() == "mexico" and raw_position >= 4 and compact_text[raw_position - 4:raw_position].lower() == "new ":
                     continue
             if not is_usable_place_name(loc, compact_text, raw_position):
+                continue
+            if not place_mention_is_event(compact_text, loc, raw_position):
                 continue
             hits.append((loc, raw_position))
 
@@ -3082,9 +3181,12 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
     case_label = _runtime_metric_label_pattern("metric_case")
     localized_patterns = {
         "case_count": [
-            rf"(?<![A-Za-z0-9])({num_token})(?:\s+[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/,.'-]*){{0,7}}\s*{case_label}(?!\w)"
+            rf"(?<![A-Za-z0-9])({num_token})(?:-an)?(?:\s+[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/,.'-]*){{0,7}}\s*{case_label}(?!\w)"
             r"(?!\s*(?:telah|sudah|yang|were|was|have|has|of)?\s*"
             r"(?:meninggal|kematian|tewas|died|death|deaths|fatalities|tử\s+vong)\b)",
+            rf"({num_token})-an\s+orang\s+(?:kena\s+)?(?:infeksi|infected)\b",
+            rf"\b({num_token})\s+(?:kasus|cases?|kes|pasien|patients?|infections?)\b",
+            rf"(?:terinfeksi|infected|wabah|outbreak).{{0,120}}?(?:lebih\s+dari|more\s+than|over)\s+({num_token})\s+orang\b",
             rf"(?:cases?|infections?|kasus|patients?|warga)\s*(?:of\s+[a-z-]+\s*)?\(\s*({num_token})\s*\)",
             rf"(?:with|logged|recorded|reported|confirms?|confirmed|total of|mencatat|melaporkan|sebanyak|ghi\s+nhận|có|nearly|about|around|approximately|more than|over|reached)\s+({num_token})\s+(?:[A-Za-z][A-Za-z0-9\u00C0-\u024F\u1EA0-\u1EFF/-]*\s+){{0,6}}(?:infections?|cases?|kasus|warga|pasien|ca\s+mắc|ca|suspected)",
             rf"(?:cases?|infections?|kasus).{{0,90}}(?:rose|climbed|increased|jumped|naik).{{0,50}}to\s+({num_token})",
