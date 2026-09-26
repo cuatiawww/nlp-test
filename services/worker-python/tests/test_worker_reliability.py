@@ -65,9 +65,11 @@ class WorkerReliabilityTests(unittest.TestCase):
 
     def test_continuous_nlp_payload_includes_source_url(self):
         response = Mock()
-        response.raise_for_status.return_value = None
+        response.status_code = 200
+        response.ok = True
+        response.headers = {}
         response.json.return_value = {"disease_classification": "Dengue"}
-        with patch.object(worker.requests, "post", return_value=response) as post:
+        with patch("requests.post", return_value=response) as post:
             worker.call_nlp(
                 "An Giang logged 1,240 dengue cases.",
                 "rss",

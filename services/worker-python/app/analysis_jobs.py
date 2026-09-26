@@ -425,29 +425,72 @@ def _prepare_text_for_nlp(extracted, max_chars=None):
     combined = f"{title}\n\n{content[:max_chars]}".strip() if title else content[:max_chars]
     return combined[:max_chars]
 
-def analyze_article(extracted):
+def nlp_service_base() -> str:
+    return os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000").rstrip("/")
+
+
+def _post_nlp(url: str, payload: dict, timeout):
+    """POST without letting a 301/302 turn the call into GET.
+
+    A redirect that downgrades POST to GET lands on the same path as a
+    method mismatch and comes back as HTTP 405 Method Not Allowed.
+    """
     import requests
+    response = requests.post(url, json=payload, timeout=timeout, allow_redirects=False)
+    if response.status_code in {301, 302, 303, 307, 308}:
+        location = response.headers.get("Location")
+        if location:
+            response = requests.post(location, json=payload, timeout=timeout, allow_redirects=False)
+    return response
+
+
+def post_full_nlp(payload: dict, timeout, source_name: str = "URL Analyzer") -> dict:
+    """Call the shared pipeline. `/nlp/analyze` and `/nlp/analyze/raw` are the same handler.
+
+    Some gateways accept only `/nlp/analyze`. A 404 or 405 on the `/raw` path
+    is retried there instead of failing the article that was already fetched.
+    """
+    body = {
+        "source_type": payload.get("source_type") or "web",
+        "source_name": payload.get("source_name") or source_name,
+        "source_country": payload.get("source_country") or "",
+        "published_at": payload.get("published_at"),
+        "source_language": payload.get("source_language") or "",
+        "source_url": payload.get("source_url") or "",
+        "text": payload.get("text") or "",
+        "rules_only": False,
+        "historical_fast": False,
+    }
+    base = nlp_service_base()
+    last = None
+    for path in ("/nlp/analyze/raw", "/nlp/analyze"):
+        response = _post_nlp(base + path, body, timeout)
+        if response.status_code in {404, 405} and path != "/nlp/analyze":
+            last = response
+            continue
+        if not response.ok:
+            detail = response.text.replace("\n", " ").strip()[:240]
+            raise RuntimeError(f"NLP HTTP {response.status_code} {path}: {detail or response.reason}")
+        return response.json()
+    detail = (last.text if last is not None else "").replace("\n", " ").strip()[:240]
+    raise RuntimeError(f"NLP HTTP {getattr(last, 'status_code', 405)} /nlp/analyze/raw: {detail or 'Method Not Allowed'}")
+
+
+def analyze_article(extracted):
     # URL analysis uses the same full NLP contract as bulk and matrix workers.
-    endpoint = os.getenv("NLP_SERVICE_URL", "http://disease-nlp-python:8000").rstrip("/")
+
     text_payload = _prepare_text_for_nlp(extracted)
-    response = requests.post(
-        endpoint + "/nlp/analyze/raw",
-        json={
+    return post_full_nlp(
+        {
             "text": text_payload,
             "source_type": "web",
             "source_name": "URL Analyzer",
             "source_country": extracted.get("source_country"),
             "published_at": extracted.get("published_at"),
-            "rules_only": False,
-            "historical_fast": False,
             "source_url": extracted.get("url"),
         },
-        timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
+        (5, NLP_REQUEST_TIMEOUT_SECONDS),
     )
-    if not response.ok:
-        detail = response.text.replace("\n", " ").strip()[:240]
-        raise RuntimeError(f"NLP HTTP {response.status_code}: {detail or response.reason}")
-    return response.json()
 
 def _clean_iso_date(value):
     if not value or not isinstance(value, str):

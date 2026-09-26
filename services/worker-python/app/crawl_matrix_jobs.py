@@ -807,22 +807,19 @@ def analyze_article(article: dict) -> dict:
     """
     from .analysis_jobs import _prepare_text_for_nlp
 
-    response = requests.post(
-        NLP_SERVICE_URL + "/nlp/analyze/raw",
-        json={
+    from .analysis_jobs import post_full_nlp
+    payload = post_full_nlp(
+        {
             "text": _prepare_text_for_nlp(article),
             "source_type": article.get("source_type") or "news",
             "source_name": article.get("source_name"),
             "source_country": article.get("source_country") or "",
             "published_at": article.get("published_at"),
-            "rules_only": False,
-            "historical_fast": False,
             "source_url": article.get("url"),
         },
-        timeout=(5, NLP_REQUEST_TIMEOUT_SECONDS),
+        (5, NLP_REQUEST_TIMEOUT_SECONDS),
+        source_name=article.get("source_name") or "manual crawl",
     )
-    response.raise_for_status()
-    payload = response.json()
     return pipeline_analysis_to_matrix(payload.get("data") or payload)
 
 

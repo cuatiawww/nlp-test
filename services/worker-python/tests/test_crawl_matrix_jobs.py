@@ -301,9 +301,11 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
     def test_analyze_article_passes_title_and_source_country(self):
         from unittest.mock import Mock, patch
         response = Mock()
+        response.status_code = 200
+        response.ok = True
+        response.headers = {}
         response.json.return_value = {"disease_classification": ["Dengue"]}
-        response.raise_for_status.return_value = None
-        with patch("app.crawl_matrix_jobs.requests.post", return_value=response) as post:
+        with patch("requests.post", return_value=response) as post:
             analyze_article({
                 "title": "Sharp dengue surge",
                 "content": "Health officials reported dengue cases.",

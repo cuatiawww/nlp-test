@@ -237,6 +237,23 @@ class AnalysisJobTests(unittest.TestCase):
         self.assertFalse(sent["historical_fast"])
         self.assertEqual(sent["source_url"], "https://example.org/news")
         self.assertIn("/nlp/analyze/raw", post.call_args.args[0])
+        self.assertFalse(post.call_args.kwargs["allow_redirects"])
+
+    def test_raw_405_retries_the_same_pipeline_on_analyze(self):
+        denied = Mock(status_code=405, ok=False, headers={}, reason="Method Not Allowed")
+        denied.text = '{"detail":"Method Not Allowed"}'
+        allowed = Mock(status_code=200, ok=True, headers={})
+        allowed.json.return_value = {"disease_classification": "COVID-19", "case_count": 3642}
+        with patch("requests.post", side_effect=[denied, allowed]) as post:
+            result = analyze_article({
+                "title": "Thailand",
+                "content": "Thailand recorded 3,642 cumulative Covid-19 cases.",
+                "url": "https://globalnation.inquirer.net/example",
+            })
+        self.assertEqual(result["case_count"], 3642)
+        self.assertTrue(post.call_args_list[0].args[0].endswith("/nlp/analyze/raw"))
+        self.assertTrue(post.call_args_list[1].args[0].endswith("/nlp/analyze"))
+        self.assertFalse(post.call_args_list[1].args[0].endswith("/nlp/analyze/raw"))
 
     def test_url_worker_spawns_manual_crawler_in_the_existing_service(self):
         from app.analysis_jobs import spawn_matrix_worker_enabled, analysis_prefetch, QUEUE
