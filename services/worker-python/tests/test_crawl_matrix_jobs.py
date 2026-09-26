@@ -70,6 +70,15 @@ class CrawlMatrixWorkerTests(unittest.TestCase):
         self.assertIn("Dengue surge", text)
         self.assertIn("Officials reported cases.", text)
 
+    def test_prepare_text_strips_unclosed_google_news_anchor(self):
+        text = prepare_text_for_nlp({
+            "title": "<a href=https://news.google.com/rss/articles/CBMi Three dead from HFMD",
+            "content": "Vietnam recorded 860 cases.",
+        })
+        self.assertIn("Three dead from HFMD", text)
+        self.assertNotIn("<a href", text)
+        self.assertIn("860 cases", text)
+
     def test_article_workers_stay_bounded(self):
         from app import crawl_matrix_jobs as jobs
         self.assertGreaterEqual(jobs.ARTICLE_WORKERS, 1)

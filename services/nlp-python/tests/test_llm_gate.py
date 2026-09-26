@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from app import config
-from app.llm_gate import should_escalate_to_llm, truncate_for_llm
+from app.llm_gate import (
+    should_escalate_to_llm,
+    text_has_unbound_metric_evidence,
+    truncate_for_llm,
+)
 from app.deepseek import verify_ground_truth_guardrails, _scoped_metric_count
 from app.agent import _is_quota_failure
 
@@ -185,6 +189,51 @@ class LlmGateTests(unittest.TestCase):
     def test_truncate_bounds_prompt(self):
         with patch.object(config, "DEEPSEEK_PROMPT_CHARS", 20):
             self.assertLessEqual(len(truncate_for_llm("alpha beta gamma delta epsilon")), 20)
+
+    def test_high_confidence_unbound_metrics_still_escalate(self):
+        """Continuous rows pin confidence at 0.85 once a disease is grounded."""
+        with patch.object(config, "AGENT_ENABLED", True):
+            self.assertTrue(should_escalate_to_llm(
+                disease="Dengue",
+                confidence=0.90,
+                extracted=["Dengue"],
+                case_count=0,
+                death_count=0,
+                is_health_related=True,
+                unbound_metrics=True,
+            ))
+            self.assertFalse(should_escalate_to_llm(
+                disease="Dengue",
+                confidence=0.90,
+                extracted=["Dengue"],
+                case_count=0,
+                death_count=0,
+                is_health_related=True,
+            ))
+
+    def test_unbound_metrics_stay_off_without_agent(self):
+        with patch.object(config, "AGENT_ENABLED", False):
+            self.assertFalse(should_escalate_to_llm(
+                disease="Dengue",
+                confidence=0.40,
+                extracted=["Dengue"],
+                case_count=0,
+                death_count=0,
+                is_health_related=True,
+                unbound_metrics=True,
+            ))
+
+    def test_unbound_metric_evidence_ignores_years_and_covid_suffix(self):
+        self.assertTrue(text_has_unbound_metric_evidence(
+            "An Giang logged 1,240 dengue cases and 3 deaths."
+        ))
+        self.assertTrue(text_has_unbound_metric_evidence("Three dead from HFMD in Vietnam."))
+        self.assertFalse(text_has_unbound_metric_evidence(
+            "In 2026 dengue cases rose across the province."
+        ))
+        self.assertFalse(text_has_unbound_metric_evidence(
+            "COVID-19 preparedness update with no incident total."
+        ))
 
     def test_outbreak_with_zero_metrics_triggers_llm(self):
         """Vietnam/Mimika Case: Outbreak news with 0 counts extracted locally must trigger LLM verification."""

@@ -779,9 +779,25 @@ def extract_article(item: dict) -> dict:
     }
 
 
+_ANCHOR_TAG = re.compile(r"</?a\b[^>]*>", re.IGNORECASE)
+_UNCLOSED_ANCHOR = re.compile(
+    r"<a\s+href\s*=\s*(?:\"[^\"]{0,500}?\"|'[^']{0,500}?'|https?://[^\s\"'<>]+)",
+    re.IGNORECASE,
+)
+
+
+def _strip_embedded_anchors(value: str) -> str:
+    text = value or ""
+    if "<" not in text:
+        return text.strip()
+    text = _ANCHOR_TAG.sub(" ", text)
+    text = _UNCLOSED_ANCHOR.sub(" ", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
 def prepare_text_for_nlp(article: dict, max_chars: int = 35000) -> str:
-    title = str(article.get("title") or "").strip()
-    content = str(article.get("content") or "").strip()
+    title = _strip_embedded_anchors(str(article.get("title") or ""))
+    content = _strip_embedded_anchors(str(article.get("content") or ""))
     combined = f"{title}\n\n{content}".strip() if title else content
     return combined[:max_chars]
 

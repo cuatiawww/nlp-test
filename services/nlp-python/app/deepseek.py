@@ -551,7 +551,14 @@ def validate_and_correct_events(
 
     focus = list(dict.fromkeys(review_focus or ["disease", "location", "counts", "outbreak status"]))
     is_complex = "multi-country" in focus or "outbreak status" in focus
-    prompt_limit = config.DEEPSEEK_PROMPT_CHARS if is_complex else min(config.DEEPSEEK_PROMPT_CHARS, 2800)
+    counts_missing = (
+        "counts" in focus and draft_case_count <= 0 and draft_death_count <= 0
+    )
+    prompt_limit = (
+        config.DEEPSEEK_PROMPT_CHARS
+        if is_complex or counts_missing
+        else min(config.DEEPSEEK_PROMPT_CHARS, 2800)
+    )
     truncated_text = _compact_review_body(text, prompt_limit)
 
     system_prompt = (

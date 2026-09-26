@@ -4,7 +4,11 @@ from functools import partial
 from typing import Optional, Any
 
 from . import config, extractors
-from .llm_gate import resolve_agent_invocation_status, should_escalate_to_llm
+from .llm_gate import (
+    resolve_agent_invocation_status,
+    should_escalate_to_llm,
+    text_has_unbound_metric_evidence,
+)
 from .rules_first_resolver import apply_resolution_to_provenance, resolve_disease_label
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
@@ -592,8 +596,20 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     if len(mentioned_countries) > 1 or is_official_bulletin:
         review_focus.append("multi-country")
 
-    # Cheap local/rules NLP first. DeepSeek only on UNKNOWN / low confidence /
-    # needs_review / zero metrics on outbreak — never because an article listed more than one disease.
+    # Cheap local/rules NLP first. DeepSeek is the rear correction gate:
+    # UNKNOWN / low confidence / needs_review / zero metrics, plus a known
+    # disease whose case and death counts stayed 0 while the text still
+    # states a number. Never escalate only because an article listed more than one disease.
+    known_disease = bool(disease and disease.strip().upper() != "UNKNOWN")
+    unbound_metrics = (
+        known_disease
+        and prelim_cases <= 0
+        and prelim_deaths <= 0
+        and (
+            text_has_unbound_metric_evidence(text)
+            or text_has_unbound_metric_evidence(analysis_text)
+        )
+    )
     gate_confidence = confidence
     if is_policy_content and (prelim_cases > 0 or prelim_deaths > 0):
         # Entity extraction promotes a source-grounded disease to 0.85 before
@@ -623,6 +639,7 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         death_count=prelim_deaths,
         has_location_conflict=has_location_conflict,
         is_health_related=is_health_related,
+        unbound_metrics=unbound_metrics,
     )
     llm_verified_sub_events = []
     llm_review_applied = False

@@ -39,6 +39,33 @@ class WorkerReliabilityTests(unittest.TestCase):
         self.assertEqual(clause.count("%s"), 6)
         self.assertEqual(len(params), 6)
 
+    def test_message_source_url_prefers_url_then_canonical(self):
+        self.assertEqual(
+            worker.message_source_url({"url": " https://example.org/a ", "canonical_url": "https://example.org/b"}),
+            "https://example.org/a",
+        )
+        self.assertEqual(
+            worker.message_source_url({"canonical_url": "https://example.org/b"}),
+            "https://example.org/b",
+        )
+        self.assertEqual(worker.message_source_url({}), "")
+
+    def test_continuous_nlp_payload_includes_source_url(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"disease_classification": "Dengue"}
+        with patch.object(worker.requests, "post", return_value=response) as post:
+            worker.call_nlp(
+                "An Giang logged 1,240 dengue cases.",
+                "rss",
+                "feed",
+                "2026-09-01",
+                "en",
+                "Vietnam",
+                "https://example.org/a",
+            )
+        self.assertEqual(post.call_args.kwargs["json"]["source_url"], "https://example.org/a")
+
     def test_retry_delay_is_bounded_exponential(self):
         with patch.object(worker, "RETRY_BASE_MILLISECONDS", 1000), patch.object(worker, "RETRY_MAX_MILLISECONDS", 5000):
             self.assertEqual(worker.retry_delay_milliseconds(1), 1000)

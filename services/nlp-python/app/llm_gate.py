@@ -3,9 +3,39 @@
 from __future__ import annotations
 
 import logging
+import re
 from . import config
 
 logger = logging.getLogger(__name__)
+
+# A count token sitting next to a case/death label. Years and the "19" in
+# COVID-19 are not metric evidence.
+_UNBOUND_METRIC = re.compile(
+    r"(?<![-A-Za-z])(\d[\d.,]*)(?:\s+[A-Za-z][\w'-]*){0,6}\s+"
+    r"(?:kasus|cases?|infections?|deaths?|dead|meninggal|kematian|"
+    r"tử\s*vong|ca\s+mắc|ca\s+tử|เสียชีวิต)"
+    r"|(?:kasus|cases?|deaths?|dead|meninggal|kematian|ca\s+mắc)"
+    r"\s+(?:sebanyak\s+|reaching\s+|of\s+|mencapai\s+)?"
+    r"(?<![-A-Za-z])(\d[\d.,]*)"
+    r"|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"satu|dua|tiga|empat|lima)\s+dead\b",
+    re.IGNORECASE,
+)
+
+
+def _year_token(token: str) -> bool:
+    digits = re.sub(r"[^\d]", "", token or "")
+    return len(digits) == 4 and digits.startswith(("19", "20"))
+
+
+def text_has_unbound_metric_evidence(text: str | None) -> bool:
+    """True when the article states a case or death figure the rules did not bind."""
+    for match in _UNBOUND_METRIC.finditer(text or ""):
+        token = match.group(1) or match.group(2) or ""
+        if token and _year_token(token):
+            continue
+        return True
+    return False
 
 
 def should_escalate_to_llm(
@@ -28,18 +58,14 @@ def should_escalate_to_llm(
     death_count: int = 0,
     has_location_conflict: bool = False,
     is_health_related: bool = False,
+    unbound_metrics: bool = False,
 ) -> bool:
     """Return True ONLY for valid outbreak candidates requiring rear-gate validation/correction."""
     # 1. Front-Gate Hard Rejections (Zero Token Waste):
     # - Non-health topics (skripsi, pertanian, judi online, militer, politik)
     # - NCD-only articles (kanker, diabetes, stroke) without infectious outbreak
     # - Pure policy/market/administrative articles without an active outbreak
-    if historical_fast or is_noisy or non_health_topic or ncd_only:
-        return False
-    # DeepSeek is a bounded review/override layer, never the primary
-    # classifier. Do not spend tokens on non-health or already high-confidence
-    # rows, even when they are official bulletins or contain many locations.
-    if not is_health_related or confidence >= config.DEEPSEEK_TRIGGER_CONFIDENCE:
+    if historical_fast or is_noisy or non_health_topic or ncd_only or not is_health_related:
         return False
     # Informational/policy articles without incident metrics remain a
     # zero-token path. A health article that contains cases or deaths must
@@ -50,12 +76,23 @@ def should_escalate_to_llm(
         and not (is_explicit_outbreak or is_official_bulletin)
         and case_count <= 0
         and death_count <= 0
+        and not unbound_metrics
     ):
         return False
     if not config.AGENT_ENABLED:
         return False
 
     unknown = not disease or disease.strip().upper() == "UNKNOWN"
+    # Rules often pin confidence at 0.85 as soon as a disease name is
+    # source-grounded, before any case or death number is bound. That row
+    # is exactly what the rear gate is for: correct the miss, do not replace
+    # the rules extractor.
+    if unbound_metrics and not unknown and case_count <= 0 and death_count <= 0:
+        return True
+    # Already-high-confidence rows stay local, including official bulletins,
+    # unless the unbound-metric carve-out above applied.
+    if confidence >= config.DEEPSEEK_TRIGGER_CONFIDENCE:
+        return False
 
     # Strictly guard: If local pipeline found NO candidates and NO disease,
     # do NOT escalate (save 100% tokens on non-health/junk articles).
