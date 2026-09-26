@@ -47,6 +47,7 @@ from pydantic import BaseModel
 
 from .schemas import AnalyzeRequest, AnalyzeResponse
 from .surveillance_extraction import SurveillanceOutput, surveillance_from_analysis
+from .registry_routes import router as registry_router
 from . import pipeline
 
 logging.basicConfig(level=logging.INFO)
@@ -60,6 +61,7 @@ _INFERENCE_SEM = threading.Semaphore(max(1, int(os.getenv("NLP_INFERENCE_CONCURR
 
 
 app = FastAPI(title="Disease NLP Service", version="0.3.0")
+app.include_router(registry_router)
 
 
 def _full_pipeline_payload(payload: AnalyzeRequest) -> AnalyzeRequest:
