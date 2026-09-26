@@ -787,11 +787,14 @@ _UNCLOSED_ANCHOR = re.compile(
 
 
 def _strip_embedded_anchors(value: str) -> str:
-    text = value or ""
-    if "<" not in text:
-        return text.strip()
+    text = (value or "").replace("&nbsp;", " ").replace("\u00a0", " ")
+    if "<" not in text and "http" not in text.casefold():
+        return re.sub(r"[ \t]{2,}", " ", text).strip()
+    text = re.sub(r"<font\b[^>]*>.*?</font>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = _ANCHOR_TAG.sub(" ", text)
     text = _UNCLOSED_ANCHOR.sub(" ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"https?://\S+", " ", text)
     return re.sub(r"[ \t]{2,}", " ", text).strip()
 
 

@@ -1960,6 +1960,34 @@ _CAP_PLACE = re.compile(
 )
 
 
+_CLAUSE_NUMBER_WORDS = {
+    "satu": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5,
+    "enam": 6, "tujuh": 7, "delapan": 8, "sembilan": 9, "sepuluh": 10,
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+}
+_ORANG_NOT_CASE = re.compile(
+    r"\b(?:rawat\s+inap|dirawat|penduduk|populasi|population|responden)\b",
+    re.IGNORECASE,
+)
+_ORANG_OUTBREAK = re.compile(
+    r"\b(?:kasus|pasien|patients?|terinfeksi|terjangkit|wabah|outbreak|infected|infeksi|kena)\b",
+    re.IGNORECASE,
+)
+_MULTI_COUNTRY_TOTAL = re.compile(r"\bdi\s+\d+\s+negara\b", re.IGNORECASE)
+
+
+def _clause_count_token() -> str:
+    words = "|".join(re.escape(word) for word in sorted(_CLAUSE_NUMBER_WORDS, key=len, reverse=True))
+    return f"(?:{_NUMBER}|{words})"
+
+
+def _clause_count_value(raw: str, multiplier: str = "") -> int:
+    word = _CLAUSE_NUMBER_WORDS.get((raw or "").casefold())
+    if word:
+        return word
+    return _number(raw, multiplier)
+
+
 def _clause_case_pattern() -> re.Pattern[str]:
     terms = {word.casefold() for word in _CLAUSE_CASE_WORDS if word}
     terms.update(term.strip().casefold() for term in config.get_lexicon_terms("metric_case") if term and term.strip())
@@ -1967,8 +1995,8 @@ def _clause_case_pattern() -> re.Pattern[str]:
     word = "(?:" + "|".join(re.escape(term) for term in ordered) + ")"
     return re.compile(
         # The count must be its own token. A digit inside a disease code such
-        # as H5N1 is not a case total.
-        rf"(?<![\w])(?P<count>{_NUMBER})(?![\w])(?:\s+(?P<multiplier>ribu|juta|million|thousand))?\s+"
+        # as H5N1 is not a case total. ``100-an`` is an approximate total.
+        rf"(?<![\w])(?P<count>{_clause_count_token()})(?![\w])(?:-an)?(?:\s+(?P<multiplier>ribu|juta|million|thousand))?\s+"
         rf"(?:[\wÀ-ÿ'’.-]+\s+){{0,4}}?(?:{word})(?!\w)",
         re.IGNORECASE | re.UNICODE,
     )
@@ -2003,6 +2031,8 @@ def _place_is_usable(name: str) -> bool:
     folded = name.casefold().strip()
     if not folded or folded in _PLACE_FUNCTION_WORDS or folded in NON_GEOGRAPHIC_TERMS:
         return False
+    if folded in extractors.CONTINENT_AND_REGION_LABELS:
+        return False
     try:
         aliases = extractors.active_disease_aliases()
     except Exception:
@@ -2017,10 +2047,32 @@ def _link_surface_place(
     linker: GazetteerLinker,
     country_hint: str,
     context: str,
-) -> LinkedLocation:
+) -> Optional[LinkedLocation]:
     linked = linker.link(name, context=context, evidence=context)
     if linked:
         return linked
+    # "Disease Prevention" inside an organization name is not a city.
+    # A one-word unknown place can still carry the count when a locative
+    # names it ("di Banyuwangi") or the window calls it a city or province
+    # ("Lampang became the city"). Multi-word admin names use the admin matcher.
+    stripped = name.strip()
+    if " " in stripped:
+        return None
+    # "907 kasus di Banyuwangi" names a place the gazetteer may not list.
+    # The locative has to sit on this name. A city word anywhere in the
+    # window is a separate cue ("Lampang became the city").
+    locative = re.search(
+        rf"\b(?:di|ke|dari|in|at|from)\s+{re.escape(stripped)}\b",
+        context or "",
+        re.IGNORECASE,
+    )
+    named_admin = re.search(
+        r"\b(?:city|cities|kota|province|provinsi|kabupaten|town|regency|district|kecamatan)\b",
+        context or "",
+        re.IGNORECASE,
+    )
+    if not locative and not named_admin:
+        return None
     return LinkedLocation(
         name=name.strip(),
         country=country_hint or "",
@@ -2046,6 +2098,8 @@ def _clause_place_candidates(
             continue
         if not _place_is_usable(linked.name):
             continue
+        if not extractors.place_mention_is_event(source, source[start:end], start):
+            continue
         chosen.append((start, end, linked))
 
     def overlaps_chosen(start: int, end: int) -> bool:
@@ -2057,7 +2111,12 @@ def _clause_place_candidates(
         name = match.group("name").strip()
         if not _place_is_usable(name) or overlaps_chosen(start, end):
             continue
-        chosen.append((start, end, _link_surface_place(name, linker, country_hint, sentence)))
+        if not extractors.place_mention_is_event(source, name, start):
+            continue
+        linked = _link_surface_place(name, linker, country_hint, sentence)
+        if linked is None:
+            continue
+        chosen.append((start, end, linked))
     for match in _CAP_PLACE.finditer(sentence):
         start = sentence_start + match.start("name")
         end = sentence_start + match.end("name")
@@ -2066,7 +2125,27 @@ def _clause_place_candidates(
             continue
         if not _place_is_usable(name) or overlaps_chosen(start, end):
             continue
-        chosen.append((start, end, _link_surface_place(name, linker, country_hint, sentence)))
+        if not extractors.place_mention_is_event(source, name, start):
+            continue
+        linked = _link_surface_place(name, linker, country_hint, sentence)
+        if linked is None:
+            # "Di Latvia" is a locative plus the place, not a two-word city.
+            parts = name.split()
+            if len(parts) > 1 and parts[0].casefold() in {"di", "in", "at", "dari", "ke", "from"}:
+                cut = name.find(parts[1])
+                if cut > 0:
+                    name = name[cut:]
+                    start += cut
+                    end = start + len(name)
+                    if (
+                        _place_is_usable(name)
+                        and not overlaps_chosen(start, end)
+                        and extractors.place_mention_is_event(source, name, start)
+                    ):
+                        linked = _link_surface_place(name, linker, country_hint, sentence)
+        if linked is None:
+            continue
+        chosen.append((start, end, linked))
     return chosen
 
 
@@ -2098,6 +2177,13 @@ def _count_window(
         if idx > 0 and idx + 1 < len(source) and source[idx - 1].isdigit() and source[idx + 1].isdigit():
             continue
         if idx < count_start and _COUNT_INTRODUCER.match(source[idx + 1: idx + 40]):
+            continue
+        # "Di Latvia, ... ada tiga kasus" names the place before the clause.
+        if idx < count_start and re.fullmatch(
+            r"\s*(?:di|in|at|dari|ke|from|ở|tại)?\s*"
+            r"(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*(?:\s+(?-i:[A-ZÀ-ÖØ-Ý])[\wÀ-ÿ'’.-]*){0,3}\s*",
+            source[sentence_start:idx],
+        ):
             continue
         if idx < count_start:
             left = idx + 1
@@ -2181,7 +2267,28 @@ def _bind_counts_to_clause_places(
             continue
         if _looks_like_case_breakdown(source, match.start("count")):
             continue
-        value = _number(match.group("count"), match.groupdict().get("multiplier") or "")
+        value = _clause_count_value(match.group("count"), match.groupdict().get("multiplier") or "")
+        if value <= 0:
+            continue
+        matches.append((match.start(), match.end(), match.start("count"), match.end("count"), value))
+    orang_pattern = re.compile(
+        rf"(?<![\w])(?P<count>{_clause_count_token()})(?![\w])(?:-an)?\s+orang\b",
+        re.IGNORECASE | re.UNICODE,
+    )
+    for match in orang_pattern.finditer(source or ""):
+        if any(start <= match.start("count") < end for _, _, start, end, _ in matches):
+            continue
+        sentence_start, sentence_end = extractors._metric_sentence_bounds(
+            source, match.start("count"), match.end("count")
+        )
+        sentence = source[sentence_start:sentence_end]
+        if not _ORANG_OUTBREAK.search(sentence):
+            continue
+        if _ORANG_NOT_CASE.search(source[match.end("count"): match.end("count") + 48]):
+            continue
+        if _ORANG_NOT_CASE.search(source[max(0, match.start("count") - 48): match.start("count")]):
+            continue
+        value = _clause_count_value(match.group("count"))
         if value <= 0:
             continue
         matches.append((match.start(), match.end(), match.start("count"), match.end("count"), value))
@@ -2255,6 +2362,10 @@ def _bind_counts_to_clause_places(
             source, window[0], window[1], locations, linker, country_hint
         )
         place = _place_for_count(count_start, count_end, places, window)
+        if place is not None and _MULTI_COUNTRY_TOTAL.search(source[window[0]:window[1]]):
+            # "106 kasus ... di 13 negara Eropa dan Inggris" is the roundup
+            # total, not 106 cases in the one country named at the end.
+            place = None
         if place is None:
             kept = [
                 relation for relation in kept
