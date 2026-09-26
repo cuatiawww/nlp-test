@@ -327,6 +327,10 @@ export type AnalyzeResponse = {
   cases_display?: string | null;
   deaths_display?: string | null;
   display_dimension?: string | null;
+  agent_enabled?: boolean;
+  agent_invocation_status?: string;
+  disease_resolution_source?: string;
+  model_rule_conflict?: boolean;
   sources: Record<string, string>;
   cached?: boolean;
 };

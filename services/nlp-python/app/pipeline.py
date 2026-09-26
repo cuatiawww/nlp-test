@@ -5,6 +5,7 @@ from typing import Optional, Any
 
 from . import config, extractors
 from .llm_gate import resolve_agent_invocation_status, should_escalate_to_llm
+from .rules_first_resolver import apply_resolution_to_provenance, resolve_disease_label
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
 from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
 from .translator import translate_and_extract
@@ -2897,6 +2898,50 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     )
     extractors.reset_location_resolution_stats(_location_resolution_token)
 
+    # Fase 2: finalize disease via the shared rules-first resolver so primary
+    # and multi-event paths share one provenance contract.
+    _evidence_corpus = f"{text} {analysis_text}"
+    _rule_candidates = [
+        item
+        for item in (extracted or [])
+        if item and extractors.disease_has_textual_evidence(str(item), _evidence_corpus)
+    ]
+    if disease and disease != "UNKNOWN" and disease not in _rule_candidates:
+        if extractors.disease_has_textual_evidence(str(disease), _evidence_corpus):
+            _rule_candidates = [disease, *_rule_candidates]
+    _model_snapshot = llm_review_disease if llm_review_applied else None
+    _disease_resolution = resolve_disease_label(
+        rule_candidates=_rule_candidates,
+        model_disease=_model_snapshot,
+        text=_evidence_corpus,
+        has_textual_evidence=extractors.disease_has_textual_evidence,
+    )
+    if _disease_resolution.source in {"rule", "rule_over_model", "unknown"}:
+        disease = _disease_resolution.disease
+    elif _disease_resolution.source == "model" and (not disease or disease == "UNKNOWN"):
+        disease = _disease_resolution.disease
+    disease_resolution_source = _disease_resolution.source
+    model_rule_conflict = _disease_resolution.model_rule_conflict
+    if _disease_resolution.needs_review:
+        needs_review = True
+    if model_rule_conflict and "model_rule_conflict" not in doc_validation_flags:
+        doc_validation_flags.append("model_rule_conflict")
+    if sub_events:
+        for _evt in sub_events:
+            _evt_rules = [getattr(_evt, "disease", None)] if getattr(_evt, "disease", None) else []
+            _evt_resolution = resolve_disease_label(
+                rule_candidates=_evt_rules,
+                model_disease=None,
+                text=getattr(_evt, "evidence", None) or _evidence_corpus,
+                has_textual_evidence=extractors.disease_has_textual_evidence,
+            )
+            _evt.provenance = apply_resolution_to_provenance(
+                getattr(_evt, "provenance", None),
+                _evt_resolution,
+            )
+            if _evt_resolution.model_rule_conflict:
+                _evt.needs_review = True
+
     return AnalyzeResponse(
         language=language,
         language_confidence=float(language_profile.get("confidence") or 0.0),
@@ -2990,6 +3035,8 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         deaths_display=collapsed.get("deaths_display"),
         display_dimension=collapsed.get("dimension"),
         agent_enabled=bool(config.AGENT_ENABLED),
+        disease_resolution_source=locals().get("disease_resolution_source", "unknown"),
+        model_rule_conflict=bool(locals().get("model_rule_conflict", False)),
         agent_invocation_status=resolve_agent_invocation_status(
             agent_enabled=bool(config.AGENT_ENABLED),
             gate_would_escalate=bool(should_use_deepseek) if config.AGENT_ENABLED else False,
