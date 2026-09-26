@@ -1929,7 +1929,8 @@ def _extract_range_relations(
 
 _CLAUSE_CASE_WORDS = (
     "cases", "case", "infections", "infection", "patients", "patient",
-    "kasus", "kes", "kaso", "ca mắc", "ca nhiễm",
+    "kasus", "kes", "kaso", "casos", "caso", "cas",
+    "ca mắc", "ca nhiễm", "ca",
     "ราย", "ករណី", "ກໍລະນີ", "လူနာ",
 )
 _PLACE_FUNCTION_WORDS = frozenset({
@@ -2073,6 +2074,12 @@ _LIST_CONJUNCTION = re.compile(
     r"\b(?:and|dan|serta|atau|or|và|และ|និង|ແລະ|နှင့်)\b",
     re.IGNORECASE | re.UNICODE,
 )
+# "West Java became the province with the most cases, with 63,748 cases."
+# The comma introduces the same subject's count. It is not a new place.
+_COUNT_INTRODUCER = re.compile(
+    r"\s*(?:with|dengan(?:\s+sebanyak)?|sebanyak|yakni|yaitu|với|avec|con|com|คือ|là)\b",
+    re.IGNORECASE | re.UNICODE,
+)
 
 
 def _count_window(
@@ -2089,6 +2096,8 @@ def _count_window(
     for match in re.finditer(r"[,;]", source[sentence_start:sentence_end]):
         idx = sentence_start + match.start()
         if idx > 0 and idx + 1 < len(source) and source[idx - 1].isdigit() and source[idx + 1].isdigit():
+            continue
+        if idx < count_start and _COUNT_INTRODUCER.match(source[idx + 1: idx + 40]):
             continue
         if idx < count_start:
             left = idx + 1
@@ -2122,7 +2131,10 @@ def _place_for_count(
         # that only introduces the sentence ("spreading in East Java, with 2,001").
         after = 0 if start >= count_end else 1
         distance = min(abs(count_start - end), abs(start - count_end))
-        if distance > 120:
+        # "became the province with the most cases, with N cases" names the
+        # place well before the count. A place after the count stays tight.
+        limit = 220 if after else 120
+        if distance > limit:
             continue
         if best is None or (after, distance) < (best[0], best[1]):
             best = (after, distance, linked)
@@ -2305,6 +2317,50 @@ def _bind_counts_to_clause_places(
             source_scope="article_local",
         ))
     return [*kept, *labeled]
+
+
+def promote_country_total(events: list) -> tuple[list, Any]:
+    """Keep a stated country total beside a different subnational count.
+
+    ``309,786 cases in Indonesia. West Java ... with 63,748 cases`` is two
+    events. The returned country event is the parent total. A zero-count
+    copy of that same country (usually the title) is dropped. The country
+    total itself stays in the list so it remains its own event.
+    """
+
+    def _cases(evt: Any) -> int:
+        return int(getattr(evt, "case_count", 0) or 0)
+
+    def _deaths(evt: Any) -> int:
+        return int(getattr(evt, "death_count", 0) or 0)
+
+    def _name(evt: Any) -> str:
+        return str(getattr(evt, "location_name", "") or "")
+
+    def _country(evt: Any) -> str:
+        return str(getattr(evt, "country", "") or "")
+
+    def _is_country(evt: Any) -> bool:
+        return bool(_country(evt)) and _name(evt).casefold() == _country(evt).casefold()
+
+    country_rows = [evt for evt in events if _cases(evt) > 0 and _is_country(evt)]
+    place_rows = [evt for evt in events if _cases(evt) > 0 and _country(evt) and not _is_country(evt)]
+    if not country_rows or not place_rows:
+        return events, None
+    country_row = max(country_rows, key=_cases)
+    if not any(_cases(evt) != _cases(country_row) for evt in place_rows):
+        return events, None
+    country_name = _name(country_row).casefold()
+    kept = [
+        evt for evt in events
+        if not (
+            _is_country(evt)
+            and _name(evt).casefold() == country_name
+            and _cases(evt) == 0
+            and _deaths(evt) == 0
+        )
+    ]
+    return kept, country_row
 
 
 def extract_metric_relations(

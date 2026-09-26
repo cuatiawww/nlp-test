@@ -372,6 +372,70 @@ def _assess_extract_quality(content: str, html: str = "") -> dict:
     }
 
 
+def _js_quoted(html: str, key: str) -> str:
+    """Read one quoted value from a Databoks `contentVariable` object."""
+    match = re.search(
+        rf'(?:"{re.escape(key)}"|{re.escape(key)})\s*:\s*"',
+        html or "",
+    )
+    if not match:
+        return ""
+    chars: list[str] = []
+    index = match.end()
+    source = html or ""
+    while index < len(source):
+        char = source[index]
+        if char == "\\":
+            if index + 1 >= len(source):
+                break
+            nxt = source[index + 1]
+            chars.append({"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "/": "/"}.get(nxt, nxt))
+            index += 2
+            continue
+        if char == '"':
+            break
+        chars.append(char)
+        index += 1
+    return html_lib.unescape("".join(chars)).strip()
+
+
+def _loosen_chart_prose(text: str) -> str:
+    text = re.sub(r"([.!?])(?=[A-Z(])", r"\1 ", text or "")
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+def _databoks_chart_article(html: str) -> tuple[str, str]:
+    """Return the chart title and narrative hidden in a Databoks script.
+
+    The visible page is the site ticker. Case and death figures are in
+    `contentVariable`, which the HTML text extractor drops with the script.
+    """
+    if not html or "contentVariable" not in html:
+        return "", ""
+    sample = html[html.find("contentVariable"): html.find("contentVariable") + 250_000]
+    title = _loosen_chart_prose(_js_quoted(sample, "data_nama"))
+    description = _loosen_chart_prose(_js_quoted(sample, "description_published"))
+    values = [part.strip() for part in _js_quoted(sample, "data_x").split(",") if part.strip()]
+    labels = [part.strip() for part in _js_quoted(sample, "data_y").split(",") if part.strip()]
+    ranks = ""
+    numeric = re.compile(r"\d+(?:[.,]\d+)?")
+    dated = re.compile(r"\d{1,2}-\d{1,2}-\d{4}")
+    if (
+        2 <= len(values) == len(labels) <= 40
+        and all(numeric.fullmatch(value.replace(" ", "")) for value in values)
+        and not any(dated.fullmatch(label) for label in labels[:3])
+    ):
+        blob = f"{title} {description}".casefold()
+        suffix = ""
+        if re.search(r"\b(?:suspected\s+)?(?:dengue\s+)?cases?\b|\bkasus\b", blob):
+            suffix = " cases"
+        elif re.search(r"\b(?:deaths?|kematian|meninggal)\b", blob):
+            suffix = " deaths"
+        ranks = "\n".join(f"{label}: {value}{suffix}" for label, value in zip(labels, values))
+    parts = [part for part in (description, ranks) if part]
+    return title, "\n".join(parts)
+
+
 def _extract_main_content(html: str, title_selector: str = "", url: str = "") -> tuple[str, str]:
     """Return title and boilerplate-free main content; never fall back to full body."""
     from bs4 import BeautifulSoup
@@ -491,6 +555,13 @@ def _extract_main_content(html: str, title_selector: str = "", url: str = "") ->
             content = content_parts[0].strip()
 
     content = _preserve_paragraphs(content or "")
+    chart_title, chart_body = _databoks_chart_article(html)
+    if chart_body and len(chart_body.split()) >= 8:
+        # The chart script is the article. The visible ticker is site chrome.
+        content = chart_body
+        generic_title = not title or "center for economic and business data" in title.casefold()
+        if chart_title and generic_title:
+            title = chart_title
     lower_title = (title or "").lower()
     lower_content = (content or "").lower()
     if "error page" in lower_title or "page not found" in lower_title or lower_content.startswith("error page page not found"):
