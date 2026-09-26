@@ -4411,7 +4411,7 @@ async fn analyze_url(
         success: true,
         data: json!({
             "title": title,
-            "content": content,
+            "content": body_text,
             "summary": nlp.summary,
             "fetch_mode": fetch_mode,
             "http_status": http_status,
