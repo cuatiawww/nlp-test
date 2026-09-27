@@ -1644,13 +1644,72 @@ _NATIONAL_SCOPE_WORD = re.compile(
 )
 
 
+_MALAY_HEALTH_AUTHORITY = re.compile(
+    r"\b(?:kementerian\s+kesihatan|kkm)\b",
+    re.IGNORECASE,
+)
+_POSSESSIVE_MINISTRY = re.compile(
+    r"\b([A-Z][A-Za-z]+(?:[\s-][A-Z][A-Za-z]+)*)(?:'s|’s)\s+"
+    r"(?:ministry\s+of\s+health|health\s+ministry|department\s+of\s+health)\b",
+)
+_MINISTRY_OF_COUNTRY = re.compile(
+    r"\b(?:ministry|department)\s+of\s+health(?:\s+of|\s+in)?\s+"
+    r"([A-Z][A-Za-z]+(?:[\s-][A-Z][A-Za-z]+)*)\b",
+)
+
+
 def reporting_authority_country(text: str) -> Optional[str]:
-    """Kemenkes national bulletins are Indonesia even when the name is omitted."""
+    """National health authority names the country when the place is omitted.
+
+    Kemenkes is Indonesia. Kementerian Kesihatan / KKM is Malaysia.
+    ``Malaysia's Health Ministry`` and ``DOH`` (with no other country) are
+    the same kind of explicit cue, not a publisher guess.
+    """
 
     source = text or ""
     if _KEMENKES_AUTHORITY.search(source) and _NATIONAL_SCOPE_WORD.search(source):
         return "Indonesia"
+    if _MALAY_HEALTH_AUTHORITY.search(source):
+        return "Malaysia"
+    possessive = _POSSESSIVE_MINISTRY.search(source)
+    if possessive:
+        named = normalize_country(possessive.group(1))
+        if named:
+            return named
+    ministry = _MINISTRY_OF_COUNTRY.search(source)
+    if ministry:
+        named = normalize_country(ministry.group(1))
+        if named:
+            return named
+    if re.search(r"\bDOH\b", source) and not extract_country_hint(source[:1500]):
+        return "Philippines"
     return None
+
+
+_NATIONAL_TOTAL_CUE = re.compile(
+    r"(?i)\b(?:nationwide|nation-wide|countrywide|across\s+the\s+country|"
+    r"nationally|secara\s+nasional|seluruh\s+negara|di\s+seluruh)\b",
+)
+
+
+def location_is_breakdown_of_national_total(text: str, country: Optional[str], location: Optional[str]) -> bool:
+    """A city named only beside a national total is not the event geography."""
+
+    if not country or not location:
+        return False
+    if str(location).casefold() == str(country).casefold():
+        return False
+    source = text or ""
+    country_re = re.compile(rf"(?i)\b{re.escape(str(country))}\b")
+    local_re = re.compile(rf"(?i)\b{re.escape(str(location))}\b")
+    if _NATIONAL_TOTAL_CUE.search(source):
+        return True
+    for sentence in re.split(r"[.!?\n]+", source):
+        if not country_re.search(sentence) or local_re.search(sentence):
+            continue
+        if re.search(r"(?i)\b\d[\d,]*\s+(?:cases?|deaths?|kes|kematian|infections?)\b", sentence):
+            return True
+    return False
 
 
 def article_has_unspecified_geo_scope(text: str) -> bool:
@@ -2637,18 +2696,42 @@ def split_unrelated_disease_labels(diseases: list[str]) -> list[str]:
     return list(dict.fromkeys(split))
 
 
-def drop_generic_influenza_if_avian(diseases: list[str]) -> list[str]:
-    """Keep H5N1/avian as the primary flu disease when both labels fire."""
+def _is_avian_label(label: str) -> bool:
+    token = (label or "").lower()
+    return any(part in token for part in ("avian", "h5n1", "bird flu", "flu burung"))
+
+
+def drop_generic_influenza_if_avian(diseases: list[str], text: str = "") -> list[str]:
+    """Keep H5N1/avian as the flu disease only when that outbreak is real.
+
+    A negated or comparative ``avian influenza`` mention must not delete
+    seasonal influenza, and seasonal counts must not be relabeled avian.
+    """
     labels = [item for item in diseases or [] if item]
-    if any(
-        any(token in item.lower() for token in ("avian", "h5n1", "bird flu", "flu burung"))
-        for item in labels
-    ):
-        return [
-            item for item in labels
-            if item.lower() not in {"influenza", "flu", "influenza flu"}
-        ]
-    return labels
+    avian = [item for item in labels if _is_avian_label(item)]
+    if not avian:
+        return labels
+    generic = {"influenza", "flu", "influenza flu"}
+    if text and all(_disease_mentions_are_negated(item, text) for item in avian):
+        return [item for item in labels if item not in avian]
+    if text:
+        human_flu = [item for item in labels if item.lower() in generic]
+        if human_flu:
+            metrics = extract_disease_case_metrics(text, [*avian, *human_flu])
+            def _bound(name: str) -> int:
+                row = metrics.get(canonical_disease_name(name)) or metrics.get(name) or {}
+                try:
+                    return int(row.get("case_count") or 0)
+                except (TypeError, ValueError):
+                    return 0
+            if max(_bound(item) for item in human_flu) > 0 and max(_bound(item) for item in avian) <= 0:
+                return [item for item in labels if item not in avian]
+            if re.search(
+                r"(?i)\b(?:seasonal|human)\s+(?:influenza|flu)\b|\binfluenza-like\b|\bflu-like\b",
+                text,
+            ) and not re.search(r"(?i)\b(?:h5n1|h5n2|hpai|poultry|unggas|bird\s+flu|flu\s+burung)\b", text):
+                return [item for item in labels if item not in avian]
+    return [item for item in labels if item.lower() not in generic]
 
 
 def disease_has_textual_evidence(disease: str, text: str) -> bool:
@@ -2722,6 +2805,30 @@ def disease_has_textual_evidence(disease: str, text: str) -> bool:
     return bool(first) and first in folded
 
 
+def _disease_only_negative_surveillance(name: str, text: str) -> bool:
+    """Drop a co-mentioned disease whose every sentence says there are no cases."""
+
+    source = text or ""
+    positions = list(disease_mention_positions(name, source) or [])
+    if not positions:
+        token = (name or "").strip()
+        if not token:
+            return False
+        positions = [match.start() for match in re.finditer(re.escape(token), source, re.IGNORECASE)]
+    if not positions:
+        return False
+    negative = re.compile(
+        r"(?i)\b(?:no|zero|without|tidak\s+ada|tanpa|tiada)\s+(?:new\s+|reported\s+)?"
+        r"(?:cases?|infections?|deaths?|kasus|kes)\b",
+    )
+    positive = re.compile(r"(?i)\b\d[\d,]*\s+(?:cases?|infections?|deaths?|kasus|kes)\b")
+    for pos in positions:
+        sentence = _sentence_window(source, pos, pos + 1)
+        if not negative.search(sentence) or positive.search(sentence):
+            return False
+    return True
+
+
 def filter_diseases_to_evidence(diseases: list[str], text: str) -> list[str]:
     """Drop canonical labels that are not supported by the article text.
 
@@ -2729,7 +2836,11 @@ def filter_diseases_to_evidence(diseases: list[str], text: str) -> list[str]:
     head picking Rabies for an oil-pipeline 'kasus' story.
     """
     kept: list[str] = []
-    for item in drop_generic_influenza_if_avian(split_unrelated_disease_labels(diseases or [])):
+    for item in drop_generic_influenza_if_avian(split_unrelated_disease_labels(diseases or []), text):
+        if _disease_mentions_are_negated(item, text):
+            continue
+        if _disease_only_negative_surveillance(item, text):
+            continue
         if disease_has_textual_evidence(item, text):
             display = normalize_disease_display(item)
             if display.upper() != "UNKNOWN" and display not in kept:
@@ -2763,6 +2874,29 @@ def rank_lede_diseases(candidates: list[str], sample: str) -> list[str]:
         avian = 1 if any(part in token for part in ("h5n1", "avian", "bird flu", "flu burung")) else 0
         return (-avian, pos, -len(token))
     return sorted(unique, key=_score)
+
+
+def _asean_bulletin_lead(text: str, primary_disease: Optional[str]) -> Optional[dict]:
+    """Parent scalar for a multi-country WHO/SEARO bulletin.
+
+    The first foreign table (India, Bangladesh, Sri Lanka) must not become
+    the article result when later ASEAN country sections carry the counts.
+    """
+
+    try:
+        from .multi_event_extractor import _extract_who_country_section_events
+    except Exception:
+        return None
+    events = _extract_who_country_section_events(text or "", primary_disease or "")
+    if len(events) < 2:
+        return None
+    asean = [
+        row for row in events
+        if row.get("country") in config.ASEAN_COUNTRIES and int(row.get("case_count") or 0) > 0
+    ]
+    if not asean:
+        return None
+    return max(asean, key=lambda row: int(row.get("case_count") or 0))
 
 
 def predict_surveillance_facts(text: str, source_country: Optional[str] = None) -> dict:
@@ -2918,6 +3052,8 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
             item["longitude"] = None
     if not location and country:
         location = country
+    if location_is_breakdown_of_national_total(text, country, location):
+        location = country
     if location and not all_locations:
         lat, lon, conf, needs_rev = geocode_place(location, country, text)
         all_locations = [{
@@ -2930,6 +3066,20 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         }]
     cases = extract_case_count(text, disease=disease)
     explicit = has_explicit_case_count(text, disease=disease)
+    if len(ranked) > 1:
+        bound = extract_disease_case_metrics(text, ranked)
+        if bound:
+            def _bound_cases(name: str) -> int:
+                row = bound.get(canonical_disease_name(name)) or bound.get(name) or {}
+                try:
+                    return int(row.get("case_count") or 0)
+                except (TypeError, ValueError):
+                    return 0
+            owner = max(ranked, key=_bound_cases)
+            if _bound_cases(owner) > 0:
+                disease = owner
+                cases = _bound_cases(owner)
+                explicit = True
     if article_states_zero_cases(text):
         cases = 0
         explicit = True
@@ -2944,6 +3094,18 @@ def predict_surveillance_facts(text: str, source_country: Optional[str] = None) 
         cases = 0
         explicit = False
         deaths = 0
+    bulletin_lead = _asean_bulletin_lead(text, disease)
+    if bulletin_lead:
+        country = bulletin_lead.get("country") or country
+        location = country
+        cases = int(bulletin_lead.get("case_count") or cases)
+        deaths = int(bulletin_lead.get("death_count") or 0)
+        explicit = cases > 0
+        lead_disease = bulletin_lead.get("disease")
+        if lead_disease:
+            disease = lead_disease
+            if lead_disease not in ranked:
+                ranked = [lead_disease, *ranked]
     from .epidemiology import extract_event_period
     period = extract_event_period(text)
     asean_location = country if country in config.ASEAN_COUNTRIES else None
@@ -3055,6 +3217,7 @@ _FOCAL_SINGULAR = re.compile(
     r"(?:a|one|the)\s+(?:woman|man|child|patient|resident|person|boy|girl|infant|toddler|elderly|individual)\s+(?:was\s+)?(?:diagnosed|infected|contracted|tested positive|hospitalized|stricken|admitted|died)|"
     r"(?:he|she)\s+(?:was\s+)?(?:diagnosed|infected|contracted|tested positive|hospitalized)|"
     r"(?:reported|confirms?|detected|logged)\s+(?:a|one|another)\s+(?:case|infection)\b|"
+    r"\b(?:the\s+)?(?:only|single)\s+confirmed\s+(?:\w+\s+){0,3}cases?\b|"
     # Vietnamese
     r"một\s+(?:người|phụ nữ|đàn ông|trẻ em|bệnh nhân|cháu bé|ca)\s+(?:nhiễm|mắc|dương tính|nhập viện|tử vong)|"
     # Thai
@@ -3533,16 +3696,21 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             r"(?:ผู้ป่วย|ผู้ติดเชื้อ)(?:สะสม|ใหม่|ทั้งหมด)?\s*([0-9][0-9,.]*)\s*(?:ราย|คน)",
             r"(?:ករណីឆ្លងថ្មី|ករណីឆ្លង|អ្នកឆ្លង)\s*([0-9][0-9,.]*)\s*នាក់",
             r"(?:အတည်ပြုလူနာ|ကူးစက်သူ|လူနာ)\s*([0-9][0-9,.]*)\s*(?:ဦး|ယောက်)",
+            # Thai: disease name may sit between ผู้ป่วย and the case total.
+            r"ผู้ป่วย(?:ใหม่|สะสม)?(?:(?!เสียชีวิต)[^\d\n]){0,48}?([0-9][0-9,.]*)\s*ราย",
+            # Tetum: "rejista dengue 4.000"
+            rf"\brejista\b(?:(?!\bhakotu\b)[^\d\n]){{0,40}}?({num_token})\b",
+            # "cases hit 40,879" / "kes mencecah 40,879"
+            rf"(?:cases?|infections?|kasus|kes)\s+(?:have\s+|has\s+)?(?:hit|hits|reached|reaching|stood|stand|climbed|rose|mencecah|mencapai)\s+(?:to\s+)?({num_token})\b",
         ],
         "death_count": [
             rf"\b({num_token})\s+(?:cases?|kasus|kes)\s+(?:of\s+)?(?:deaths?|kematian|fatalities|tewas|maut)\b",
             rf"(?:deaths?|kematian|korban jiwa|fatalities|maut)\s+(?:rose|climbed|increased|jumped|meningkat|naik|bertambah)\s+(?:from\s+[0-9,.]+\s+)?to\s+({num_token})",
-            rf"\b({num_token})(?:\s+[\w\u00C0-\u024F\u1EA0-\u1EFF/'’-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|dead|fatal|maut|tử\s+vong)\b",
+            rf"\b({num_token})(?:\s+(?!\d)[\w\u00C0-\u024F\u1EA0-\u1EFF/'’-]+){{0,3}}\s+(?:meninggal(?:\s+dunia)?|kematian|korban jiwa|death|deaths|fatalities|fatality|tewas|died|killed|dead|fatal|maut|tử\s+vong)\b",
             rf"(?:logged|recorded|reported|mencatat|sebanyak|including)\s+({num_token})\s+(?:[a-z-]+\s+)?(?:deaths?|kematian|fatalities|maut)",
             rf"(?:killed|caused|causing|menyebabkan|meragut\s+nyawa|mengorbankan)\s+({num_token})\s+(?:people|persons|residents|orang|warga|jiwa)?",
             rf"(?:death toll|toll)\s+(?:reached|reaches|rose to|stood at|of)\s+({num_token})",
             rf"({num_token})\s+of them fatally",
-            rf"in 20\d{{2}},\s+the figure was\s+({num_token})",
             rf"(?:kumulatif\s+)?(?:kematian|angka\s+korban|maut|korban\s+jiwa)\b[^.\n;:]{{0,140}}?\b(?:terdapat|mencatat|mencatatkan|sebanyak|ialah|adalah|mencapai)\s+({num_token})\s*(?:kes)?",
             rf"\b(?:deaths?|kematian|angka\s+korban|maut|korban\s+jiwa|meninggal(?:\s+dunia)?)\b[^.\n;:]{{0,180}}?\b(?:bagi|pada|in|for)\s+(?:tahun\s+|year\s+)?20\d{{2}}[^.\n;:]{{0,80}}?\b(?:terdapat|sebanyak|adalah|mencatat|mencatatkan|to|stood at)\s+({num_token})\s*(?:kes)?",
             rf"\b(?:bagi|pada|in|for)\s+(?:tahun\s+|year\s+)?20\d{{2}}[^.\n;:]{{0,80}}?\b(?:terdapat|sebanyak|adalah|mencatat|mencatatkan|to|stood at)\s+({num_token})\s*(?:kes)?",
@@ -3551,6 +3719,8 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             r"(?:ผู้เสียชีวิต|เสียชีวิต)\s*([0-9][0-9,.]*)\s*ราย",
             r"(?:ករណីស្លាប់|អ្នកស្លាប់)\s*([0-9][0-9,.]*)\s*នាក់",
             r"(?:သေဆုံးသူ|သေဆုံး)\s*([0-9][0-9,.]*)",
+            # Tetum deaths: "32 hakotu iis"
+            rf"({num_token})\s+hakotu(?:\s+iis)?\b",
         ],
     }
     candidates: list[tuple[int, int, int, int]] = []
@@ -3566,6 +3736,12 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         if re.search(r"(?:covid[\s_-]*|sars[\s_-]*cov[\s_-]*|h\d+n|clade[\s_-]*|type[\s_-]*|ev[\s_-]*|b\d{1,2}[\s_-]*)$", prefix_slice):
             return
         token_str = match.group(1).strip(".,")
+        # A trailing sentence period is not part of the number. ``20,000. Deaths``
+        # must not bind the previous sentence's figure to the next sentence's label.
+        # ``15. kasus`` keeps the period inside the token and continues in lowercase.
+        if match.group(1).endswith(".") and not re.search(r"\d\.\d+\.$", match.group(1)):
+            if re.match(r"\s+[A-Z]", search_text[match.end(1): match.end(1) + 3]):
+                return
         if token_str == "19" and re.search(r"covid|sars", search_text[max(0, match.start(1) - 24): min(len(search_text), match.end(1) + 24)].lower()):
             return
         after = search_text[match.end(1): match.end(1) + 30].strip()
@@ -3582,6 +3758,19 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
         is_age = bool(re.match(r"^(?:-|–|\s)*(?:years?(?:\s+old)?|months?(?:\s+old)?|days?(?:\s+old)?|tahun|thn|th|bulan|bln|hari|hr|tuổi|tháng(?:\s+tuổi)?|ขวบ|ปี|yo|yr|mths?)\b", after, re.I))
         is_age |= bool(re.search(r"\b(?:aged|berusia|berumur|umur|usia|bệnh nhân|bé|độ tuổi)\s*$", before, re.I))
         if is_age:
+            return
+        # Durations and list sizes are not incidence totals ("four weeks",
+        # "5 publications").
+        if re.match(
+            r"^(?:-|–|\s)*(?:weeks?|wks?|hours?|hrs?|minutes?|mins?|minggu|pekan|สัปดาห์)\b",
+            after,
+            re.I,
+        ):
+            return
+        if field == "case_count" and re.match(
+            r"(?i)^\s*(?:publications?|items?|documents?|pages?)\b",
+            after,
+        ):
             return
 
         parsed = _parse_count(match.group(1), match.group(0))
@@ -3682,8 +3871,11 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             search_text[match.end(0): match.end(0) + 40],
             re.IGNORECASE,
         ):
-            # E.g. '3 Pasien Meninggal Dunia' or '3 orang meninggal' is a death count, not a disease case count.
-            return
+            # '3 Pasien Meninggal' is a death count. '21,620 ราย เสียชีวิต 31 ราย'
+            # is a case total followed by a separate death total.
+            tail = search_text[match.end(0): match.end(0) + 40]
+            if not re.search(r"\d", tail):
+                return
         if field == "case_count" and re.search(
             r"\b(?:of\s+the|among\s+the|of)\s+(?:patients?|people|children|persons?)\s+"
             r"(?:who\s+)?(?:died|were\s+fatal|fatalities|killed|meninggal|tewas|passed\s+away)\b",
@@ -3807,6 +3999,12 @@ def _extract_count(text: str, field: str, default: int, disease: Optional[str] =
             score += 12
         if re.search(r"\b(?:recorded|confirmed|reported|logged|mencatat|melaporkan)\b", window_l):
             score += 3
+        if field == "case_count" and re.search(
+            r"(?i)\b(?:of\s+(?:which|whom|them)|of\s+those|among\s+(?:them|which|the)|"
+            r"vaccinated\s+cases|were\s+vaccinated|unvaccinated)\b",
+            window_l,
+        ):
+            score -= 45
         if match.start() < 400:
             score += 3
         candidates.append((score, match.start(), parsed, period))
@@ -4141,6 +4339,11 @@ def extract_disease_case_metrics(
                 re.IGNORECASE | re.UNICODE,
             ),
             re.compile(
+                rf"(?:{term_pattern})\s+(?:reached|recorded|reported|logged|hit|had|saw|"
+                rf"mencatat|merekod|rejista)\s+(?P<count>{number})\s*(?:{case_label})(?!\w)",
+                re.IGNORECASE | re.UNICODE,
+            ),
+            re.compile(
                 rf"(?:{term_pattern})\s*\(\s*(?P<count>{number})\s*(?:{case_label})?\s*\)",
                 re.IGNORECASE | re.UNICODE,
             ),
@@ -4338,6 +4541,15 @@ def extract_death_count(text: str, disease: Optional[str] = None) -> int:
             for match in focal_including:
                 window = _sentence_window(source, match.start(), match.end())
                 raw_d = match.group("deaths")
+                # ``3,501 cases and 22 deaths nationwide, including 12 deaths
+                # in Dili`` — the including-clause is a locality, not the total.
+                between = source[match.end("cases"): match.start("deaths")]
+                earlier_death = re.search(
+                    r"(?i)(?P<n>\d{1,3}(?:[.,]\d{3})*|\d+)\s+deaths?\b",
+                    between,
+                )
+                if earlier_death and re.search(r"(?i)\bincluding\b", between[earlier_death.end():]):
+                    raw_d = earlier_death.group("n")
                 parsed_d = word_deaths.get(raw_d.casefold())
                 if parsed_d is None:
                     parsed_d = _parse_count(raw_d, match.group(0))
@@ -5568,6 +5780,10 @@ def _matched_disease_aliases(
         # Vietnamese "lao" is tuberculosis. WHO "Lao PDR" / "Lao People's" is not.
         if key.casefold() == "lao" and not _lao_token_is_disease(text):
             continue
+        # ``flu-like symptoms`` is not the disease alias ``flu``.
+        if key.casefold() == "flu" and re.search(r"(?i)(?<!\w)flu[\s-]+like\b", text or ""):
+            if not re.search(r"(?i)(?<!\w)flu(?![\s-]+like)(?!\w)", text or ""):
+                continue
         matched.append((key, value))
     normalized = [
         (
@@ -5577,17 +5793,27 @@ def _matched_disease_aliases(
         )
         for key, value in matched
     ]
-    shadowed_values = {
-        value
-        for _, value, short_key in normalized
-        if short_key and any(
-            value != other_value
-            and len(short_key) < len(long_key)
-            and f" {short_key} " in f" {long_key} "
-            for _, other_value, long_key in normalized
+    # Drop a short alias only where it sits inside a longer alias
+    # ("influenza" inside "avian influenza"). An earlier "seasonal influenza"
+    # is a separate mention and must keep its own label.
+    spans: list[tuple[int, int, str, str]] = []
+    for key, value, _folded in normalized:
+        for start, end in _alias_span_ranges(key, text):
+            spans.append((start, end, key, value))
+    kept_values: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for start, end, key, value in spans:
+        covered = any(
+            value != other_value and other_start <= start and end <= other_end and (other_end - other_start) > (end - start)
+            for other_start, other_end, _other_key, other_value in spans
         )
-    }
-    return [(key, value) for key, value, _ in normalized if value not in shadowed_values]
+        if covered or value in seen:
+            continue
+        seen.add(value)
+        kept_values.append((key, value))
+    if kept_values:
+        return kept_values
+    return [(key, value) for key, value, _folded in normalized]
 
 
 def extract_diseases(text: str) -> list[str]:
@@ -5625,14 +5851,18 @@ def extract_alias_diseases(text: str) -> list[str]:
     return sorted(set(value for _, value in _matched_disease_aliases(text)))
 
 
-def _alias_positions(alias: str, text: str) -> list[int]:
+def _alias_span_ranges(alias: str, text: str) -> list[tuple[int, int]]:
     if not alias or not text:
         return []
     if re.search(r"[A-Za-z0-9]", alias):
         pattern = rf"(?<!\w){re.escape(alias)}(?!\w)"
     else:
         pattern = re.escape(alias)
-    return [match.start() for match in re.finditer(pattern, text, re.IGNORECASE | re.UNICODE)]
+    return [(match.start(), match.end()) for match in re.finditer(pattern, text, re.IGNORECASE | re.UNICODE)]
+
+
+def _alias_positions(alias: str, text: str) -> list[int]:
+    return [start for start, _end in _alias_span_ranges(alias, text)]
 
 
 def disease_mention_positions(disease: str, text: str) -> list[int]:
@@ -5671,7 +5901,11 @@ _INCIDENTAL_DISEASE_CONTEXT = re.compile(
     r"clinical\s+presentation|main\s+clinical|interchangeably|"
     r"syndromic\s+(?:label|name|term)|glossary\s+term|"
     r"kata\s+kunci|keywords?|"
-    r"penyakit\s+lain|other\s+diseases?|tetap\s+dipantau)\b"
+    r"penyakit\s+lain|other\s+diseases?|tetap\s+dipantau|"
+    r"differential\s+diagnos(?:is|es)|ruled\s+out|rule\s+out|"
+    r"also\s+monitors?|monitors?\s+administratively|administratively|"
+    r"covid-19\s+pandemic|during\s+the\s+pandemic|pandemic\s+response|"
+    r"background\s+text)\b"
     r"|(?<!\w)tags?\s*:"
     r")"
 )
@@ -5698,6 +5932,8 @@ def _disease_mentions_are_negated(name: str, text: str) -> bool:
         return False
     neg_re = re.compile(
         rf"(?i)(?:\bno\s+(?:cases?\s+of\s+)?{re.escape(token)}\b|"
+        rf"\b(?:not|never|bukan|tidak)\b(?!\s+only\b)[^.!?\n]{{0,40}}?\b{re.escape(token)}\b|"
+        rf"\b{re.escape(token)}\b[^.!?\n]{{0,48}}?\b(?:was|were|is|are)\s+not\b|"
         rf"\b{re.escape(token)}\s+(?:was\s+|were\s+|has\s+been\s+|have\s+been\s+)?"
         rf"(?:not\s+(?:been\s+)?)?(?:detected|reported|confirmed|found|identified)|"
         rf"\b(?:without|tanpa)\s+{re.escape(token)}\b)",
@@ -5751,9 +5987,13 @@ _DEDICATED_DISEASE_SENTENCE = re.compile(
 
 
 def _mention_is_incidental_context(pos: int, text: str) -> bool:
-    """Glossary / related-disease footer mentions are not outbreak evidence."""
-    window = (text or "")[max(0, pos - 100): pos + 100]
-    return bool(_INCIDENTAL_DISEASE_CONTEXT.search(window))
+    """Glossary, differential, or administrative mentions are not outbreak evidence.
+
+    The cue has to sit in the same sentence. A later ``also monitors`` line
+    must not mark the case sentence's disease as incidental.
+    """
+    sentence = _sentence_window(text or "", pos, pos + 1)
+    return bool(_INCIDENTAL_DISEASE_CONTEXT.search(sentence))
 
 
 def _disease_has_outbreak_evidence(name: str, text: str, link_at: int) -> bool:
@@ -5939,10 +6179,55 @@ CHALLENGE_CONTENT_MARKERS = (
 )
 
 
+_SOURCE_BLOCKED_MARKERS = (
+    "just a moment",
+    "checking your browser",
+    "checking if the site connection is secure",
+    "verifying you are human",
+    "enable javascript and cookies to continue",
+    "attention required! | cloudflare",
+    "cloudflare ray id",
+    "cf-ray",
+    "pardon our interruption",
+    "ddos protection by cloudflare",
+    "browser challenge",
+    "enable javascript and cookies",
+)
+
+
+def is_source_blocked_content(text: str) -> bool:
+    """WAF / anti-bot interstitial. Distinct from a short or empty article."""
+
+    if not text:
+        return False
+    sample = text[:5000].lower()
+    return any(marker in sample for marker in _SOURCE_BLOCKED_MARKERS)
+
+
+def is_unresolved_publication_landing(text: str) -> bool:
+    """WHO/Kemenkes HTML wrapper that points at a PDF and has no case table.
+
+    The list length or teaser must not be stored as cases. Fetching the PDF
+    is a crawler concern; this only stops the wrapper from becoming an event.
+    """
+
+    sample = text or ""
+    if not re.search(r"(?i)(?:\.pdf\b|download the (?:report|pdf)|full report)", sample):
+        return False
+    if re.search(r"(?i)\b\d[\d,.]{2,}\s+(?:cases?|deaths?|kasus|kematian)\b", sample):
+        return False
+    return bool(re.search(
+        r"(?i)\b(?:publications?|related items|in this series|situation updates?)\b",
+        sample,
+    ))
+
+
 def is_challenge_or_blocked_content(text: str) -> bool:
     """Detect if the input text is a browser challenge, bot wall, or error page."""
     if not text:
         return False
+    if is_source_blocked_content(text):
+        return True
     sample = text[:5000].lower()
     return any(marker in sample for marker in CHALLENGE_CONTENT_MARKERS)
 

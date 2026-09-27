@@ -92,11 +92,16 @@ def _interactive_analysis_text(text: str) -> str:
     from .multi_event_extractor import who_bulletin_char_limit
     from .sitrep_matrix import looks_like_sitrep_matrix
     raw = text or ""
-    limit = int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000)
+    base_limit = int(getattr(config, "INTERACTIVE_ANALYSIS_MAX_CHARS", 6000) or 6000)
+    limit = base_limit
     if looks_like_sitrep_matrix(raw):
         limit = max(limit, 16000)
+    limit = who_bulletin_char_limit(raw, limit)
     if len(raw) <= limit:
         return raw
+    # A raised bulletin window must not be sentence-cut back to page 1.
+    if limit > base_limit:
+        return raw[:limit].strip()
     # Prefer a clean sentence boundary near the cap so counts in the lede
     # remain intact while long sidebars/related stories are dropped.
     cut = raw[:limit]
@@ -323,10 +328,14 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     all_locations = _attach_location_provenance(all_locations, text)
     original_location = location
     is_challenge_page = extractors.is_challenge_or_blocked_content(text)
+    is_source_blocked = extractors.is_source_blocked_content(text)
     if is_challenge_page:
         non_health_topic = True
         is_health_related = False
         doc_validation_flags.append("challenge_page_detected")
+        needs_review = True
+    if is_source_blocked and "source_blocked" not in doc_validation_flags:
+        doc_validation_flags.append("source_blocked")
         needs_review = True
     is_noisy_early = extractors.is_content_too_short_or_noisy(text, has_health_indicators=bool(extractors.extract_diseases(text))) or is_challenge_page
     if (
@@ -2948,6 +2957,16 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
         sub_events = []
         outbreak_alert = False
         is_health_related = False
+        if is_source_blocked:
+            doc_epistemic = "source_blocked"
+    elif extractors.is_unresolved_publication_landing(text):
+        if "unresolved_attachment" not in doc_validation_flags:
+            doc_validation_flags.append("unresolved_attachment")
+        case_count = 0
+        death_count = 0
+        explicit_case_count = False
+        sub_events = []
+        needs_review = True
 
     # Drop non-local / global-average background totals when local city or
     # national counts exist (BBC mumps WHO ~500000 pattern).

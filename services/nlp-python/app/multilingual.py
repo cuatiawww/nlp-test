@@ -23,13 +23,16 @@ LANGUAGE_ALIASES = {
     "tl-ph": "tl",
     "fil-ph": "tl",
     "fil": "tl",
+    "tet": "tet",
+    "tet-tl": "tet",
+    "tdt": "tet",
     "km-kh": "km",
     "lo-la": "lo",
     "my-mm": "my",
     "bur": "my",
 }
 
-SUPPORTED_ASEAN_LANGUAGES = frozenset({"id", "ms", "th", "vi", "km", "lo", "my", "tl"})
+SUPPORTED_ASEAN_LANGUAGES = frozenset({"id", "ms", "th", "vi", "km", "lo", "my", "tl", "tet"})
 
 SCRIPT_RANGES = {
     "th": (0x0E00, 0x0E7F),
@@ -144,6 +147,18 @@ def detect_language_profile(
         from langdetect import detect
 
         detected = normalize_language_code(detect(text or ""))
+        if detected in {"pt", "id", "en", "unknown"}:
+            # Tetum shares Latin orthography with Portuguese. langdetect
+            # returns ``pt`` for Tatoli dengue briefs and the case line is then
+            # dropped. A couple of function words are enough to keep Tetum.
+            folded = (text or "").casefold()
+            tet_markers = (
+                "hakotu", "iis", "rejista", "janeiru", "jullu", "iha", "grave",
+                "ministériu", "ministeriu", "saude",
+            )
+            tet_count = sum(1 for marker in tet_markers if _marker_present(folded, marker))
+            if tet_count >= 2:
+                detected = "tet"
         if detected == "id":
             # Malay vs Indonesian disambiguation check:
             # langdetect notoriously defaults Malay to Indonesian.

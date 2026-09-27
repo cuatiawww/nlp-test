@@ -421,7 +421,13 @@ _WHO_COUNTRY_HEADING_NAMES: tuple[str, ...] = (
     "Marshall Islands",
     "Federated States of Micronesia",
     "Timor-Leste",
+    "Sri Lanka",
+    "Bangladesh",
     "Philippines",
+    "Maldives",
+    "Nepal",
+    "Bhutan",
+    "India",
     "Cambodia",
     "Indonesia",
     "Malaysia",
@@ -460,17 +466,28 @@ def _who_country_heading_regex() -> re.Pattern:
 
 
 def who_bulletin_char_limit(text: str, default_limit: int) -> int:
-    """Keep later WPRO country sections inside interactive URL analysis.
+    """Keep later WPRO/SEARO country sections inside interactive URL analysis.
 
     A dengue Situation Update puts Cambodia on page 1 and Indonesia several
-    pages later. The default 6k cap returns Cambodia only.
+    pages later. The default 6k cap returns Cambodia only. SEARO epi
+    bulletins do the same with India/Bangladesh before the ASEAN tables.
     """
     sample = text or ""
-    if not re.search(r"(?i)situation\s+update|western\s+pacific", sample):
+    bulletin = bool(re.search(
+        r"(?i)situation\s+update|western\s+pacific|south-?east\s+asia|"
+        r"\bsearo\b|epidemiological\s+bulletin|epi(?:demiological)?\s+bulletin",
+        sample,
+    ))
+    sections = _split_who_country_sections(sample)
+    if not bulletin and len(sections) < 2:
         return default_limit
-    if len(_split_who_country_sections(sample)) < 2:
-        return default_limit
-    return min(len(sample), max(default_limit, 28000))
+    last = 0
+    for match in _who_country_heading_regex().finditer(sample):
+        last = max(last, match.end())
+    reach = max(default_limit, 28000 if bulletin or len(sections) >= 2 else default_limit)
+    if last:
+        reach = max(reach, last + 2500)
+    return min(len(sample), min(reach, 48000))
 
 
 def _canonical_who_country(raw: str) -> Optional[str]:
@@ -605,27 +622,94 @@ def _extract_who_country_section_events(
     disease = primary_disease or "Dengue"
     events: list[dict[str, Any]] = []
     for country, body in sections:
-        cases, deaths = _who_section_case_death_counts(body, disease)
-        if cases <= 0 and deaths <= 0:
-            continue
-        lat, lon = _resolve_coords(country)
-        # Prefer a short evidence window near the first case/death mention.
-        evidence_match = re.search(
-            r"(?i).{0,40}\b(?:cases?|kasus|deaths?|kematian)\b.{0,80}",
-            body,
-        )
-        evidence = (evidence_match.group(0).strip() if evidence_match else body[:180]).strip()
-        events.append({
-            "disease": disease,
-            "location_name": country,
-            "country": country,
-            "latitude": lat,
-            "longitude": lon,
-            "case_count": max(0, int(cases or 0)),
-            "death_count": max(0, int(deaths or 0)),
-            "evidence": evidence[:500],
-        })
+        for row in _who_section_disease_rows(body, disease):
+            cases = int(row["case_count"] or 0)
+            deaths = int(row["death_count"] or 0)
+            if cases <= 0 and deaths <= 0:
+                continue
+            lat, lon = _resolve_coords(country)
+            evidence = str(row.get("evidence") or "")[:500]
+            events.append({
+                "disease": row["disease"],
+                "location_name": country,
+                "country": country,
+                "latitude": lat,
+                "longitude": lon,
+                "case_count": max(0, cases),
+                "death_count": max(0, deaths),
+                "evidence": evidence,
+            })
     return events
+
+
+def _who_section_disease_rows(body: str, fallback_disease: str) -> list[dict[str, Any]]:
+    """One row per disease line in a country section, not one concatenated label."""
+
+    rows: list[dict[str, Any]] = []
+    for match in re.finditer(
+        r"(?im)^(?P<label>[A-Za-z][A-Za-z0-9 ,()/'’-]{1,48}?)\s*[:\-]\s*(?P<rest>.+)$",
+        body or "",
+    ):
+        labels = extractors.extract_alias_diseases(match.group("label")) or extractors.extract_diseases(
+            match.group("label")
+        )
+        if not labels:
+            continue
+        label = extractors.canonical_disease_name(labels[0])
+        parsed = re.search(
+            r"(?i)(?P<cases>\d{1,3}(?:,\d{3})+|\d+)\s+cases?"
+            r"(?:\s+and\s+(?P<deaths>\d{1,3}(?:,\d{3})+|\d+)\s+deaths?)?",
+            match.group("rest"),
+        )
+        if not parsed:
+            continue
+        cases = extractors.parse_surveillance_count(parsed.group("cases"), parsed.group(0)) or 0
+        raw_deaths = parsed.group("deaths")
+        deaths = extractors.parse_surveillance_count(raw_deaths, parsed.group(0)) if raw_deaths else 0
+        rows.append({
+            "disease": label,
+            "case_count": int(cases or 0),
+            "death_count": int(deaths or 0),
+            "evidence": match.group(0).strip(),
+        })
+    if rows:
+        return rows
+
+    found = extractors.filter_diseases_to_evidence(
+        extractors.extract_alias_diseases(body) or extractors.extract_diseases(body),
+        body,
+    )
+    if len(found) > 1:
+        metrics = extractors.extract_disease_case_metrics(body, found)
+        split_rows = []
+        for name in found:
+            canon = extractors.canonical_disease_name(name)
+            row = metrics.get(canon) or {}
+            cases = int(row.get("case_count") or 0)
+            if cases <= 0:
+                continue
+            split_rows.append({
+                "disease": canon,
+                "case_count": cases,
+                "death_count": 0,
+                "evidence": str(row.get("evidence") or body[:180]),
+            })
+        if split_rows:
+            return split_rows
+
+    label = found[0] if len(found) == 1 else (fallback_disease or "Dengue")
+    cases, deaths = _who_section_case_death_counts(body, label)
+    evidence_match = re.search(
+        r"(?i).{0,40}\b(?:cases?|kasus|deaths?|kematian)\b.{0,80}",
+        body or "",
+    )
+    evidence = (evidence_match.group(0).strip() if evidence_match else (body or "")[:180]).strip()
+    return [{
+        "disease": label,
+        "case_count": cases,
+        "death_count": deaths,
+        "evidence": evidence,
+    }]
 
 
 # ---------------------------------------------------------------------------

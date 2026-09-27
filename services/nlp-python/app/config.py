@@ -305,6 +305,10 @@ DEFAULT_LANGUAGE_MARKERS: dict[str, list[str]] = {
         "meninggal dunia", "jumlah", "provinsi", "demam berdarah",
     ],
     "tl": ["kaso", "pasyente", "kamatayan", "kalusugan", "kagawaran ng kalusugan"],
+    "tet": [
+        "hakotu", "iis", "rejista", "janeiru", "jullu", "iha", "grave",
+        "ministériu", "ministeriu", "saude",
+    ],
     "vi": ["ca mắc", "ca nhiễm", "bệnh nhân", "tử vong", "bộ y tế"],
     "th": ["ผู้ป่วย", "ติดเชื้อ", "ผู้เสียชีวิต", "กระทรวงสาธารณสุข"],
     "lo": ["ກໍລະນີ", "ຄົນເຈັບ", "ເສຍຊີວິດ", "ກະຊວງສາທາລະນະສຸກ"],
@@ -325,6 +329,7 @@ DEFAULT_LEXICON_TERMS: dict[str, dict[str, list[str]]] = {
         "my": ["လူနာ", "ကူးစက်သူ"],
         "vi": ["ca mắc", "ca nhiễm"],
         "tl": ["kaso"],
+        "tet": ["rejista"],
     },
     "metric_death": {
         "id": ["kematian", "meninggal"],
@@ -335,6 +340,7 @@ DEFAULT_LEXICON_TERMS: dict[str, dict[str, list[str]]] = {
         "my": ["သေဆုံး"],
         "vi": ["tử vong"],
         "tl": ["kamatayan"],
+        "tet": ["hakotu iis", "hakotu"],
     },
     "count_unit": {
         "lo": ["ກໍລະນີ", "ຄົນ"],
