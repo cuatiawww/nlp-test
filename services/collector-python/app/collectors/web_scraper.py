@@ -30,15 +30,6 @@ from .publisher_selectors import (
 
 logger = logging.getLogger(__name__)
 BLOCKED_STATUSES = {403, 429, 503}
-CHALLENGE_MARKERS = (
-    "just a moment", "checking your browser", "cf-browser-verification",
-    "cf-chl-", "cloudflare ray id", "challenge-platform", "cf-turnstile",
-    "challenges.cloudflare.com", "checking if the site connection is secure",
-    "verifying you are human", "enable javascript and cookies to continue",
-    "attention required", "un instant...", "un momento...", "window._cf_chl_opt",
-    "__cf_chl_rt_tk", 'id="cf-challenge', 'id="challenge-running', 'id="challenge-form',
-    'id="turnstile-wrapper', 'class="cf-browser-verification', 'class="cf-alert',
-)
 
 # ReliefWeb report URLs carry the affected country in a stable path segment,
 # e.g. /report/south-sudan/....  Use this as geographic context, never as a
@@ -297,13 +288,61 @@ def _extract_next_rsc_article(html: str) -> tuple[str, str]:
     return title, max(fragments, key=len)
 
 
+_SCRIPT_BLOCK = re.compile(r"(?is)<(script|style|noscript)\b[^>]*>.*?</\1>")
+_HTML_TAG = re.compile(r"(?is)<[^>]+>")
+# Phrases that are the interstitial itself, not a script URL on a real page.
+_INTERSTITIAL_MARKERS = (
+    "just a moment",
+    "checking your browser",
+    "cf-browser-verification",
+    "checking if the site connection is secure",
+    "verifying you are human",
+    "enable javascript and cookies to continue",
+    "attention required",
+    "un instant...",
+    "un momento...",
+    "cloudflare ray id",
+    'id="cf-challenge',
+    'id="challenge-running',
+    'id="challenge-form',
+    'id="turnstile-wrapper',
+    'class="cf-browser-verification',
+)
+# Cloudflare injects these into legitimate 200 pages (kemkes.go.id ships
+# /cdn-cgi/challenge-platform/scripts/jsd/main.js on the real homepage).
+_BEACON_MARKERS = (
+    "challenge-platform",
+    "cf-chl-",
+    "cf-turnstile",
+    "challenges.cloudflare.com",
+    "window._cf_chl_opt",
+    "__cf_chl_rt_tk",
+    'class="cf-alert',
+)
+CHALLENGE_MARKERS = _INTERSTITIAL_MARKERS + _BEACON_MARKERS
+
+
+def _visible_html_text(html: str) -> str:
+    sample = _SCRIPT_BLOCK.sub(" ", html or "")
+    sample = _HTML_TAG.sub(" ", sample)
+    return re.sub(r"\s+", " ", sample).strip()
+
+
 def _is_challenge(status: int, html: str) -> bool:
     if status in BLOCKED_STATUSES:
         return True
     if not html:
         return False
     sample = html[:50_000].lower()
-    return any(marker in sample for marker in CHALLENGE_MARKERS)
+    visible = _visible_html_text(sample)
+    visible_lower = visible.lower()
+    if any(marker in visible_lower for marker in _INTERSTITIAL_MARKERS) and len(visible) < 1200:
+        return True
+    # A beacon script with almost no visible body is still an interstitial.
+    # The same beacon on a full article is not.
+    if any(marker in sample for marker in _BEACON_MARKERS) and len(visible) < 400:
+        return True
+    return False
 
 
 def _selected_text(page: Any, selector: str) -> str:
@@ -1115,6 +1154,7 @@ class WebScraperCollector(BaseCollector):
     async def _fetch(self, url: str, fetch_mode: str, body_selector: str,
                      stealth_session: Optional[Any], stack: AsyncExitStack):
         normalized_url = _normalize_url(url)
+        blocked = fetch_mode == "stealth"
         if fetch_mode != "stealth":
             outcome = await self._fetch_http(normalized_url)
             blocked = _is_challenge(outcome.status, outcome.html)
@@ -1132,6 +1172,8 @@ class WebScraperCollector(BaseCollector):
                 normalized_url, outcome.status, blocked, is_spa,
             )
         if stealth_session is None:
+            if blocked:
+                self.config["solve_cloudflare"] = True
             stealth_session = await stack.enter_async_context(self._new_stealth_session())
         return await self._fetch_stealth(normalized_url, stealth_session), stealth_session
 

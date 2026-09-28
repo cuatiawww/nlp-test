@@ -478,6 +478,23 @@ def _post_nlp(url: str, payload: dict, timeout):
     return response
 
 
+def _pdf_tables_for_nlp(payload: dict) -> list:
+    """Drop a table grid that is already in the article or too large to POST.
+
+    Full NLP appends ``pdf_tables`` that are not a substring of ``text``.
+    A WHO SEARO bulletin grid is bigger than the article cap, so sending it
+    again rebuilt a huge document and the NLP process died (nginx 502).
+    """
+    tables = payload.get("pdf_tables") or []
+    if not tables:
+        return []
+    flat = flatten_pdf_tables(tables)
+    text = payload.get("text") or ""
+    if not flat or flat in text or len(flat) > 60000:
+        return []
+    return tables
+
+
 def post_full_nlp(payload: dict, timeout, source_name: str = "URL Analyzer") -> dict:
     """Call the shared pipeline. `/nlp/analyze` and `/nlp/analyze/raw` are the same handler.
 
@@ -492,7 +509,7 @@ def post_full_nlp(payload: dict, timeout, source_name: str = "URL Analyzer") -> 
         "source_language": payload.get("source_language") or "",
         "source_url": payload.get("source_url") or "",
         "document_type": payload.get("document_type") or "",
-        "pdf_tables": payload.get("pdf_tables") or [],
+        "pdf_tables": _pdf_tables_for_nlp(payload),
         "text": payload.get("text") or "",
         "rules_only": False,
         "historical_fast": False,
@@ -526,7 +543,7 @@ def post_async_nlp(payload: dict, timeout, source_name: str = "URL Analyzer") ->
         "source_language": payload.get("source_language") or "",
         "source_url": payload.get("source_url") or "",
         "document_type": payload.get("document_type") or "",
-        "pdf_tables": payload.get("pdf_tables") or [],
+        "pdf_tables": _pdf_tables_for_nlp(payload),
         "text": payload.get("text") or "",
         "rules_only": False,
         "historical_fast": False,

@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app import config, extractors
 from app.admin_abbreviations import apply_admin_abbreviations, bind_document_admin_scope
 from app.multi_event_extractor import compose_structured_events
-from app.sitrep_matrix import flatten_pdf_tables, looks_like_sitrep_matrix
+from app.sitrep_matrix import append_tables_within_limit, flatten_pdf_tables, looks_like_sitrep_matrix
 from app.surveillance_extraction import (
     GazetteerLinker,
     _METRIC_PATTERN_CACHE,
@@ -167,6 +167,15 @@ class SitrepMatrixTests(unittest.TestCase):
         countries = {str(item.get("country") or "") for item in events}
         self.assertEqual(countries, {"Singapore"})
         self.assertGreaterEqual(len(events), 8)
+
+    def test_pdf_tables_do_not_expand_past_the_article_budget(self):
+        body = "WHO SEARO bulletin\n" + ("dengue cases. " * 50)
+        grid = " | ".join(["Indonesia", "1200", "4"]) 
+        huge = "\n".join([grid] * 5000)
+        capped = append_tables_within_limit(body, huge, 48000)
+        self.assertLessEqual(len(capped), 48000)
+        self.assertTrue(capped.startswith("WHO SEARO bulletin"))
+        self.assertIn("Indonesia", capped)
 
     def test_pdf_tables_flatten_into_text(self):
         flat = flatten_pdf_tables([{"rows": [["Disease", "Cases"], ["Dengue", "10"]]}])

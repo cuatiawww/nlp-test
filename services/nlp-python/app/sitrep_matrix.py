@@ -98,6 +98,24 @@ _DISEASE_SURFACES: tuple[tuple[str, str], ...] = (
 )
 
 
+def append_tables_within_limit(text: str, table_text: str, limit: int) -> str:
+    """Append table text that is not already in the article, then hard-cap.
+
+    Callers flatten pdf tables into the article and also send the raw grid.
+    Reattaching an uncapped grid undoes the article budget on WHO bulletins.
+    """
+    body = text or ""
+    extra = (table_text or "").strip()
+    cap = max(0, int(limit or 0))
+    if extra and extra not in body and cap > 0:
+        room = cap - len(body) - 2
+        if room > 400:
+            body = f"{body}\n\n{extra[:room]}".strip()
+    if cap and len(body) > cap:
+        body = body[:cap].rstrip()
+    return body
+
+
 def flatten_pdf_tables(tables: Any) -> str:
     """Serialize collector pdf_tables rows as pipe-delimited text."""
     lines: list[str] = []
