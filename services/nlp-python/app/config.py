@@ -110,6 +110,12 @@ TRANSLATION_INTERACTIVE_TIMEOUT_SECONDS = max(
 INTERACTIVE_ANALYSIS_MAX_CHARS = max(
     1500, int(os.getenv("INTERACTIVE_ANALYSIS_MAX_CHARS", "6000"))
 )
+# Full NLP (URL analyze sets interactive=False) must still bound a WHO
+# bulletin. pdf_tables are appended after the worker's 35k cap; without this
+# ceiling the grid is reattached in full and the process dies under nginx (502).
+FULL_ANALYSIS_MAX_CHARS = max(
+    8000, int(os.getenv("FULL_ANALYSIS_MAX_CHARS", "48000"))
+)
 INTERACTIVE_LOCATION_SCAN_MAX_CHARS = max(
     800, int(os.getenv("INTERACTIVE_LOCATION_SCAN_MAX_CHARS", "4000"))
 )

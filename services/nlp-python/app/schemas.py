@@ -17,6 +17,46 @@ class AnalyzeRequest(BaseModel):
     interactive: bool = False
 
 
+def _source_type_text(value: Any) -> Optional[str]:
+    """First non-empty source type. A list is not an object with this field."""
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            text = _source_type_text(item)
+            if text:
+                return text
+    return None
+
+
+def coerce_analyze_request(payload: Any) -> "AnalyzeRequest":
+    """Return one article request.
+
+    ``pipeline.run`` reads ``payload.source_type``. When the receiver is a
+    list (a one-element batch, or a list-valued ``source_type`` left on a
+    constructed model), that read raises AttributeError and ``/nlp/analyze/raw``
+    returns HTTP 500.
+    """
+    if isinstance(payload, (list, tuple)):
+        for item in payload:
+            if isinstance(item, (AnalyzeRequest, dict)):
+                return coerce_analyze_request(item)
+        raise ValueError("analyze payload list did not contain an article object")
+    if isinstance(payload, AnalyzeRequest):
+        source_type = _source_type_text(payload.source_type)
+        if source_type == payload.source_type:
+            return payload
+        return payload.model_copy(update={"source_type": source_type})
+    if isinstance(payload, dict):
+        data = dict(payload)
+        if not data.get("text") and data.get("content"):
+            data["text"] = data.get("content") or ""
+        data["source_type"] = _source_type_text(data.get("source_type"))
+        return AnalyzeRequest.model_validate(data)
+    raise TypeError(f"analyze payload must be an object, got {type(payload).__name__}")
+
+
 def as_interactive(payload: "AnalyzeRequest") -> "AnalyzeRequest":
     """Force interactive=True without duplicating a keyword argument.
 

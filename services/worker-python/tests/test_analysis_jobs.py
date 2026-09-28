@@ -5,7 +5,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.analysis_jobs import analyze_article, analyze_stages, fetch_article, validate_url
+from app.analysis_jobs import (
+    _pdf_tables_for_nlp,
+    analyze_article,
+    analyze_stages,
+    fetch_article,
+    validate_url,
+)
 
 class AnalysisJobTests(unittest.TestCase):
     def test_analysis_delivery_acks_only_after_durable_processing(self):
@@ -218,6 +224,13 @@ class AnalysisJobTests(unittest.TestCase):
             with self.assertRaises(Exception) as ctx:
                 fetch_article("https://example.org/news")
         self.assertEqual(ctx.exception.code, "empty_article")
+
+    def test_huge_pdf_tables_are_not_posted_again(self):
+        text = "WHO bulletin " + ("dengue row. " * 100)
+        huge = [{"rows": [["Indonesia", "1200"]] * 8000}]
+        self.assertEqual(_pdf_tables_for_nlp({"text": text, "pdf_tables": huge}), [])
+        small = [{"rows": [["Indonesia", "12"]]}]
+        self.assertEqual(_pdf_tables_for_nlp({"text": "no tables here", "pdf_tables": small}), small)
 
     def test_analyze_article_uses_full_raw_pipeline(self):
         missing = Mock(status_code=404, ok=False, headers={}, reason="Not Found")

@@ -108,7 +108,7 @@ async def extract_url(payload: ExtractUrlRequest):
             "fetch_mode": payload.fetch_mode,
             "timeout_ms": timeout_ms,
             "max_retries": max(0, min(payload.max_retries, config.CRAWLER_MAX_RETRIES if is_pdf_target else html_retries)),
-            "solve_cloudflare": False,
+            "solve_cloudflare": payload.fetch_mode == "stealth",
             "max_pages": 1,
             "skip_stealth": (
                 (config.INTERACTIVE_SKIP_STEALTH if payload.skip_stealth is None else bool(payload.skip_stealth))

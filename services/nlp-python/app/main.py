@@ -45,7 +45,7 @@ _configure_torch_threads()
 from fastapi import FastAPI, Body, HTTPException, status
 from pydantic import BaseModel
 
-from .schemas import AnalyzeRequest, AnalyzeResponse
+from .schemas import AnalyzeRequest, AnalyzeResponse, coerce_analyze_request
 from .surveillance_extraction import SurveillanceOutput, surveillance_from_analysis
 from . import pipeline
 
@@ -63,6 +63,7 @@ app = FastAPI(title="Disease NLP Service", version="0.3.0")
 
 def _full_pipeline_payload(payload: AnalyzeRequest) -> AnalyzeRequest:
     """Keep public production endpoints on one source-first NLP profile."""
+    payload = coerce_analyze_request(payload)
     return payload.model_copy(update={"interactive": False, "rules_only": False})
 
 

@@ -14,7 +14,7 @@ from .llm_gate import (
 )
 from .rules_first_resolver import apply_resolution_to_provenance, resolve_disease_label
 from .models.classifier import classify_disease, classify, classify_sentiment, classify_event_type, classify_relevance
-from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention
+from .schemas import AnalyzeRequest, AnalyzeResponse, SubEvent, DiseaseMention, coerce_analyze_request
 from .translator import translate_and_extract
 from .multilingual import detect_language_profile, normalize_language_code
 from .surveillance_extraction import promote_country_total, source_reliability_score
@@ -218,6 +218,7 @@ def _build_article_summary(
 
 
 def run(payload: AnalyzeRequest) -> AnalyzeResponse:
+    payload = coerce_analyze_request(payload)
     import time as _time
     _run_started = _time.monotonic()
     _stage_t0 = _run_started
@@ -225,10 +226,17 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
     _location_resolution_token = extractors.begin_location_resolution_stats()
     original_text = payload.text or ""
     text = extractors.strip_embedded_markup(extractors.repair_mojibake(original_text))
-    from .sitrep_matrix import flatten_pdf_tables, looks_like_sitrep_matrix
+    from .sitrep_matrix import append_tables_within_limit, flatten_pdf_tables, looks_like_sitrep_matrix
+    from .multi_event_extractor import who_bulletin_char_limit
     table_text = flatten_pdf_tables(getattr(payload, "pdf_tables", None))
-    if table_text and table_text not in text:
-        text = f"{text}\n\n{table_text}".strip()
+    text = append_tables_within_limit(
+        text,
+        table_text,
+        who_bulletin_char_limit(
+            f"{text}\n{table_text}",
+            int(getattr(config, "FULL_ANALYSIS_MAX_CHARS", 48000) or 48000),
+        ),
+    )
     sitrep_matrix = looks_like_sitrep_matrix(
         text,
         source_url=payload.source_url,
@@ -1324,7 +1332,10 @@ def run(payload: AnalyzeRequest) -> AnalyzeResponse:
             ),
             (),
             config.MULTI_EVENT_STAGE_TIMEOUT_SECONDS,
-            isolation="process",
+            # Fork duplicates parent RSS. A long bulletin plus a loaded
+            # encoder can OOM the pod; nginx then answers 502. Short articles
+            # keep a killable process. Large text stays in-process.
+            isolation="inprocess" if len(text) >= 12000 else "process",
         )
         # compose_structured_events already folded namelist-only places.
         # Do not collapse again without the article text: that dropped a
